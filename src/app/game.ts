@@ -87,8 +87,13 @@ export class Game {
   readonly progress: ProgressStore;
   /** Today's session: which mode is next (the menu shows it, the game launches it). */
   readonly todaysSession: SessionFlow;
-  /** Range unless the URL says `?map=lane|elbow` (a dev/playtest switch until the modes choose their own map). */
-  readonly map: MapDef = mapFromUrl();
+  /**
+   * The map in the world now. Range, or the URL's `?map=lane|elbow` (a dev/playtest switch), until a
+   * mode starts: starting a mode loads the map it is designed for (`ModeDef.map`, see `ModeHost.start`).
+   */
+  get map(): MapDef {
+    return this.modes.currentMap;
+  }
   readonly world: World;
   readonly renderer: GameRenderer;
   readonly input: InputManager;
@@ -179,7 +184,8 @@ export class Game {
     const seedParam = new URLSearchParams(window.location.search).get('seed');
     this.urlSeed = seedParam !== null && Number.isFinite(Number(seedParam)) ? Number(seedParam) : null;
     const seed = this.urlSeed ?? 1;
-    this.world = new World({ level: this.map, tunables: this.tunables, seed });
+    const initialMap = mapFromUrl();
+    this.world = new World({ level: initialMap, tunables: this.tunables, seed });
 
     this.cues = new ShotCues(this.bus, this.tunables.feedback, this.feedbackOptions, this.world.targets, this.tunables.targets);
     this.renderer = new GameRenderer(canvas, this.tunables, s.quality);
@@ -199,7 +205,7 @@ export class Game {
     this.edge = new EdgeMeter(this.tunables.hud);
     this.edge.attach(this.bus);
     // The mode runner is a feedback producer too: it emits `streakUpdated` before the kill chime reads it.
-    this.modes = new ModeHost(this.world, this.bus, this.map, this.tunables, SkillState.deserialize(this.progress.snapshot.ratings, this.tunables.dial) ?? undefined);
+    this.modes = new ModeHost(this.world, this.bus, initialMap, this.tunables, SkillState.deserialize(this.progress.snapshot.ratings, this.tunables.dial) ?? undefined);
     this.run = new RunController(this.world, this.bus, this.tunables);
     this.hudStats = new TrackerHudStats(this.run);
     this.hudStats.attach(this.bus);
@@ -269,7 +275,7 @@ export class Game {
     // Features, in stage order: producers subscribe before presentation (see app/feature.ts). Then
     // the level loads, so the render layers they added get their shaders compiled with it.
     for (const f of FEATURES) f.setup(this);
-    this.renderer.loadLevel(this.world, this.map);
+    this.renderer.loadLevel(this.world, initialMap);
 
     this.bus.onAny((type, e) => {
       if (typeof e !== 'object' || e === null || !('tick' in e)) return; // UI state, not a gameplay fact
@@ -277,6 +283,8 @@ export class Game {
       if (this.eventLog.length > 256) this.eventLog.shift();
     });
 
+    // A mode started on a map other than the loaded one (ModeHost.start): show that map's level before the run's first frame.
+    this.bus.on('mapLoaded', () => this.renderer.loadLevel(this.world, this.modes.currentMap));
     this.bus.on('settingsChanged', ({ settings, changed }) => {
       if (changed.includes('sensitivity')) this.input.setSensitivity(settings.sensitivity);
       if (changed.some((k) => k === 'keys' || k === 'invertY' || k === 'rawInput')) this.applyInputSettings(settings);

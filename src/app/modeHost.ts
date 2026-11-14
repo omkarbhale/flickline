@@ -17,6 +17,7 @@ import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
 import { economyShield } from '../sim/damage';
 import { rayBox } from '../sim/collision';
+import { MAPS } from '../sim/mapLoader';
 import type { MapDef } from '../sim/mapTypes';
 import type { SpawnOptions } from '../sim/targets';
 import type { World } from '../sim/world';
@@ -106,16 +107,17 @@ export class ModeHost {
   private active: ModeDef<never> | null = null;
   /** The player's difficulty pin for a mode (setting `difficultyPin`), or undefined for matched difficulty. */
   pinFor: (modeId: string) => number | undefined = () => undefined;
-  private readonly anchors: AnchorSource;
+  private anchors: AnchorSource;
   private priorInfiniteMagazine = false;
   private priorInfiniteReserve = false;
   private readonly ray = vec3();
   private readonly placedEv = { tick: 0, x: 0, y: 0, z: 0, yaw: 0 };
+  private readonly mapEv = { tick: 0, mapId: '' };
 
   constructor(
     private readonly world: World,
     private readonly bus: EventBus<GameEvents>,
-    private readonly map: MapDef,
+    private map: MapDef,
     private readonly tunables: Tunables,
     skills: SkillState = new SkillState('skip'),
   ) {
@@ -129,7 +131,7 @@ export class ModeHost {
       placePlayer: (x, y, z, yaw) => this.placePlayer(x, y, z, yaw),
     });
     this.runner.attach(bus);
-    this.anchors = { anchors: map.anchors, bounds: map.bounds, sightClear: (from, to) => this.sightClear(from, to) };
+    this.anchors = this.anchorsOf(map);
     // Benchmark trials (the cold opener's, design §8.5) are a separate measurement: the matched posterior never consumes them.
     bus.on('skillTrial', (e) => {
       if (e.source !== 'baseline') skills.observeTrial(e);
@@ -139,10 +141,36 @@ export class ModeHost {
     });
   }
 
+  /** The map in the world now: the one the last started mode asked for (the URL's `?map=` or Range until one starts). */
+  get currentMap(): MapDef {
+    return this.map;
+  }
+
+  private anchorsOf(map: MapDef): AnchorSource {
+    return { anchors: map.anchors, bounds: map.bounds, sightClear: (from, to) => this.sightClear(from, to) };
+  }
+
+  /**
+   * Load the map a mode is designed for (`ModeDef.map`) when it is not the one in the world: the
+   * sim's level, this host's anchors and, through `mapLoaded`, the renderer's level visuals. A mode
+   * naming a map that is not shipped plays on the current one.
+   */
+  private loadMapFor(mode: ModeDef<never>): void {
+    const next = MAPS[mode.map];
+    if (!next || next === this.map) return;
+    this.map = next;
+    this.anchors = this.anchorsOf(next);
+    this.world.setLevel(next);
+    this.mapEv.tick = this.world.tick;
+    this.mapEv.mapId = next.id;
+    this.bus.emit('mapLoaded', this.mapEv);
+  }
+
   start(id: string, opts: Partial<RunOptions> = {}): boolean {
     const mode = MODES[id];
     if (!mode) return false;
     this.stop(); // the previous run ends before the field is cleared
+    this.loadMapFor(mode); // before the reset: the world resets onto the mode's map, spawn and placed targets
     const seed = opts.seed ?? this.world.seed;
     this.world.reset(seed); // the run starts from the seed: same seed, same spread, same sway, same layout
     this.clearField();

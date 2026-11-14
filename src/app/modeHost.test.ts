@@ -3,7 +3,7 @@ import { cloneTunables } from '../config/tunables';
 import { EventBus } from '../core/eventBus';
 import { vec3 } from '../core/vec3';
 import { zoneCentre } from '../sim/hitZones';
-import { rangeMap } from '../sim/mapLoader';
+import { laneMap, rangeMap } from '../sim/mapLoader';
 import { createTickInput } from '../sim/types';
 import { World } from '../sim/world';
 import type { GameEvents } from '../core/gameEvents';
@@ -130,6 +130,55 @@ describe('ModeHost on the real sim', () => {
       delete modes['__armoured'];
       delete modes['__light'];
     }
+  });
+
+  describe('starting a mode loads the map it is designed for (#184)', () => {
+    function setup(seed = 3) {
+      const tunables = cloneTunables();
+      const world = new World({ level: rangeMap, tunables, seed });
+      const bus = new EventBus<GameEvents>();
+      const host = new ModeHost(world, bus, rangeMap, tunables);
+      const loaded: string[] = [];
+      bus.on('mapLoaded', (e) => loaded.push(e.mapId));
+      return { world, host, loaded };
+    }
+
+    it('swaps the sim to Lane for Stop & Pop and back to Range for Orbit, announcing each load once', () => {
+      const { world, host, loaded } = setup();
+      expect(world.level).toBe(rangeMap);
+      expect(host.start('stopAndPop', { seed: 5 })).toBe(true);
+      expect(world.level).toBe(laneMap);
+      expect(host.currentMap).toBe(laneMap);
+      expect(loaded).toEqual(['lane']);
+      // The player stands at Lane's spawn, not Range's.
+      expect(world.player.pos).toMatchObject({ x: laneMap.spawn.pos.x, z: laneMap.spawn.pos.z });
+
+      expect(host.start('stopAndPop', { seed: 6 })).toBe(true); // a restart on the same map loads nothing
+      expect(loaded).toEqual(['lane']);
+
+      expect(host.start('orbit', { seed: 5 })).toBe(true);
+      expect(world.level).toBe(rangeMap);
+      expect(loaded).toEqual(['lane', 'range']);
+    });
+
+    it('collision and placed targets follow the loaded map', () => {
+      const { world, host } = setup();
+      host.start('stopAndPop', { seed: 5 });
+      expect(world.boxes).toBe(laneMap.boxes);
+      // A mode owns its spawning: none of the map's own placed targets survive the start.
+      expect(world.targets.some((t) => t.alive)).toBe(false);
+    });
+
+    it('a swapped world is the same world a fresh one on that map would be (same seed, same hash)', () => {
+      const swapped = setup(9);
+      swapped.host.start('stopAndPop', { seed: 9 });
+
+      const tunables = cloneTunables();
+      const fresh = new World({ level: laneMap, tunables, seed: 9 });
+      const bus = new EventBus<GameEvents>();
+      new ModeHost(fresh, bus, laneMap, tunables).start('stopAndPop', { seed: 9 });
+      expect(swapped.world.hash()).toBe(fresh.hash());
+    });
   });
 
   it('keeps benchmark trials out of the matched posterior (a mode with trialSource baseline, design 8.5)', () => {
