@@ -89,6 +89,7 @@ export function stepWeapon(
   tick: number,
   events: EventSink<SimEvents>,
   result: TraceResult,
+  movingSpeed: number,
 ): void {
   if (w.cooldown > 0) w.cooldown--;
   if (!firing || w.cooldown > 0) return;
@@ -102,7 +103,8 @@ export function stepWeapon(
   o.z = p.pos.z;
   const d = directionFromAngles(scratchDir, p.yaw, p.pitch);
 
-  events.emit('shotFired', { tick, origin: o, dir: d });
+  const moving = p.vel.x * p.vel.x + p.vel.z * p.vel.z > movingSpeed * movingSpeed;
+  events.emit('shotFired', { tick, origin: o, dir: d, moving });
   trace(boxes, targets, o.x, o.y, o.z, d.x, d.y, d.z, wt.range, result);
 
   if (result.kind !== 0) {

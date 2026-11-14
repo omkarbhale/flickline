@@ -1,6 +1,7 @@
 import type { EventSink } from '../core/eventBus';
 import { QUALITY_LEVELS, type QualityLevel } from '../config/render';
 import { clamp } from '../core/math';
+import { cloneCrosshair, crosshairEquals, DEFAULT_CROSSHAIR, sanitizeCrosshair, type CrosshairParams } from './crosshair';
 
 export interface Settings {
   /** Mouse sensitivity in the reference game's scale (0.07 deg per count at 1.0). */
@@ -10,6 +11,8 @@ export interface Settings {
   /** Master volume 0..1. */
   volume: number;
   quality: QualityLevel;
+  /** Crosshair appearance (design 13.2). Replaced as a whole by `set`. */
+  crosshair: CrosshairParams;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -17,6 +20,7 @@ export const DEFAULT_SETTINGS: Settings = {
   dpi: 800,
   volume: 0.7,
   quality: 'medium',
+  crosshair: DEFAULT_CROSSHAIR,
 };
 
 export interface SettingsEvents {
@@ -33,7 +37,7 @@ export const SETTINGS_KEY = 'flickline.settings.v1';
 
 /** Validate + clamp arbitrary input into a full, safe Settings object. */
 export function sanitizeSettings(raw: unknown): Settings {
-  const out: Settings = { ...DEFAULT_SETTINGS };
+  const out: Settings = { ...DEFAULT_SETTINGS, crosshair: cloneCrosshair(DEFAULT_CROSSHAIR) };
   if (typeof raw !== 'object' || raw === null) return out;
   const r = raw as Record<string, unknown>;
   const num = (v: unknown, lo: number, hi: number, fallback: number): number =>
@@ -44,7 +48,13 @@ export function sanitizeSettings(raw: unknown): Settings {
   if (typeof r.quality === 'string' && (QUALITY_LEVELS as readonly string[]).includes(r.quality)) {
     out.quality = r.quality as QualityLevel;
   }
+  out.crosshair = sanitizeCrosshair(r.crosshair);
   return out;
+}
+
+function settingEquals(a: Settings[keyof Settings], b: Settings[keyof Settings]): boolean {
+  if (typeof a === 'object' && typeof b === 'object') return crosshairEquals(a, b);
+  return a === b;
 }
 
 /** Tiny persisted settings store. Storage failures (private mode, quota) are ignored. */
@@ -71,7 +81,7 @@ export class SettingsStore {
 
   set(patch: Partial<Settings>): void {
     const next = sanitizeSettings({ ...this.current, ...patch });
-    const changed = (Object.keys(next) as (keyof Settings)[]).filter((k) => next[k] !== this.current[k]);
+    const changed = (Object.keys(next) as (keyof Settings)[]).filter((k) => !settingEquals(next[k], this.current[k]));
     if (changed.length === 0) return;
     this.current = next;
     try {
