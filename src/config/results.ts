@@ -30,6 +30,9 @@ export interface FixCopy {
 export interface ResultsTunables {
   /** The card must be on screen this long after `runEnded` at the latest (design §2), ms. */
   appearBudgetMs: number;
+  /** Window size the card layout is designed for; on bigger windows the card scales up to 2x. */
+  designWidth: number;
+  designHeight: number;
   /** Moving-shot fix: fires when moving shots exceed this share of all shots (issue #26: 15%). */
   movingShotShare: number;
   /** Fewest shots before accuracy-style advice means anything. */
@@ -72,6 +75,8 @@ export interface ResultsTunables {
 
 export const results: ResultsTunables = {
   appearBudgetMs: 100,
+  designWidth: 1280,
+  designHeight: 720,
   movingShotShare: 0.15,
   minShotsForFix: 8,
   minTimedTargets: 3,

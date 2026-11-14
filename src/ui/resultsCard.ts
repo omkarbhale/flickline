@@ -56,7 +56,6 @@ export class ResultsCard {
             <span class="rc-pb" data-k="pb"></span>
           </div>
         </header>
-        <p class="rc-empty" data-k="empty" hidden>No shots fired this run, so there is nothing to rate yet.</p>
         <section class="rc-rating" aria-label="Rating" data-k="rating">
           <div class="rc-rating-row" data-k="ratingRow">
             <span class="rc-skill" data-k="skill"></span>
@@ -94,7 +93,15 @@ export class ResultsCard {
     this.play.addEventListener('click', (e) => handlers.onPlayAgain(e.timeStamp));
     this.menuBtn.addEventListener('click', () => handlers.onMenu());
     window.addEventListener('keydown', this.onKey);
+    window.addEventListener('resize', this.fit);
+    this.fit();
   }
+
+  /** Scale the card up on large screens (the layout is designed for 1280x720): 1x up to 2x. */
+  private readonly fit = (): void => {
+    const z = Math.max(1, Math.min(2, Math.min(window.innerWidth / this.cfg.designWidth, window.innerHeight / this.cfg.designHeight)));
+    this.el.style.setProperty('--rc-zoom', z.toFixed(3));
+  };
 
   get isOpen(): boolean {
     return this.open;
@@ -125,7 +132,6 @@ export class ResultsCard {
     const pb = q('pb');
     pb.textContent = m.pbText === DASH ? 'Personal best: —' : `${m.pbText} vs personal best`;
     pb.dataset.tone = m.pbTone;
-    q('empty').hidden = !m.empty;
 
     const r = m.rating;
     q('ratingRow').hidden = r === null;
@@ -160,6 +166,7 @@ export class ResultsCard {
 
     this.open = true;
     this.el.classList.add('open');
+    document.body.classList.add('results-open');
     this.play.focus({ preventScroll: true });
     this.lastBuildMs = performance.now() - endedAt;
     this.lastAppearMs = -1;
@@ -172,6 +179,7 @@ export class ResultsCard {
     if (!this.open) return;
     this.open = false;
     this.el.classList.remove('open');
+    document.body.classList.remove('results-open');
     // A focused button would take the game's Space/Enter presses: hand focus back to the canvas.
     const a = document.activeElement;
     if (a instanceof HTMLElement && this.el.contains(a)) (document.getElementById('game') ?? document.body).focus({ preventScroll: true });

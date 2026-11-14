@@ -1,15 +1,18 @@
 /* End-of-run results card (design 8.2). Layered under the menu (#menu, 20) and over the HUD. */
 #menu { z-index: 20; }
 #debug { z-index: 30; }
+/* The card replaces the live HUD: its numbers would only repeat the card's. */
+body.results-open #hud { visibility: hidden; }
 .rc { position: fixed; inset: 0; z-index: 10; display: none; place-items: center; background: rgba(7,10,14,.62); }
 .rc.open { display: grid; }
 .rc-panel {
   --rc-ok: #5bf2a5; --rc-bad: #ff3d5a; --rc-gold: #ffd23f; --rc-trim: #38e8ff; --rc-warn: #ffb020;
-  width: min(780px, 94vw); max-height: 96vh; overflow-y: auto; box-sizing: border-box;
+  zoom: var(--rc-zoom, 1); width: min(780px, calc(94vw / var(--rc-zoom, 1))); max-height: calc(96vh / var(--rc-zoom, 1)); overflow-y: auto; box-sizing: border-box;
   padding: clamp(12px, 2.2vh, 24px) clamp(14px, 2.4vw, 28px); background: #11161d;
   border: 1px solid #243040; border-radius: 10px; box-shadow: 0 18px 60px rgba(0,0,0,.55);
   display: grid; gap: clamp(8px, 1.6vh, 16px);
 }
+.rc [hidden] { display: none !important; }
 .rc-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
 .rc-kicker { margin: 0; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
 .rc-title { margin: 2px 0 0; font-size: clamp(20px, 3.2vh, 30px); letter-spacing: .06em; }
@@ -43,7 +46,6 @@
 .rc-sval { display: block; font: 700 clamp(18px, 3vh, 24px)/1.1 ui-monospace, monospace; }
 .rc-sval.dash { color: var(--dim); }
 .rc-shint { display: block; font-size: 11px; color: var(--dim); min-height: 1.2em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rc-empty { margin: 0; padding: 8px 12px; border-radius: 8px; background: #1b1608; border: 1px solid #5a4a14; color: var(--rc-gold); font-size: 13px; }
 
 .rc-medals { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
 .rc-medals h3 { margin: 0; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); font-weight: 600; }

@@ -406,7 +406,7 @@ export class ResultsRecorder {
   private before = 0;
   private score: number | null = null;
   private medals: string[] = [];
-  private pbSource: PbSource;
+  private readonly pbSource: PbSource;
   private readonly cfg: ResultsTunables;
 
   constructor(private readonly deps: ResultsRecorderDeps) {
@@ -425,11 +425,6 @@ export class ResultsRecorder {
     });
     deps.bus.on('medalAwarded', (e) => this.medals.push(e.id));
     deps.bus.on('runEnded', () => this.finish());
-  }
-
-  /** Swap the personal-best provider (the debug hook and #38). */
-  setPbSource(pb: PbSource | null): void {
-    this.pbSource = pb ?? NO_PB;
   }
 
   private finish(): void {
