@@ -247,6 +247,22 @@ export function resetWeaponState(w: WeaponState, loadout: readonly WeaponId[], t
   resetSpray(w);
 }
 
+/**
+ * Put the weapon `id` of the loadout in hand at once, equipped and with a fresh spray (a mode's
+ * weapon at run start; not the timed swap of `input.switchTo`). Returns false if it is not in the loadout.
+ */
+export function selectWeapon(w: WeaponState, id: WeaponId): boolean {
+  const slot = w.slots.findIndex((s) => s.id === id);
+  if (slot < 0) return false;
+  w.active = slot;
+  w.equipLeft = 0;
+  w.reloadLeft = 0;
+  w.cooldown = 0;
+  w.fireWasDown = false;
+  resetSpray(w);
+  return true;
+}
+
 /** Forget the current spray: spread, recoil offset and pattern position. */
 function resetSpray(w: WeaponState): void {
   w.sprayCount = 0;
@@ -508,7 +524,7 @@ function fire(
   im.targetId = hitId;
   im.zone = tr.zone;
   im.damage = damage;
-  im.killed = field.slots[tr.targetIndex]!.hp - damage <= 0;
+  im.killed = field.wouldKill(tr.targetIndex, damage);
   events.emit('shotImpact', im);
   // Emits targetHit (and targetKilled) and frees the slot or schedules the respawn.
   field.applyHit(tr.targetIndex, tr.zone, tr.point, tr.distance, damage, tick, events);

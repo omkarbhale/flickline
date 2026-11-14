@@ -42,6 +42,14 @@ describe('pure layers stay pure', () => {
     });
   }
 
+  it('the viewmodel geometry and pose maths in render/ stay free of three.js, DOM and randomness', () => {
+    // They are plain-array / plain-number code so their budgets and determinism are unit-testable.
+    for (const name of ['viewmodelModel.ts', 'viewmodelPose.ts']) {
+      const src = code(join(root, 'render', name));
+      for (const [re, what] of FORBIDDEN) expect(re.test(src), `render/${name}: ${what}`).toBe(false);
+    }
+  });
+
   it('core, sim, config and modes do not import presentation, app or feature layers', () => {
     const bad = /from\s+['"]\.\.\/(render|input|audio|hud|ui|debug|app|features)\//;
     for (const dir of ['core', 'sim', 'config', 'modes']) {

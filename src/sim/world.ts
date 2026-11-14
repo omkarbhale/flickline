@@ -14,13 +14,15 @@ import {
   createWeaponScratch,
   createWeaponState,
   resetWeaponState,
+  selectWeapon,
   stepWeapon,
   type WeaponScratch,
   type WeaponWorld,
 } from './weapon';
 import { stepPlayer } from './movement';
-import type {
-  HitZone, LevelDef, PlayerHealth, PlayerState, SimEvents, TargetKind, TargetState, TickInput, WeaponState,
+import {
+  createTickInput,
+  type HitZone, type LevelDef, type PlayerHealth, type PlayerState, type SimEvents, type TargetKind, type TargetState, type TickInput, type WeaponState,
 } from './types';
 
 const NULL_SINK: EventSink<SimEvents> = { emit() {} };
@@ -62,6 +64,12 @@ export class World {
   readonly rng: Rng;
   seed: number;
   tick = 0;
+  /**
+   * A mode may lock the player in place (Orbit, design §4.2): movement keys, jump, crouch and walk
+   * are ignored; look angles, fire, reload and weapon switching still work. Not reset by `reset()`
+   * (it belongs to the run); the mode host sets and clears it.
+   */
+  movementLocked = false;
   readonly player: PlayerState;
   /** The target registry (see `sim/targets.ts`). */
   readonly targetField: TargetField;
@@ -81,6 +89,7 @@ export class World {
   readonly probe: ProbeState = createProbeState();
   private readonly weaponWorld: WeaponWorld;
   private readonly weaponScratch: WeaponScratch = createWeaponScratch();
+  private readonly lockedInput = createTickInput();
   /** Reused every tick for target behaviours (`events` is swapped in per step). */
   private readonly behaviourCtx: BehaviourContext;
 
@@ -161,7 +170,14 @@ export class World {
     const relay = this.relay;
     relay.target = events;
     this.healthSys.step(this.player);
-    stepPlayer(this.player, input, this.level.boxes, t.movement, TICK_DT, this.tick, events);
+    let moveInput = input;
+    if (this.movementLocked) {
+      const l = this.lockedInput;
+      l.yaw = input.yaw;
+      l.pitch = input.pitch;
+      moveInput = l;
+    }
+    stepPlayer(this.player, moveInput, this.level.boxes, t.movement, TICK_DT, this.tick, events);
     if (!this.live) {
       relay.target = NULL_SINK;
       return;
@@ -170,11 +186,22 @@ export class World {
     stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, relay, this.weaponScratch);
     this.stepTargets(relay);
     relay.target = NULL_SINK;
-    stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events);
+    stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events, this.level);
   }
 
   /**
-   * The player takes `amount` HP of damage to `zone` from a shooter whose muzzle is at (`sx`, `sy`,
+   * Equip both sides with shields (spec §4.1; `config/economy.ts` says how much): the player now and
+   * on every later `reset()`, and every humanoid Echo spawned from now on (orbs never get one).
+   * 0 = none, the default and what drills use. Not cleared by `reset()`; the mode host sets it for
+   * the run and clears it when the run stops.
+   */
+  setShields(player: number, enemy: number): void {
+    this.healthSys.setShield(player);
+    this.targetField.enemyShield = Math.max(0, enemy);
+  }
+
+  /**
+   * The player takes `amount` of damage to `zone` from a shooter whose muzzle is at (`sx`, `sy`,
    * `sz`) (`sourceId` = the enemy id, or -1). Applies tagging, flinch and death and emits
    * `playerDamaged` / `playerSlowed` / `playerDied`. This is the one entry point enemy fire (#32,
    * #33) and the debug hook use. Returns whether the hit killed the player.
@@ -240,6 +267,23 @@ export class World {
     return this.targetField.despawn(id, this.tick, events);
   }
 
+  /** Stand the player at a feet position, at rest, facing `yaw` (radians), level. */
+  placePlayer(x: number, y: number, z: number, yaw: number): void {
+    const p = this.player;
+    p.pos.x = p.prevPos.x = x;
+    p.pos.y = p.prevPos.y = y;
+    p.pos.z = p.prevPos.z = z;
+    p.vel.x = p.vel.y = p.vel.z = 0;
+    p.yaw = yaw;
+    p.pitch = 0;
+    p.grounded = false;
+  }
+
+  /** Put a loadout weapon in hand at once (see `selectWeapon`). */
+  equipWeapon(id: WeaponId): boolean {
+    return selectWeapon(this.weapon, id);
+  }
+
   /** Simulation time in seconds. */
   get time(): number {
     return this.tick * TICK_DT;
@@ -263,7 +307,7 @@ export class World {
     mix(p.grounded ? 1 : 0); mix(p.crouching ? 1 : 0); mix(p.eyeHeight);
     const w = this.weapon;
     const hp = this.health;
-    mix(hp.hp); mix(hp.alive ? 1 : 0); mix(Number.isFinite(hp.tagSince) ? hp.tagSince : -1);
+    mix(hp.hp); mix(hp.shield); mix(hp.alive ? 1 : 0); mix(Number.isFinite(hp.tagSince) ? hp.tagSince : -1);
     mix(hp.tagRise); mix(hp.flinchDeg);
     mix(w.shots); mix(w.active); mix(w.cooldown); mix(w.equipLeft); mix(w.reloadLeft);
     mix(w.sprayCount); mix(w.recoilIndex); mix(w.recoilPitch); mix(w.recoilYaw); mix(w.yawSign);

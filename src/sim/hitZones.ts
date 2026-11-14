@@ -140,7 +140,7 @@ export function traceTarget(
   out: ZoneHit,
 ): boolean {
   if (kind.shape === 'orb') {
-    const d = raySphereN(ox, oy, oz, dx, dy, dz, t.pos.x, t.pos.y, t.pos.z, kind.orbRadius, maxDist);
+    const d = raySphereN(ox, oy, oz, dx, dy, dz, t.pos.x, t.pos.y, t.pos.z, kind.orbRadius * t.scale, maxDist);
     if (d < 0) return false;
     out.zone = 'head';
     out.distance = d;
