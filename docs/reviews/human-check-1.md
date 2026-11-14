@@ -1,6 +1,6 @@
 # Human check 1: what an agent can and cannot settle about the first playable
 
-Tracking issue: [#180](https://github.com/omkarbhale/flickline/issues/180), "Questions for a human player (first playable)", is long-lived and stays open. Date: 2026-11-14. Build: `main` at `dbaabef` plus the measurement tooling added with this review.
+Tracking issue: [#180](https://github.com/omkarbhale/flickline/issues/180), "Questions for a human player (first playable)", is long-lived and stays open. Date: 2026-11-14. Build: `main` at `dbaabef` plus the measurement tooling added with this review. The measurements were re-run after merging `main` at `6be5209` (Stop & Pop, post effects, settings menu, enemy fire), and every offline number came out identical.
 
 At the first-playable checkpoint the owner chose to keep building rather than pause for a ten-minute feel check. This review takes each question that check would have asked (#180 Q1–Q19). For each one it collects the strongest evidence an agent can get and says how far that evidence goes. The questions stay open for a person.
 
@@ -255,7 +255,7 @@ This confirms the #29 measurements on #73: acceleration and braking are about tw
 ### Q9. Shot sounds
 
 **Evidence.**
-- The Kestrel shot is 69 ms long against a 91 ms fire interval, so consecutive shots do not overlap and the cadence stays countable. The Pace shot is 43 ms.
+- The Kestrel shot falls 30 dB below its peak within 69 ms, before the next shot 91 ms later. Its quiet tail runs on (the buffer is 152 ms, per #29), so the attacks stay separate and the cadence should stay countable. The Pace shot reaches −30 dB in 43 ms.
 - Shots get ±3 % random pitch and gain each.
 - Both peak at −15 dBFS. Over the first 50 ms the Kestrel is about 2 dB louder (−26.8 vs −28.8 dBFS).
 - Hit and kill cues peak 3 dB above the shots and duck the weapons bus.
@@ -325,6 +325,10 @@ This confirms the #29 measurements on #73: acceleration and braking are about tw
 |---|---|---|---|---|---|
 | Low | 12 | 2,168 | 5.2 / 27.6 ms | 7 | 760 KB/s |
 | High | 12 | 2,168 | 6.2 / 27.6 ms | 4.5 | 544 KB/s |
+| Low, after merging #44 post effects | 13 | 2,168 | 5.1 / 21.8 ms | 1.8 | 340 KB/s |
+| High, after merging #44 post effects | 13 | 2,168 | 4.6 / 14.7 ms | 2.1 | 370 KB/s |
+
+The second pair ran while the machine's load average was 17–28 on 8 cores, from other workers. Its frame rate collapsed, and the Low run even failed the harness's 500 ms smoke threshold, while main-thread work per frame stayed at 5 ms. Software frame rates on this machine measure the machine, not the game.
 
 The geometry load (12 draws, about 2 k triangles) is trivial for any GPU made in the last decade. The real-hardware question is whether three costs fit a 6.94 ms frame:
 
@@ -414,6 +418,15 @@ Estimate (assumptions named): on a mid-range discrete GPU at 1080p High the GPU 
 **A person should confirm:** whether a reload "sounds and looks" as long as it is, and whether a swap mid-reload feels like the reference.
 
 ---
+
+## Where this review is stricter than the #29 interim feel sheet
+
+The first-playable pass (#29, `docs/playtests/first-playable-1.md`) scored feel items 0/1/2 from the same kind of evidence. This review agrees with its movement zeros and with #176. It disagrees on four points:
+
+- **Input latency (#29: 2/2).** The loop design is right, but the browser compositor and the display are invisible to an agent. Here: cannot be judged without a person (Q11).
+- **Hit and kill sounds (#29: 8/8).** The headshot is clearly distinct. Body versus leg is the closest pair by spectrum, and laptop speakers are untested. Here: cannot be judged without a person (Q8).
+- **Recoil recovery (#29: "view recovers at 8°/s after 0.35 s").** What returns is a hidden bullet offset, not the view. It outlives the reset (#191, Q2).
+- **Side switch (#29: none within 20 bullets).** Over 200 seeded sprays the sideways kick changes direction about once per 30-bullet spray, and the first break always goes right (Q2).
 
 ## What this review added
 
