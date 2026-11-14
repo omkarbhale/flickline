@@ -154,6 +154,8 @@ export const dial: DialTunables = {
     flat: [0],
   },
   modes: {
+    // `test` is the mode framework's TestMode (`modes/testMode.ts`): a demo/test fixture, not a shipped mode.
+    test: { skill: 'precision', targetSuccess: 0.7 },
     coldStart: { skill: 'precision', targetSuccess: 0.55 },
     orbit: { skill: 'flick', targetSuccess: 0.7 },
     strafeTrack: { skill: 'track', targetSuccess: 0.7 },

@@ -140,8 +140,11 @@ export interface LevelDef {
 
 /** Events the simulation emits. Payloads are read-only and valid only during the callback. */
 export interface SimEvents {
-  /** `moving`: horizontal speed was above the accuracy deadzone when the shot left. */
-  shotFired: { tick: number; origin: Vec3; dir: Vec3; moving: boolean };
+  /**
+   * `moving`: horizontal speed was above the accuracy deadzone when the shot left. `weapon` (weapon id)
+   * is optional until the weapon simulation sets it; audio treats absent as the default weapon.
+   */
+  shotFired: { tick: number; origin: Vec3; dir: Vec3; moving: boolean; weapon?: string };
   /** Where a shot ended (world surface, target, or max range). */
   shotImpact: {
     tick: number;

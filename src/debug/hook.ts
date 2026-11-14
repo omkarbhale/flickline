@@ -1,4 +1,7 @@
 import type { Game } from '../app/game';
+import { MODES } from '../app/modeHost';
+import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
+import type { CueId } from '../config/audio';
 import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
 import type { Settings } from '../settings/settings';
 import type { HitZone, SimEvents, TargetKind, TickInput } from '../sim/types';
@@ -70,6 +73,12 @@ export interface FlicklineDebug {
    * take {x,y,z}. Returns nothing; read the result on screen or with events().
    */
   emit(type: keyof SimEvents, payload?: Record<string, unknown>): void;
+  /** Play a cue through the real engine (needs the context unlocked by a user gesture, see audioUnlock). */
+  playCue(cue: CueId, opts?: PlayOptions): void;
+  /** Create/resume the audio context without a click (headless checks). */
+  audioUnlock(): void;
+  /** Audio state: running, voices, sound-set render stats, and the most recent plays (what was scheduled where). */
+  audio(count?: number): { running: boolean; voices: number; stats: SoundSetStats | null; plays: PlayLogEntry[] };
   /** Crosshair state: current params, share code, redraw counter and last device-pixel geometry. */
   crosshair(): unknown;
   /** Import a crosshair share code through the real parser; returns `{ok, error?}`. */
@@ -78,6 +87,16 @@ export interface FlicklineDebug {
   overlay(visible?: boolean): void;
   /** Live tunables object (mutate for experiments; not persisted). */
   readonly tunables: unknown;
+  /** Mode framework: start/stop a mode run and read its state (`step()` advances it like any tick). */
+  readonly mode: {
+    /** Ready a run (ready phase 0.8 s, then live). `pinDial` fixes the dial. Returns false for an unknown id. */
+    start(id?: string, opts?: { seed?: number; pinDial?: number }): boolean;
+    stop(): void;
+    /** Phase, beat, dial, axes, score, streak, chain, trials, timing. */
+    status(): unknown;
+    /** Ids of the registered modes. */
+    list(): string[];
+  };
 }
 
 export type Vec3Like = { x: number; y: number; z: number } | readonly [number, number, number];
@@ -214,6 +233,20 @@ export function installDebugHook(game: Game): FlicklineDebug {
       (game.bus as unknown as { emit(t: string, p: unknown): void }).emit(type, { ...defaults, ...payload });
       game.renderNow();
     },
+    playCue(cue, opts) {
+      game.audio.play(cue, opts);
+    },
+    audioUnlock() {
+      game.audio.resume();
+    },
+    audio(count = 16) {
+      return {
+        running: game.audio.running,
+        voices: game.audio.activeVoices,
+        stats: game.audio.stats,
+        plays: game.audio.recentPlays(count),
+      };
+    },
     crosshair() {
       const p = game.settings.get().crosshair;
       return { params: p, code: encodeCrosshair(p), draws: game.hud.crosshair.draws, view: game.hud.crosshair.describe() };
@@ -228,6 +261,12 @@ export function installDebugHook(game: Game): FlicklineDebug {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);
     },
     tunables: game.tunables,
+    mode: {
+      start: (id = 'test', opts = {}) => game.modes.start(id, opts),
+      stop: () => game.modes.stop(),
+      status: () => game.modes.status(),
+      list: () => Object.keys(MODES),
+    },
   };
   window.__flickline = hook;
   return hook;

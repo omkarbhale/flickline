@@ -4,15 +4,17 @@ import { TICK_DT } from '../core/time';
 import { cloneTunables, tunables as liveTunables, type Tunables } from '../config/tunables';
 import { AudioEngine } from '../audio/audioEngine';
 import { attachSfx } from '../audio/sfx';
+import { attachUiSounds } from '../audio/uiSounds';
 import { DebugOverlay } from '../debug/overlay';
 import { PerfStats } from '../debug/perfStats';
 import { SessionStats } from '../feedback/sessionStats';
 import { applySettingsToOptions, createFeedbackOptions } from '../feedback/options';
 import { ShotCues } from '../feedback/shotCues';
+import type { ModeEvents } from '../modes/contracts';
 import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
-import { SETTINGS_KEY, SettingsStore } from '../settings/settings';
+import { SETTINGS_KEY, SettingsStore, type Settings } from '../settings/settings';
 import { createTickInput, type HitZone, type SimEvents, type TargetKind, type TickInput } from '../sim/types';
 import { zoneCentre } from '../sim/hitZones';
 import type { SpawnOptions } from '../sim/targets';
@@ -21,16 +23,21 @@ import { rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
 import { Menu } from '../ui/menu';
 import type { GameEvents } from './events';
+import { ModeHost } from './modeHost';
 
 const SIM_EVENT_TYPES: (keyof SimEvents)[] = [
   'shotFired', 'shotImpact', 'targetSpawned', 'targetVisible', 'targetHit', 'targetKilled',
   'targetExpired', 'targetRespawned', 'playerJumped', 'playerLanded', 'footstep',
 ];
 
+const MODE_EVENT_TYPES: (keyof ModeEvents)[] = [
+  'runReady', 'runStarted', 'runEnded', 'beatStarted', 'skillTrial', 'scoreAwarded', 'chainUpdated', 'streakUpdated',
+];
+
 const AIM_SCRATCH = { x: 0, y: 0, z: 0 };
 
 export interface LoggedEvent {
-  type: keyof SimEvents;
+  type: keyof SimEvents | keyof ModeEvents;
   data: unknown;
 }
 
@@ -57,6 +64,7 @@ export class Game {
   readonly cues: ShotCues;
   /** Feedback-related settings, shared (live) with the cue model and the HUD. */
   readonly feedbackOptions: ReturnType<typeof createFeedbackOptions>;
+  readonly modes: ModeHost;
   readonly stepper = new FixedStepper(TICK_DT, 8);
 
   /** Debug: never auto-tick (deterministic stepping only via step()). */
@@ -105,10 +113,14 @@ export class Game {
     this.input.setLook(this.world.player.yaw, 0);
     this.input.onToggleDebug = () => this.overlay.toggle();
 
-    this.audio = new AudioEngine(this.tunables.audio.masterGain);
-    this.audio.setVolume(s.volume);
-    attachSfx(this.bus, this.audio);
+    this.audio = new AudioEngine(this.tunables.audio);
+    this.applyAudioSettings(s);
+    // Feedback producers (stats, later streaks) subscribe before presentation (attachSfx), so the kill chime reads the updated streak.
     this.session.attach(this.bus);
+    // The mode runner is a feedback producer too: it emits `streakUpdated` before the kill chime reads it.
+    this.modes = new ModeHost(this.world, this.bus, this.map, this.tunables);
+    attachSfx(this.bus, this.audio, this.tunables.audio);
+    attachUiSounds(document, this.audio);
 
     this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair, {
       options: this.feedbackOptions,
@@ -119,7 +131,7 @@ export class Game {
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
 
-    for (const type of SIM_EVENT_TYPES) {
+    for (const type of [...SIM_EVENT_TYPES, ...MODE_EVENT_TYPES]) {
       this.bus.on(type, (e) => {
         this.eventLog.push({ type, data: JSON.parse(JSON.stringify(e)) });
         if (this.eventLog.length > 256) this.eventLog.shift();
@@ -128,7 +140,7 @@ export class Game {
 
     this.bus.on('settingsChanged', ({ settings, changed }) => {
       if (changed.includes('sensitivity')) this.input.setSensitivity(settings.sensitivity);
-      if (changed.includes('volume')) this.audio.setVolume(settings.volume);
+      if (changed.some((k) => k === 'volume' || k.endsWith('Volume'))) this.applyAudioSettings(settings);
       if (changed.includes('quality')) this.renderer.setQuality(settings.quality);
       applySettingsToOptions(this.feedbackOptions, settings);
       this.menu.sync();
@@ -138,6 +150,14 @@ export class Game {
     window.addEventListener('resize', this.onResize);
     this.onResize();
     this.refreshChrome();
+  }
+
+  private applyAudioSettings(s: Readonly<Settings>): void {
+    this.audio.setVolume(s.volume);
+    this.audio.setBusVolume('weapons', s.weaponsVolume);
+    this.audio.setBusVolume('hits', s.hitsVolume);
+    this.audio.setBusVolume('enemies', s.enemiesVolume);
+    this.audio.setBusVolume('ui', s.uiVolume);
   }
 
   private readonly onResize = (): void => {
@@ -188,6 +208,7 @@ export class Game {
       for (let i = 0; i < ticks; i++) {
         const t0 = performance.now();
         this.world.step(inp, this.bus);
+        this.modes.tick();
         this.perf.recordTick(performance.now() - t0);
         // One-shot inputs apply to the first tick of the frame only.
         inp.jump = false;
@@ -196,6 +217,8 @@ export class Game {
     } else {
       this.stepper.reset();
     }
+    const pl = this.world.player;
+    this.audio.setListener(pl.pos.x, pl.pos.y + pl.eyeHeight, pl.pos.z, this.input.yaw, this.input.pitch);
     this.input.endFrame(ticks);
     this.perf.ticksLastFrame = ticks;
 
@@ -232,6 +255,7 @@ export class Game {
       s.yaw = this.input.yaw;
       s.pitch = this.input.pitch;
       this.world.step(s, this.bus);
+      this.modes.tick();
       s.jump = false;
     }
     this.renderNow();
@@ -264,6 +288,7 @@ export class Game {
   }
 
   resetWorld(seed?: number): void {
+    this.modes.stop();
     this.world.reset(seed);
     this.session.reset();
     this.cues.clear();
@@ -281,7 +306,17 @@ export class Game {
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
       `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}\n` +
-      `fx latency max ${this.cues.latency.max} frame(s) over ${this.cues.latency.samples} cues, ${this.cues.latency.late} late`
+      `fx latency max ${this.cues.latency.max} frame(s) over ${this.cues.latency.samples} cues, ${this.cues.latency.late} late` +
+      this.modeLine()
+    );
+  }
+
+  private modeLine(): string {
+    const m = this.modes.status();
+    if (m.mode === null) return '';
+    return (
+      `\nmode ${m.mode} ${m.phase}  beat ${m.beat} dial ${m.dial.toFixed(0)}  ${m.timeSec.toFixed(1)}s\n` +
+      `score ${m.score}  kills ${m.kills}  trials ${m.trialsWon}/${m.trials}  streak ${m.streak}  chain ${m.chain}`
     );
   }
 
