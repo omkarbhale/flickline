@@ -1,5 +1,6 @@
 import type { EventSink } from '../core/eventBus';
 import { QUALITY_LEVELS, type QualityLevel } from '../config/render';
+import { DEFAULT_VIEWMODEL_MODE, VIEWMODEL_MODES, type ViewmodelMode } from '../config/viewmodel';
 import { clamp } from '../core/math';
 import { cloneHud, DEFAULT_HUD, hudEquals, sanitizeHud, type HudSettings } from './hud';
 import { cloneCrosshair, crosshairEquals, DEFAULT_CROSSHAIR, sanitizeCrosshair, type CrosshairParams } from './crosshair';
@@ -17,6 +18,8 @@ export interface Settings {
   enemiesVolume: number;
   uiVolume: number;
   quality: QualityLevel;
+  /** First-person weapon: held in the right hand, the left hand, or not drawn (design §13.3). */
+  viewmodel: ViewmodelMode;
   /** Amber moving-shot tracer, `⇆` glyph (design §13.3 "Coaching cues"). */
   coachingCues: boolean;
   /** Ghost ring where the nearest target's head was, after a miss. */
@@ -42,6 +45,7 @@ export const DEFAULT_SETTINGS: Settings = {
   enemiesVolume: 1,
   uiVolume: 1,
   quality: 'medium',
+  viewmodel: DEFAULT_VIEWMODEL_MODE,
   coachingCues: true,
   missGhost: true,
   damageNumbers: true,
@@ -83,6 +87,9 @@ export function sanitizeSettings(raw: unknown): Settings {
   out.uiVolume = num(r.uiVolume, 0, 1, out.uiVolume);
   if (typeof r.quality === 'string' && (QUALITY_LEVELS as readonly string[]).includes(r.quality)) {
     out.quality = r.quality as QualityLevel;
+  }
+  if (typeof r.viewmodel === 'string' && (VIEWMODEL_MODES as readonly string[]).includes(r.viewmodel)) {
+    out.viewmodel = r.viewmodel as ViewmodelMode;
   }
   const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
   out.coachingCues = bool(r.coachingCues, out.coachingCues);
