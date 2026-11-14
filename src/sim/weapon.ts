@@ -524,7 +524,7 @@ function fire(
   im.targetId = hitId;
   im.zone = tr.zone;
   im.damage = damage;
-  im.killed = field.slots[tr.targetIndex]!.hp - damage <= 0;
+  im.killed = field.wouldKill(tr.targetIndex, damage);
   events.emit('shotImpact', im);
   // Emits targetHit (and targetKilled) and frees the slot or schedules the respawn.
   field.applyHit(tr.targetIndex, tr.zone, tr.point, tr.distance, damage, tick, events);

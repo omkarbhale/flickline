@@ -1,6 +1,7 @@
 import type { Rng } from '../core/rng';
 import type { Vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
+import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import type {
   AxisId, AxisValues, ModeId, ModeRef, PlayerView, RunEndReason, SkillId, SourceEvents, TrialExtra, WaveCurve,
@@ -34,6 +35,13 @@ export interface ModeDef<S = unknown> extends ModeRef {
   readonly weapon: string;
   /** Player placement, movement lock and ammo rules for the run. */
   readonly player?: PlayerSetup;
+  /**
+   * Shields for the run (design §5.1, `config/economy.ts`): the player and every humanoid Echo get
+   * the economy's shield tier. Modes where enemies shoot (Corner Clear, Vigil, Sweep) set
+   * `tunables.economy.defaultEnemyFire`; drills leave it unset (no shields; nothing hits the player).
+   * A scenario card's own `economy` overrides it.
+   */
+  readonly economy?: Economy;
   /** Live-phase length in seconds; `Infinity` = the mode ends the run itself (`ctx.end`). */
   readonly durationSec: number;
   /** Difficulty axes (design §9.4 ids) this mode uses; they define each item's difficulty. */

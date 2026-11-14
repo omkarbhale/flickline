@@ -4,8 +4,21 @@
  */
 export interface PlayerTunables {
   health: {
-    /** `health.max` (spec §4.1): 100 HP, no armour in the first release. */
+    /** `health.max` (spec §4.1): 100 HP. Shields sit on top of it (`shield`), they never raise it. */
     max: number;
+  };
+  /**
+   * Shields (spec §4.1 armour, design §5.1), shared by the player and Echoes. A shield absorbs
+   * `absorb` of each hit until it has absorbed its capacity; the rest goes to health. The
+   * capacities are the two published armour tiers; `config/economy.ts` says which one a fight uses.
+   */
+  shield: {
+    /** `armour.absorb`: share of each hit the shield takes (66%; health takes the other 34%). */
+    absorb: number;
+    /** Light armour capacity, damage points (25). */
+    light: number;
+    /** Heavy armour capacity, damage points (50). */
+    heavy: number;
   };
   /** Tagging, the movement slow when hit (spec §4.3). */
   tag: {
@@ -31,6 +44,7 @@ export interface PlayerTunables {
 
 export const player: PlayerTunables = {
   health: { max: 100 },
+  shield: { absorb: 0.66, light: 25, heavy: 50 },
   tag: { speedScale: 0.275, rampInSec: 0.1, releaseSec: 0.5 },
   flinch: { strength: 1, pitchHeadDeg: 2.0, pitchBodyDeg: 0.6, pitchLegDeg: 0.3, recoverySec: 0.25, maxDeg: 4 },
 };

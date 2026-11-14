@@ -239,6 +239,11 @@ export class Menu {
     }
   }
 
+  /** Whether the menu is on screen. */
+  get isOpen(): boolean {
+    return this.el.classList.contains('open');
+  }
+
   setVisible(v: boolean): void {
     const was = this.open;
     this.open = v;
