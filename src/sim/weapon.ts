@@ -388,10 +388,12 @@ export function stepWeapon(
     events.emit('weaponSwitched', e);
   }
 
-  // Recoil: yaw direction swing (switch time) and return towards the crosshair (spec §3.5).
+  // Recoil: yaw direction swing (switch time) and return towards the crosshair (spec §3.5): held
+  // for `recoilReturnDelaySec`, then a straight line that ends at the gun recovery time (#191).
   stepYawSign(def, w, dt);
-  if (time - w.lastShotTime >= def.recoilReturnDelaySec - EPS && (w.recoilPitch !== 0 || w.recoilYaw !== 0)) {
-    returnRecoil(w, def.recoilReturnDegPerSec * dt);
+  const sinceShot = time - w.lastShotTime;
+  if (sinceShot >= def.recoilReturnDelaySec - EPS && (w.recoilPitch !== 0 || w.recoilYaw !== 0)) {
+    returnRecoil(w, dt, def.recoverySec - sinceShot);
   }
 
   if (input.reload && canReload(w, def)) startReload(w, def, tick, events, s);
@@ -430,8 +432,11 @@ function fire(
   // Spray count and stationary spread (spec §3.3).
   const sinceLast = time - w.lastShotTime;
   if (sinceLast >= def.recoverySec - EPS) {
+    // The reset is the whole spray: spread, pattern position and aim offset (#191).
     w.sprayCount = 0;
     w.recoilIndex = 0;
+    w.recoilPitch = 0;
+    w.recoilYaw = 0;
     w.yawSign = 1;
     w.yawTarget = 1;
   }
