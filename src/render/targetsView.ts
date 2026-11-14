@@ -149,7 +149,7 @@ export class TargetsView {
         flash = flashAmount(age, flashSec);
       }
       if (kinds[t.kind].shape === 'orb') {
-        this.beacon.add(t.pos.x, t.pos.y, t.pos.z, 0, flash, dissolve, 0, 0);
+        this.beacon.add(t.pos.x, t.pos.y, t.pos.z, 0, flash, dissolve, 0, 0, t.scale);
       } else {
         const lean = lerp(t.prevSway, t.sway, alpha);
         const yaw = yawTowards(t.pos.x, t.pos.z, viewX, viewZ);

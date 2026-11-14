@@ -65,10 +65,10 @@ export class EnemyBatch {
   }
 
   /** Add one instance; ignored when full. `x,y,z` = feet centre (humanoid) or centre (orb). */
-  add(x: number, y: number, z: number, yaw: number, flash: number, dissolve: number, crouch: number, lean: number): void {
+  add(x: number, y: number, z: number, yaw: number, flash: number, dissolve: number, crouch: number, lean: number, scale = 1): void {
     const i = this.count;
     if (i >= this.capacity) return;
-    writeInstanceMatrix(this.matrices, i, x, y, z, yaw);
+    writeInstanceMatrix(this.matrices, i, x, y, z, yaw, scale);
     const o = i * STATE_FLOATS;
     this.stateArr[o] = flash;
     this.stateArr[o + 1] = dissolve;

@@ -11,15 +11,15 @@ export const STATE_FLOATS = 4;
 /**
  * Write a yaw-rotation plus translation into `out` at instance `index` (column-major). Yaw
  * rotates about +Y by the three.js convention, so local +Z maps to (sin yaw, 0, cos yaw).
- * `x,y,z` is the feet centre for humanoids and the centre for orbs.
+ * `x,y,z` is the feet centre for humanoids and the centre for orbs; `scale` sizes an orb (Beacon scale).
  */
-export function writeInstanceMatrix(out: Float32Array, index: number, x: number, y: number, z: number, yaw: number): void {
+export function writeInstanceMatrix(out: Float32Array, index: number, x: number, y: number, z: number, yaw: number, scale = 1): void {
   const o = index * MATRIX_FLOATS;
   const c = Math.cos(yaw);
   const s = Math.sin(yaw);
-  out[o] = c; out[o + 1] = 0; out[o + 2] = -s; out[o + 3] = 0;
-  out[o + 4] = 0; out[o + 5] = 1; out[o + 6] = 0; out[o + 7] = 0;
-  out[o + 8] = s; out[o + 9] = 0; out[o + 10] = c; out[o + 11] = 0;
+  out[o] = c * scale; out[o + 1] = 0; out[o + 2] = -s * scale; out[o + 3] = 0;
+  out[o + 4] = 0; out[o + 5] = scale; out[o + 6] = 0; out[o + 7] = 0;
+  out[o + 8] = s * scale; out[o + 9] = 0; out[o + 10] = c * scale; out[o + 11] = 0;
   out[o + 12] = x; out[o + 13] = y; out[o + 14] = z; out[o + 15] = 1;
 }
 

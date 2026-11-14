@@ -212,3 +212,45 @@ describe('pickShellPoint (Orbit-style shell)', () => {
     expect(run(11)).toEqual(run(11));
   });
 });
+
+describe('line of sight (the map says what is hidden)', () => {
+  // A wall 5 m ahead (-Z) blocks everything in front of it within +-2 m of the axis.
+  const wall = (from: { x: number; z: number }, to: { x: number; z: number }): boolean => {
+    const t = (-5 - from.z) / (to.z - from.z);
+    if (!(t > 0 && t < 1)) return true;
+    return Math.abs(from.x + (to.x - from.x) * t) > 2;
+  };
+  const source = (anchors: AnchorLike[]) => new AnchorIndex({ anchors, sightClear: wall });
+
+  it('pickAnchor skips anchors that are not visible, and reports nothing when all are hidden', () => {
+    const behind: AnchorLike = { id: 'hidden', kind: 'post', pos: vec3(0, 0, -12) };
+    const open: AnchorLike = { id: 'open', kind: 'post', pos: vec3(9, 0, -12) };
+    const q = createSpawnQuery('post');
+    const out = vec3();
+    const s = new SpawnScheduler(cfg, tun.dial.floors, new Rng(1), source([behind, open]), player);
+    for (let i = 0; i < 20; i++) expect(s.pickAnchor(q, out)!.id).toBe('open');
+    const s2 = new SpawnScheduler(cfg, tun.dial.floors, new Rng(1), source([behind]), player);
+    expect(s2.pickAnchor(q, out)).toBeNull();
+  });
+
+  it('pickShellPoint never returns a point behind the wall', () => {
+    const shell: AnchorLike = { id: 's', kind: 'beacon-shell', centre: vec3(0, 1.62, 0), rMin: 8, rMax: 25 };
+    const s = new SpawnScheduler(cfg, tun.dial.floors, new Rng(3), source([shell]), player);
+    const q = createSpawnQuery('beacon-shell');
+    q.minAngleDeg = 0;
+    q.maxAngleDeg = 40; // straight ahead: the wall is in the way for the central part
+    const out = vec3();
+    let found = 0;
+    for (let i = 0; i < 200; i++) {
+      if (!s.pickShellPoint(shell, q, out)) continue;
+      found++;
+      expect(wall(s.eyePosition(), out)).toBe(true);
+    }
+    expect(found).toBeGreaterThan(20);
+  });
+
+  it('sightClear is true when the map gives no predicate', () => {
+    const s = make([]);
+    expect(s.sightClear(vec3(0, 0, 0), vec3(0, 0, -20))).toBe(true);
+  });
+});
