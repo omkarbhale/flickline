@@ -1,4 +1,5 @@
 import type { EventSink } from '../core/eventBus';
+import { EnemyStreams } from '../core/rngStreams';
 import { DEG2RAD } from '../core/math';
 import { TICK_DT, TICK_RATE, secondsToTicks } from '../core/time';
 import { vec3, type Vec3 } from '../core/vec3';
@@ -153,6 +154,7 @@ function createSlot(): TargetState {
     prevSway: 0,
     swayTarget: 0,
     fsm: createFsm(),
+    streams: new EnemyStreams(),
     ai: createEnemyAi(),
     visibleTick: -1,
     firstShotTick: -1,
@@ -196,6 +198,8 @@ export class TargetField {
    * orbs never get one). Survives `clear()`, like the world's other per-run setup.
    */
   enemyShield = 0;
+  /** The run's world seed: with a target's id it seeds that target's own random streams. Set by the world on every reset. */
+  runSeed = 0;
   private readonly zoneHit: ZoneHit = createZoneHit();
   private readonly traceRay: Ray = createRay();
   /** The line-of-sight ray `updateVisibility` fills each test (a ray in an object: no doubles passed to a call). */
@@ -247,6 +251,7 @@ export class TargetField {
     const tt = this.tunables.targets;
     const def = tt.kinds[kind];
     t.id = this.nextId++;
+    t.streams.reseed(this.runSeed, t.id);
     t.kind = kind;
     t.spawner = spawner;
     t.home.x = t.pos.x = x;
