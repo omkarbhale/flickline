@@ -41,8 +41,8 @@ class Log {
     this.events.push({
       type: 'shotFired',
       data: {
-        tick, shotId: id, weapon: 'w', origin: vec3(), dir, yaw, pitch, moving: o.moving ?? false, speed: 0,
-        airborne: false, spreadDeg: 0, recoilIndex: o.recoil ?? 0, ammo: -1,
+        tick, t: 0, shotId: id, weapon: 'kestrel', origin: vec3(), dir, yaw, pitch, moving: o.moving ?? false, speed: 0,
+        airborne: false, crouching: false, spreadDeg: 0, recoilIndex: o.recoil ?? 0, recoilPitchDeg: 0, recoilYawDeg: 0, ammo: -1,
         aimTargetId: o.at ?? -1, aimErr: (o.errDeg ?? 0) * DEG2RAD,
         aimDYaw: (o.dYawDeg ?? 0) * DEG2RAD, aimDPitch: (o.dPitchDeg ?? 0) * DEG2RAD,
       },
@@ -51,8 +51,9 @@ class Log {
     this.events.push({
       type: 'shotImpact',
       data: {
-        tick, shotId: id, result: hit >= 0 ? 'hit' : 'miss', onTarget: hit >= 0, targetId: hit,
-        zone: hit >= 0 ? (o.zone ?? 'body') : null, point: vec3(), normal: vec3(), distance: 10,
+        tick, t: 0, shotId: id, result: hit >= 0 ? 'hit' : 'miss', onTarget: hit >= 0, targetId: hit,
+        zone: hit >= 0 ? (o.zone ?? 'body') : null, damage: hit >= 0 ? 34 : 0, killed: !!o.kill,
+        point: vec3(), normal: vec3(), distance: 10,
       },
     });
     if (o.kill && hit >= 0) {

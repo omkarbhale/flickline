@@ -1,4 +1,5 @@
 import type { Vec3 } from '../core/vec3';
+import type { WeaponId } from '../config/weapon';
 import type { RunEvents } from './runEvents';
 
 /** Per-tick player command. The only way input reaches the simulation. Angles in radians. */
@@ -16,12 +17,19 @@ export interface TickInput {
   crouch: boolean;
   /** Held: slow silent-walk modifier. */
   walk: boolean;
-  /** Held or clicked since last tick. */
+  /** Held or clicked since last tick. Semi-auto weapons fire on the press, auto weapons while held. */
   fire: boolean;
+  /** Edge: reload was pressed since the last tick that consumed it. */
+  reload: boolean;
+  /** Loadout slot to switch to (0 = primary, 1 = sidearm), or -1 for none. Idempotent. */
+  switchTo: number;
 }
 
 export function createTickInput(): TickInput {
-  return { moveX: 0, moveZ: 0, yaw: 0, pitch: 0, jump: false, crouch: false, walk: false, fire: false };
+  return {
+    moveX: 0, moveZ: 0, yaw: 0, pitch: 0, jump: false, crouch: false, walk: false, fire: false,
+    reload: false, switchTo: -1,
+  };
 }
 
 export interface PlayerState {
@@ -106,14 +114,51 @@ export interface TargetState {
   movingShot: boolean;
 }
 
+/** Per-weapon ammo, kept for every weapon in the loadout (it persists across swaps). */
+export interface WeaponSlot {
+  id: WeaponId;
+  mag: number;
+  reserve: number;
+}
+
+/**
+ * The player's weapons: loadout ammo plus the state of the active weapon's simulation.
+ * Plain data (hashable, snapshot-able). Times are sim seconds (`tick * TICK_DT`).
+ */
 export interface WeaponState {
-  /** Ticks until the weapon can fire again. */
-  cooldown: number;
-  /** Shots fired since the last reset; the `shotId` of the latest shot. */
+  slots: WeaponSlot[];
+  /** Index into `slots` of the equipped weapon. */
+  active: number;
+  /** Total shots fired (also the next shot's id minus one). */
   shots: number;
-  /** Tick of the last shot (-1 = none) and the position of that shot in its burst (recoil index). */
-  lastShotTick: number;
-  burstIndex: number;
+  /** Seconds until the next shot is allowed; <= 0 means ready (fractional carry keeps the fire rate exact). */
+  cooldown: number;
+  /** Seconds of equip time left (0 = equipped). */
+  equipLeft: number;
+  /** Seconds of reload left (0 = not reloading). */
+  reloadLeft: number;
+  /** Spec §3.3 spray count `n` (float; taps add 1/tapEfficiency). */
+  sprayCount: number;
+  /** Sim time of the last shot, seconds (very negative = never). */
+  lastShotTime: number;
+  /** 0-based index of the next bullet in the current spray (recoil pattern row). */
+  recoilIndex: number;
+  /** Current aim offset from recoil, degrees: pitch + = up, yaw + = right. */
+  recoilPitch: number;
+  recoilYaw: number;
+  /** Yaw direction multiplier in [-1, 1]; swings towards `yawTarget` over the flip time. */
+  yawSign: number;
+  yawTarget: number;
+  /** Fire was held on the previous tick (semi-auto needs a fresh press). */
+  fireWasDown: boolean;
+  /** Grounded on the previous tick (landing detection for the landing spread). */
+  wasGrounded: boolean;
+  /** Sim time of the last landing, seconds. */
+  landTime: number;
+  /** Option (drills): shots never use ammo, so the magazine never empties. Survives reset(). */
+  infiniteMagazine: boolean;
+  /** Option: reloads never use reserve ammo. Survives reset(). */
+  infiniteReserve: boolean;
 }
 
 /** What a static collision box represents (renderer picks materials from this). */
@@ -143,28 +188,37 @@ export interface LevelDef {
   targets: TargetSpawn[];
 }
 
-/** Events the simulation emits. Payloads are read-only and valid only during the callback. */
+/**
+ * Events the simulation emits. Payloads are read-only and valid only during the callback (the
+ * weapon reuses its payload objects). `t` is sim seconds since the world was reset.
+ */
 export interface SimEvents {
+  /** A bullet left the gun (design §14.3). `dir` already includes recoil and spread. */
   shotFired: {
     tick: number;
-    /** Unique within the run (the weapon's shot counter). */
+    t: number;
     shotId: number;
-    weapon: string;
+    weapon: WeaponId;
     origin: Vec3;
     dir: Vec3;
-    /** View angles at the tick (the crosshair, radians); `dir` may differ later by spread/recoil. */
-    yaw: number;
-    pitch: number;
-    /** Flagged at fire time: airborne, or horizontal speed above the accuracy deadzone (spec §2.4). */
+    /** Horizontal speed above the weapon's accuracy deadzone, or airborne (design §3). */
     moving: boolean;
-    /** Horizontal speed at fire time, m/s. */
+    /** Horizontal speed, m/s. */
     speed: number;
     airborne: boolean;
+    crouching: boolean;
+    /** Total spread half-angle this shot was drawn from, degrees. */
     spreadDeg: number;
-    /** Position in the burst, 0 = first bullet after a pause. */
+    /** 0-based bullet index in the spray (recoil pattern row). */
     recoilIndex: number;
-    /** Rounds left in the magazine; -1 = infinite. */
+    /** Recoil aim offset this bullet was fired with, degrees (pitch + = up, yaw + = right). */
+    recoilPitchDeg: number;
+    recoilYawDeg: number;
+    /** Rounds left in the magazine after this shot. */
     ammo: number;
+    /** View angles at the tick (the crosshair, radians); `dir` adds recoil and spread. */
+    yaw: number;
+    pitch: number;
     /** Nearest visible live target to the view ray (-1 none) and the angle to its head, radians. */
     aimTargetId: number;
     aimErr: number;
@@ -172,19 +226,25 @@ export interface SimEvents {
     aimDYaw: number;
     aimDPitch: number;
   };
-  /** Where a shot ended (world surface, target, or max range). */
+  /**
+   * Where a shot ended: emitted once per shot that hit a surface or a target, right after its
+   * `shotFired` (a shot into empty space past `weaponRules.rangeM` has no impact).
+   */
   shotImpact: {
     tick: number;
-    /** The `shotId` of the `shotFired` this ends. */
+    t: number;
     shotId: number;
     result: 'hit' | 'miss';
+    /** Target and zone struck, or -1 / null. */
+    targetId: number;
+    zone: HitZone | null;
+    /** Damage dealt (0 on a miss) and whether it killed. */
+    damage: number;
+    killed: boolean;
     point: Vec3;
     normal: Vec3;
     onTarget: boolean;
     distance: number;
-    /** Target and zone struck, or -1 / null. */
-    targetId: number;
-    zone: HitZone | null;
   };
   /** A target was added to the field (spawn call, level placement or respawn). */
   targetSpawned: { tick: number; t: number; targetId: number; kind: TargetKind; pos: Vec3; tags: readonly string[] };
@@ -234,7 +294,6 @@ export interface SimEvents {
   targetExpired: { tick: number; t: number; targetId: number; kind: TargetKind };
   /** A level-placed target came back after a kill. Also announced by `targetSpawned`. */
   targetRespawned: { tick: number; targetId: number };
-
   /** Aim ray entered (`on`) or left the padded hit volume of a visible target (edge events). */
   aimOnTarget: { tick: number; on: boolean; id: number };
   /** Vertical angle (radians) between the aim ray and head-centre height, sampled while moving with no enemy visible. */
@@ -244,7 +303,22 @@ export interface SimEvents {
   playerJumped: { tick: number };
   playerLanded: { tick: number; impactSpeed: number };
   footstep: { tick: number; crouching: boolean; walking: boolean };
+  /** A reload began (manual, or automatic on an empty magazine). */
+  reloadStarted: { tick: number; weapon: WeaponId; durationSec: number };
+  reloadCompleted: { tick: number; weapon: WeaponId; ammo: number; reserve: number };
+  /** A reload was cancelled by a weapon swap; the magazine keeps what it had. */
+  reloadCancelled: { tick: number; weapon: WeaponId };
+  /** A swap began; the weapon can fire after `equipSec`. */
+  weaponSwitched: { tick: number; weapon: WeaponId; slot: number; equipSec: number };
 }
 
 /** Everything the simulation and the run machinery put on the bus. */
 export type RunAndSimEvents = SimEvents & RunEvents;
+
+/** Every SimEvents key, for loggers and tests. */
+export const SIM_EVENT_TYPES: readonly (keyof SimEvents)[] = [
+  'shotFired', 'shotImpact', 'targetSpawned', 'targetVisible', 'targetHit', 'targetKilled',
+  'targetExpired', 'targetRespawned', 'playerJumped', 'playerLanded', 'footstep',
+  'reloadStarted', 'reloadCompleted', 'reloadCancelled', 'weaponSwitched',
+  'aimOnTarget', 'headHeightSampled', 'playerStopped',
+];

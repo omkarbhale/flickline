@@ -86,7 +86,7 @@ export class TargetField {
   private nextId = 0;
   private readonly zoneHit: ZoneHit = createZoneHit();
 
-  constructor(private readonly tunables: Tunables) {
+  constructor(readonly tunables: Tunables) {
     for (let i = 0; i < tunables.targets.maxTargets; i++) this.slots.push(createSlot());
   }
 

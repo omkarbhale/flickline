@@ -2,12 +2,10 @@ import type { EventSink } from '../core/eventBus';
 import { DEG2RAD } from '../core/math';
 import { secondsToTicks, TICK_DT } from '../core/time';
 import { directionFromAngles, vec3 } from '../core/vec3';
-import type { MovementTunables } from '../config/movement';
 import type { Tunables } from '../config/tunables';
-import type { WeaponTunables } from '../config/weapon';
 import { createZoneHit } from './hitZones';
 import type { TargetField } from './targets';
-import type { PlayerState, SimEvents, TickInput } from './types';
+import type { PlayerState, SimEvents, TickInput, WeaponState } from './types';
 
 /**
  * Measurement facts the stat definitions need that no other system produces: when the aim ray
@@ -40,17 +38,13 @@ export function resetProbe(p: ProbeState): void {
 }
 
 /**
- * Horizontal speed at or below which a shot is accurate: `deadzone_fraction` x the equipped
- * weapon's run speed (spec §2.4; 0.275, sniper 0.15).
+ * Horizontal speed at or below which a shot is accurate for the equipped weapon: its
+ * `deadzoneFraction` x `runSpeedMps` (spec §2.4; 0.275 for the first weapons, sniper 0.15). The
+ * moving-shot flag itself is set by the weapon at fire time (`isMovingShot` in `weaponModel.ts`).
  */
-export function accuracyThreshold(wt: WeaponTunables, mt: MovementTunables): number {
-  return (wt.sniper ? mt.deadzoneFractionSniper : mt.deadzoneFraction) * wt.runSpeed;
-}
-
-/** The moving-shot flag, evaluated at fire time. Strictly above the threshold, or airborne. */
-export function isMovingShot(p: PlayerState, wt: WeaponTunables, mt: MovementTunables): boolean {
-  if (!p.grounded) return true;
-  return Math.hypot(p.vel.x, p.vel.z) > accuracyThreshold(wt, mt);
+export function accuracyThreshold(w: WeaponState, t: Tunables): number {
+  const def = t.weapon[w.slots[w.active]!.id];
+  return def.deadzoneFraction * def.runSpeedMps;
 }
 
 const dir = vec3();
@@ -84,6 +78,7 @@ function aimedTarget(
 export function stepRunProbe(
   s: ProbeState,
   p: PlayerState,
+  w: WeaponState,
   field: TargetField,
   input: TickInput,
   t: Tunables,
@@ -93,7 +88,7 @@ export function stepRunProbe(
   const ox = p.pos.x, oy = p.pos.y + p.eyeHeight, oz = p.pos.z;
   directionFromAngles(dir, p.yaw, p.pitch);
   const speed = Math.hypot(p.vel.x, p.vel.z);
-  const thr = accuracyThreshold(t.weapon, t.movement);
+  const thr = accuracyThreshold(w, t);
 
   let anyVisible = false;
   const slots = field.slots;

@@ -262,7 +262,7 @@ function recordStream(ticks: number, seed: number): TickInput[] {
   for (let i = 0; i < ticks; i++) {
     if (i < READY + 150) {
       // Stand still, straight at the first target (it is hit in `live`): guaranteed hits and a kill.
-      out.push({ moveX: 0, moveZ: 0, yaw: 0, pitch: Math.atan2(1.5 - 1.62, 20), jump: false, crouch: false, walk: false, fire: true });
+      out.push({ moveX: 0, moveZ: 0, yaw: 0, pitch: Math.atan2(1.5 - 1.62, 20), jump: false, crouch: false, walk: false, fire: true, reload: false, switchTo: -1 });
       continue;
     }
     if (i % 40 === 0) {
@@ -277,6 +277,8 @@ function recordStream(ticks: number, seed: number): TickInput[] {
       crouch: i % 301 > 280,
       walk: false,
       fire: i % 29 < 12,
+      reload: false,
+      switchTo: -1,
     });
   }
   return out;

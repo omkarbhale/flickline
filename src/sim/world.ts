@@ -7,7 +7,15 @@ import type { BehaviourContext } from './fsm';
 import { TargetField, type SpawnOptions } from './targets';
 import { levelTargetsReset } from './targetsInit';
 import { createProbeState, resetProbe, stepRunProbe, type ProbeState } from './runProbe';
-import { createTraceResult, stepWeapon, type TraceResult } from './weapon';
+import type { WeaponId } from '../config/weapon';
+import {
+  createWeaponScratch,
+  createWeaponState,
+  resetWeaponState,
+  stepWeapon,
+  type WeaponScratch,
+  type WeaponWorld,
+} from './weapon';
 import { stepPlayer } from './movement';
 import type { LevelDef, PlayerState, SimEvents, TargetKind, TargetState, TickInput, WeaponState } from './types';
 
@@ -17,6 +25,8 @@ export interface WorldOptions {
   level: LevelDef;
   tunables: Tunables;
   seed?: number;
+  /** Weapons by slot (primary, sidearm). Default: `tunables.weaponRules.defaultLoadout`. */
+  loadout?: WeaponId[];
 }
 
 /**
@@ -35,14 +45,16 @@ export class World {
   readonly targetField: TargetField;
   /** Registry slots: fixed capacity, a slot holds a target when `alive`. Same array as the field's. */
   readonly targets: TargetState[];
-  readonly weapon: WeaponState = { cooldown: 0, shots: 0, lastShotTick: -1, burstIndex: 0 };
+  readonly loadout: readonly WeaponId[];
+  readonly weapon: WeaponState;
   /**
    * Whether targets and the weapon are live. The run controller clears it during `ready` (movement
-   * only) and sets it when the run goes `live`; free play (no run) keeps it true.
+   * only) and sets it when a self-driven run goes `live`; free play and mode runs keep it true.
    */
   live = true;
   readonly probe: ProbeState = createProbeState();
-  private readonly trace: TraceResult = createTraceResult();
+  private readonly weaponWorld: WeaponWorld;
+  private readonly weaponScratch: WeaponScratch = createWeaponScratch();
   /** Reused every tick for target behaviours (`events` is swapped in per step). */
   private readonly behaviourCtx: BehaviourContext;
 
@@ -54,6 +66,15 @@ export class World {
     this.targetField = new TargetField(opts.tunables);
     this.targets = this.targetField.slots;
     this.behaviourCtx = { tick: 0, rng: this.rng, tunables: opts.tunables, events: NULL_SINK };
+    this.loadout = [...(opts.loadout ?? opts.tunables.weaponRules.defaultLoadout)];
+    this.weapon = createWeaponState(this.loadout, opts.tunables.weapon);
+    this.weaponWorld = {
+      boxes: this.level.boxes,
+      field: this.targetField,
+      table: opts.tunables.weapon,
+      rules: opts.tunables.weaponRules,
+      rng: this.rng,
+    };
     const m = opts.tunables.movement;
     this.player = {
       pos: vec3(),
@@ -88,10 +109,7 @@ export class World {
     p.height = m.standHeight;
     p.eyeHeight = p.prevEyeHeight = m.standEyeHeight;
     p.stepAccum = 0;
-    this.weapon.cooldown = 0;
-    this.weapon.shots = 0;
-    this.weapon.lastShotTick = -1;
-    this.weapon.burstIndex = 0;
+    resetWeaponState(this.weapon, this.loadout, this.tunables.weapon);
     this.live = true;
     resetProbe(this.probe);
     this.behaviourCtx.tick = 0;
@@ -104,19 +122,17 @@ export class World {
     this.tick++;
     const t = this.tunables;
     stepPlayer(this.player, input, this.level.boxes, t.movement, TICK_DT, this.tick, events);
-    if (this.live) this.targetField.updateVisibility(this.player, this.level.boxes, this.tick, events);
-    stepWeapon(
-      this.weapon, input.fire && this.live, this.player, this.level.boxes, this.targetField,
-      t.weapon, t.targets, t.movement, this.tick, events, this.trace,
-    );
     if (!this.live) return;
+    this.targetField.updateVisibility(this.player, this.level.boxes, this.tick, events);
+    stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, events, this.weaponScratch);
     this.stepTargets(events);
-    stepRunProbe(this.probe, this.player, this.targetField, input, t, this.tick, events);
+    stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events);
   }
 
   /**
-   * The run went `live`: announce every living target (`targetSpawned`) so the stat tracker opens
-   * its engagements, forget earlier sightings, and start measuring from a clean probe state.
+   * A self-driven run went `live`: announce every living target (`targetSpawned`) so the stat
+   * tracker opens its engagements, forget earlier sightings, and start measuring from a clean
+   * probe state.
    */
   beginLive(events: EventSink<SimEvents>): void {
     this.live = true;
@@ -173,7 +189,12 @@ export class World {
     mix(p.vel.x); mix(p.vel.y); mix(p.vel.z);
     mix(p.yaw); mix(p.pitch);
     mix(p.grounded ? 1 : 0); mix(p.crouching ? 1 : 0); mix(p.eyeHeight);
-    mix(this.weapon.shots);
+    const w = this.weapon;
+    mix(w.shots); mix(w.active); mix(w.cooldown); mix(w.equipLeft); mix(w.reloadLeft);
+    mix(w.sprayCount); mix(w.recoilIndex); mix(w.recoilPitch); mix(w.recoilYaw); mix(w.yawSign);
+    for (let i = 0; i < w.slots.length; i++) {
+      mix(w.slots[i]!.mag); mix(w.slots[i]!.reserve);
+    }
     this.targetField.hashInto(mix);
     mix(this.rng.getState());
     return h >>> 0;

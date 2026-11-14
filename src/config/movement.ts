@@ -26,13 +26,6 @@ export interface MovementTunables {
   maxPitchDeg: number;
   /** Distance walked between footstep events, metres. */
   footstepStride: number;
-  /**
-   * Accuracy deadzone as a fraction of the equipped weapon's run speed: at or below it a moving
-   * shot has no movement penalty (spec §2.4, `move.deadzone_fraction`).
-   */
-  deadzoneFraction: number;
-  /** Same for sniper-class weapons (spec §2.4, `move.deadzone_fraction_sniper`). */
-  deadzoneFractionSniper: number;
 }
 
 export const movement: MovementTunables = {
@@ -51,6 +44,4 @@ export const movement: MovementTunables = {
   jumpSpeed: 6,
   maxPitchDeg: 89,
   footstepStride: 2.2,
-  deadzoneFraction: 0.275,
-  deadzoneFractionSniper: 0.15,
 };

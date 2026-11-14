@@ -68,7 +68,6 @@ export function nearestAimTarget(
   yaw: number, pitch: number,
   dx: number, dy: number, dz: number,
   field: TargetField,
-  tt: TargetTunables,
   out: AimInfo,
 ): AimInfo {
   out.targetId = -1;
@@ -76,6 +75,7 @@ export function nearestAimTarget(
   out.dYaw = 0;
   out.dPitch = 0;
   const slots = field.slots;
+  const tt = field.tunables.targets;
   for (let i = 0; i < slots.length; i++) {
     const t = slots[i]!;
     if (!t.alive || t.visibleTick < 0) continue;

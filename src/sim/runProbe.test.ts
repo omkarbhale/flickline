@@ -4,7 +4,7 @@ import { EventBus } from '../core/eventBus';
 import { DEG2RAD } from '../core/math';
 import { TICK_DT, TICK_RATE } from '../core/time';
 import { vec3 } from '../core/vec3';
-import { accuracyThreshold, isMovingShot } from './runProbe';
+import { accuracyThreshold } from './runProbe';
 import type { RunEvents } from './runEvents';
 import { createTickInput, type LevelDef, type RunAndSimEvents, type SimEvents, type TickInput } from './types';
 import { World } from './world';
@@ -41,32 +41,18 @@ function setup(lv: LevelDef = level()) {
   return { world, bus, run, of, seen, input };
 }
 
-describe('moving-shot flag (spec §2.4)', () => {
+describe('accuracy threshold and the moving-shot flag (spec §2.4)', () => {
   const t = cloneTunables();
-  const player = (speed: number, grounded = true) => ({ vel: vec3(speed, 0, 0), grounded }) as never;
 
-  it('threshold = deadzone_fraction x equipped weapon run speed (0.275 x 5.4; sniper 0.15)', () => {
-    expect(accuracyThreshold(t.weapon, t.movement)).toBeCloseTo(0.275 * 5.4, 9);
-    expect(accuracyThreshold({ ...t.weapon, sniper: true, runSpeed: 5.13 }, t.movement)).toBeCloseTo(0.15 * 5.13, 9);
+  it('threshold = the equipped weapon\'s deadzoneFraction x runSpeedMps (0.275 x 5.4 for Kestrel)', () => {
+    const w = new World({ level: level(), tunables: t, seed: 1 }).weapon;
+    const def = t.weapon[w.slots[w.active]!.id];
+    expect(def.deadzoneFraction).toBeCloseTo(0.275, 9);
+    expect(accuracyThreshold(w, t)).toBeCloseTo(def.deadzoneFraction * def.runSpeedMps, 9);
     // the fraction comes from the tunables, not from code
-    const m = { ...t.movement, deadzoneFraction: 0.5 };
-    expect(accuracyThreshold(t.weapon, m)).toBeCloseTo(2.7, 9);
-  });
-
-  it('is exactly at the threshold accurate; just above is moving; airborne is always moving', () => {
-    const thr = accuracyThreshold(t.weapon, t.movement);
-    expect(isMovingShot(player(thr), t.weapon, t.movement)).toBe(false);
-    expect(isMovingShot(player(thr + 1e-6), t.weapon, t.movement)).toBe(true);
-    expect(isMovingShot(player(0), t.weapon, t.movement)).toBe(false);
-    expect(isMovingShot(player(0, false), t.weapon, t.movement)).toBe(true);
-  });
-
-  it('uses horizontal speed only, and the sniper threshold for sniper weapons', () => {
-    const w = { ...t.weapon, sniper: true, runSpeed: 5.13 };
-    const thr = accuracyThreshold(w, t.movement);
-    expect(isMovingShot({ vel: vec3(0, 9, 0), grounded: true } as never, w, t.movement)).toBe(false);
-    expect(isMovingShot(player(thr + 0.01), w, t.movement)).toBe(true);
-    expect(isMovingShot(player(thr + 0.01), t.weapon, t.movement)).toBe(false); // would be fine for a rifle
+    const t2 = cloneTunables();
+    t2.weapon[w.slots[w.active]!.id].deadzoneFraction = 0.5;
+    expect(accuracyThreshold(w, t2)).toBeCloseTo(0.5 * def.runSpeedMps, 9);
   });
 
   it('is set on shotFired at fire time from the live movement state', () => {
@@ -191,7 +177,7 @@ describe('playerStopped (stop latency)', () => {
     expect(ms).toBeGreaterThan(0);
     expect(ms).toBeLessThan(150);
     expect(ms / (TICK_DT * 1000)).toBeCloseTo(Math.round(ms / (TICK_DT * 1000)), 6); // whole ticks
-    expect(Math.hypot(world.player.vel.x, world.player.vel.z)).toBeLessThanOrEqual(accuracyThreshold(world.tunables.weapon, world.tunables.movement));
+    expect(Math.hypot(world.player.vel.x, world.player.vel.z)).toBeLessThanOrEqual(accuracyThreshold(world.weapon, world.tunables));
   });
 
   it('a counter-strafe press starts the clock too', () => {
