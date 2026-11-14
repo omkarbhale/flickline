@@ -33,8 +33,11 @@ export interface QualityPreset {
 
 export interface RenderTunables {
   quality: Record<QualityLevel, QualityPreset>;
-  /** Soft budgets shown red in the debug overlay when exceeded. */
-  budget: { frameMs: number; drawCalls: number; triangles: number; tickMs: number };
+  /**
+   * Soft budgets shown red in the debug overlay when exceeded. `enemyTick`: what `count` humanoid
+   * Echoes playing through the shared body (#87) may add to one sim tick, ms (the perf harness measures it).
+   */
+  budget: { frameMs: number; drawCalls: number; triangles: number; tickMs: number; enemyTick: { count: number; ms: number } };
   fogNear: number;
   fogFar: number;
   /**
@@ -61,7 +64,7 @@ export const render: RenderTunables = {
     medium: { pixelRatioCap: 1.5, antialias: true, post: { bloom: true, blur: false, vignette: false, chromatic: false }, maxAnisotropy: 4, gridDetail: 1, skyGlow: true, echoOutline: false },
     high: { pixelRatioCap: 2, antialias: true, post: { bloom: true, blur: true, vignette: true, chromatic: true }, maxAnisotropy: 8, gridDetail: 2, skyGlow: true, echoOutline: true },
   },
-  budget: { frameMs: 1000 / 144, drawCalls: 150, triangles: 500_000, tickMs: 0.5 },
+  budget: { frameMs: 1000 / 144, drawCalls: 150, triangles: 500_000, tickMs: 0.5, enemyTick: { count: 8, ms: 0.1 } },
   fogNear: 30,
   fogFar: 110,
   light: { ambient: 0.55, sun: 0.45, dir: [0.45, 0.8, 0.3], objectAmbient: 1.6, objectSun: 2.2 },

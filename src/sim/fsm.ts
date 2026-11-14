@@ -65,6 +65,14 @@ export interface Behaviour {
   readonly states: readonly BehaviourState[];
   /** State id entered by `fsmStart`. */
   readonly initial: number;
+  /**
+   * The behaviour plays through the shared body (#87, `sim/enemyBody.ts`): its states write
+   * `t.body.cmd`, and the target registry steps the body through the player's movement and weapon
+   * code right after the FSM, every tick. Absent: the behaviour moves `t.pos` itself.
+   */
+  readonly drivesBody?: boolean;
+  /** Called after the body stepped: read the moved body back into the behaviour's own state. */
+  readonly bodyMoved?: (t: TargetState) => void;
 }
 
 export function createFsm(): FsmState {

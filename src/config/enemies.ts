@@ -6,7 +6,10 @@
  * Units: metres, seconds, m/s, m/s^2.
  */
 
-/** Strafer motion (design §5.2, spec §2.3 braking, spec §5.3 leg and stand-still ranges). */
+/**
+ * Strafer motion (design §5.2, spec §5.3 leg and stand-still ranges). Its acceleration and braking
+ * are not here: a Strafer moves through the player's movement (`config/movement.ts`, #87).
+ */
 export interface StraferTunables {
   /**
    * Shortest strafe leg (design §5.2, #130: 0.35-1.0 s; spec §5.3 had 0.3). A leg is drawn from
@@ -15,18 +18,6 @@ export interface StraferTunables {
   legMinSec: number;
   /** Shortest stand-still window; the dial's value (0.4 s at dial 0, 0.25 s at dial 100) is the longest. */
   standMinSec: number;
-  /** Seconds from rest to the cruise speed (spec §9 Q3 default: 0.20 s). */
-  accelSec: number;
-  /**
-   * Braking (spec §2.3): constant deceleration in two bands, 39 m/s^2 down to the accuracy
-   * deadzone and 24 m/s^2 below it, for a runner at `brakeRefSpeed`; both scale with the speed the
-   * leg ran at so the stop takes about 0.16 s at every strafe speed (the same stop time at any speed).
-   */
-  brakeHigh: number;
-  brakeLow: number;
-  brakeRefSpeed: number;
-  /** Where the bands meet, as a fraction of the cruise speed (spec §2.4 deadzone, 0.275). */
-  brakeBandFraction: number;
   /** Chance a stand-still ends with the opposite direction (the seeded coin). */
   reverseChance: number;
   /** A strafer never starts a leg with less than this much lane ahead of it: it turns round instead. */
@@ -152,11 +143,6 @@ export const enemies: EnemiesTunables = {
   strafer: {
     legMinSec: 0.35,
     standMinSec: 0.25,
-    accelSec: 0.2,
-    brakeHigh: 39,
-    brakeLow: 24,
-    brakeRefSpeed: 5.4,
-    brakeBandFraction: 0.275,
     reverseChance: 0.5,
     minLegRoomM: 0.6,
     freeHalfRangeM: 4,
