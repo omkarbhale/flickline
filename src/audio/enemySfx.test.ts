@@ -103,7 +103,7 @@ describe('attachEnemySfx', () => {
 
   it('plays the damage thud, centred in the head', () => {
     const { bus, calls } = setup();
-    bus.emit('playerDamaged', { tick: 1, t: 0, amount: 20, hp: 80, maxHp: 100, zone: 'body', dir: vec3(0, 0, -1), yaw: 0, sourceId: 7, killed: false });
+    bus.emit('playerDamaged', { tick: 1, t: 0, amount: 20, absorbed: 0, hp: 80, maxHp: 100, shield: 0, maxShield: 0, zone: 'body', dir: vec3(0, 0, -1), yaw: 0, sourceId: 7, killed: false });
     expect(calls).toMatchObject([{ cue: 'damageThud', at: null }]);
   });
 });
