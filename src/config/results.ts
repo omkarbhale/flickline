@@ -127,15 +127,16 @@ export const results: ResultsTunables = {
     coldOpen: 'Cold Open',
     planted: 'Planted',
     hairline: 'Hairline',
-    metronome: 'Metronome',
     pendulum: 'Pendulum',
     thread: 'Thread',
     quickStudy: 'Quick Study',
     cleanCorner: 'Clean Corner',
     untouched: 'Untouched',
     flawless: 'Flawless',
+    closer: 'Closer',
+    cashed: 'Cashed',
     ascent: 'Ascent',
-    // The 13th medal (a Daily Baseline that reports "Improved"): its criterion lives with the Baseline series (#151, #153).
+    // The 14th medal (a cold opener whose trend reports "Improved"): its criterion lives with the cold-opener series (#209, #151, #153).
     retained: 'Retained',
   },
   copy: {

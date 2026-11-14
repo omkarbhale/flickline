@@ -4,14 +4,14 @@ import { cloneHud, HUD_ELEMENTS, type HudElementId } from '../settings/hud';
 declare module '../debug/hook' {
   interface FlicklineDebug {
     /**
-     * Live HUD (design 7.2, 13.1): `state()` reads what is displayed (text per element), `pb()` installs a
-     * fake personal best (a straight line to `finalScore` over `durationSec`; `null` removes it, so the
-     * ghost-pace bar hides), `hp()` shows a health bar (`null` hides it), `show()` toggles an element and
+     * Live HUD (design 7.2, 13.1): `state()` reads what is displayed (text per element), `pace()` installs a
+     * fake pace against the best run (the live run's total and the best run's at the same sector; `null` removes it,
+     * so the pace bar hides), `hp()` shows a health bar (`null` hides it), `show()` toggles an element and
      * `scale()` sets the HUD scale (both through the real settings store).
      */
     readonly hud: {
       state(): unknown;
-      pb(curve: { finalScore: number; durationSec: number } | null): void;
+      pace(p: { score: number; reference: number } | null): void;
       hp(hp: number | null, max?: number): void;
       show(id: HudElementId, visible: boolean): void;
       scale(s: number): void;
@@ -34,8 +34,8 @@ export const feature = defineFeature({
           }
           return out;
         },
-        pb(curve) {
-          game.hud.live.setPersonalBest(curve ? { scoreAt: (_m, t) => (curve.finalScore * Math.min(t, curve.durationSec)) / curve.durationSec } : null);
+        pace(p) {
+          game.hud.live.setPace(p ? { pace: () => p } : null);
         },
         hp: (hp, max) => game.hud.live.setHp(hp, max),
         show(id, visible) {

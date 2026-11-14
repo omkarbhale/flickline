@@ -1,6 +1,7 @@
 import { defineFeature } from '../app/feature';
 import { MedalEngine, MEDAL_EVENT_TYPES } from '../feedback/medals';
 import type { MedalId } from '../config/medals';
+import { TICK_DT } from '../core/time';
 
 declare module '../debug/hook' {
   interface FlicklineDebug {
@@ -31,6 +32,18 @@ export const feature = defineFeature({
       },
       game.tunables.medals,
       game.tunables.targets.shotAtDeg,
+      game.tunables.sweep.finaleSector,
+      // What the sim knows of an Echo's motion (Hairline needs a moving one, Pendulum a strafing one).
+      {
+        speed(id) {
+          const t = game.world.targetField.byId(id);
+          return t === null ? 0 : Math.hypot(t.pos.x - t.prevPos.x, t.pos.z - t.prevPos.z) / TICK_DT;
+        },
+        strafing(id) {
+          const t = game.world.targetField.byId(id);
+          return t !== null && t.kind === 'strafer' && Math.abs(t.ai.vel) >= game.tunables.medals.movingEchoMps;
+        },
+      },
     );
 
     bus.on('runReady', (e) => {

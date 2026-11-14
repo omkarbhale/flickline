@@ -1,5 +1,5 @@
 /**
- * Persistence, rank and personal-best tunables (design §8.4, §14.5).
+ * Persistence, rank and run-record tunables (design §8.4, §14.5).
  */
 export interface DialBand {
   id: string;
@@ -14,22 +14,26 @@ export interface ProgressTunables {
   historyMax: number;
   /** Largest save the store writes or an import accepts, bytes of JSON; the history is trimmed to fit. */
   maxSaveBytes: number;
-  /** Modes remembered in `plays` / `bests` (a sanity cap for a hand-edited file). */
+  /** Modes remembered in `plays` / `drillBests` (a sanity cap for a hand-edited file). */
   maxModes: number;
-  /** Reserved lists (Daily Baseline records, reference check-ins): entries kept, so a hand-edited file cannot grow the save. */
-  maxBaselines: number;
+  /** Reserved lists (cold-opener records, reference check-ins): entries kept, so a hand-edited file cannot grow the save. */
+  maxColdOpeners: number;
   maxCheckins: number;
   /**
-   * Dial bands personal bests are kept per (design §8.4: Chalk/Brass, Steel/Cobalt, Neon, Prism/Zenith), so a best
+   * Dial bands run bests are kept per (design §8.4: Chalk/Brass, Steel/Cobalt, Neon, Prism/Zenith), so a best
    * at an easier band does not hide a harder band's. Boundaries are tier boundaries (tested).
    */
   bands: DialBand[];
-  /** Modes that never keep a personal best (the Placement run is a measurement, not a score to beat). */
-  noBestModes: string[];
-  /** Spacing of the stored score curve the ghost-pace bar reads, seconds (one sample per second keeps a 5:00 run at 301 numbers). */
-  curveStepSec: number;
-  /** Most curve samples stored per best (a sanity cap: 600 = ten minutes). */
-  curveMaxSamples: number;
+  /** Modes whose runs keep run bests, situation records and the pace bar (design §4: Sweep is the one game). Every other mode is a drill: history and counts only. */
+  runModes: string[];
+  /** Most route-strip tiles / pace points kept per run best (a sanity cap: the six sectors plus Overtime). */
+  maxStrip: number;
+  /** Daily Route bests kept, newest dates first to survive (design §4.8). */
+  maxDailyBests: number;
+  /** Contacts kept per scenario card for the situation records (design §8.4: the last 50). */
+  situationWindow: number;
+  /** Scenario cards remembered (design §4.4 names ten; a sanity cap for a hand-edited file). */
+  maxCards: number;
   /**
    * Rank buffer (design §8.4): the committed sub-tier moves only after the estimate has stayed across the
    * boundary for this many consecutive runs. Promotion is immediate (a rank-up is the reward and the bar moves
@@ -44,7 +48,7 @@ export const progress: ProgressTunables = {
   historyMax: 200,
   maxSaveBytes: 1_000_000,
   maxModes: 64,
-  maxBaselines: 400,
+  maxColdOpeners: 400,
   maxCheckins: 100,
   bands: [
     { id: 'chalkBrass', from: 0 },
@@ -52,9 +56,11 @@ export const progress: ProgressTunables = {
     { id: 'neon', from: 58 },
     { id: 'prismZenith', from: 72 },
   ],
-  noBestModes: ['placement'],
-  curveStepSec: 1,
-  curveMaxSamples: 600,
+  runModes: ['sweep'],
+  maxStrip: 24,
+  maxDailyBests: 60,
+  situationWindow: 50,
+  maxCards: 16,
   promoteAfterRuns: 1,
   demoteAfterRuns: 2,
 };

@@ -373,7 +373,7 @@ function ratingView(r: NonNullable<ResultsInput['rating']>, cfg: ResultsTunables
 
 /**
  * The personal-best line. A run sets a best when it scores above the old one (or there is none), mirroring
- * `beatsBest`; a run quit early is not recorded, so it never claims one. The first score on a board is a reward
+ * the run records (a new best is a higher score on its band); a run quit early is not recorded, so it never claims one. The first score on a board is a reward
  * moment of its own (design §7.3), so it says so instead of a dash (#175).
  */
 function pbView(input: ResultsInput, endReason: RunEndReason | null): Pick<CardModel, 'pbText' | 'pbTone' | 'pbKind' | 'pbLabel'> {
