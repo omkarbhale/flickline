@@ -1,6 +1,8 @@
 import { defineFeature } from '../app/feature';
 import { RAD2DEG } from '../core/math';
 import { Rng } from '../core/rng';
+import { STREAM_DECISIONS, STREAM_PERSONALITY, streamSeed } from '../core/rngStreams';
+import { createMindProfile, profileFor } from '../sim/mind/profile';
 import { TICK_DT } from '../core/time';
 import { memoryConfidence, PerceptionSystem, type Perceiver } from '../sim/perception';
 
@@ -71,7 +73,7 @@ export const feature = defineFeature({
     const sys = new PerceptionSystem(world.tunables, world.level.boxes, world.player, game.bus);
     sys.attach(game.bus);
     let nextId = 9000;
-    const halfLife = world.tunables.perception.memory.halfLifeSec;
+    const halfLife = world.tunables.mind.perception.memoryHalfLifeSec;
 
     game.onTick(() => {
       sys.setBoxes(world.level.boxes);
@@ -99,7 +101,8 @@ export const feature = defineFeature({
     game.addDebug({
       perceiverAdd(x, z, yawDeg, skill = 50) {
         const id = nextId++;
-        const p = sys.add(id, new Rng(id * 2654435761), skill);
+        const rng = new Rng(streamSeed(world.seed, id, STREAM_DECISIONS));
+        const p = sys.add(id, rng, profileFor(skill, new Rng(streamSeed(world.seed, id, STREAM_PERSONALITY)), createMindProfile(), world.tunables));
         if (p === null) return -1;
         p.eye.x = x; p.eye.y = world.tunables.movement.standEyeHeight; p.eye.z = z; p.yaw = yawDeg / RAD2DEG;
         return id;

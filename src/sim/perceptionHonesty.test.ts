@@ -4,6 +4,7 @@ import { EventBus } from '../core/eventBus';
 import { Rng } from '../core/rng';
 import { TICK_RATE } from '../core/time';
 import { vec3 } from '../core/vec3';
+import { createMindProfile, profileFor } from './mind/profile';
 import { PerceptionSystem, type Perceiver } from './perception';
 import { createTickInput, type LevelDef, type SimEvents, type TickInput } from './types';
 import { World } from './world';
@@ -68,7 +69,7 @@ function play(opts: {
   const perceivers: Perceiver[] = [];
   const seed = opts.seed ?? 40;
   for (let i = 0; i < n; i++) {
-    const p = sys.add(i + 1, new Rng(seed + i * 17), 20 + i * 20)!;
+    const p = sys.add(i + 1, new Rng(seed + i * 17), profileFor(20 + i * 20, new Rng(seed + i), createMindProfile(), tun))!;
     p.eye.x = xs[i]!; p.eye.y = 1.62; p.eye.z = 0; p.yaw = yaws[i]!;
     perceivers.push(p);
   }

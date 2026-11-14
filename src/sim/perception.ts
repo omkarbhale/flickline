@@ -1,5 +1,6 @@
 import type { EventSink, Subscribable } from '../core/eventBus';
 import { DEG2RAD } from '../core/math';
+import { lognormalTruncated } from '../core/dist';
 import { Rng } from '../core/rng';
 import { TICK_DT } from '../core/time';
 import { vec3, type Vec3 } from '../core/vec3';
@@ -8,7 +9,7 @@ import type { Tunables } from '../config/tunables';
 import { targetAimPoint, wrapPi, yawOf } from './aim';
 import type { PerceptionQueries } from './attribution';
 import type { Expectation } from './enemyTiming';
-import { normalDraw } from './enemyTiming';
+import type { MindProfile } from './mind/profile';
 import { lineClear } from './exposure';
 import type { BoxDef, PlayerState, SimEvents, TargetState } from './types';
 
@@ -27,7 +28,7 @@ import type { BoxDef, PlayerState, SimEvents, TargetState } from './types';
  *    (`attribution.soundRadiusM`), heard as a position estimate with an error by mind skill that
  *    shrinks while the sound keeps coming from the same place.
  *  - **Memory**: the last known position with its timestamp and a confidence that halves every
- *    `halfLifeSec` and is never refreshed without new perception; forgotten below a floor.
+ *    `mind.perception.memoryHalfLifeSec` and is never refreshed without new perception; forgotten below a floor.
  *  - **Shared sightings**: when one enemy sees the player the others learn it after a lognormal delay
  *    (median 0.8 s), standing in for a human callout.
  *  - **Expectation**: the attended sector and the predicted window, the contact class (`prepared`
@@ -95,8 +96,8 @@ export interface Perceiver {
   active: boolean;
   /** A dead enemy neither looks nor hears. The owner keeps it current. */
   alive: boolean;
-  /** Mind skill 0..100 (`setSkill`): sets the hearing error. */
-  skill: number;
+  /** The enemy's mind profile (#88): hearing error and radii by mind skill. Read live, never copied. */
+  profile: MindProfile;
   /** Eye position, written by the owner every tick it moves. */
   eye: Vec3;
   /** View yaw, radians; written by the owner. Sight is tested against it. */
@@ -128,8 +129,6 @@ export interface Perceiver {
   expect: Expected;
 
   // --- hearing ---------------------------------------------------------------------------
-  hearErrFloorM: number;
-  hearErrFrac: number;
   /** Multiplier on the next estimate's error: shrinks on repeats from the same place. */
   hearScale: number;
   lastHeardSec: number;
@@ -140,7 +139,7 @@ export interface Perceiver {
 
 function createPerceiver(): Perceiver {
   return {
-    id: -1, active: false, alive: true, skill: 0, eye: vec3(), yaw: 0, rng: new Rng(1),
+    id: -1, active: false, alive: true, profile: null as unknown as MindProfile, eye: vec3(), yaw: 0, rng: new Rng(1),
     sees: false, inAttention: false, seenSinceSec: -Infinity, lostSinceSec: -Infinity, visibleMask: 0, sightPoint: vec3(),
     contact: 'unaware', raysLast: 0, decisions: 0, nextDecisionSec: -1, lastShareSec: -Infinity,
     memory: { valid: false, source: 'sight', pos: vec3(), stampSec: 0, confidence0: 0, errM: 0 },
@@ -148,7 +147,7 @@ function createPerceiver(): Perceiver {
     expect: {
       active: false, fromMemory: false, yaw: 0, halfWidth: 0, dist: 0, confidence: 0, windowOpenSec: 0, windowCloseSec: 0,
     },
-    hearErrFloorM: 1, hearErrFrac: 0.25, hearScale: 1, lastHeardSec: -Infinity, lastHeardErrM: 0, lastHeard: vec3(), heardCount: 0,
+    hearScale: 1, lastHeardSec: -Infinity, lastHeardErrM: 0, lastHeard: vec3(), heardCount: 0,
   };
 }
 
@@ -167,18 +166,18 @@ declare module './types' {
   interface SimEvents extends PerceptionEvents {}
 }
 
-/** Lognormal draw with the given median and coefficient of variation (seconds). */
-export function lognormalDraw(rng: Rng, median: number, cv: number): number {
-  const sigma = Math.sqrt(Math.log(1 + cv * cv));
-  return median * Math.exp(sigma * normalDraw(rng));
+/** How far enemy profile `pr` hears a sound of this kind: `attribution.soundRadiusM` x `mind.hearing.radiusScale`. */
+function soundRadius(pr: MindProfile, kind: EnemySoundKind): number {
+  switch (kind) {
+    case 'footstep': return pr.hearFootstepM;
+    case 'landing': return pr.hearLandingM;
+    case 'reload': return pr.hearReloadM;
+    default: return pr.hearShotM;
+  }
 }
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
-}
-
-function lerp(pair: readonly [number, number], f: number): number {
-  return pair[0] + (pair[1] - pair[0]) * f;
 }
 
 /** Confidence of `m` at sim time `nowSec`: halves every `halfLifeSec`, 0 for an empty memory. */
@@ -231,7 +230,7 @@ export class PerceptionSystem {
     const p = tunables.perception;
     for (let i = 0; i < p.maxPerceivers; i++) this.pool.push(createPerceiver());
     this.halfFov = (tunables.view.hfovDeg * DEG2RAD) / 2;
-    this.attentionHalf = p.attentionHalfDeg * DEG2RAD;
+    this.attentionHalf = tunables.mind.perception.attentionHalfAngleDeg * DEG2RAD;
     this.minHalf = p.expectation.minHalfWidthDeg * DEG2RAD;
     this.maxHalf = p.expectation.maxHalfWidthDeg * DEG2RAD;
     this.maxRays = Math.min(4, p.maxRaysPerDecision);
@@ -260,21 +259,20 @@ export class PerceptionSystem {
   }
 
   /**
-   * Give enemy `id` a perceiver. `rng` is the enemy's own perception stream (#86); `skill` is its mind
-   * skill 0..100. Returns null when the pool is full. The owner then keeps `eye`, `yaw` and `alive` current.
+   * Give enemy `id` a perceiver. `rng` is the enemy's own stream (`TargetState.streams.decisions`, #86);
+   * `profile` its mind profile (#88). Returns null when the pool is full. The owner then keeps `eye`, `yaw` and `alive` current.
    */
-  add(id: number, rng: Rng, skill = 50): Perceiver | null {
+  add(id: number, rng: Rng, profile: MindProfile): Perceiver | null {
     for (let i = 0; i < this.pool.length; i++) {
       const p = this.pool[i]!;
       if (p.active) continue;
-      p.id = id; p.active = true; p.alive = true; p.rng = rng;
+      p.id = id; p.active = true; p.alive = true; p.rng = rng; p.profile = profile;
       p.yaw = 0; p.eye.x = 0; p.eye.y = 0; p.eye.z = 0;
       p.sees = false; p.inAttention = false; p.seenSinceSec = -Infinity; p.lostSinceSec = -Infinity;
       p.visibleMask = 0; p.contact = 'unaware'; p.raysLast = 0; p.decisions = 0;
       p.nextDecisionSec = -1; p.lastShareSec = -Infinity;
       p.memory.valid = false; p.sector.active = false; p.expect.active = false;
       p.hearScale = 1; p.lastHeardSec = -Infinity; p.heardCount = 0;
-      this.setSkill(p, skill);
       return p;
     }
     return null;
@@ -315,15 +313,6 @@ export class PerceptionSystem {
     return p !== undefined && p.alive && p.sees;
   }
 
-  /** Mind skill 0..100: sets the hearing error between the lowest and the top anchor (§5.3). */
-  setSkill(p: Perceiver, skill: number): void {
-    const h = this.tunables.perception.hearing;
-    const f = clamp(skill, 0, 100) / 100;
-    p.skill = skill;
-    p.hearErrFloorM = lerp(h.errFloorM, f);
-    p.hearErrFrac = lerp(h.errFrac, f);
-  }
-
   /** Put the enemy's eye where the enemy's body has its head (`aim.ts` head centre) and set its view yaw. */
   setViewFromTarget(p: Perceiver, t: TargetState, yaw: number): void {
     targetAimPoint(t, this.tunables.targets, p.eye);
@@ -357,7 +346,7 @@ export class PerceptionSystem {
 
   /** Confidence of the enemy's memory at `nowSec`, 0 when it has none. */
   confidenceAt(p: Perceiver, nowSec: number): number {
-    return memoryConfidence(p.memory, nowSec, this.tunables.perception.memory.halfLifeSec);
+    return memoryConfidence(p.memory, nowSec, this.tunables.mind.perception.memoryHalfLifeSec);
   }
 
   // --- hearing ------------------------------------------------------------------------------
@@ -384,17 +373,17 @@ export class PerceptionSystem {
    */
   hear(kind: EnemySoundKind, tick: number): void {
     const tun = this.tunables.perception;
-    const radius = this.tunables.attribution.soundRadiusM[kind];
     const now = tick * TICK_DT;
     const pl = this.player.pos;
     const conf = tun.confidence[kind];
     for (let i = 0; i < this.pool.length; i++) {
       const p = this.pool[i]!;
       if (!p.active || !p.alive) continue;
+      const radius = soundRadius(p.profile, kind);
       const dx = pl.x - p.eye.x, dz = pl.z - p.eye.z;
       const d = Math.sqrt(dx * dx + dz * dz);
       if (d > radius) continue;
-      const err = Math.max(p.hearErrFloorM, p.hearErrFrac * d) * p.hearScale;
+      const err = Math.max(p.profile.hearErrorFloorM, p.profile.hearErrorFrac * d) * p.hearScale;
       const a = p.rng.next() * Math.PI * 2;
       const r = err * Math.sqrt(p.rng.next());
       const ex = pl.x + Math.cos(a) * r, ez = pl.z + Math.sin(a) * r;
@@ -425,15 +414,14 @@ export class PerceptionSystem {
     const now = tick * TICK_DT;
     this.deliverShares(tick, now);
     const dec = this.tunables.perception;
+    const mp = this.tunables.mind.perception;
     for (let i = 0; i < this.pool.length; i++) {
       const p = this.pool[i]!;
       if (!p.active) continue;
-      if (p.nextDecisionSec < 0) { p.nextDecisionSec = now + p.rng.next() * dec.decisionMedianSec; continue; }
+      if (p.nextDecisionSec < 0) { p.nextDecisionSec = now + p.rng.next() * mp.decisionIntervalMedianSec; continue; }
       if (now < p.nextDecisionSec) continue;
       this.decide(p, tick, now);
-      p.nextDecisionSec = now + clamp(
-        lognormalDraw(p.rng, dec.decisionMedianSec, dec.decisionCv), dec.decisionMinSec, dec.decisionMaxSec,
-      );
+      p.nextDecisionSec = now + lognormalTruncated(p.rng, mp.decisionIntervalMedianSec, mp.decisionIntervalCv, dec.decisionMinSec, dec.decisionMaxSec);
     }
   }
 
@@ -522,7 +510,7 @@ export class PerceptionSystem {
     p: Perceiver, x: number, y: number, z: number, stampSec: number, conf0: number, errM: number,
     source: MemorySource, nowSec: number,
   ): boolean {
-    const half = this.tunables.perception.memory.halfLifeSec;
+    const half = this.tunables.mind.perception.memoryHalfLifeSec;
     const m = p.memory;
     const incoming = conf0 * Math.pow(0.5, Math.max(0, nowSec - stampSec) / half);
     if (m.valid && incoming < memoryConfidence(m, nowSec, half)) return false;
@@ -537,13 +525,14 @@ export class PerceptionSystem {
   /** `p` saw the player at `now`: queue a callout to every other living enemy, each after its own lognormal delay. */
   private shareSighting(p: Perceiver, now: number): void {
     const sh = this.tunables.perception.share;
+    const mp = this.tunables.mind.perception;
     const pl = this.player.pos;
     for (let i = 0; i < this.pool.length; i++) {
       const q = this.pool[i]!;
       if (!q.active || !q.alive || q === p) continue;
       if (this.shareCount >= this.shareTo.length) return;
       const n = this.shareCount++;
-      const delay = clamp(lognormalDraw(this.shareRng, sh.delayMedianSec, sh.delayCv), sh.delayMinSec, sh.delayMaxSec);
+      const delay = lognormalTruncated(this.shareRng, mp.shareDelayMedianSec, mp.shareDelayCv, sh.delayMinSec, sh.delayMaxSec);
       this.shareTo[n] = q.id; this.shareFrom[n] = p.id;
       this.shareDue[n] = now + delay; this.shareSeen[n] = now;
       this.shareX[n] = pl.x; this.shareY[n] = pl.y; this.shareZ[n] = pl.z;
@@ -596,7 +585,7 @@ export class PerceptionSystem {
       e.yaw = yawOf(dx, dz);
       e.halfWidth = clamp(Math.atan2(m.errM + ex.driftMps * age, Math.max(d, 0.5)), this.minHalf, this.maxHalf);
       e.dist = d;
-      e.confidence = memoryConfidence(m, now, tun.memory.halfLifeSec);
+      e.confidence = memoryConfidence(m, now, this.tunables.mind.perception.memoryHalfLifeSec);
       e.windowOpenSec = m.stampSec;
       e.windowCloseSec = m.stampSec + Math.max(ex.windowSec, d / ex.assumedSpeedMps + ex.windowSec / 2);
     } else if (p.sector.active) {

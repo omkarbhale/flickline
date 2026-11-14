@@ -6,8 +6,9 @@ import { TICK_DT, TICK_RATE } from '../core/time';
 import { vec3 } from '../core/vec3';
 import { wrapPi, yawOf } from './aim';
 import { createStubEnemyWorld } from './enemyStub';
+import { createMindProfile, profileFor } from './mind/profile';
 import {
-  lognormalDraw, memoryConfidence, PerceptionSystem, SEEN_CHEST, SEEN_HEAD, SEEN_SHOULDER_L, SEEN_SHOULDER_R,
+  memoryConfidence, PerceptionSystem, SEEN_CHEST, SEEN_HEAD, SEEN_SHOULDER_L, SEEN_SHOULDER_R,
   type Perceiver,
 } from './perception';
 import type { BoxDef, PlayerState, SimEvents } from './types';
@@ -43,7 +44,7 @@ function rig(boxes: BoxDef[] = [], mutate?: (t: ReturnType<typeof cloneTunables>
 
 /** An enemy whose eye stands at (x, 1.62, z) looking along `yaw`. */
 function enemy(r: Rig, id: number, x: number, z: number, yaw: number, skill = 50, seed = id + 100): Perceiver {
-  const p = r.sys.add(id, new Rng(seed), skill)!;
+  const p = r.sys.add(id, new Rng(seed), profileFor(skill, new Rng(seed + 1), createMindProfile(), r.tun))!;
   p.eye.x = x; p.eye.y = 1.62; p.eye.z = z; p.yaw = yaw;
   return p;
 }
@@ -264,13 +265,16 @@ describe('hearing: the same events and radii as the player\'s hearing of enemies
     expect(ev[0]!.e.sound).toBe('shot');
   });
 
-  it('reads the very table the player\'s hearing reads: changing the radius changes who hears', () => {
-    const r = rig();
+  it('reads the very table the player\'s hearing reads (scaled by the mind): shrink the radius and who hears changes', () => {
+    const r = rig([], (t) => { t.mind.hearing.radiusScale.footstep = 0.5; });
+    const full = rig();
     enemy(r, 1, 0, 0, FACE_PLUS_Z);
-    place(r, 0, -25);
-    expect(heardAt(r, () => r.sys.hear('footstep', 1))).toBe(1);
-    (r.tun.attribution.soundRadiusM as Record<string, number>).footstep = 20;
-    expect(heardAt(r, () => r.sys.hear('footstep', 2))).toBe(0);
+    enemy(full, 1, 0, 0, FACE_PLUS_Z);
+    place(r, 0, -20);
+    place(full, 0, -20);
+    expect(full.tun.mind.hearing.radiusScale.footstep).toBe(1); // symmetric by default
+    expect(heardAt(full, () => full.sys.hear('footstep', 1))).toBe(1);
+    expect(heardAt(r, () => r.sys.hear('footstep', 1))).toBe(0); // 20 m > 30 m x 0.5
   });
 
   it('hearing goes through walls and ignores the field of view (sound is not sight)', () => {
@@ -284,7 +288,7 @@ describe('hearing: the same events and radii as the player\'s hearing of enemies
   it('the estimate is off by at most max(floor, frac x distance), more at range, less at higher skill', () => {
     const errAt = (skill: number, dist: number): { max: number; mean: number; bound: number } => {
       const r = rig();
-      enemy(r, 1, 0, 0, FACE_PLUS_Z, skill);
+      const pe = enemy(r, 1, 0, 0, FACE_PLUS_Z, skill);
       place(r, 0, -dist);
       let sum = 0, max = 0, n = 0;
       for (let i = 0; i < 400; i++) {
@@ -294,9 +298,7 @@ describe('hearing: the same events and radii as the player\'s hearing of enemies
         const d = Math.hypot(e.x - 0, e.z - -dist);
         sum += d; max = Math.max(max, d); n++;
       }
-      const t = r.tun.perception.hearing;
-      const f = skill / 100;
-      const bound = Math.max(t.errFloorM[0] + (t.errFloorM[1] - t.errFloorM[0]) * f, (t.errFrac[0] + (t.errFrac[1] - t.errFrac[0]) * f) * dist);
+      const bound = Math.max(pe.profile.hearErrorFloorM, pe.profile.hearErrorFrac * dist);
       return { max, mean: sum / n, bound };
     };
     for (const skill of [0, 35, 65, 100]) {
@@ -325,7 +327,7 @@ describe('hearing: the same events and radii as the player\'s hearing of enemies
       r.sys.hear('footstep', 1 + i * 64); // 0.5 s apart
       errs.push(of(r, 'perceiverHeard')[0]!.e.errorM as number);
     }
-    expect(errs[0]!).toBeCloseTo(Math.max(p.hearErrFloorM, p.hearErrFrac * 20), 9);
+    expect(errs[0]!).toBeCloseTo(Math.max(p.profile.hearErrorFloorM, p.profile.hearErrorFrac * 20), 9);
     for (let i = 1; i < errs.length; i++) expect(errs[i]!).toBeLessThanOrEqual(errs[i - 1]! + 1e-12);
     expect(errs[5]!).toBeCloseTo(errs[0]! * r.tun.perception.hearing.repeatMinScale, 9);
     place(r, 25, 10); // somewhere else entirely: the next error is back to the base
@@ -345,7 +347,7 @@ describe('hearing: the same events and radii as the player\'s hearing of enemies
     expect(p.memory.source).toBe('sound');
     expect(p.memory.confidence0).toBe(r.tun.perception.confidence.footstep);
     expect(p.memory.stampSec).toBeCloseTo(1, 9);
-    expect(Math.hypot(p.memory.pos.x - 4, p.memory.pos.z + 12)).toBeLessThanOrEqual(p.hearErrFloorM * 12 + 3);
+    expect(Math.hypot(p.memory.pos.x - 4, p.memory.pos.z + 12)).toBeLessThanOrEqual(p.profile.hearErrorFloorM * 12 + 3);
   });
 });
 
@@ -356,7 +358,7 @@ describe('memory', () => {
     r.sys.prime(p, 3, 0, -8, 0, 0, 1);
     const stamp = p.memory.stampSec;
     const c0 = p.memory.confidence0;
-    const half = r.tun.perception.memory.halfLifeSec;
+    const half = r.tun.mind.perception.memoryHalfLifeSec;
     expect(memoryConfidence(p.memory, stamp, half)).toBeCloseTo(c0, 12);
     expect(memoryConfidence(p.memory, stamp + 2, half)).toBeCloseTo(c0 / 2, 12);
     expect(memoryConfidence(p.memory, stamp + 4, half)).toBeCloseTo(c0 / 4, 12);
@@ -408,17 +410,6 @@ describe('memory', () => {
 });
 
 describe('shared sightings', () => {
-  it('lognormal delays: median 0.8 s, right-skewed', () => {
-    const rng = new Rng(7);
-    const xs: number[] = [];
-    for (let i = 0; i < 20000; i++) xs.push(lognormalDraw(rng, 0.8, 0.4));
-    xs.sort((a, b) => a - b);
-    expect(xs[10000]!).toBeGreaterThan(0.78);
-    expect(xs[10000]!).toBeLessThan(0.82);
-    const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
-    expect(mean).toBeGreaterThan(xs[10000]!);
-  });
-
   it('a teammate learns where the player was seen after the callout delay, with the sighting\'s time', () => {
     const delays: number[] = [];
     for (let seed = 1; seed <= 60; seed++) {
