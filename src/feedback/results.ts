@@ -151,6 +151,8 @@ export interface CardModel {
   route: RouteTileView[];
   /** Fights by situation (design §8.2 section 3): the scenario cards fought this run; empty without cards. */
   situations: SituationView[];
+  /** Sentences naming what the shield changed in a kill of this run (design §5.2, §4.6): the armour note and the eco note; usually empty. */
+  notes: string[];
   /** Null when the run does not move a rating (a plain run). */
   rating: RatingView | null;
   stats: StatCell[];
@@ -184,6 +186,8 @@ export interface ResultsInput {
   situationHistory?(card: string): { won: number; played: number } | null;
   /** The run was a clean run (default false). */
   clean?: boolean;
+  /** The armour and eco notes of the run (`feedback/armourNoteTracker.ts`). */
+  notes?: readonly string[];
   /** Whether the mode keeps personal bests at all (default true; the Placement run does not). */
   keepsBest?: boolean;
   /**
@@ -580,6 +584,7 @@ export function buildCard(rawInput: ResultsInput, cfg: ResultsTunables = default
         : { points: formatThousands(overtimePoints), state: reason === 'death' ? 'lost' : 'banked' },
     route: story ? story.sectors.map((t) => tileView(t, cfg)) : [],
     situations: story ? story.situations.map((r) => situationView(r, input.situationHistory, cfg)) : [],
+    notes: input.notes ? input.notes.slice() : [],
     rating: input.rating ? ratingView(input.rating, cfg) : null,
     stats: statCells(s, cfg),
     medals: Array.from(medals.values()),
@@ -625,6 +630,8 @@ export interface ResultsRecorderDeps {
   story?: { snapshot(): RunStory };
   /** The death cause line (#123) for the run that just ended, if the attribution engine has one. */
   deathCause?(): string | null;
+  /** The notes naming what the shield changed (`ArmourNoteTracker.notes`), read at `runEnded`. */
+  notes?(): readonly string[];
   /** The player's recent win rate per scenario card (#104 / #217), if the progress record has one. */
   situationHistory?(card: string): { won: number; played: number } | null;
 }
@@ -680,6 +687,7 @@ export class ResultsRecorder {
         medals: this.medals,
         story: this.deps.story?.snapshot(),
         deathCause: this.deps.deathCause?.() ?? null,
+        notes: this.deps.notes?.(),
         situationHistory: this.deps.situationHistory,
         clean: this.deps.isClean?.() === true,
         daily: this.daily,
