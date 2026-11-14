@@ -156,7 +156,7 @@ export class SettingsPanel {
       chDetails,
       hudDetails,
       h('h3', { class: 'set-group', text: 'Difficulty pin' }),
-      h('p', { class: 'note', text: 'Matched difficulty is the default. Pin a mode to hold it at one level, for fair comparisons and drills.' }),
+      h('p', { class: 'note', text: 'Matched difficulty is the default. Pin a mode to hold it at one level, for fair comparisons between runs.' }),
       this.pinsEl,
     );
     this.crosshair = new CrosshairEditor(q(chDetails, 'crosshair'), store);

@@ -29,7 +29,7 @@ describe('profile store', () => {
     const store = new ProfileStore(new EventBus<ProfileEvents>(), st);
     expect(store.get()).toEqual(DEFAULT_PROFILE);
     store.set({ selfReport: 'experienced', firstRunDone: true });
-    expect(JSON.parse(st.data[PROFILE_KEY]!)).toEqual({ selfReport: 'experienced', firstRunDone: true, runsCompleted: 0 });
+    expect(JSON.parse(st.data[PROFILE_KEY]!)).toEqual({ selfReport: 'experienced', firstRunDone: true, runsCompleted: 0, hintsSeen: [] });
     const again = new ProfileStore(new EventBus<ProfileEvents>(), st);
     expect(again.get().firstRunDone).toBe(true);
     expect(again.prior().mean).toBe(55);
@@ -39,6 +39,23 @@ describe('profile store', () => {
     expect(sanitizeProfile({ runsCompleted: -3 }).runsCompleted).toBe(0);
     expect(sanitizeProfile({ runsCompleted: 'many' }).runsCompleted).toBe(0);
     expect(sanitizeProfile({ runsCompleted: 1e12 }).runsCompleted).toBe(1_000_000);
+  });
+  it('keeps the hints already shown, known ids only, in a fixed order, and survives a reload', () => {
+    expect(sanitizeProfile({ hintsSeen: ['pickDoor', 'nonsense', 'stopToShoot', 'stopToShoot'] }).hintsSeen).toEqual(['stopToShoot', 'pickDoor']);
+    expect(sanitizeProfile({ hintsSeen: 'stopToShoot' }).hintsSeen).toEqual([]);
+    const st = memoryStorage();
+    new ProfileStore(new EventBus<ProfileEvents>(), st).set({ hintsSeen: ['walkQuiet'] });
+    expect(new ProfileStore(new EventBus<ProfileEvents>(), st).get().hintsSeen).toEqual(['walkQuiet']);
+  });
+  it('does not count an unchanged hint list as a change', () => {
+    const bus = new EventBus<ProfileEvents>();
+    const seen: string[][] = [];
+    bus.on('profileChanged', (e) => seen.push([...e.changed]));
+    const store = new ProfileStore(bus, memoryStorage());
+    store.set({ hintsSeen: ['stopToShoot'] });
+    store.set({ hintsSeen: ['stopToShoot'] });
+    store.set({ firstRunDone: true });
+    expect(seen).toEqual([['hintsSeen'], ['firstRunDone']]);
   });
   it('emits only when something changed', () => {
     const bus = new EventBus<ProfileEvents>();
