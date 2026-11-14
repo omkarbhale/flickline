@@ -2,10 +2,12 @@ import type { Game } from '../app/game';
 import { MODES } from '../app/modeHost';
 import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
 import type { CueId } from '../config/audio';
+import { ECHO_PRESET_IDS, type EchoPresetId } from '../config/palette';
 import type { RunStats } from '../feedback/statTracker';
 import type { RunState, StartRunOptions } from '../modes/runController';
 import type { RunEndReason } from '../modes/contracts';
 import type { WeaponId } from '../config/weapon';
+import type { ShowcaseItem } from '../render/targetsView';
 import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
 import { cloneHud, HUD_ELEMENTS, type HudElementId } from '../settings/hud';
 import type { Settings } from '../settings/settings';
@@ -106,6 +108,15 @@ export interface FlicklineDebug {
   crosshair(): unknown;
   /** Import a crosshair share code through the real parser; returns `{ok, error?}`. */
   setCrosshairCode(code: string): { ok: boolean; error?: string };
+  /** Enemy colour preset: ember, magenta, lime, amber or contrast. Returns false for an unknown id. */
+  echoPreset(id: EchoPresetId): boolean;
+  /**
+   * Draw display-only enemy props (`look`: echo | beacon | gnat) next to the real targets, for
+   * screenshots and the Gnat (no sim kind yet). `null` clears them. Returns how many were set.
+   */
+  echoShowcase(items: ShowcaseItem[] | null): number;
+  /** Pin the Echo clock (kill shards, Gnat spin) at `sec` seconds, or resume it with null. */
+  echoClock(sec: number | null): void;
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
   /** Run lifecycle (reset-only restart, event log, stats). Runs started by `mode.start` are mirrored here too. */
@@ -139,6 +150,18 @@ export interface FlicklineDebug {
     infiniteMagazine: boolean;
     infiniteReserve: boolean;
   };
+  /**
+   * The player takes `amount` HP to `zone` from a shooter `distance` m away at `bearingDeg`
+   * clockwise from where the player faces (0 ahead, 90 right, 180 behind): the damage arc, vignette,
+   * HP bar, tagging, flinch and the audio dip all run as for a real hit. Returns whether it killed.
+   */
+  hurt(amount: number, opts?: { zone?: HitZone; bearingDeg?: number; distance?: number; sourceId?: number }): boolean;
+  /** As `hurt`, with the damage taken from `weaponId`'s band for the zone at the distance (spec §3.2 / §7.4). */
+  hitBy(weaponId: string, opts?: { zone?: HitZone; bearingDeg?: number; distance?: number; sourceId?: number }): boolean;
+  /** HP, tagging and flinch state plus the damage view (arcs showing, redraws) and the last low-pass dip. */
+  health(): unknown;
+  /** Keep the HP bar visible at full health (modes with enemy fire). */
+  hpAlwaysVisible(v?: boolean): void;
   /** Live tunables object (mutate for experiments; not persisted). */
   readonly tunables: unknown;
   /** Mode framework: start/stop a mode run and read its state (`step()` advances it like any tick). */
@@ -311,6 +334,22 @@ export function installDebugHook(game: Game): FlicklineDebug {
       game.settings.set({ crosshair: res.params });
       return { ok: true };
     },
+    echoPreset(id) {
+      if (!(ECHO_PRESET_IDS as readonly string[]).includes(id)) return false;
+      game.renderer.setEchoPreset(id);
+      game.renderNow();
+      return true;
+    },
+    echoShowcase(items) {
+      const view = game.renderer.enemies;
+      if (view) view.showcase = items;
+      game.renderNow();
+      return items?.length ?? 0;
+    },
+    echoClock(sec) {
+      game.renderer.enemies?.setTime(sec);
+      game.renderNow();
+    },
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);
     },
@@ -356,6 +395,21 @@ export function installDebugHook(game: Game): FlicklineDebug {
       game.hud.refresh();
       return { infiniteMagazine: w.infiniteMagazine, infiniteReserve: w.infiniteReserve };
     },
+    hurt: (amount, o = {}) => game.hurt(amount, o.zone, o.bearingDeg, o.distance, o.sourceId),
+    hitBy: (weaponId, o = {}) => game.hitBy(weaponId as WeaponId, o.zone, o.bearingDeg, o.distance, o.sourceId),
+    health() {
+      const w = game.world;
+      return {
+        ...(game.snapshot() as { health: unknown }).health as object,
+        arcsShowing: game.damage.arcsShowing,
+        arcDraws: game.damage.draws,
+        dip: { ...game.audio.lastDip },
+        runPhase: game.run.state,
+        runEndReason: game.run.finalStats ? game.modes.runner.endReason : null,
+        tick: w.tick,
+      };
+    },
+    hpAlwaysVisible: (v = true) => game.damage.setHpAlwaysVisible(v),
     tunables: game.tunables,
     hud: {
       state() {

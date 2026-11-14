@@ -1,13 +1,17 @@
 import { audio, type AudioTunables } from './audio';
 import { feedback, type FeedbackTunables } from './feedback';
+import { damageFx, type DamageFxTunables } from './damageFx';
 import { dial, type DialTunables } from './dial';
 import { hud, type HudTunables } from './hud';
+import { echo, type EchoTunables } from './echo';
 import { modes, type ModeTunables } from './modes';
 import { movement, type MovementTunables } from './movement';
+import { player, type PlayerTunables } from './player';
 import { profile, type ProfileTunables } from './profile';
 import { render, type RenderTunables } from './render';
 import { run, type RunTunables } from './run';
 import { scoring, type ScoringTunables } from './scoring';
+import { sweep, type SweepTunables } from './sweep';
 import { targets, type TargetTunables } from './targets';
 import { view, type ViewTunables } from './view';
 import { weapon, weaponRules, type WeaponRules, type WeaponTable } from './weapon';
@@ -34,11 +38,20 @@ export interface Tunables {
   modes: ModeTunables;
   dial: DialTunables;
   hud: HudTunables;
+  echo: EchoTunables;
   run: RunTunables;
+  /** The player's health, tagging and flinch (spec §4). */
+  player: PlayerTunables;
+  /** Sweep rules the simulation needs: kill-heal (design §4.8). */
+  sweep: SweepTunables;
+  /** Damage-taken visuals (design §7.1). */
+  damageFx: DamageFxTunables;
 }
 
 /** Live, mutable instance. Only the debug hook and settings UI may mutate it at runtime. */
-export const tunables: Tunables = { movement, weapon, weaponRules, targets, view, render, audio, feedback, profile, dial, scoring, modes, run, hud };
+export const tunables: Tunables = {
+  movement, weapon, weaponRules, targets, view, render, audio, feedback, profile, dial, scoring, modes, run, player, sweep, damageFx, echo, hud,
+};
 
 /** Deep copy for tests and what-if runs (tunables are JSON-safe plain data). */
 export function cloneTunables(t: Tunables = tunables): Tunables {

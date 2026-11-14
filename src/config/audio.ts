@@ -197,6 +197,8 @@ export interface AudioTunables {
   ladder: LadderTunables;
   /** Hit and kill cues duck the `weapons` bus by `db` for `holdMs`, then release over `releaseMs`. */
   duck: { db: number; attackMs: number; holdMs: number; releaseMs: number };
+  /** Taking damage dips the master low-pass (design §7.1: "a 300 ms low-pass dip"): the cutoff drops to `hz` in `attackMs`, then returns to open over the rest of `durationMs`. */
+  damageDip: { hz: number; q: number; attackMs: number; durationMs: number };
   /** Master limiter: a static soft limiter (waveshaper): transparent below the threshold, saturating to just under 0 dBFS above it. No latency. */
   limiter: { thresholdDb: number };
   /** Shot sounds get this much random pitch and gain variation (fraction, +/-). */
@@ -226,6 +228,7 @@ export const audio: AudioTunables = {
     sparklePeakDb: -18,
   },
   duck: { db: -3, attackMs: 2, holdMs: 80, releaseMs: 40 },
+  damageDip: { hz: 900, q: 0.7, attackMs: 8, durationMs: 300 },
   limiter: { thresholdDb: -3 },
   shotJitter: { pitch: 0.03, gain: 0.03 },
   voiceLimit: 24,

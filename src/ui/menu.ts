@@ -33,6 +33,7 @@ export class Menu {
   private readonly cm: HTMLInputElement;
   private readonly vol: HTMLInputElement;
   private readonly quality: HTMLSelectElement;
+  private readonly flinch: HTMLSelectElement;
   private readonly title: HTMLElement;
   private readonly toggles: [keyof Settings, HTMLInputElement][] = [];
   private readonly play: HTMLButtonElement;
@@ -72,6 +73,7 @@ export class Menu {
           <label class="check"><input data-k="missGhost" type="checkbox" /> Miss ghost ring</label>
           <label class="check"><input data-k="damageNumbers" type="checkbox" /> Damage numbers</label>
           <label class="check"><input data-k="reduceFlashing" type="checkbox" /> Reduce flashing (no screen pulses)</label>
+          <label>Hit flinch<select data-k="flinch" name="flinch" id="set-flinch"><option value="0">off</option><option value="0.5">half</option><option value="1">normal</option><option value="2">strong</option></select></label>
         </div>
         <details class="ch-editor not-first"><summary>Crosshair</summary><div data-k="crosshair"></div></details>
         <details class="ch-editor not-first"><summary>HUD</summary><div data-k="hud"></div></details>
@@ -84,6 +86,7 @@ export class Menu {
     this.cm = q('cm');
     this.vol = q('vol');
     this.quality = q('quality');
+    this.flinch = q('flinch');
     this.crosshair = new CrosshairEditor(q('crosshair'), store);
     this.hudPanel = new HudSettingsPanel(q('hud'), store);
     this.title = root.querySelector('[data-title]') as HTMLElement;
@@ -147,6 +150,7 @@ export class Menu {
       this.toggles.push([key, el]);
       el.addEventListener('change', () => this.store.set({ [key]: el.checked }));
     }
+    this.flinch.addEventListener('change', () => this.store.set({ flinchStrength: parseFloat(this.flinch.value) }));
     this.sync();
   }
 
@@ -158,6 +162,7 @@ export class Menu {
     this.cm.value = cmPer360(s.sensitivity, s.dpi).toFixed(1);
     this.vol.value = String(s.volume);
     this.quality.value = s.quality;
+    this.flinch.value = String(s.flinchStrength);
     for (const [key, el] of this.toggles) el.checked = s[key] as boolean;
     const picked = this.profile.get().selfReport;
     for (const chip of this.chips) chip.setAttribute('aria-pressed', String(chip.dataset.chip === picked));

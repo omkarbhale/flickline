@@ -1,14 +1,14 @@
 import { EventBus } from '../core/eventBus';
 import { vec3, type Vec3 } from '../core/vec3';
 import { cloneTunables, type Tunables } from '../config/tunables';
-import type { AnchorLike, DialSource, ModeEvents, SourceEvents, TargetSpawner } from './contracts';
+import type { AnchorLike, DialSource, ModeEvents, PlayerSourceEvents, SourceEvents, TargetSpawner } from './contracts';
 import { createLinearDial, type AxisRange } from './linearDial';
 import { ModeRunner } from './runner';
 import { TEST_MODE_AXES } from './testMode';
 
 /** Test support: a runner wired to fake sim sides, with a JSON log of every event it emits. */
 export interface Harness {
-  bus: EventBus<ModeEvents & SourceEvents>;
+  bus: EventBus<ModeEvents & SourceEvents & PlayerSourceEvents>;
   runner: ModeRunner;
   tunables: Tunables;
   log: { type: string; data: Record<string, unknown> }[];
@@ -40,7 +40,7 @@ export function ringAnchors(stepDeg = 30): AnchorLike[] {
 }
 
 export function makeHarness(table: Record<string, AxisRange> = TEST_MODE_AXES, baseDial = 50): Harness {
-  const bus = new EventBus<ModeEvents & SourceEvents>();
+  const bus = new EventBus<ModeEvents & SourceEvents & PlayerSourceEvents>();
   const tunables = cloneTunables();
   const log: Harness['log'] = [];
   const targets: Harness['targets'] = new Map();

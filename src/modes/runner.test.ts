@@ -42,6 +42,20 @@ describe('run timing', () => {
     expect(h.events('runEnded')).toHaveLength(1);
   });
 
+  it('the player dying ends the run with reason death, once; outside a run it does nothing', () => {
+    const h = makeHarness();
+    h.bus.emit('playerDied', { tick: 1 }); // idle: no run to end
+    expect(h.events('runEnded')).toHaveLength(0);
+    h.runner.begin(bareMode({ durationSec: Infinity }), { seed: 1 });
+    h.step(READY + 10);
+    h.bus.emit('playerDied', { tick: h.simTick });
+    h.bus.emit('playerDied', { tick: h.simTick });
+    expect(h.runner.phase).toBe('result');
+    expect(h.runner.endReason).toBe('death');
+    expect(h.events('runEnded')).toHaveLength(1);
+    expect(h.events('runEnded')[0]!.reason).toBe('death');
+  });
+
   it('ignores sim facts outside the live phase', () => {
     const h = makeHarness();
     h.runner.begin(bareMode(), { seed: 1 });

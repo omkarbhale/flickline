@@ -25,7 +25,7 @@ export interface HudClock {
 
 type LiveHudEvents = Pick<
   SimEvents,
-  'shotFired' | 'targetHit' | 'targetKilled' | 'reloadStarted' | 'reloadCompleted' | 'reloadCancelled' | 'weaponSwitched'
+  'shotFired' | 'targetHit' | 'targetKilled' | 'reloadStarted' | 'reloadCompleted' | 'reloadCancelled' | 'weaponSwitched' | 'playerDamaged' | 'playerHealed'
 > &
   Pick<ModeEvents, 'runReady' | 'runStarted' | 'runEnded' | 'scoreAwarded' | 'chainUpdated' | 'streakUpdated'> &
   SettingsEvents;
@@ -173,6 +173,9 @@ export class LiveHud {
       if (changed.includes('hud')) this.applySettings(settings.hud);
     });
 
+    // Health is shown from the first damage or heal of a run (modes with enemy fire), hidden again when a run is readied.
+    bus.on('playerDamaged', (e) => this.setHp(e.hp, e.maxHp));
+    bus.on('playerHealed', (e) => this.setHp(e.hp, e.maxHp));
     bus.on('runReady', () => this.onRunReady());
     bus.on('runStarted', () => { this.paceDirty = true; });
     bus.on('runEnded', () => { this.paceDirty = true; });
@@ -309,6 +312,7 @@ export class LiveHud {
     this.setScore(0);
     this.onChain(0);
     this.setStreak(0, 1);
+    this.setHp(null);
     this.paceDirty = true;
     this.refreshStats(true);
     this.refreshEdge();
