@@ -11,16 +11,20 @@ import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
 import { SettingsStore } from '../settings/settings';
-import { createTickInput, type SimEvents, type TickInput } from '../sim/types';
+import { createTickInput, type HitZone, type SimEvents, type TargetKind, type TickInput } from '../sim/types';
+import { zoneCentre } from '../sim/hitZones';
+import type { SpawnOptions } from '../sim/targets';
 import { testRoom } from '../sim/levels';
 import { World } from '../sim/world';
 import { Menu } from '../ui/menu';
 import type { GameEvents } from './events';
 
 const SIM_EVENT_TYPES: (keyof SimEvents)[] = [
-  'shotFired', 'shotImpact', 'targetHit', 'targetKilled', 'targetRespawned',
-  'playerJumped', 'playerLanded', 'footstep',
+  'shotFired', 'shotImpact', 'targetSpawned', 'targetVisible', 'targetHit', 'targetKilled',
+  'targetExpired', 'targetRespawned', 'playerJumped', 'playerLanded', 'footstep',
 ];
+
+const AIM_SCRATCH = { x: 0, y: 0, z: 0 };
 
 export interface LoggedEvent {
   type: keyof SimEvents;
@@ -210,6 +214,32 @@ export class Game {
     this.renderNow();
   }
 
+  /**
+   * Add a target (Post: pos = feet centre; Beacon: pos = orb centre). Debug hook and, later, the
+   * run/mode layer. Returns its id, or -1 when the registry is full.
+   */
+  spawnTarget(kind: TargetKind, x: number, y: number, z: number, opts?: SpawnOptions): number {
+    return this.world.spawnTarget(kind, x, y, z, this.bus, opts);
+  }
+
+  despawnTarget(id: number): boolean {
+    return this.world.despawnTarget(id, this.bus);
+  }
+
+  /** Point the view at a zone centre of a live target (debug/playtest aid). */
+  aimAtTarget(id: number, zone: HitZone = 'head'): boolean {
+    const w = this.world;
+    const t = w.targetField.byId(id);
+    if (!t) return false;
+    const tt = this.tunables.targets;
+    const c = zoneCentre(AIM_SCRATCH, t, tt.hit, tt.kinds[t.kind], zone);
+    const p = w.player;
+    const dx = c.x - p.pos.x, dy = c.y - (p.pos.y + p.eyeHeight), dz = c.z - p.pos.z;
+    this.input.setLook(Math.atan2(-dx, -dz), Math.asin(dy / Math.hypot(dx, dy, dz)));
+    this.renderNow();
+    return true;
+  }
+
   resetWorld(seed?: number): void {
     this.world.reset(seed);
     this.session.reset();
@@ -246,7 +276,12 @@ export class Game {
         eyeHeight: p.eyeHeight, height: p.height,
       },
       weapon: { ...w.weapon },
-      targets: w.targets.map((t) => ({ id: t.id, pos: { ...t.pos }, hp: t.hp, alive: t.alive, radius: t.radius })),
+      targets: w.targets
+        .filter((t) => t.alive)
+        .map((t) => ({
+          id: t.id, kind: t.kind, pos: { ...t.pos }, hp: t.hp, crouched: t.crouched, radius: t.radius,
+          visible: t.visibleTick >= 0, bullets: t.bullets,
+        })),
       session: { shots: this.session.shots, hits: this.session.hits, kills: this.session.kills },
       settings: { ...this.settings.get() },
       locked: this.input.locked,

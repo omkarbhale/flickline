@@ -1,5 +1,5 @@
 import type { Game } from '../app/game';
-import type { TickInput } from '../sim/types';
+import type { HitZone, TargetKind, TickInput } from '../sim/types';
 
 export interface ScriptStep {
   /** Number of sim ticks to run with this input. */
@@ -32,6 +32,16 @@ export interface FlicklineDebug {
   hash(): number;
   /** Recent sim events (oldest first), newest `count` entries. */
   events(count?: number): unknown[];
+  /**
+   * Add a target and return its id (-1 if the registry is full). `pos` is `{x,y,z}` or `[x,y,z]`
+   * in metres: a Post's feet centre, a Beacon's centre. `opts.crouched` poses a Post crouched;
+   * `opts.lifetimeSec` makes it expire (`targetExpired`).
+   */
+  spawn(kind: TargetKind, pos: Vec3Like, opts?: { crouched?: boolean; lifetimeSec?: number }): number;
+  /** Remove a target without a kill (emits `targetExpired`). */
+  despawn(id: number): boolean;
+  /** Point the view at the centre of a zone of a live target. Returns false for an unknown id. */
+  aimAt(id: number, zone?: HitZone): boolean;
   /** Reset the world (optionally with a seed). */
   reset(seed?: number): void;
   /** Hide/show the start/pause menu so screenshots show the game. */
@@ -45,6 +55,8 @@ export interface FlicklineDebug {
   /** Live tunables object (mutate for experiments; not persisted). */
   readonly tunables: unknown;
 }
+
+export type Vec3Like = { x: number; y: number; z: number } | readonly [number, number, number];
 
 declare global {
   interface Window {
@@ -84,6 +96,20 @@ export function installDebugHook(game: Game): FlicklineDebug {
     hash: () => game.world.hash(),
     events(count = 32) {
       return game.eventLog.slice(-count);
+    },
+    spawn(kind, pos, opts) {
+      const [x, y, z] = Array.isArray(pos) ? (pos as readonly number[]) : [(pos as { x: number }).x, (pos as { y: number }).y, (pos as { z: number }).z];
+      const id = game.spawnTarget(kind, x!, y!, z!, opts);
+      game.renderNow();
+      return id;
+    },
+    despawn(id) {
+      const ok = game.despawnTarget(id);
+      game.renderNow();
+      return ok;
+    },
+    aimAt(id, zone = 'head') {
+      return game.aimAtTarget(id, zone);
     },
     reset(seed) {
       game.resetWorld(seed);
