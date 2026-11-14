@@ -17,6 +17,7 @@ import { effectivePixelRatio, resolveQuality } from '../settings/graphics';
 import type { Override } from '../settings/settings';
 import type { Tunables } from '../config/tunables';
 import type { MapDef } from '../sim/mapTypes';
+import type { LevelDef } from '../sim/types';
 import type { World } from '../sim/world';
 import { BlobShadows } from './blobShadows';
 import { applyEnvQuality, createEnvUniforms, horizonColor, type EnvUniforms } from './envShaders';
@@ -86,6 +87,9 @@ export class GameRenderer {
   private renderScale = 1;
   private resolved: QualityPreset;
   private level: LevelMesh | null = null;
+  /** Every level's visuals built so far: a level loaded again (a mode back on its map) is a scene swap, not a rebuild. */
+  private readonly levels = new Map<LevelDef, LevelMesh>();
+  private targetsCapacity = -1;
   private laneArmed = false;
   private readonly envUniforms: EnvUniforms;
   private readonly sky: Sky;
@@ -234,32 +238,41 @@ export class GameRenderer {
   }
 
   /**
-   * Build visuals for a level and its targets. With a `MapDef`, also applies its fog range and
-   * floor markings (its sky/fog colours and palette name are superseded by the Lightline palette).
+   * Show a level (the world's current one). With a `MapDef`, also applies its fog range and floor
+   * markings (its sky/fog colours and palette name are superseded by the Lightline palette). A level
+   * is built once, on its first load; loading it again only swaps it into the scene. The enemy view
+   * is kept while the registry's slot count is unchanged (it always is: the registry has fixed capacity).
    */
   loadLevel(world: World, map?: MapDef): void {
-    this.level?.dispose();
     if (this.level) this.scene.remove(this.level.root);
     if (map) {
       // Lightline owns the colours (one palette, design section 11); a map only sets how far the fog reaches.
       this.fog.near = map.look.fog[0];
       this.fog.far = map.look.fog[1];
     }
-    this.level = buildLevelMesh(world.level, this.envUniforms, this.tunables.render, { marks: map?.marks });
-    this.level.setMarksArmed(this.laneArmed);
-    this.scene.add(this.level.root);
+    let level = this.levels.get(world.level);
+    if (!level) {
+      level = buildLevelMesh(world.level, this.envUniforms, this.tunables.render, { marks: map?.marks });
+      this.levels.set(world.level, level);
+    }
+    this.level = level;
+    level.setMarksArmed(this.laneArmed);
+    this.scene.add(level.root);
     this.blobs.setLevel(world.level.boxes);
     this.applyQuality();
 
-    if (this.targetsView) {
-      this.scene.remove(this.targetsView.root);
-      this.targetsView.dispose();
+    if (!this.targetsView || this.targetsCapacity !== world.targets.length) {
+      if (this.targetsView) {
+        this.scene.remove(this.targetsView.root);
+        this.targetsView.dispose();
+      }
+      this.targetsCapacity = world.targets.length;
+      this.targetsView = new TargetsView(this.tunables, this.targetsCapacity, this.resolved);
+      this.targetsView.setPreset(this.preset);
+      const pr = this.renderer.getPixelRatio();
+      this.targetsView.setViewport(this.width * pr, this.height * pr);
+      this.scene.add(this.targetsView.root);
     }
-    this.targetsView = new TargetsView(this.tunables, world.targets.length, this.resolved);
-    this.targetsView.setPreset(this.preset);
-    const pr = this.renderer.getPixelRatio();
-    this.targetsView.setViewport(this.width * pr, this.height * pr);
-    this.scene.add(this.targetsView.root);
     // Compile shaders now so the first shot / first frame does not hitch.
     this.renderer.compile(this.scene, this.camera);
     this.renderer.compile(this.overlay.scene, this.overlay.camera);
@@ -320,7 +333,8 @@ export class GameRenderer {
     for (const layer of this.layers) layer.dispose();
     this.targetsView?.dispose();
     this.post.dispose();
-    this.level?.dispose();
+    for (const level of this.levels.values()) level.dispose();
+    this.levels.clear();
     this.sky.dispose();
     this.blobs.dispose();
     this.renderer.dispose();
