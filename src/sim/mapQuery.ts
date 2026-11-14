@@ -31,3 +31,31 @@ export function postsInBand(map: MapDef, min: number, max: number): AnchorOfKind
     return d >= min && d <= max;
   });
 }
+
+/**
+ * Feet positions where an enemy is expected to stand, from the anchors that place humanoids:
+ * posts, gates, peek holds and exits, strafe-lane ends and spray-wall posts. Load-time only.
+ */
+export function enemyFeetOf(anchors: readonly Anchor[]): Vec3[] {
+  const out: Vec3[] = [];
+  for (const a of anchors) {
+    switch (a.kind) {
+      case 'post':
+      case 'gate':
+        out.push(a.pos);
+        break;
+      case 'peek':
+        out.push(a.hold, a.out);
+        break;
+      case 'strafe-lane':
+        out.push(a.a, a.b);
+        break;
+      case 'spray-alcove':
+        out.push(a.post);
+        break;
+      default:
+        break;
+    }
+  }
+  return out;
+}
