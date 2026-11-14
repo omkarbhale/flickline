@@ -20,7 +20,8 @@ export interface FeedbackTunables {
     color: number;
     movingColor: number;
   };
-  muzzleFlash: { lifeSec: number; size: number; color: number };
+  /** How long the muzzle flash cue lives; its sprites are per weapon (config/viewmodel.ts). */
+  muzzleFlash: { lifeSec: number };
   impact: {
     capacity: number;
     lifeSec: number;
@@ -72,7 +73,7 @@ export const feedback: FeedbackTunables = {
     color: palette.core,
     movingColor: palette.warn,
   },
-  muzzleFlash: { lifeSec: 0.035, size: 0.1, color: palette.core },
+  muzzleFlash: { lifeSec: 0.035 },
   impact: {
     capacity: 48,
     lifeSec: 0.16,
