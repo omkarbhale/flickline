@@ -79,6 +79,7 @@ export class GameRenderer {
 
   private quality: QualityLevel;
   private level: LevelMesh | null = null;
+  private laneArmed = false;
   private readonly envUniforms: EnvUniforms;
   private readonly sky: Sky;
   private readonly blobs: BlobShadows;
@@ -205,6 +206,7 @@ export class GameRenderer {
       this.fog.far = map.look.fog[1];
     }
     this.level = buildLevelMesh(world.level, this.envUniforms, this.tunables.render, { marks: map?.marks });
+    this.level.setMarksArmed(this.laneArmed);
     this.scene.add(this.level.root);
     this.blobs.setLevel(world.level.boxes);
     this.applyQuality();
@@ -221,6 +223,12 @@ export class GameRenderer {
     // Compile shaders now so the first shot / first frame does not hitch.
     this.renderer.compile(this.scene, this.camera);
     this.renderer.compile(this.overlay.scene, this.overlay.camera);
+  }
+
+  /** Light or dim the loaded map's armed floor stripe (Lane). Survives a level reload. */
+  setLaneArmed(armed: boolean): void {
+    this.laneArmed = armed;
+    this.level?.setMarksArmed(armed);
   }
 
   /**
