@@ -46,6 +46,7 @@ export const feature = defineFeature({
     let mode = '';
     let skill: SkillId | 'line' | null = null;
     let rating = NaN;
+    let placement = false;
     let sd = NaN;
 
     const apply = (): void => {
@@ -58,6 +59,8 @@ export const feature = defineFeature({
     game.bus.on('runReady', (e) => {
       mode = e.mode;
       skill = skillOf(mode);
+      // A new profile's first run places it inside the Opener (design §9.2): the probe, so full cues and never the clean run.
+      placement = game.modes.newProfile;
       const skills = game.modes.skills;
       rating = skill === null ? NaN : skills.rating(skill);
       sd = skill === null ? NaN : skills.confidence(skill);
@@ -68,14 +71,14 @@ export const feature = defineFeature({
           skill,
           rating,
           sd,
-          placement: mode === 'placement',
+          placement,
           fading: s.cueFading,
           cleanRunEnabled: s.cleanRun,
           runsCompleted: game.profile.get().runsCompleted,
         },
         plan,
       );
-      // A reference-like run (the Daily Baseline, design 8.5) is always a clean run, whatever the settings
+      // A reference-like run (the cold opener, design 8.5) is always a clean run, whatever the settings
       // say: it is the session's cold, cue-free measurement, so it also spends the session's clean run.
       if (refLike) {
         plan.clean = true;
@@ -88,7 +91,7 @@ export const feature = defineFeature({
     game.bus.on('runEnded', (e) => {
       // A run counts once it ran its course; quitting it early spends nothing (the clean run is offered again).
       // The run is over: free play and the menu are not a clean run, and the reference-like HUD ends with it.
-      const spent = e.reason !== 'quit' && skill !== null && mode !== 'placement';
+      const spent = e.reason !== 'quit' && skill !== null && !placement;
       if (spent) planner.finish(plan);
       options.clean = false;
       if (plan.clean) options.cuePhase = 'every'; // free play after the clean run is not cue-free

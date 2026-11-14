@@ -11,7 +11,7 @@ import { World } from '../../sim/world';
 /**
  * What the bot needs from a game: the world to look at, the run machinery to start and read, and a
  * way to run one tick. The headless game (tests, `npm run bot`) and the browser page (through
- * `window.__flickline.bot`) both provide it, so a bot run is the same code in either place.
+ * `window.__flickline.botPlay`) both provide it, so a bot run is the same code in either place.
  */
 export interface BotGame {
   readonly world: World;

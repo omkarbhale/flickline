@@ -22,9 +22,8 @@ npm run bot -- --mode <id> --skill <0..100> [--seed N] [--runs N] [--dial D] [--
 npm run bot -- --list
 ```
 
-`--mode` is any registered mode (`__flickline.mode.list()`: `test`, `coldStart`, `orbit`, `placement`) or `freeplay` (a 30 s
-timed run on the map's own targets). Ids ignore case and dashes: `cold-start`, `coldStart` and
-`COLDSTART` are one mode, so `--mode cold-start` works. The run is synchronous and headless: a 60 s drill takes well under a second.
+`--mode` is any registered mode (`sweep`, the game and the default, or the framework's `test` fixture) or `freeplay` (a 30 s
+timed run on the Range's own targets, the Lobby). Ids ignore case and dashes. The run is synchronous and headless: a whole Sweep run takes well under a second.
 
 It prints the run (simulated time, wall time, a state hash) and the numbers a person would care
 about: shots, accuracy, headshot rate, kills, median time to shot and to kill, pre-aim error, time
@@ -51,16 +50,12 @@ never touches sim state. One engagement is the two-submovement model of aimed mo
    recoil back out of its view in proportion to `sprayControl`, lets go and re-aims when a bullet
    takes no HP off the target, and moves on when the target is gone.
 
-A target that is not in view yet (behind the player in Orbit) is turned to at `searchDegPerSec`.
+A target that is not in view yet (behind the player) is turned to at `searchDegPerSec`.
 
 **Not modelled** (so a mode that needs them is not playable by this bot yet): leading moving
-targets (it trails them with its follow lag), movement of any kind except Stop & Pop's footwork and Sweep's walk (below; elsewhere it stands still), crouching outside Stop & Pop,
+targets (it trails them with its follow lag), movement of any kind except Sweep's walk (below; elsewhere it stands still), crouching,
 jumping, weapon swaps and reloads (the sim reloads an empty magazine by itself), taking cover,
 and enemies shooting back.
-
-### Stop & Pop footwork (`footwork.ts`)
-
-Stop & Pop is the one mode with movement, and it is played on its own map (`mapForMode`: Lane). `FootworkBot` wraps the aiming `Bot`: it strafes along the Lane (arming it), and when a target appears waits its reaction time, taps the opposite key until its speed is under the accuracy threshold, lets go, takes the ring's stance (crouch for a blue ring) and only then lets the aimer fire. A weak bot reacts late and runs out of exposure; a strong one does not.
 
 ### Sweep (`sweepBot.ts`, `sweepReport.ts`)
 
@@ -208,6 +203,4 @@ needs, which the page also provides, so `__flickline.botPlay({ mode, skill, seed
 same code on the page's real game and draws the final frame. Later suites (#93 humanness, #122
 attribution fault injection) build on `HeadlessGame` and `Bot`.
 
-`__flickline.bot(modeId, opts)` (`features/modeBot.ts`, `debug/modeBot.ts`, from #23) is an older, simpler
-scripted aimer with a single noise parameter that the drill tests use; it is left as it is. Moving it
-onto `Bot` is a follow-up.
+The older scripted aimer `__flickline.bot(modeId, opts)` (`debug/modeBot.ts`, from #23) played the drills one target at a time; it was retired with them (#211). Use `__flickline.botPlay`.

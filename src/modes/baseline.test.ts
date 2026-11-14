@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { axes } from '../adaptive/dial';
+import { axisValue } from '../adaptive/dial';
 import { BASELINE_SKILLS } from '../config/baseline';
 import { BASELINE_ITEMS } from '../config/baselineItems';
 import { tunables } from '../config/tunables';
@@ -48,9 +48,9 @@ describe('baseline levels', () => {
     expect(baselineLevelFor(89.9)).toBe(75);
     expect(baselineLevelFor(100)).toBe(90);
   });
-  it('the matched success rates are the same as Orbit and Cold Start aim for', () => {
-    expect(tunables.baseline.matchedTargetSuccess.flick).toBe(tunables.dial.modes.orbit!.targetSuccess);
-    expect(tunables.baseline.matchedTargetSuccess.precision).toBe(tunables.dial.modes.coldStart!.targetSuccess);
+  it('the matched success rate is the 70% every matched run aims for', () => {
+    expect(tunables.baseline.matchedTargetSuccess.flick).toBe(tunables.dial.modes.sweep!.targetSuccess);
+    expect(tunables.baseline.matchedTargetSuccess.precision).toBe(tunables.dial.modes.sweep!.targetSuccess);
   });
 });
 
@@ -65,23 +65,25 @@ describe('stored item lists', () => {
       for (const level of tunables.baseline.levels) {
         const list = BASELINE_ITEMS[skill][level]!;
         expect(list).toHaveLength(20);
-        const ax = axes(level);
+        const rc = tunables.baseline.recipe;
+        const angleMin = axisValue(rc.flick.angleMinDeg, level);
+        const angleMax = axisValue(rc.flick.angleMaxDeg, level);
         for (const [angle, pitch, distance, scale, exposure] of list) {
           expect(Number.isFinite(angle + pitch + distance + scale + exposure)).toBe(true);
           if (skill === 'flick') {
-            expect(angle).toBeGreaterThanOrEqual(ax.flickMinDeg - 0.01);
-            expect(angle).toBeLessThanOrEqual(ax.flickMaxDeg + 0.01);
-            expect(scale).toBeCloseTo(ax.beaconScale, 3);
-            expect(exposure).toBeCloseTo(ax.orbitExposureSec, 3);
-            expect(distance).toBeGreaterThanOrEqual(tunables.modes.orbit.minDistM);
-            expect(distance).toBeLessThanOrEqual(tunables.modes.orbit.maxDistM);
+            expect(angle).toBeGreaterThanOrEqual(angleMin - 0.01);
+            expect(angle).toBeLessThanOrEqual(angleMax + 0.01);
+            expect(scale).toBeCloseTo(Math.max(rc.floors.minBeaconScale, axisValue(rc.flick.beaconScale, level)), 3);
+            expect(exposure).toBeCloseTo(Math.max(rc.floors.flickExposureSec, axisValue(rc.flick.exposureSec, level)), 3);
+            expect(distance).toBeGreaterThanOrEqual(rc.flick.minDistM);
+            expect(distance).toBeLessThanOrEqual(rc.flick.maxDistM);
             // never under the floor
             expect(tunables.movement.standEyeHeight + distance * Math.sin(pitch * DEG2RAD)).toBeGreaterThanOrEqual(tunables.baseline.minBeaconHeightM - 0.01);
           } else {
-            expect(angle).toBeGreaterThanOrEqual(tunables.modes.coldStart.minAngleDeg - 0.01);
-            expect(angle).toBeLessThanOrEqual(tunables.modes.coldStart.maxAngleDeg + 0.01);
+            expect(angle).toBeGreaterThanOrEqual(rc.precision.angleMinDeg - 0.01);
+            expect(angle).toBeLessThanOrEqual(rc.precision.angleMaxDeg + 0.01);
             expect(scale).toBe(1);
-            expect(exposure).toBeCloseTo(ax.coldStartExposureSec, 3);
+            expect(exposure).toBeCloseTo(Math.max(rc.floors.precisionExposureSec, axisValue(rc.precision.exposureSec, level)), 3);
             expect(distance).toBeGreaterThanOrEqual(tunables.baseline.minPostDistanceM - 0.01);
             expect(distance).toBeLessThanOrEqual(tunables.baseline.maxDistanceM + 0.01);
           }
@@ -92,12 +94,12 @@ describe('stored item lists', () => {
 
   it('are stratified: one flick angle in each twentieth of the level\'s angle range', () => {
     for (const level of tunables.baseline.levels) {
-      const ax = axes(level);
-      const slice = (ax.flickMaxDeg - ax.flickMinDeg) / 20;
+      const lo = axisValue(tunables.baseline.recipe.flick.angleMinDeg, level);
+      const slice = (axisValue(tunables.baseline.recipe.flick.angleMaxDeg, level) - lo) / 20;
       const sorted = BASELINE_ITEMS.flick[level]!.map(([a]) => a).sort((x, y) => x - y);
       sorted.forEach((a, k) => {
-        expect(a).toBeGreaterThanOrEqual(ax.flickMinDeg + k * slice - 0.01);
-        expect(a).toBeLessThanOrEqual(ax.flickMinDeg + (k + 1) * slice + 0.01);
+        expect(a).toBeGreaterThanOrEqual(lo + k * slice - 0.01);
+        expect(a).toBeLessThanOrEqual(lo + (k + 1) * slice + 0.01);
       });
     }
   });
@@ -162,7 +164,8 @@ describe('the daily shuffle', () => {
     const plan = buildBaselineSequence(3, { flick: 15, precision: 90 });
     const flick = plan.filter((p) => p.skill === 'flick');
     const post = plan.filter((p) => p.skill === 'precision');
-    expect(flick[0]!.item.scale).toBeCloseTo(axes(15).beaconScale, 3);
-    expect(post[0]!.item.exposureSec).toBeCloseTo(axes(90).coldStartExposureSec, 3);
+    const rc = tunables.baseline.recipe;
+    expect(flick[0]!.item.scale).toBeCloseTo(axisValue(rc.flick.beaconScale, 15), 3);
+    expect(post[0]!.item.exposureSec).toBeCloseTo(axisValue(rc.precision.exposureSec, 90), 3);
   });
 });

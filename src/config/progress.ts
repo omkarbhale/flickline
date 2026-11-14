@@ -24,7 +24,7 @@ export interface ProgressTunables {
    * at an easier band does not hide a harder band's. Boundaries are tier boundaries (tested).
    */
   bands: DialBand[];
-  /** Modes whose runs keep run bests, situation records and the pace bar (design §4: Sweep is the one game). Every other mode is a drill: history and counts only. */
+  /** Modes whose runs keep run bests, situation records and the pace bar (design §4: Sweep is the one game). Every other mode is a fixture: history and counts only. */
   runModes: string[];
   /** Most route-strip tiles / pace points kept per run best (a sanity cap: the six sectors plus Overtime). */
   maxStrip: number;

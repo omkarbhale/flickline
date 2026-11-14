@@ -6,7 +6,7 @@
 export interface RunTunables {
   /** `ready` state length: crosshair and movement work, targets are not live yet. */
   readySec: number;
-  /** Default `live` length when a mode does not pass its own (drills are 60 s). */
+  /** Default `live` length when a mode does not pass its own (the framework's fixtures are 60 s). */
   defaultDurationSec: number;
   /** Restart budget (key press to the next `ready` frame), shown against the measured ms. */
   restartBudgetMs: number;
@@ -15,7 +15,7 @@ export interface RunTunables {
   /** Time on target: the hit volume is padded by this angle (design §3). */
   timeOnTargetPadDeg: number;
   /**
-   * Lead error (Strafe Track, design §3/§4.3): while a Strafer cruises (lane speed at or above
+   * Lead error (design §3, §4.3): while a Strafer cruises (lane speed at or above
    * `leadMinSpeedMps`) and the view is within `leadMaxOffDeg` of it, the signed horizontal offset
    * of the aim from the target's centre of mass is sampled this often. Only a Strafer the aim was
    * on (inside the padded hit volume) within the last `leadEngageSec` counts: the lead error is a

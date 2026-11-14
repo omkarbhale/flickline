@@ -9,10 +9,10 @@ declare module '../debug/hook' {
   interface FlicklineDebug {
     /**
      * The synthetic player of the harness (src/debug/bot/README.md): play one whole run of `mode` (a
-     * registered id, `cold-start` and `coldStart` alike, or `freeplay`) at `skill` 0..100 on THIS
+     * registered id (`sweep`, `test`) or `freeplay`) at `skill` 0..100 on THIS
      * page's game, as fast as the CPU allows, then draw the final frame. Deterministic for a seed
      * (`pinDial` too, since the skill model learns from every run). Throws for an unknown mode.
-     * Replaces any run in progress. (`bot(modeId, opts)` is the older, simpler scripted aimer.)
+     * Replaces any run in progress.
      */
     botPlay(opts: BotRunOptions): BotReport;
     /** The parameters a bot skill expands to (aim sigma, reaction, overshoot bias, spray control, ...). */

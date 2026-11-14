@@ -18,7 +18,7 @@ export function main(argv: string[]): number {
     alignment: [60, 144, 165, 240, 360].map((hz) => measureAlignment(hz)),
     sounds: measureSounds(),
     restartSimMs: measureRestartSim(),
-    restartFlow: ['coldStart', 'orbit'].map((m) => measureRestartFlow(m)),
+    restartFlow: ['sweep'].map((m) => measureRestartFlow(m)),
   };
   const ms = performance.now() - t0;
   if (json) {

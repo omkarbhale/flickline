@@ -42,7 +42,7 @@ export interface HarnessOptions {
   seed: number;
   /** Ability per skill, offsets from `ability` (default 0 for every skill). */
   skillOffsets?: Partial<Record<SkillId, number>>;
-  /** Per-contact performance noise, dial points (default 4, as the drill harness). */
+  /** Per-contact performance noise, dial points (default 4). */
   noiseSd?: number;
   /** A lost contact ends the run with this probability (default 0.3; a lost fight is often a retreat, design §8.1). */
   deathOnLoss?: number;

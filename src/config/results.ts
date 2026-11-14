@@ -54,14 +54,9 @@ export interface ResultsTunables {
   nextSeed: { mul: number; add: number };
   /** Display names by mode id; unknown ids are title-cased. */
   modeLabels: Record<string, string>;
-  /** The two key metrics of a mode; `defaultKeyMetrics` for modes not listed. */
-  keyMetrics: Record<string, readonly [MetricId, MetricId]>;
+  /** The two key metrics a run that is not a Sweep run shows after the headline stats (the framework's test fixture; a Sweep run uses `run.headline`). */
   defaultKeyMetrics: readonly [MetricId, MetricId];
-  /**
-   * Modes whose kills are one bullet by design (a one-tap headshot on a Post or a Beacon): their "Time to kill"
-   * (first shot to death) is ~0 ms and says nothing, so the card shows `oneBulletTile` in its place (#175).
-   */
-  oneBulletModes: readonly string[];
+  /** A run whose kills are one bullet has a median "Time to kill" (first shot to death) of ~0 ms, which says nothing: the card shows this tile in its place (#175). */
   oneBulletTile: MetricId;
   /** Badge colour per tier, lowest first (design §8.4: Chalk, Brass, Steel, Cobalt, Neon, Prism, Zenith). The badge always carries the tier name too. */
   tierColours: readonly string[];
@@ -117,28 +112,10 @@ export const results: ResultsTunables = {
   slowTimeToShot: { dial0Ms: 950, dial100Ms: 450, slackFactor: 1.2 },
   nextSeed: { mul: 1664525, add: 1013904223 },
   modeLabels: {
-    coldStart: 'Cold Start',
-    orbit: 'Orbit',
-    placement: 'Placement',
-    strafeTrack: 'Strafe Track',
-    stopAndPop: 'Stop & Pop',
-    sprayWall: 'Spray Wall',
-    switchboard: 'Switchboard',
-    cornerClear: 'Corner Clear',
     sweep: 'Sweep',
     freeplay: 'Free run',
   },
-  keyMetrics: {
-    coldStart: ['firstShotRate', 'preAimError'],
-    placement: ['firstShotRate', 'flickBias'],
-    orbit: ['flickBias', 'flickError'],
-    strafeTrack: ['timeOnTarget', 'leadError'],
-    stopAndPop: ['stopLatency', 'cleanKills'],
-    cornerClear: ['preAimError', 'headHeight'],
-    sweep: ['depth', 'contacts'],
-  },
   defaultKeyMetrics: ['firstShotRate', 'preAimError'],
-  oneBulletModes: ['coldStart', 'orbit', 'placement'],
   oneBulletTile: 'cleanStreak',
   tierColours: ['#aab4c2', '#d9a35a', '#9fb4cc', '#5b8cff', '#38e8ff', '#c792ff', '#ffd23f'],
   endLabels: { timer: "Time's up", death: 'Eliminated', complete: 'Run complete', left: 'Made it out', quit: 'Run ended early' },
