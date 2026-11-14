@@ -20,7 +20,9 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .hitmarker.show { animation: hm 0.18s ease-out; }
 .hitmarker.kill i { background: #ff4d4d; width: 12px; }
 @keyframes hm { 0% { opacity: 1; transform: scale(1.25); } 100% { opacity: 0; transform: scale(1); } }
-.counters { position: absolute; left: 16px; bottom: 14px; font: 600 13px/1 ui-monospace, monospace; letter-spacing: .08em; color: rgba(232,237,242,.85); text-shadow: 0 1px 2px #000; }
+.counters, .ammo { position: absolute; bottom: 14px; font: 600 13px/1 ui-monospace, monospace; letter-spacing: .08em; color: rgba(232,237,242,.85); text-shadow: 0 1px 2px #000; }
+.counters { left: 16px; }
+.ammo { right: 16px; }
 
 #menu { position: fixed; inset: 0; display: none; place-items: center; background: rgba(7,10,14,.72); backdrop-filter: blur(3px); }
 #menu.open { display: grid; }

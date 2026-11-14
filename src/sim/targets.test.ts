@@ -41,7 +41,10 @@ function setup(level: LevelDef = arena, seed = 1) {
   return { world, bus, log, input, run, of, spawn, aimAt };
 }
 
-const FIRE_TICKS = 13; // round(0.1 s * 128)
+/** Kestrel (the default primary) fires every 1/11 s = 11.6 ticks; 13 ticks always covers one shot. */
+const FIRE_TICKS = 13;
+/** Ticks from the first to the third bullet of a held Kestrel burst (shots at 0, 12, 24). */
+const THIRD_SHOT_TICKS = Math.ceil((2 * TICK_RATE) / cloneTunables().weapon.kestrel.fireRateHz);
 
 describe('spawning and the registry', () => {
   it('spawnTarget places a Post and a Beacon and emits targetSpawned with the roster data', () => {
@@ -141,8 +144,8 @@ describe('kill events and bullet counts (health.max 100, Kestrel damage)', () =>
     const kill = s.of('targetKilled');
     expect(kill).toHaveLength(1);
     expect(kill[0]).toMatchObject({ targetId: id, zone: 'body', bullets: 3, firstBullet: false, clean: true });
-    // Shots land 13 ticks apart (0.1 s at 128 Hz): first to third is 26 ticks.
-    expect(kill[0]!.ttkMs).toBeCloseTo(2 * FIRE_TICKS * TICK_DT * 1000, 6);
+    // Held fire at 11 rps lands the third bullet 24 ticks after the first.
+    expect(kill[0]!.ttkMs).toBeCloseTo(THIRD_SHOT_TICKS * TICK_DT * 1000, 6);
   });
 
   it('legs take four bullets (3 x 33.15 = 99.45)', () => {
@@ -171,7 +174,8 @@ describe('kill events and bullet counts (health.max 100, Kestrel damage)', () =>
   it('a Beacon dies to any hit on the orb (head-zone damage)', () => {
     const s = setup();
     s.spawn('beacon', 0, 1.5, -10);
-    s.run(1, s.aimAt(0.13, 1.5, -10));
+    // Off-centre but inside the 0.14 m orb by more than the 0.2 deg first-shot cone (3.5 cm at 10 m).
+    s.run(1, s.aimAt(0.1, 1.5, -10));
     s.run(1, { fire: true });
     expect(s.of('targetKilled')[0]).toMatchObject({ kind: 'beacon', zone: 'head', bullets: 1 });
   });

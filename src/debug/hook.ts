@@ -2,6 +2,7 @@ import type { Game } from '../app/game';
 import { MODES } from '../app/modeHost';
 import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
 import type { CueId } from '../config/audio';
+import type { WeaponId } from '../config/weapon';
 import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
 import type { HitZone, TargetKind, TickInput } from '../sim/types';
 
@@ -72,6 +73,20 @@ export interface FlicklineDebug {
   overlay(visible?: boolean): void;
   /** Named timestamps (ms since page load): panel shown, play clicked, lock, first shot. */
   timeline(): Record<string, number>;
+  /**
+   * Fire one shot of `weaponId` (a loadout id, e.g. 'kestrel' or 'pace') at the current look, with
+   * deterministic stepping: swaps, equips, reloads and waits for the fire interval as the sim
+   * requires. Repeated calls with an automatic weapon form one held spray at the real fire rate.
+   * Returns copies of the shot's `shotFired` and `shotImpact` (impact null if it hit nothing).
+   */
+  fire(weaponId: string): { shot: unknown; impact: unknown };
+  /** `n` shots of `weaponId` back to back (a held spray for automatic weapons). */
+  spray(weaponId: string, n: number): { shot: unknown; impact: unknown }[];
+  /** Weapon options used by drills; persist across reset(). Returns the current options. */
+  weaponOptions(opts?: { infiniteMagazine?: boolean; infiniteReserve?: boolean }): {
+    infiniteMagazine: boolean;
+    infiniteReserve: boolean;
+  };
   /** Live tunables object (mutate for experiments; not persisted). */
   readonly tunables: unknown;
   /** Mode framework: start/stop a mode run and read its state (`step()` advances it like any tick). */
@@ -202,6 +217,21 @@ export function installDebugHook(game: Game): FlicklineDebug {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);
     },
     timeline: () => game.timeline.toObject(),
+    fire(weaponId) {
+      return game.fireOnce(weaponId as WeaponId);
+    },
+    spray(weaponId, n) {
+      const out: { shot: unknown; impact: unknown }[] = [];
+      for (let i = 0; i < n; i++) out.push(game.fireOnce(weaponId as WeaponId));
+      return out;
+    },
+    weaponOptions(opts = {}) {
+      const w = game.world.weapon;
+      if (opts.infiniteMagazine !== undefined) w.infiniteMagazine = opts.infiniteMagazine;
+      if (opts.infiniteReserve !== undefined) w.infiniteReserve = opts.infiniteReserve;
+      game.hud.refresh();
+      return { infiniteMagazine: w.infiniteMagazine, infiniteReserve: w.infiniteReserve };
+    },
     tunables: game.tunables,
     mode: {
       start: (id = 'test', opts = {}) => game.modes.start(id, opts),

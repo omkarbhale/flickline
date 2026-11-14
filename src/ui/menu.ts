@@ -66,7 +66,7 @@ export class Menu {
         </div>
         <details class="ch-editor not-first"><summary>Crosshair</summary><div data-k="crosshair"></div></details>
         <p class="note not-first"></p>
-        <p class="keys not-first">WASD move · Space jump · Ctrl/C crouch · Shift walk · LMB shoot · \` debug overlay</p>
+        <p class="keys not-first">WASD move · Space jump · Ctrl/C crouch · Shift walk · LMB shoot · R reload · \` debug overlay</p>
       </div>`;
     const q = <T extends HTMLElement>(k: string): T => root.querySelector(`[data-k="${k}"]`) as T;
     this.sens = q('sens');
