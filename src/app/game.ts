@@ -4,23 +4,29 @@ import { TICK_DT } from '../core/time';
 import { cloneTunables, tunables as liveTunables, type Tunables } from '../config/tunables';
 import { AudioEngine } from '../audio/audioEngine';
 import { attachSfx } from '../audio/sfx';
+import { attachUiSounds } from '../audio/uiSounds';
 import { DebugOverlay } from '../debug/overlay';
 import { PerfStats } from '../debug/perfStats';
 import { SessionStats } from '../feedback/sessionStats';
 import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
-import { SettingsStore } from '../settings/settings';
-import { createTickInput, type SimEvents, type TickInput } from '../sim/types';
-import { testRoom } from '../sim/levels';
+import { SettingsStore, type Settings } from '../settings/settings';
+import { createTickInput, type HitZone, type SimEvents, type TargetKind, type TickInput } from '../sim/types';
+import { zoneCentre } from '../sim/hitZones';
+import type { SpawnOptions } from '../sim/targets';
+import type { MapDef } from '../sim/mapTypes';
+import { rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
 import { Menu } from '../ui/menu';
 import type { GameEvents } from './events';
 
 const SIM_EVENT_TYPES: (keyof SimEvents)[] = [
-  'shotFired', 'shotImpact', 'targetHit', 'targetKilled', 'targetRespawned',
-  'playerJumped', 'playerLanded', 'footstep',
+  'shotFired', 'shotImpact', 'targetSpawned', 'targetVisible', 'targetHit', 'targetKilled',
+  'targetExpired', 'targetRespawned', 'playerJumped', 'playerLanded', 'footstep',
 ];
+
+const AIM_SCRATCH = { x: 0, y: 0, z: 0 };
 
 export interface LoggedEvent {
   type: keyof SimEvents;
@@ -36,6 +42,7 @@ export class Game {
   readonly bus = new EventBus<GameEvents>();
   readonly tunables: Tunables = liveTunables;
   readonly settings: SettingsStore;
+  readonly map: MapDef = rangeMap;
   readonly world: World;
   readonly renderer: GameRenderer;
   readonly input: InputManager;
@@ -73,10 +80,10 @@ export class Game {
 
     const seedParam = new URLSearchParams(window.location.search).get('seed');
     const seed = seedParam !== null && Number.isFinite(Number(seedParam)) ? Number(seedParam) : 1;
-    this.world = new World({ level: testRoom, tunables: this.tunables, seed });
+    this.world = new World({ level: this.map, tunables: this.tunables, seed });
 
     this.renderer = new GameRenderer(canvas, this.bus, this.tunables, s.quality);
-    this.renderer.loadLevel(this.world);
+    this.renderer.loadLevel(this.world, this.map);
 
     this.input = new InputManager(canvas, this.bus);
     this.input.maxPitch = (this.tunables.movement.maxPitchDeg * Math.PI) / 180;
@@ -84,12 +91,14 @@ export class Game {
     this.input.setLook(this.world.player.yaw, 0);
     this.input.onToggleDebug = () => this.overlay.toggle();
 
-    this.audio = new AudioEngine(this.tunables.audio.masterGain);
-    this.audio.setVolume(s.volume);
-    attachSfx(this.bus, this.audio);
+    this.audio = new AudioEngine(this.tunables.audio);
+    this.applyAudioSettings(s);
+    // Feedback producers (stats, later streaks) subscribe before presentation (attachSfx), so the kill chime reads the updated streak.
     this.session.attach(this.bus);
+    attachSfx(this.bus, this.audio, this.tunables.audio);
+    attachUiSounds(document, this.audio);
 
-    this.hud = new Hud(hudRoot, this.bus, this.session);
+    this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair);
     this.menu = new Menu(menuRoot, this.settings, this.tunables, () => this.play());
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
@@ -103,7 +112,7 @@ export class Game {
 
     this.bus.on('settingsChanged', ({ settings, changed }) => {
       if (changed.includes('sensitivity')) this.input.setSensitivity(settings.sensitivity);
-      if (changed.includes('volume')) this.audio.setVolume(settings.volume);
+      if (changed.some((k) => k === 'volume' || k.endsWith('Volume'))) this.applyAudioSettings(settings);
       if (changed.includes('quality')) this.renderer.setQuality(settings.quality);
       this.menu.sync();
     });
@@ -112,6 +121,14 @@ export class Game {
     window.addEventListener('resize', this.onResize);
     this.onResize();
     this.refreshChrome();
+  }
+
+  private applyAudioSettings(s: Readonly<Settings>): void {
+    this.audio.setVolume(s.volume);
+    this.audio.setBusVolume('weapons', s.weaponsVolume);
+    this.audio.setBusVolume('hits', s.hitsVolume);
+    this.audio.setBusVolume('enemies', s.enemiesVolume);
+    this.audio.setBusVolume('ui', s.uiVolume);
   }
 
   private readonly onResize = (): void => {
@@ -169,6 +186,8 @@ export class Game {
     } else {
       this.stepper.reset();
     }
+    const pl = this.world.player;
+    this.audio.setListener(pl.pos.x, pl.pos.y + pl.eyeHeight, pl.pos.z, this.input.yaw, this.input.pitch);
     this.input.endFrame(ticks);
     this.perf.ticksLastFrame = ticks;
 
@@ -210,6 +229,32 @@ export class Game {
     this.renderNow();
   }
 
+  /**
+   * Add a target (Post: pos = feet centre; Beacon: pos = orb centre). Debug hook and, later, the
+   * run/mode layer. Returns its id, or -1 when the registry is full.
+   */
+  spawnTarget(kind: TargetKind, x: number, y: number, z: number, opts?: SpawnOptions): number {
+    return this.world.spawnTarget(kind, x, y, z, this.bus, opts);
+  }
+
+  despawnTarget(id: number): boolean {
+    return this.world.despawnTarget(id, this.bus);
+  }
+
+  /** Point the view at a zone centre of a live target (debug/playtest aid). */
+  aimAtTarget(id: number, zone: HitZone = 'head'): boolean {
+    const w = this.world;
+    const t = w.targetField.byId(id);
+    if (!t) return false;
+    const tt = this.tunables.targets;
+    const c = zoneCentre(AIM_SCRATCH, t, tt.hit, tt.kinds[t.kind], zone);
+    const p = w.player;
+    const dx = c.x - p.pos.x, dy = c.y - (p.pos.y + p.eyeHeight), dz = c.z - p.pos.z;
+    this.input.setLook(Math.atan2(-dx, -dz), Math.asin(dy / Math.hypot(dx, dy, dz)));
+    this.renderNow();
+    return true;
+  }
+
   resetWorld(seed?: number): void {
     this.world.reset(seed);
     this.session.reset();
@@ -226,7 +271,7 @@ export class Game {
       `pos ${f(p.pos.x)} ${f(p.pos.y)} ${f(p.pos.z)}  speed ${f(speed)} m/s\n` +
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
-      `tick ${this.world.tick}  quality ${this.settings.get().quality}`
+      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}`
     );
   }
 
@@ -246,7 +291,12 @@ export class Game {
         eyeHeight: p.eyeHeight, height: p.height,
       },
       weapon: { ...w.weapon },
-      targets: w.targets.map((t) => ({ id: t.id, pos: { ...t.pos }, hp: t.hp, alive: t.alive, radius: t.radius })),
+      targets: w.targets
+        .filter((t) => t.alive)
+        .map((t) => ({
+          id: t.id, kind: t.kind, pos: { ...t.pos }, hp: t.hp, crouched: t.crouched, radius: t.radius,
+          visible: t.visibleTick >= 0, bullets: t.bullets,
+        })),
       session: { shots: this.session.shots, hits: this.session.hits, kills: this.session.kills },
       settings: { ...this.settings.get() },
       locked: this.input.locked,

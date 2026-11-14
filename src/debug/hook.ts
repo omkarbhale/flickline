@@ -1,5 +1,8 @@
 import type { Game } from '../app/game';
-import type { TickInput } from '../sim/types';
+import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
+import type { CueId } from '../config/audio';
+import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
+import type { HitZone, TargetKind, TickInput } from '../sim/types';
 
 export interface ScriptStep {
   /** Number of sim ticks to run with this input. */
@@ -32,6 +35,20 @@ export interface FlicklineDebug {
   hash(): number;
   /** Recent sim events (oldest first), newest `count` entries. */
   events(count?: number): unknown[];
+  /**
+   * Add a target and return its id (-1 if the registry is full). `pos` is `{x,y,z}` or `[x,y,z]`
+   * in metres: a Post's feet centre, a Beacon's centre. `opts.crouched` poses a Post crouched;
+   * `opts.lifetimeSec` makes it expire (`targetExpired`).
+   */
+  spawn(kind: TargetKind, pos: Vec3Like, opts?: { crouched?: boolean; lifetimeSec?: number }): number;
+  /** Remove a target without a kill (emits `targetExpired`). */
+  despawn(id: number): boolean;
+  /** Point the view at the centre of a zone of a live target. Returns false for an unknown id. */
+  aimAt(id: number, zone?: HitZone): boolean;
+  /** The loaded map as plain data: id, bounds, spawn, anchors, nav, marks (see `sim/mapTypes.ts`). */
+  map(): unknown;
+  /** Put the player at (x, y, z) feet position, velocity zeroed, optionally facing yawDeg/pitchDeg. */
+  teleport(x: number, y: number, z: number, yawDeg?: number, pitchDeg?: number): void;
   /** Reset the world (optionally with a seed). */
   reset(seed?: number): void;
   /** Hide/show the start/pause menu so screenshots show the game. */
@@ -39,12 +56,24 @@ export interface FlicklineDebug {
   /** Frame/tick/draw stats. */
   perf(): unknown;
   /** Update a setting through the real store. */
-  setSetting(key: 'sensitivity' | 'dpi' | 'volume' | 'quality', value: number | string): void;
+  setSetting(key: 'sensitivity' | 'dpi' | 'volume' | 'weaponsVolume' | 'hitsVolume' | 'enemiesVolume' | 'uiVolume' | 'quality', value: number | string): void;
+  /** Play a cue through the real engine (needs the context unlocked by a user gesture, see audioUnlock). */
+  playCue(cue: CueId, opts?: PlayOptions): void;
+  /** Create/resume the audio context without a click (headless checks). */
+  audioUnlock(): void;
+  /** Audio state: running, voices, sound-set render stats, and the most recent plays (what was scheduled where). */
+  audio(count?: number): { running: boolean; voices: number; stats: SoundSetStats | null; plays: PlayLogEntry[] };
+  /** Crosshair state: current params, share code, redraw counter and last device-pixel geometry. */
+  crosshair(): unknown;
+  /** Import a crosshair share code through the real parser; returns `{ok, error?}`. */
+  setCrosshairCode(code: string): { ok: boolean; error?: string };
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
   /** Live tunables object (mutate for experiments; not persisted). */
   readonly tunables: unknown;
 }
+
+export type Vec3Like = { x: number; y: number; z: number } | readonly [number, number, number];
 
 declare global {
   interface Window {
@@ -85,6 +114,33 @@ export function installDebugHook(game: Game): FlicklineDebug {
     events(count = 32) {
       return game.eventLog.slice(-count);
     },
+    spawn(kind, pos, opts) {
+      const [x, y, z] = Array.isArray(pos) ? (pos as readonly number[]) : [(pos as { x: number }).x, (pos as { y: number }).y, (pos as { z: number }).z];
+      const id = game.spawnTarget(kind, x!, y!, z!, opts);
+      game.renderNow();
+      return id;
+    },
+    despawn(id) {
+      const ok = game.despawnTarget(id);
+      game.renderNow();
+      return ok;
+    },
+    aimAt(id, zone = 'head') {
+      return game.aimAtTarget(id, zone);
+    },
+    map: () => game.map,
+    teleport(x, y, z, yawDeg, pitchDeg) {
+      const p = game.world.player;
+      p.pos.x = p.prevPos.x = x;
+      p.pos.y = p.prevPos.y = y;
+      p.pos.z = p.prevPos.z = z;
+      p.vel.x = p.vel.y = p.vel.z = 0;
+      p.grounded = false;
+      if (yawDeg !== undefined || pitchDeg !== undefined) {
+        game.input.setLook((yawDeg ?? p.yaw / DEG) * DEG, (pitchDeg ?? p.pitch / DEG) * DEG);
+      }
+      game.renderNow();
+    },
     reset(seed) {
       game.resetWorld(seed);
       game.eventLog.length = 0;
@@ -104,6 +160,30 @@ export function installDebugHook(game: Game): FlicklineDebug {
     },
     setSetting(key, value) {
       game.settings.set({ [key]: value } as never);
+    },
+    playCue(cue, opts) {
+      game.audio.play(cue, opts);
+    },
+    audioUnlock() {
+      game.audio.resume();
+    },
+    audio(count = 16) {
+      return {
+        running: game.audio.running,
+        voices: game.audio.activeVoices,
+        stats: game.audio.stats,
+        plays: game.audio.recentPlays(count),
+      };
+    },
+    crosshair() {
+      const p = game.settings.get().crosshair;
+      return { params: p, code: encodeCrosshair(p), draws: game.hud.crosshair.draws, view: game.hud.crosshair.describe() };
+    },
+    setCrosshairCode(code) {
+      const res = decodeCrosshair(code);
+      if (!res.ok) return { ok: false, error: res.error };
+      game.settings.set({ crosshair: res.params });
+      return { ok: true };
     },
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);

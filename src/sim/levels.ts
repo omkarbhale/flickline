@@ -30,10 +30,12 @@ export const testRoom: LevelDef = {
     box('wall', 9, 1.5, 3, 13, 3, 6),
   ],
   spawn: { pos: vec3(0, 0, 8), yaw: 0 },
+  // Beacons are placed by centre, Posts by feet centre (see World.spawnTarget).
   targets: [
-    { pos: vec3(0, 1.5, -12) },
-    { pos: vec3(-6, 1.2, -16) },
-    { pos: vec3(7, 1.8, -17) },
-    { pos: vec3(2, 1.3, -18.5) },
+    { kind: 'beacon', pos: vec3(0, 1.5, -12) },
+    { kind: 'post', pos: vec3(-6, 0, -16) },
+    { kind: 'beacon', pos: vec3(7, 1.8, -17) },
+    { kind: 'post', pos: vec3(2, 0, -18.5), crouched: true },
+    { kind: 'post', pos: vec3(-4.5, 0, -9) },
   ],
 };
