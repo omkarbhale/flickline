@@ -18,7 +18,7 @@ const impact = (onTarget: boolean): E['shotImpact'] => ({
   damage: onTarget ? 39 : 0, killed: false, point: v, normal: v, onTarget, distance: 5,
 });
 const shot = (tick: number, moving: boolean, weapon: WeaponId = 'kestrel'): E['shotFired'] => ({
-  tick, t: 0, shotId: tick, weapon, origin: v, dir: v, moving, speed: 0, airborne: false, crouching: false,
+  tick, t: 0, shotId: tick, weapon, origin: v, dir: v, aimDir: v, moving, speed: 0, airborne: false, crouching: false,
   spreadDeg: 0.2, recoilIndex: 0, recoilPitchDeg: 0, recoilYawDeg: 0, ammo: 29,
   yaw: 0, pitch: 0, aimTargetId: -1, aimErr: 0, aimDYaw: 0, aimDPitch: 0,
 });

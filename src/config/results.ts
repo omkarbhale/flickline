@@ -14,6 +14,7 @@ export type MetricId =
   | 'flickBias'
   | 'flickError'
   | 'timeOnTarget'
+  | 'leadError'
   | 'stopLatency'
   | 'headHeight'
   | 'bestChain'
@@ -98,7 +99,7 @@ export const results: ResultsTunables = {
     coldStart: ['firstShotRate', 'preAimError'],
     placement: ['firstShotRate', 'flickBias'],
     orbit: ['flickBias', 'flickError'],
-    strafeTrack: ['timeOnTarget', 'bestChain'],
+    strafeTrack: ['timeOnTarget', 'leadError'],
     stopAndPop: ['stopLatency', 'cleanKills'],
     cornerClear: ['preAimError', 'headHeight'],
     sweep: ['bestChain', 'preAimError'],
@@ -123,6 +124,8 @@ export const results: ResultsTunables = {
     untouched: 'Untouched',
     flawless: 'Flawless',
     ascent: 'Ascent',
+    // The 13th medal (a Daily Baseline that reports "Improved"): its criterion lives with the Baseline series (#151, #153).
+    retained: 'Retained',
   },
   copy: {
     movingShots: {

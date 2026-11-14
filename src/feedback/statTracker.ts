@@ -108,6 +108,13 @@ export interface RunStats {
   /** Mean absolute vertical angle between the aim ray and head-centre height while moving, nobody in view. */
   headHeightDisciplineDeg: number | null;
   headHeightSamples: number;
+  /**
+   * Strafe Track: mean signed lead error and mean absolute lead error, degrees. + = the crosshair
+   * ran AHEAD of the Strafer (leading), - = BEHIND it (lagging). Null with no samples.
+   */
+  leadErrorBiasDeg: number | null;
+  leadErrorMeanAbsDeg: number | null;
+  leadSamples: number;
   /** Mean signed flick error (+ overshoot) and mean absolute flick error, degrees. */
   flickErrorBiasDeg: number | null;
   flickErrorMeanAbsDeg: number | null;
@@ -210,6 +217,9 @@ export class StatTracker {
   private aimOnTicks = 0;
   private headHeightSum = 0;
   private headHeightN = 0;
+  private leadSum = 0;
+  private leadAbsSum = 0;
+  private leadN = 0;
   private stopLatencies: number[] = [];
 
   constructor(private readonly cfg: StatConfig = defaultStatConfig) {}
@@ -241,6 +251,7 @@ export class StatTracker {
     this.aimOn = false;
     this.aimOnStart = this.aimOnTicks = 0;
     this.headHeightSum = this.headHeightN = 0;
+    this.leadSum = this.leadAbsSum = this.leadN = 0;
     this.stopLatencies = [];
   }
 
@@ -256,6 +267,7 @@ export class StatTracker {
       bus.on('targetKilled', (e) => this.onTargetKilled(e)),
       bus.on('targetExpired', (e) => this.onTargetExpired(e)),
       bus.on('aimOnTarget', (e) => this.onAimOnTarget(e)),
+      bus.on('leadSampled', (e) => this.onLead(e)),
       bus.on('headHeightSampled', (e) => this.onHeadHeight(e)),
       bus.on('playerStopped', (e) => this.onPlayerStopped(e)),
     ];
@@ -274,6 +286,7 @@ export class StatTracker {
       case 'targetKilled': this.onTargetKilled(ev.data); break;
       case 'targetExpired': this.onTargetExpired(ev.data); break;
       case 'aimOnTarget': this.onAimOnTarget(ev.data); break;
+      case 'leadSampled': this.onLead(ev.data); break;
       case 'headHeightSampled': this.onHeadHeight(ev.data); break;
       case 'playerStopped': this.onPlayerStopped(ev.data); break;
       default: break;
@@ -452,6 +465,13 @@ export class StatTracker {
     }
   }
 
+  private onLead(e: AllEvents['leadSampled']): void {
+    if (!this.live(e.tick)) return;
+    this.leadSum += e.err;
+    this.leadAbsSum += Math.abs(e.err);
+    this.leadN++;
+  }
+
   private onHeadHeight(e: AllEvents['headHeightSampled']): void {
     if (!this.live(e.tick)) return;
     this.headHeightSum += e.err;
@@ -533,6 +553,9 @@ export class StatTracker {
       preAimErrorDeg: median(preAims),
       headHeightDisciplineDeg: this.headHeightN === 0 ? null : (this.headHeightSum / this.headHeightN) * RAD2DEG,
       headHeightSamples: this.headHeightN,
+      leadErrorBiasDeg: this.leadN === 0 ? null : (this.leadSum / this.leadN) * RAD2DEG,
+      leadErrorMeanAbsDeg: this.leadN === 0 ? null : (this.leadAbsSum / this.leadN) * RAD2DEG,
+      leadSamples: this.leadN,
       flickErrorBiasDeg: mean(flicks),
       flickErrorMeanAbsDeg: mean(flicks.map(Math.abs)),
       flickCount: flicks.length,

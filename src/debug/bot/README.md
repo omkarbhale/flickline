@@ -10,6 +10,10 @@ Two tools for playtests and regression checks, both on the debug side of the lay
 | **Allocation audit** of the sim tick | Node | `npm run bot -- --alloc` |
 | **Perf harness**: 20 s scripted scene, frame times and heap | Real browser, through chrome-devtools-axi | `npm run perf` |
 | Both, by hand | The running page | `__flickline.botPlay(...)`, `__flickline.perfRun()` / `?perf=1` |
+| **Human-check measurements**: recoil sprays and reset, movement, tagging, input/tick alignment, sound metrics (#180) | Node, no browser | `npm run human-check [-- --json]` |
+| **Latency probe**: input → tick/frame → drawn → vsync, and sight/sound timing per shot, hit and kill | The running page (any hardware) | `__flickline.latency.start()`, play, `__flickline.latency.report()` |
+
+The last two back `docs/reviews/human-check-1.md`; both are described there.
 
 ## The bot
 
@@ -50,9 +54,13 @@ never touches sim state. One engagement is the two-submovement model of aimed mo
 A target that is not in view yet (behind the player in Orbit) is turned to at `searchDegPerSec`.
 
 **Not modelled** (so a mode that needs them is not playable by this bot yet): leading moving
-targets (it trails them with its follow lag), movement of any kind (it stands still), crouching,
+targets (it trails them with its follow lag), movement of any kind except Stop & Pop's footwork (below; elsewhere it stands still), crouching outside Stop & Pop,
 jumping, weapon swaps and reloads (the sim reloads an empty magazine by itself), taking cover,
 and enemies shooting back.
+
+### Stop & Pop footwork (`footwork.ts`)
+
+Stop & Pop is the one mode with movement, and it is played on its own map (`mapForMode`: Lane). `FootworkBot` wraps the aiming `Bot`: it strafes along the Lane (arming it), and when a target appears waits its reaction time, taps the opposite key until its speed is under the accuracy threshold, lets go, takes the ring's stance (crouch for a blue ring) and only then lets the aimer fire. A weak bot reacts late and runs out of exposure; a strong one does not.
 
 ### The skill model (`skill.ts`)
 

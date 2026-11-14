@@ -142,6 +142,20 @@ export class AudioEngine implements CuePlayer, LowpassDipper {
     }
   }
 
+  /**
+   * The audio clock and the device latencies the browser reports (seconds; 0 where it reports none),
+   * for timing probes: a cue scheduled at `currentTime` is heard about `baseLatency + outputLatency` later.
+   */
+  clock(): { currentTime: number; baseLatency: number; outputLatency: number; running: boolean } {
+    const c = this.ctx as (BaseAudioContext & { baseLatency?: number; outputLatency?: number }) | null;
+    return {
+      currentTime: c?.currentTime ?? 0,
+      baseLatency: c?.baseLatency ?? 0,
+      outputLatency: c?.outputLatency ?? 0,
+      running: this.running,
+    };
+  }
+
   /** Call from a user gesture (click to play). Safe to call repeatedly. */
   resume(): void {
     if (!this.ctx) {

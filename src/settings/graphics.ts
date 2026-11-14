@@ -1,9 +1,24 @@
-import type { QualityPreset } from '../config/render';
+import type { PostPreset, QualityPreset } from '../config/render';
 import type { Override } from './settings';
 
 /** `auto` follows the preset's value; `on` and `off` force it. */
 export function applyOverride(auto: boolean, o: Override): boolean {
   return o === 'auto' ? auto : o === 'on';
+}
+
+const NO_POST: Readonly<PostPreset> = { bloom: false, blur: false, vignette: false, chromatic: false };
+/** What "On" gives a preset that has no post stack of its own (Low): bloom and the vignette, the cheapest useful set. */
+const FORCED_POST: Readonly<PostPreset> = { bloom: true, blur: false, vignette: true, chromatic: false };
+
+function hasPost(p: Readonly<PostPreset>): boolean {
+  return p.bloom || p.vignette || p.chromatic;
+}
+
+/** The post stack in force: `auto` is the preset's, `off` is none, `on` is the preset's or, where it has none, bloom and the vignette. */
+export function resolvePost(base: Readonly<PostPreset>, o: Override): PostPreset {
+  if (o === 'off') return { ...NO_POST };
+  if (o === 'on' && !hasPost(base)) return { ...FORCED_POST };
+  return { ...base };
 }
 
 /**
@@ -18,7 +33,7 @@ export function resolveQuality(
 ): QualityPreset {
   return {
     ...base,
-    postProcessing: applyOverride(base.postProcessing, s.postEffects),
+    post: resolvePost(base.post, s.postEffects),
     echoOutline: applyOverride(base.echoOutline, s.enemyOutline),
   };
 }

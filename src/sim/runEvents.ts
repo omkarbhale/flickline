@@ -25,12 +25,28 @@ export interface RunEvents {
   targetShielded: { tick: number; targetId: number };
 
   enemyTell: { tick: number; id: number; durationMs: number };
-  enemyFired: { tick: number; id: number; hit: boolean; dir: Vec3 };
+  /** An enemy fired. `audibleToPlayer`: the shot is within `attribution.soundRadiusM.shot` of the player (fight-attribution F1). */
+  enemyFired: { tick: number; id: number; hit: boolean; dir: Vec3; audibleToPlayer: boolean };
   // `playerDamaged`, `playerSlowed`, `playerDied` and `playerHealed` live in `SimEvents` (sim/types.ts).
 
   surgeStarted: { tick: number };
   surgeEnded: { tick: number };
   medalAwarded: { tick: number; id: string };
+
+  /**
+   * One Sweep contact or Corner Clear angle ended (design §3 "Contact", §8.1, §14.3). `enemies` is how many
+   * enemies the contact sent (the Untouched medal needs 3 or more); `kept` is the health kept, 1 = no damage.
+   * Emitted by the mode that owns contacts (Corner Clear #50, Sweep #51); the medals engine reads it.
+   */
+  contactSettled: {
+    tick: number;
+    t: number;
+    contactId: number;
+    outcome: 'cleared' | 'disengaged' | 'avoided' | 'died';
+    kept: number;
+    enemies: number;
+    points: number;
+  };
 }
 
 declare module '../core/gameEvents' {

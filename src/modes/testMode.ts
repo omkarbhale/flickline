@@ -47,7 +47,8 @@ export const testMode: ModeDef<State> = {
   },
 
   onEvent(ctx: ModeContext<State>, ev) {
-    if (ev.type === 'shotImpact' || ev.payload.targetId !== ctx.state.targetId) return;
+    if (ev.type !== 'targetKilled' && ev.type !== 'targetExpired') return;
+    if (ev.payload.targetId !== ctx.state.targetId) return;
     ctx.state.targetId = -1;
     ctx.state.nextAt = ctx.liveTick + (ev.type === 'targetKilled' ? secondsToTicks(0.1) : gapTicks(ctx.rng, 0.2, 0.4));
   },

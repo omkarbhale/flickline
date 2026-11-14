@@ -22,7 +22,7 @@ class Log {
     return this;
   }
   visible(tick: number, id: number, preAimDeg = 30, dYawDeg = 30, dPitchDeg = 0): this {
-    this.events.push({ type: 'targetVisible', data: { tick, t: 0, targetId: id, preAim: preAimDeg * DEG2RAD, dYaw: dYawDeg * DEG2RAD, dPitch: dPitchDeg * DEG2RAD } });
+    this.events.push({ type: 'targetVisible', data: { tick, t: 0, targetId: id, preAim: preAimDeg * DEG2RAD, dYaw: dYawDeg * DEG2RAD, dPitch: dPitchDeg * DEG2RAD, initiator: 'enemy' } });
     return this;
   }
   /** A shot. `at` = nearest visible target and the angle to it; `hit` adds the impact (+ kill). */
@@ -41,7 +41,7 @@ class Log {
     this.events.push({
       type: 'shotFired',
       data: {
-        tick, t: 0, shotId: id, weapon: 'kestrel', origin: vec3(), dir, yaw, pitch, moving: o.moving ?? false, speed: 0,
+        tick, t: 0, shotId: id, weapon: 'kestrel', origin: vec3(), dir, aimDir: dir, yaw, pitch, moving: o.moving ?? false, speed: 0,
         airborne: false, crouching: false, spreadDeg: 0, recoilIndex: o.recoil ?? 0, recoilPitchDeg: 0, recoilYawDeg: 0, ammo: -1,
         aimTargetId: o.at ?? -1, aimErr: (o.errDeg ?? 0) * DEG2RAD,
         aimDYaw: (o.dYawDeg ?? 0) * DEG2RAD, aimDPitch: (o.dPitchDeg ?? 0) * DEG2RAD,
@@ -80,8 +80,12 @@ class Log {
     this.events.push({ type: 'headHeightSampled', data: { tick, err: errDeg * DEG2RAD } });
     return this;
   }
+  lead(tick: number, errDeg: number): this {
+    this.events.push({ type: 'leadSampled', data: { tick, id: 0, err: errDeg * DEG2RAD } });
+    return this;
+  }
   stop(tick: number, latencyMs: number): this {
-    this.events.push({ type: 'playerStopped', data: { tick, latencyMs } });
+    this.events.push({ type: 'playerStopped', data: { tick, latencyMs, counterStrafe: false } });
     return this;
   }
   finish(reason: 'timer' | 'quit' = 'timer'): RunLog {
@@ -310,6 +314,16 @@ describe('computeStats: positional and timing stats', () => {
     const s = stats(new Log().head(10, 1).head(20, 3).head(30, 2));
     expect(s.headHeightDisciplineDeg).toBeCloseTo(2, 9);
     expect(s.headHeightSamples).toBe(3);
+  });
+
+  it('lead error = the signed mean (+ ahead of the target, - behind it) and the mean absolute, in degrees', () => {
+    const s = stats(new Log().lead(10, 2).lead(20, -1).lead(30, -4));
+    expect(s.leadErrorBiasDeg).toBeCloseTo(-1, 9);
+    expect(s.leadErrorMeanAbsDeg).toBeCloseTo(7 / 3, 9);
+    expect(s.leadSamples).toBe(3);
+    const none = stats(new Log());
+    expect(none.leadErrorBiasDeg).toBeNull();
+    expect(none.leadSamples).toBe(0);
   });
 
   it('pre-aim error is the median of the aim error when each target became visible', () => {
