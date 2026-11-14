@@ -30,6 +30,8 @@ export interface BotRunOptions {
   botSeed?: number;
   /** Fix the dial for the run (the skill model otherwise picks it, and learns from the run). */
   pinDial?: number;
+  /** Start the run as a new profile's first (true: the placing Opener, design §9.2) or not; default: the host decides from the skill model. */
+  newProfile?: boolean;
   /** Override single skill parameters. */
   params?: Partial<BotParams>;
   /** Hard stop in simulated seconds. */
@@ -150,7 +152,7 @@ export function playMode(game: BotGame, opts: BotRunOptions): BotReport {
   game.reset(seed);
   if (id === FREEPLAY) {
     game.run.startRun({ mode: FREEPLAY, seed, dial: opts.pinDial ?? 50, durationSec: FREEPLAY_SEC });
-  } else if (!game.modes.start(id, { seed, pinDial: opts.pinDial, pick: game.modes.primary, lean: opts.lean })) {
+  } else if (!game.modes.start(id, { seed, pinDial: opts.pinDial, pick: game.modes.primary, lean: opts.lean, newProfile: opts.newProfile })) {
     throw new Error(`mode '${id}' could not start`);
   }
 

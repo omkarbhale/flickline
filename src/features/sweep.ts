@@ -209,7 +209,8 @@ export const feature = defineFeature({
       const st = state();
       if (!st) return '';
       const last = switches[switches.length - 1];
-      return `sweep ${st.gate ? 'gate before ' : ''}sector ${st.gate ? st.gate.plan.index + 1 : st.sector + 1}/${cfg.sectors} ${lastSector}` + (last ? ` | switch ${last.setupMs.toFixed(1)} ms, frame ${last.firstFrameMs.toFixed(1)} ms` : '');
+      const opener = !st.gate && st.openerStage >= 0 ? ' opener' : '';
+      return `sweep ${st.gate ? 'gate before ' : ''}sector ${st.gate ? st.gate.plan.index + 1 : st.sector + 1}/${cfg.sectors}${opener} ${lastSector} dial ${st.dial.dial.toFixed(1)}` + (last ? ` | switch ${last.setupMs.toFixed(1)} ms, frame ${last.firstFrameMs.toFixed(1)} ms` : '');
     });
 
     game.addDebug({
@@ -231,7 +232,16 @@ export const feature = defineFeature({
             mapId: game.modes.currentMap.id,
             won: st.won,
             lost: st.lost,
-            contacts: st.contacts.map((c) => ({ card: c.plan.card, open: c.open, alive: c.alive, echoes: c.echoIds.slice(), engaged: c.engaged })),
+            contacts: st.contacts.map((c) => ({ card: c.plan.card, open: c.open, alive: c.alive, echoes: c.echoIds.slice(), engaged: c.engaged, trials: c.trials })),
+            // Skill matching (#203): the sector's dial, the matched dial behind it, the fight track and the placing Opener's staircase.
+            dial: {
+              sector: st.dial.dial, matched: st.dial.matched, placing: st.dial.placing, openerStage: st.openerStage, openerFought: st.openerFought,
+              staircase: st.dial.staircase ? { dial: st.dial.staircase.dial, step: st.dial.staircase.step, reversals: st.dial.staircase.reversals } : null,
+              target: game.modes.skills.targetDial('line', game.tunables.dial.modes.sweep!.targetSuccess),
+              fight: game.modes.skills.fightRating(),
+              line: game.modes.skills.rating('line'),
+              match: game.modes.skills.matchRating(),
+            },
             route: st.plan.sectors.map((s) => `${s.mapId}/${s.sectorId} [${s.stake}${s.arms ? ' ' + s.arms : ''}]: ${s.contacts.map((c) => c.card).join(', ')}`),
             switches: switches.slice(),
             hp: game.world.health.hp,

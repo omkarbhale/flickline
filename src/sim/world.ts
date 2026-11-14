@@ -184,6 +184,7 @@ export class World implements EnemyWorld {
   reset(seed: number = this.seed): void {
     this.seed = seed;
     this.rng.setState(seed);
+    this.targetField.runSeed = seed;
     this.tick = 0;
     const p = this.player;
     const m = this.tunables.movement;
