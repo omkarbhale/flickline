@@ -22,6 +22,7 @@ const ALPHA_STEPS = 32;
  * information, not a flash) and fades slowly instead of snapping.
  */
 export class DamageView {
+  private readonly host: HTMLElement;
   private readonly vignette: HTMLElement;
   private readonly desat: HTMLElement;
   private readonly hp: HTMLElement;
@@ -57,6 +58,7 @@ export class DamageView {
       <canvas class="dmg-arcs"></canvas>
       <div class="hp"><div class="hp-fill"></div><div class="hp-shield"></div><span class="hp-text"></span></div>`;
     root.appendChild(host);
+    this.host = host;
     this.vignette = host.querySelector('.dmg-vignette') as HTMLElement;
     this.desat = host.querySelector('.dmg-desat') as HTMLElement;
     this.canvas = host.querySelector('.dmg-arcs') as HTMLCanvasElement;
@@ -84,6 +86,11 @@ export class DamageView {
   /** Reduce flashing changed (settings). */
   setReduceFlashing(v: boolean): void {
     this.reduceFlashing = v;
+  }
+
+  /** Show the HUD's own vignette (on), or leave the job to the post pipeline's damage vignette (off, High preset). */
+  setCssVignette(on: boolean): void {
+    this.host.classList.toggle('gl-vignette', !on);
   }
 
   /** Keep the HP bar up even at full health (modes with enemy fire). */
