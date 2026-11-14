@@ -82,6 +82,7 @@ export class World {
     stepWeapon(
       this.weapon, input.fire, this.player, this.level.boxes, this.targets,
       t.weapon, t.targets, this.tick, events, this.trace,
+      t.movement.runSpeed * t.weapon.movingSpeedFraction,
     );
     this.stepTargets(events);
   }
