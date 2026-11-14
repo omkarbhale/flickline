@@ -2,8 +2,9 @@
  * Difficulty dial and skill-model tunables (design §8.4 tiers, §9.1–9.4). Pure data: the model in
  * `adaptive/` reads everything from here, so balancing (#53) is a data change.
  *
- * The axis end points are the design's starting values. Research issue #12 is producing measured
- * end points and may revise them (and the fairness floors); change the numbers here, not code.
+ * The axis end points and floors are the design's values (§9.3.5, §9.4). Research #12
+ * (`docs/research/human-performance.md` §4–5, proposals P5/P6) proposes changes to several of them;
+ * they are noted per row below and are for the balance pass (#53) to adopt: numbers only, no code.
  */
 
 /** The seven trained skills (design §3). */
@@ -164,19 +165,27 @@ export const dial: DialTunables = {
   },
   axes: {
     beaconScale: { at0: 3.0, at100: 1.0, curve: 'linear' },
+    // #12 proposes 5 -> 35 m (50 m is below the first-shot cone).
     distance: { at0: 5, at100: 50, curve: 'geometric' },
+    // #12 proposes 20–40° -> 60–120° (120–180° only above dial 85, rare).
     flickMinDeg: { at0: 20, at100: 90, curve: 'linear' },
     flickMaxDeg: { at0: 40, at100: 180, curve: 'linear' },
     strafeSpeed: { at0: 2.0, at100: 5.4, curve: 'linear' },
+    // #12 proposes leg 0.35 s and stand-still 0.25 s at dial 100.
     strafeLegSec: { at0: 1.0, at100: 0.3, curve: 'linear' },
     standStillSec: { at0: 0.4, at100: 0.2, curve: 'linear' },
+    // #12 proposes exposure per mode (Orbit 2.5 -> 1.6 s, Cold Start 2.5 -> 1.05 s, Stop & Pop
+    // 2.0 -> 0.7 s) instead of one curve, and a wide peek of 1.4 -> 0.45 s.
     exposureSec: { at0: 3.0, at100: 0.45, curve: 'geometric' },
     peekWideSec: { at0: 1.4, at100: 0.3, curve: 'geometric' },
     enemyReactionSec: { at0: 1.2, at100: 0.3, curve: 'linear' },
+    // #12 proposes 0.7 -> 0.30 s (0.18 s is below mean simple reaction time).
     tellSec: { at0: 0.5, at100: 0.18, curve: 'linear' },
     enemyHitChance: { at0: 0.15, at100: 0.6, curve: 'linear' },
     density: { at0: 1, at100: 6, curve: 'step' },
   },
+  // #12 proposes tell >= 0.25 s, exposure floors per mode, and spawn rules of no visible target
+  // closer than 4 m where enemies shoot and none in the view cone closer than 5 m.
   floors: {
     tellSec: 0.15,
     exposureSec: 0.3,
