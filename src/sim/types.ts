@@ -1,5 +1,6 @@
 import type { Vec3 } from '../core/vec3';
 import type { WeaponId } from '../config/weapon';
+import type { RunEvents } from './runEvents';
 
 /** Per-tick player command. The only way input reaches the simulation. Angles in radians. */
 export interface TickInput {
@@ -47,6 +48,29 @@ export interface PlayerState {
   prevEyeHeight: number;
   /** Horizontal distance since last footstep event. */
   stepAccum: number;
+  /** Speed multiplier from being tagged (spec §4.3): 1 = free, `tag.speed_scale` = fully tagged. Set by the health step. */
+  tagScale: number;
+  /** Aim punch from being hit (spec §4.4), radians added to the view pitch (+ = up). Set by the health step. */
+  aimPunch: number;
+}
+
+/** The player's health and the timers behind tagging and flinch. Plain data (hashable, snapshot-able). */
+export interface PlayerHealth {
+  hp: number;
+  maxHp: number;
+  /** False after `playerDied`; the world no longer steps until it is reset. */
+  alive: boolean;
+  /** Seconds since the last tagging hit; Infinity = not tagged. */
+  tagSince: number;
+  /** Ramp-in progress 0..1 (reaches 1 over `tag.ramp_in`). */
+  tagRise: number;
+  /** Current aim punch, degrees (+ = up). */
+  flinchDeg: number;
+  /** Tick of the last damage taken, -1 = never. */
+  lastDamageTick: number;
+  /** Total damage taken and healed this life (stats, "you lost 40 HP to ..."). */
+  damageTaken: number;
+  healed: number;
 }
 
 /** The three humanoid damage zones (design §5.1). Orbs are a single `head` zone. */
@@ -215,6 +239,15 @@ export interface SimEvents {
     recoilYawDeg: number;
     /** Rounds left in the magazine after this shot. */
     ammo: number;
+    /** View angles at the tick (the crosshair, radians); `dir` adds recoil and spread. */
+    yaw: number;
+    pitch: number;
+    /** Nearest visible live target to the view ray (-1 none) and the angle to its head, radians. */
+    aimTargetId: number;
+    aimErr: number;
+    /** Head-centre angles minus view angles for that target, radians. */
+    aimDYaw: number;
+    aimDPitch: number;
   };
   /**
    * Where a shot ended: emitted once per shot that hit a surface or a target, right after its
@@ -239,7 +272,16 @@ export interface SimEvents {
   /** A target was added to the field (spawn call, level placement or respawn). */
   targetSpawned: { tick: number; t: number; targetId: number; kind: TargetKind; pos: Vec3; tags: readonly string[] };
   /** First tick the target is in the view frustum and unoccluded from the eye. Once per spawn. */
-  targetVisible: { tick: number; t: number; targetId: number };
+  targetVisible: {
+    tick: number;
+    t: number;
+    targetId: number;
+    /** Angle between the view ray and the target's head centre at that tick, radians (pre-aim error). */
+    preAim: number;
+    /** Head-centre angles minus view angles at that tick, radians: the flick vector. */
+    dYaw: number;
+    dPitch: number;
+  };
   targetHit: {
     tick: number;
     t: number;
@@ -275,6 +317,12 @@ export interface SimEvents {
   targetExpired: { tick: number; t: number; targetId: number; kind: TargetKind };
   /** A level-placed target came back after a kill. Also announced by `targetSpawned`. */
   targetRespawned: { tick: number; targetId: number };
+  /** Aim ray entered (`on`) or left the padded hit volume of a visible target (edge events). */
+  aimOnTarget: { tick: number; on: boolean; id: number };
+  /** Vertical angle (radians) between the aim ray and head-centre height, sampled while moving with no enemy visible. */
+  headHeightSampled: { tick: number; err: number };
+  /** Horizontal speed first fell to the accuracy threshold after a stop or counter-strafe input. */
+  playerStopped: { tick: number; latencyMs: number };
   playerJumped: { tick: number };
   playerLanded: { tick: number; impactSpeed: number };
   footstep: { tick: number; crouching: boolean; walking: boolean };
@@ -285,11 +333,43 @@ export interface SimEvents {
   reloadCancelled: { tick: number; weapon: WeaponId };
   /** A swap began; the weapon can fire after `equipSec`. */
   weaponSwitched: { tick: number; weapon: WeaponId; slot: number; equipSec: number };
+  /**
+   * The player took damage (design §14.3). `dir` is the unit direction to the shooter in the
+   * player's yaw frame, camera-local like everything else: +X right, +Y up, -Z straight ahead, so
+   * the on-screen angle clockwise from "up the screen" is `atan2(dir.x, -dir.z)`. `yaw` is the
+   * player's yaw at the hit, so a presenter can keep the arc on the shooter while the view turns.
+   */
+  playerDamaged: {
+    tick: number;
+    t: number;
+    /** HP lost (floats, never rounded in the sim). */
+    amount: number;
+    /** HP left after the hit (0 when it killed). */
+    hp: number;
+    maxHp: number;
+    zone: HitZone;
+    dir: Vec3;
+    yaw: number;
+    /** Who fired (enemy id), or -1 (debug, environment). */
+    sourceId: number;
+    killed: boolean;
+  };
+  /** The tagging slow was started or refreshed by a hit (spec §4.3). */
+  playerSlowed: { tick: number; t: number; factor: number; durationMs: number };
+  /** HP reached 0. The mode runner ends the run with reason `death`. */
+  playerDied: { tick: number; t: number; sourceId: number };
+  /** HP was restored (kill-heal, design §4.8). `amount` is what was actually added (after the cap). */
+  playerHealed: { tick: number; t: number; amount: number; hp: number; maxHp: number; source: 'kill' };
 }
+
+/** Everything the simulation and the run machinery put on the bus. */
+export type RunAndSimEvents = SimEvents & RunEvents;
 
 /** Every SimEvents key, for loggers and tests. */
 export const SIM_EVENT_TYPES: readonly (keyof SimEvents)[] = [
   'shotFired', 'shotImpact', 'targetSpawned', 'targetVisible', 'targetHit', 'targetKilled',
   'targetExpired', 'targetRespawned', 'playerJumped', 'playerLanded', 'footstep',
   'reloadStarted', 'reloadCompleted', 'reloadCancelled', 'weaponSwitched',
+  'playerDamaged', 'playerSlowed', 'playerDied', 'playerHealed',
+  'aimOnTarget', 'headHeightSampled', 'playerStopped',
 ];

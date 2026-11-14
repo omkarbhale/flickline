@@ -2,6 +2,9 @@ import type { Game } from '../app/game';
 import { MODES } from '../app/modeHost';
 import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
 import type { CueId } from '../config/audio';
+import type { RunStats } from '../feedback/statTracker';
+import type { RunState, StartRunOptions } from '../modes/runController';
+import type { RunEndReason } from '../modes/contracts';
 import type { WeaponId } from '../config/weapon';
 import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
 import type { Settings } from '../settings/settings';
@@ -11,6 +14,24 @@ export interface ScriptStep {
   /** Number of sim ticks to run with this input. */
   ticks: number;
   input?: Partial<TickInput>;
+}
+
+/** `__flickline.run`: drive the run lifecycle and read its stats (seconds, degrees, plain data). */
+export interface FlicklineRunApi {
+  /** Start a run (seeded reset -> ready). Defaults: mode 'freeplay', current seed, dial 50. Returns the run info. */
+  start(opts?: Partial<StartRunOptions>): unknown;
+  /** End the run (default reason 'quit') and return the final stats. */
+  end(reason?: RunEndReason): RunStats;
+  /** Instant restart; returns the measured synchronous cost in ms (-1 if there is no run). */
+  restart(seed?: number): number;
+  /** idle | ready | live | result */
+  state(): RunState;
+  /** Live stats during a run, final stats once ended. */
+  stats(): RunStats;
+  /** Measured restart timing: `sync` = reset cost, `toFrame` = call to the next rendered frame (-1 until drawn). */
+  restartMs(): { sync: number; toFrame: number; budget: number };
+  /** The run's logged events (oldest first), newest `count` entries. */
+  log(count?: number): unknown[];
 }
 
 /**
@@ -86,6 +107,8 @@ export interface FlicklineDebug {
   setCrosshairCode(code: string): { ok: boolean; error?: string };
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
+  /** Run lifecycle (reset-only restart, event log, stats). Runs started by `mode.start` are mirrored here too. */
+  readonly run: FlicklineRunApi;
   /** Named timestamps (ms since page load): panel shown, play clicked, lock, first shot. */
   timeline(): Record<string, number>;
   /**
@@ -102,6 +125,18 @@ export interface FlicklineDebug {
     infiniteMagazine: boolean;
     infiniteReserve: boolean;
   };
+  /**
+   * The player takes `amount` HP to `zone` from a shooter `distance` m away at `bearingDeg`
+   * clockwise from where the player faces (0 ahead, 90 right, 180 behind): the damage arc, vignette,
+   * HP bar, tagging, flinch and the audio dip all run as for a real hit. Returns whether it killed.
+   */
+  hurt(amount: number, opts?: { zone?: HitZone; bearingDeg?: number; distance?: number; sourceId?: number }): boolean;
+  /** As `hurt`, with the damage taken from `weaponId`'s band for the zone at the distance (spec §3.2 / §7.4). */
+  hitBy(weaponId: string, opts?: { zone?: HitZone; bearingDeg?: number; distance?: number; sourceId?: number }): boolean;
+  /** HP, tagging and flinch state plus the damage view (arcs showing, redraws) and the last low-pass dip. */
+  health(): unknown;
+  /** Keep the HP bar visible at full health (modes with enemy fire). */
+  hpAlwaysVisible(v?: boolean): void;
   /** Live tunables object (mutate for experiments; not persisted). */
   readonly tunables: unknown;
   /** Mode framework: start/stop a mode run and read its state (`step()` advances it like any tick). */
@@ -277,6 +312,32 @@ export function installDebugHook(game: Game): FlicklineDebug {
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);
     },
+    run: {
+      start(opts = {}) {
+        game.startRun({
+          mode: opts.mode ?? 'freeplay',
+          seed: opts.seed ?? game.world.seed,
+          dial: opts.dial ?? 50,
+          durationSec: opts.durationSec,
+        });
+        return { state: game.run.state, ...game.run.info };
+      },
+      end(reason = 'quit') {
+        game.endRun(reason);
+        return game.run.liveStats();
+      },
+      restart(seed) {
+        return game.restartRun(seed) ? game.lastRestartMs : -1;
+      },
+      state: () => game.run.state,
+      stats: () => game.run.liveStats(),
+      restartMs: () => ({
+        sync: game.lastRestartMs,
+        toFrame: game.lastRestartToFrameMs,
+        budget: game.tunables.run.restartBudgetMs,
+      }),
+      log: (count = 64) => game.run.log.events.slice(-count),
+    },
     timeline: () => game.timeline.toObject(),
     fire(weaponId) {
       return game.fireOnce(weaponId as WeaponId);
@@ -293,6 +354,21 @@ export function installDebugHook(game: Game): FlicklineDebug {
       game.hud.refresh();
       return { infiniteMagazine: w.infiniteMagazine, infiniteReserve: w.infiniteReserve };
     },
+    hurt: (amount, o = {}) => game.hurt(amount, o.zone, o.bearingDeg, o.distance, o.sourceId),
+    hitBy: (weaponId, o = {}) => game.hitBy(weaponId as WeaponId, o.zone, o.bearingDeg, o.distance, o.sourceId),
+    health() {
+      const w = game.world;
+      return {
+        ...(game.snapshot() as { health: unknown }).health as object,
+        arcsShowing: game.damage.arcsShowing,
+        arcDraws: game.damage.draws,
+        dip: { ...game.audio.lastDip },
+        runPhase: game.run.state,
+        runEndReason: game.run.finalStats ? game.modes.runner.endReason : null,
+        tick: w.tick,
+      };
+    },
+    hpAlwaysVisible: (v = true) => game.damage.setHpAlwaysVisible(v),
     tunables: game.tunables,
     mode: {
       start: (id = 'test', opts = {}) => game.modes.start(id, opts),

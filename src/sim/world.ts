@@ -6,6 +6,9 @@ import type { Tunables } from '../config/tunables';
 import type { BehaviourContext } from './fsm';
 import { TargetField, type SpawnOptions } from './targets';
 import { levelTargetsReset } from './targetsInit';
+import { zoneDamage } from './damage';
+import { PlayerHealthSystem } from './playerHealth';
+import { createProbeState, resetProbe, stepRunProbe, type ProbeState } from './runProbe';
 import type { WeaponId } from '../config/weapon';
 import {
   createWeaponScratch,
@@ -16,9 +19,29 @@ import {
   type WeaponWorld,
 } from './weapon';
 import { stepPlayer } from './movement';
-import type { LevelDef, PlayerState, SimEvents, TargetKind, TargetState, TickInput, WeaponState } from './types';
+import type {
+  HitZone, LevelDef, PlayerHealth, PlayerState, SimEvents, TargetKind, TargetState, TickInput, WeaponState,
+} from './types';
 
 const NULL_SINK: EventSink<SimEvents> = { emit() {} };
+
+/**
+ * Forwards every event to the real sink, and turns the player's kills into kill-heal (design
+ * §4.8) so the heal is part of the simulation, not of whoever happens to listen. One instance per
+ * world; `target` is swapped in per step. Allocates nothing.
+ */
+class KillHealRelay implements EventSink<SimEvents> {
+  target: EventSink<SimEvents> = NULL_SINK;
+  constructor(private readonly health: PlayerHealthSystem) {}
+
+  emit<K extends keyof SimEvents>(type: K, payload: SimEvents[K]): void {
+    this.target.emit(type, payload);
+    if (type === 'targetKilled') {
+      const k = payload as SimEvents['targetKilled'];
+      this.health.healForKill(k.zone, k.tick, this.target);
+    }
+  }
+}
 
 export interface WorldOptions {
   level: LevelDef;
@@ -46,6 +69,16 @@ export class World {
   readonly targets: TargetState[];
   readonly loadout: readonly WeaponId[];
   readonly weapon: WeaponState;
+  /** The player's HP and the tag / flinch timers (spec §4); damage goes through `damagePlayer`. */
+  readonly health: PlayerHealth;
+  private readonly healthSys: PlayerHealthSystem;
+  private readonly relay: KillHealRelay;
+  /**
+   * Whether targets and the weapon are live. The run controller clears it during `ready` (movement
+   * only) and sets it when a self-driven run goes `live`; free play and mode runs keep it true.
+   */
+  live = true;
+  readonly probe: ProbeState = createProbeState();
   private readonly weaponWorld: WeaponWorld;
   private readonly weaponScratch: WeaponScratch = createWeaponScratch();
   /** Reused every tick for target behaviours (`events` is swapped in per step). */
@@ -61,6 +94,9 @@ export class World {
     this.behaviourCtx = { tick: 0, rng: this.rng, tunables: opts.tunables, events: NULL_SINK };
     this.loadout = [...(opts.loadout ?? opts.tunables.weaponRules.defaultLoadout)];
     this.weapon = createWeaponState(this.loadout, opts.tunables.weapon);
+    this.healthSys = new PlayerHealthSystem(opts.tunables.player, opts.tunables.sweep);
+    this.health = this.healthSys.state;
+    this.relay = new KillHealRelay(this.healthSys);
     this.weaponWorld = {
       boxes: this.level.boxes,
       field: this.targetField,
@@ -81,6 +117,8 @@ export class World {
       eyeHeight: m.standEyeHeight,
       prevEyeHeight: m.standEyeHeight,
       stepAccum: 0,
+      tagScale: 1,
+      aimPunch: 0,
     };
     this.reset(this.seed);
   }
@@ -102,20 +140,76 @@ export class World {
     p.height = m.standHeight;
     p.eyeHeight = p.prevEyeHeight = m.standEyeHeight;
     p.stepAccum = 0;
+    this.healthSys.reset(p);
     resetWeaponState(this.weapon, this.loadout, this.tunables.weapon);
+    this.live = true;
+    resetProbe(this.probe);
     this.behaviourCtx.tick = 0;
     this.behaviourCtx.events = NULL_SINK;
     levelTargetsReset(this.targetField, this.level, this.behaviourCtx);
   }
 
-  /** Advance exactly one tick (1/TICK_RATE s). */
+  /**
+   * Advance exactly one tick (1/TICK_RATE s). A dead player freezes the world (nothing advances,
+   * not even the tick counter) until `reset()`: the frame the results card is drawn over.
+   */
   step(input: TickInput, events: EventSink<SimEvents>): void {
+    if (!this.health.alive) return;
     this.tick++;
     const t = this.tunables;
+    // Everything that can emit a kill runs through the relay (kill-heal); the rest uses the plain sink.
+    const relay = this.relay;
+    relay.target = events;
+    this.healthSys.step(this.player);
     stepPlayer(this.player, input, this.level.boxes, t.movement, TICK_DT, this.tick, events);
+    if (!this.live) {
+      relay.target = NULL_SINK;
+      return;
+    }
     this.targetField.updateVisibility(this.player, this.level.boxes, this.tick, events);
-    stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, events, this.weaponScratch);
-    this.stepTargets(events);
+    stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, relay, this.weaponScratch);
+    this.stepTargets(relay);
+    relay.target = NULL_SINK;
+    stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events);
+  }
+
+  /**
+   * The player takes `amount` HP of damage to `zone` from a shooter whose muzzle is at (`sx`, `sy`,
+   * `sz`) (`sourceId` = the enemy id, or -1). Applies tagging, flinch and death and emits
+   * `playerDamaged` / `playerSlowed` / `playerDied`. This is the one entry point enemy fire (#32,
+   * #33) and the debug hook use. Returns whether the hit killed the player.
+   */
+  damagePlayer(
+    amount: number, zone: HitZone, sx: number, sy: number, sz: number, sourceId: number,
+    events: EventSink<SimEvents>,
+  ): boolean {
+    return this.healthSys.damage(this.player, amount, zone, sx, sy, sz, sourceId, this.tick, events);
+  }
+
+  /**
+   * A bullet of `weapon` hits the player in `zone` from the shooter at (`sx`, `sy`, `sz`): the
+   * damage is that weapon's band for the zone at the hit distance (spec §3.2 / §7.4), then as
+   * `damagePlayer`. Returns whether it killed the player.
+   */
+  hitPlayer(
+    weapon: WeaponId, zone: HitZone, sx: number, sy: number, sz: number, sourceId: number,
+    events: EventSink<SimEvents>,
+  ): boolean {
+    const p = this.player;
+    const distance = Math.hypot(sx - p.pos.x, sy - (p.pos.y + p.eyeHeight), sz - p.pos.z);
+    const amount = zoneDamage(this.tunables.weapon[weapon].damageBands, zone, distance);
+    return this.damagePlayer(amount, zone, sx, sy, sz, sourceId, events);
+  }
+
+  /**
+   * A self-driven run went `live`: announce every living target (`targetSpawned`) so the stat
+   * tracker opens its engagements, forget earlier sightings, and start measuring from a clean
+   * probe state.
+   */
+  beginLive(events: EventSink<SimEvents>): void {
+    this.live = true;
+    resetProbe(this.probe);
+    this.targetField.announceAll(this.tick, events);
   }
 
   /** Advance target behaviours, lifetimes and level respawns. */
@@ -168,6 +262,9 @@ export class World {
     mix(p.yaw); mix(p.pitch);
     mix(p.grounded ? 1 : 0); mix(p.crouching ? 1 : 0); mix(p.eyeHeight);
     const w = this.weapon;
+    const hp = this.health;
+    mix(hp.hp); mix(hp.alive ? 1 : 0); mix(Number.isFinite(hp.tagSince) ? hp.tagSince : -1);
+    mix(hp.tagRise); mix(hp.flinchDeg);
     mix(w.shots); mix(w.active); mix(w.cooldown); mix(w.equipLeft); mix(w.reloadLeft);
     mix(w.sprayCount); mix(w.recoilIndex); mix(w.recoilPitch); mix(w.recoilYaw); mix(w.yawSign);
     for (let i = 0; i < w.slots.length; i++) {
