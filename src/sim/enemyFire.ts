@@ -225,6 +225,8 @@ export function fireStep(t: TargetState, ctx: BehaviourContext, gate: boolean): 
   const tick = ctx.tick;
   a.gate = gate;
   if (a.phase === FIRE_IDLE) {
+    // An arrival waits until the player has had information about it: it came into view, or its steps carried (S9).
+    if (a.honest && t.visibleTick < 0 && a.audibleTick < 0) return;
     if (seesPlayer(t, ctx)) startContact(t, ctx);
     return;
   }

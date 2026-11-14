@@ -154,7 +154,7 @@ export const SECTOR_ROLES: readonly SectorRole[] = ['take', 'hold', 'meet'];
  * A sector (design 4.2): a region of the map with an entry gate, an exit gate and placement
  * anchors. `role` lists every role the run director may give it (a sector can serve more than one).
  * `entry` and `exit` are feet positions on the floor; `holdAnchors` name `hold` or `peek` anchors
- * where Echoes stand; `approaches` name `lanes` the arriving enemies of a hold sector walk along.
+ * where Echoes stand; `approaches` name `lanes` the arriving enemies of a hold sector walk along (and the survivors of the sector before, who follow the player, #204): each starts outside the region and ends inside it.
  * Regions of one map never overlap (the lint checks it).
  */
 export interface SectorDef {

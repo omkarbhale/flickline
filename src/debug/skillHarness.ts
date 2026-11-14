@@ -244,7 +244,7 @@ export interface HarnessRow {
   maxSectorStep: number;
 }
 
-/** Runs before the session (placement and settling), and runs in a 30-minute session (v0: four sectors, ~7 contacts, ~3.5 min a run). */
+/** Runs before the session (placement and settling), and runs in a 30-minute session (six sectors with holds and the Finale, ~14 contacts, five to nine minutes a run, design §4.1). */
 export const SETTLE_RUNS = 3;
 export const SESSION_RUNS = 8;
 

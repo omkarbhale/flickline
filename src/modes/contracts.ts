@@ -80,11 +80,21 @@ export interface FireSpawn {
   expectation?: 'prepared' | 'attending' | 'unaware';
 }
 
-/** Spawn details beyond kind, place and size: a Peeker's anchor, shooting back, a crouched pose. */
+/** An Echo that arrives (a hold sector's, design §4.2): spawns at the route's first point and walks it in before it fights. */
+export interface ArriveSpawn {
+  route: readonly Vec3[];
+  /** Metres per second along the route; at or under the footstep audio's silent speed it is a quiet walk. */
+  speed: number;
+  /** A Strafer stops walking and fights once it sees the player this close, metres. */
+  engageM: number;
+}
+
+/** Spawn details beyond kind, place and size: a Peeker's anchor, shooting back, a crouched pose, an arrival route. */
 export interface EchoSpawn {
   peek?: PeekSpawn;
   fire?: FireSpawn;
   crouched?: boolean;
+  arrive?: ArriveSpawn;
 }
 
 /** The enemy sim's side (#15): create and remove targets. */

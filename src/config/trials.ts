@@ -70,7 +70,7 @@ export const trials: TrialTunables = {
   track: { minDuelSec: 0.4, onTargetShare: { at0: 0.2, at100: 0.65 } },
   spray: { minBullets: 5, maxGapSec: 0.2, hitShare: { at0: 0.3, at100: 0.75 } },
   switch: { maxSec: { at0: 1.6, at100: 0.7 } },
-  cardOffset: { 'take-unaware': -3, 'take-expected': 2, clear: 0, crossfire: 4, meet: 0 },
+  cardOffset: { 'take-unaware': -3, 'take-expected': 2, clear: 0, crossfire: 4, meet: 0, hold: -3, trade: 0, flank: 0 },
 };
 
 /** This file's groups of `Tunables` (config/tunables.ts composes them). */

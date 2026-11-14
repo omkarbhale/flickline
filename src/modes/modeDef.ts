@@ -5,7 +5,7 @@ import type { Tunables } from '../config/tunables';
 import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import type {
-  AxisId, AxisValues, FireSpawn, ModeEvents, ModeId, ModeRef, MotionView, PeekSpawn, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra,
+  ArriveSpawn, AxisId, AxisValues, FireSpawn, ModeEvents, ModeId, ModeRef, MotionView, PeekSpawn, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra,
   TrialSource, VitalsView, WaveCurve,
 } from './contracts';
 import type { SpawnScheduler } from './scheduler';
@@ -54,6 +54,13 @@ export interface ModeDef<S = unknown> extends ModeRef {
   readonly readySec?: number;
   /** Live-phase length in seconds; `Infinity` = the mode ends the run itself (`ctx.end`). */
   readonly durationSec: number;
+  /**
+   * The mind skill (0-100) of the run's mind-driven Echoes (`docs/research/player-like-enemies.md` §5.4,
+   * `sim/mind/profile.ts`). Default: the dial in force. A number pins it; a function maps the dial
+   * (a mode that wants its Echoes a little sharper or softer than the player). Read it as
+   * `ctx.mindSkill`, which applies this and the 0-100 range.
+   */
+  readonly mindSkill?: number | ((dial: number) => number);
   /** Difficulty axes (design §9.4 ids) this mode uses; they define each item's difficulty. */
   readonly axes: readonly AxisId[];
   /** Beat length in seconds (default `tunables.dial.beat.drillSec`); `null` = the mode calls `ctx.advanceBeat()`. */
@@ -90,6 +97,13 @@ export interface ModeDef<S = unknown> extends ModeRef {
   onEnd?(ctx: ModeContext<S>, reason: RunEndReason): void;
 }
 
+/** The mind skill of a run on `mode` at `dial` (#88): the mode's override if it has one, else the dial; always within 0-100. */
+export function mindSkillFor(mode: { readonly mindSkill?: number | ((dial: number) => number) }, dial: number): number {
+  const m = mode.mindSkill;
+  const v = m === undefined ? dial : typeof m === 'number' ? m : m(dial);
+  return v >= 0 ? (v <= 100 ? v : 100) : 0;
+}
+
 /** One sim fact. The runner reuses these wrapper objects: copy what you keep. */
 export type ModeEvent = { [K in keyof SourceEvents]: { type: K; payload: SourceEvents[K] } }[keyof SourceEvents];
 
@@ -110,6 +124,8 @@ export interface SpawnOptions {
   fire?: FireSpawn;
   /** Crouched humanoid pose. */
   crouched?: boolean;
+  /** The Echo arrives: it spawns at the route's first point (the `pos` given is replaced) and walks it in (Sweep's hold sectors). */
+  arrive?: ArriveSpawn;
   /** Scenario card of the contact the target belongs to: carried on its `skillTrial` (Sweep). */
   card?: string;
   /**
@@ -183,6 +199,8 @@ export interface ModeContext<S = unknown> {
   /** Beat index, dial and axis values in force. These change ONLY at beat boundaries. */
   readonly beat: number;
   readonly dial: number;
+  /** The mind skill for Echoes that use the enemy mind: the dial unless `ModeDef.mindSkill` says otherwise (#88). */
+  readonly mindSkill: number;
   readonly axes: AxisValues;
   /** Concrete axis values for any dial value (fairness floors applied); allocates, so call it per trial, not per tick. */
   axesAt(dial: number): AxisValues;

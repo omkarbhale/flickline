@@ -84,6 +84,8 @@ function start(seed: number, pick?: string) {
   /** Leave the sector by its exit and walk through the left door of the gate behind it (none after the last sector). */
   const toExit = (): void => {
     const sp = state().plan.sectors[state().sector]!;
+    // A hold sector's exit opens when its Echoes are dead (#204): these tests are about conditions, so it is opened for them.
+    if (state().role === 'hold') state().exitOpen = true;
     g.world.placePlayer(sp.exit.x, sp.exit.y, sp.exit.z, 0);
     g.advance(input);
     const gc = cfg.gate;

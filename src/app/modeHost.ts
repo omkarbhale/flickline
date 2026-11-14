@@ -43,6 +43,7 @@ class WorldSpawner implements TargetSpawner {
     if (strafe) o.strafe = strafe;
     if (echo?.peek) o.peek = echo.peek;
     if (echo?.fire) o.fire = echo.fire;
+    if (echo?.arrive) o.arrive = echo.arrive;
     if (echo?.crouched) o.crouched = true;
     return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, o);
   }
