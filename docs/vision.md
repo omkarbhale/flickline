@@ -85,7 +85,7 @@ Flickline runs at 144 frames per second or more and still looks strong, custom s
 
 The owner's standing instructions:
 
-- Track everything in GitHub issues and pull requests: design, research, building, playtesting, sound and art.
+- Track everything in GitHub issues and pull requests: design, research, brainstorming, building, playtesting, sound and art.
 - High throughput without losing quality; no check or pipeline step may become a bottleneck.
 - Look at and listen to sounds, visuals and gameplay, not only test them.
 - Decide and carry on: pick the best option, record the decision and reason on the issue, keep going.
