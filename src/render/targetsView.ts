@@ -9,6 +9,8 @@ import {
   SphereGeometry,
 } from 'three';
 import { lerp } from '../core/math';
+import { TICK_RATE } from '../core/time';
+import { feedback } from '../config/feedback';
 import type { Tunables } from '../config/tunables';
 import type { World } from '../sim/world';
 
@@ -16,7 +18,8 @@ const BODY_COLOR = 0x6fa8c7;
 const HEAD_COLOR = 0xd8f3ff;
 const BEACON_COLOR = 0xff8a4d;
 const FLASH_COLOR = 0xffffff;
-const FLASH_TICKS = 14;
+/** White hit flash length (design §7.1: 60 ms). */
+const FLASH_TICKS = Math.max(1, Math.round(feedback.targetFlashSec * TICK_RATE));
 
 /**
  * PLACEHOLDER visuals for the roster (final Echo look is #18): one instanced capsule for a
