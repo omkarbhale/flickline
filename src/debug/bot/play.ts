@@ -5,7 +5,6 @@ import type { MapDef } from '../../sim/mapTypes';
 import { MAPS, rangeMap } from '../../sim/mapLoader';
 import { createTickInput } from '../../sim/types';
 import { Bot, type BotStats } from './bot';
-import { FootworkBot } from './footwork';
 import type { GatePolicy, OvertimePolicy } from './gatePolicy';
 import { SweepBot } from './sweepBot';
 import type { BotGame } from './headless';
@@ -20,7 +19,7 @@ const MAX_SIM_SEC = 180;
 const MAX_RUN_SEC = 600;
 
 export interface BotRunOptions {
-  /** A registered mode id (`test`, `coldStart`, ...; case and dashes are ignored, so `cold-start` works) or `freeplay`. */
+  /** A registered mode id (`sweep`, `test`; case and dashes are ignored)  or `freeplay`. */
   mode: string;
   /** 0..100 (default 50). */
   skill?: number;
@@ -106,7 +105,7 @@ export function resolveMode(id: string): string | null {
   return listModes().find((m) => norm(m) === n) ?? null;
 }
 
-/** The map a mode is designed for (`ModeDef.map`): Range for the drills and free play, Lane for Stop & Pop. */
+/** The map a mode is designed for (`ModeDef.map`): the Range for free play and the test fixture; a Sweep run loads its sectors' maps itself. */
 export function mapForMode(mode: string): MapDef {
   const id = resolveMode(mode);
   const named = id ? MODES[id]?.map : undefined;
@@ -139,7 +138,7 @@ function compact(s: RunStats): BotRunStats {
 
 /**
  * Play one run of a mode with a bot and report what happened. Synchronous; the sim runs as fast as
- * the CPU allows (a 60 s drill takes well under a second). Deterministic: the same `game` state,
+ * the CPU allows (a full Sweep run takes well under a second). Deterministic: the same `game` state,
  * options and build give the same `hash` and stats.
  */
 export function playMode(game: BotGame, opts: BotRunOptions): BotReport {
@@ -159,9 +158,8 @@ export function playMode(game: BotGame, opts: BotRunOptions): BotReport {
   }
 
   const aimer = new Bot(params, botSeed, game.tunables);
-  // Stop & Pop needs feet: the footwork bot strafes, counter-strafes, takes the ring's stance, then lets the aimer fire.
-  // Sweep needs feet too: the sweep bot walks each sector entry to exit and stops to fight what it sees.
-  const bot = id === 'stopAndPop' ? new FootworkBot(aimer, game, botSeed) : id === 'sweep' ? new SweepBot(aimer, game, opts.sweepStopDelaySec ?? 0, botSeed, opts.gatePolicy, opts.sweepMovingShare ?? 0, opts.overtimePolicy) : aimer;
+  // Sweep needs feet: the sweep bot walks each sector entry to exit and stops to fight what it sees.
+  const bot = id === 'sweep' ? new SweepBot(aimer, game, opts.sweepStopDelaySec ?? 0, botSeed, opts.gatePolicy, opts.sweepMovingShare ?? 0, opts.overtimePolicy) : aimer;
   const input = createTickInput();
   const maxTicks = secondsToTicks(opts.maxSeconds ?? (id === 'sweep' ? MAX_RUN_SEC : MAX_SIM_SEC));
   const startTick = game.world.tick;

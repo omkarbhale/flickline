@@ -28,20 +28,13 @@ export interface AxisDef {
 
 /** Design §9.4. Every axis maps the 0–100 dial to a value; each mode uses a subset. */
 export interface DialAxesTunables {
-  /** Beacon radius as a multiple of the real head radius (Orbit). */
-  beaconScale: AxisDef;
   /** Target distance in metres (humanoid modes). */
   distance: AxisDef;
-  /** Orbit: angular distance from the previous Beacon, lower and upper bound (degrees). */
-  flickMinDeg: AxisDef;
-  flickMaxDeg: AxisDef;
   /** Strafer speed (m/s). */
   strafeSpeed: AxisDef;
   /** Strafer leg duration (s) and stand-still window after the 0.16 s decel (s). */
   strafeLegSec: AxisDef;
   standStillSec: AxisDef;
-  /** Strafe Track: time limit of one Strafer, spawn to kill (s); a Strafer not killed in it is a failed trial (#46). */
-  strafeLimitSec: AxisDef;
   /**
    * Time a timed target stays exposed (s); counted from its spawn today, from `targetVisible` once
    * #143 lands (design §9.3.5). `exposureSec` is the
@@ -49,12 +42,6 @@ export interface DialAxesTunables {
    * axis, because the time it needs covers reaction plus the aiming movement (design §9.4, #12 §4.1).
    */
   exposureSec: AxisDef;
-  /** Orbit Beacon time to live (also the Placement run's Orbit-style trials). */
-  orbitExposureSec: AxisDef;
-  /** Cold Start Post exposure (also the Placement run's Cold-Start-style trials). */
-  coldStartExposureSec: AxisDef;
-  /** Stop & Pop target exposure (#47). */
-  stopAndPopExposureSec: AxisDef;
   /** Peeker wide-peek exposure (s). */
   peekWideSec: AxisDef;
   /** Enemy reaction (first sight to tell start) and tell duration (s). */
@@ -64,8 +51,6 @@ export interface DialAxesTunables {
   enemyHitChance: AxisDef;
   /** Simultaneous targets. */
   density: AxisDef;
-  /** Spray Wall: the share of a spray's bullets that must land in the head or body zone (design §4.5). */
-  sprayHitFraction: AxisDef;
 }
 
 /**
@@ -79,10 +64,6 @@ export interface FairnessFloors {
   tellSec: number;
   /** Pre-aimed minimum: applies to every exposure axis and to every timed target the runner spawns. */
   exposureSec: number;
-  /** Per-mode exposure floors: the minimum feasible time (reaction + aiming movement, #12 §4.1). */
-  orbitExposureSec: number;
-  coldStartExposureSec: number;
-  stopAndPopExposureSec: number;
   enemyReactionSec: number;
   /**
    * Reaction floor for a prepared holder: no ordinary mouse click answers a visual onset faster
@@ -166,7 +147,7 @@ export interface DialTunables {
   };
   /** Steady-state scheduling (design §9.3.2). */
   beat: {
-    /** Seconds per beat in drills (Sweep beats are contacts). */
+    /** Seconds per beat for a mode with a clock (Sweep beats are contacts). */
     drillSec: number;
     /** Max change of the matched dial per beat. */
     maxStep: number;
@@ -199,7 +180,7 @@ export const dial: DialTunables = {
   staircase: { startStep: 16, minStep: 2, upAfter: 2, reversalsForBound: 4, sanityBound: 10 },
   beat: { drillSec: 10, maxStep: 3 },
   waves: {
-    // warm-up -8, build, peak +6, breather -6 (design §9.3.2); 6 beats = one 60 s drill
+    // warm-up -8, build, peak +6, breather -6 (design §9.3.2); 6 beats = one 60 s run
     drill: [-8, -3, 0, 3, 6, -6],
     sweep: [-8, -2, 2, 6, -6],
     flat: [0],
@@ -207,43 +188,20 @@ export const dial: DialTunables = {
   modes: {
     // `test` is the mode framework's TestMode (`modes/testMode.ts`): a demo/test fixture, not a shipped mode.
     test: { skill: 'precision', targetSuccess: 0.7 },
-    // Inside the 60-80 % flow band like every drill (#170; it was 0.55 and settled below the band).
-    coldStart: { skill: 'precision', targetSuccess: 0.7 },
-    orbit: { skill: 'flick', targetSuccess: 0.7 },
-    // The Placement run's own dial is the staircase; this entry only gives it a sensible starting dial (design §9.2).
-    placement: { skill: 'flick', targetSuccess: 0.7 },
-    strafeTrack: { skill: 'track', targetSuccess: 0.7 },
-    stopAndPop: { skill: 'footwork', targetSuccess: 0.7 },
-    sprayWall: { skill: 'spray', targetSuccess: 0.7 },
-    switchboard: { skill: 'switch', targetSuccess: 0.7 },
-    cornerClear: { skill: 'angles', targetSuccess: 0.7 },
     sweep: { skill: 'line', targetSuccess: 0.7 },
   },
   axes: {
-    beaconScale: { at0: 3.0, at100: 1.0, curve: 'linear' },
     // 35 m (a 0.46° head) at dial 100, not 50 m: a 50 m head (0.32°) is inside the first-shot
     // spread cone, so success there measures luck (#12 P5).
     distance: { at0: 5, at100: 35, curve: 'geometric' },
-    // 60–120° at dial 100, not 90–180°: off-screen targets are found by sound, not sight, and no
-    // evidence covers them (#12 P5). The rare 120–180° extreme above dial 85 is #136.
-    flickMinDeg: { at0: 20, at100: 60, curve: 'linear' },
-    flickMaxDeg: { at0: 40, at100: 120, curve: 'linear' },
     strafeSpeed: { at0: 2.0, at100: 5.4, curve: 'linear' },
     // A 0.20 s stand-still is shorter than mean simple reaction time (0.218 s); 0.25 s is at it,
     // and 0.35 s legs leave time to re-acquire a reversal (#12 P5).
     strafeLegSec: { at0: 1.0, at100: 0.35, curve: 'linear' },
     standStillSec: { at0: 0.4, at100: 0.25, curve: 'linear' },
-    // Design §4.3: 8 s at dial 0 down to 3 s at dial 100 (#46).
-    strafeLimitSec: { at0: 8, at100: 3, curve: 'linear' },
-    // Exposure per mode (#12 §4.1): about 1.3x the minimum feasible time (reaction + aiming
-    // movement for the mode's angles and sizes). The generic curve is for pre-aimed targets.
+    // The generic curve is for pre-aimed targets; a target that needs a flick had its own curve (#12 §4.1) in the
+    // retired drills (design §4.10, §9.4), whose end points the cold-opener recipe now keeps (`config/baseline.ts`).
     exposureSec: { at0: 3.0, at100: 0.45, curve: 'geometric' },
-    orbitExposureSec: { at0: 2.5, at100: 1.6, curve: 'geometric' },
-    // Cold Start's exposure is generous on purpose (#170): it is a precision drill, so a failed trial
-    // should be a missed head, not a Post that left before the first bullet. Difficulty comes from
-    // head size (`distance`); the end point sits well above the 0.8 s floor.
-    coldStartExposureSec: { at0: 2.5, at100: 1.35, curve: 'geometric' },
-    stopAndPopExposureSec: { at0: 2.0, at100: 0.7, curve: 'geometric' },
     // A 0.3 s wide peek is shorter than a pre-aimed player's time to shot (#12 §4.1).
     peekWideSec: { at0: 1.4, at100: 0.45, curve: 'geometric' },
     enemyReactionSec: { at0: 1.2, at100: 0.3, curve: 'linear' },
@@ -252,19 +210,13 @@ export const dial: DialTunables = {
     tellSec: { at0: 0.7, at100: 0.3, curve: 'linear' },
     enemyHitChance: { at0: 0.15, at100: 0.6, curve: 'linear' },
     density: { at0: 1, at100: 6, curve: 'step' },
-    // Design §4.5: 60% at dial 0 up to 85% at dial 100.
-    sprayHitFraction: { at0: 0.6, at100: 0.85, curve: 'linear' },
   },
   // HYPOTHESIS (#129): tells fade over Steel-Cobalt; the settling experiment (#164) moves these.
   tellCue: { fullBelow: 35, goneAbove: 60 },
-  // #12 P6 and #52 R8: tell >= 0.25 s (one mean reaction time plus one shot), exposure floors per
-  // mode (minimum feasible time, #12 §4.1), and the spawn rule split in two unambiguous parts.
+  // #12 P6 and #52 R8: tell >= 0.25 s (one mean reaction time plus one shot), exposure floor, and the spawn rule split in two unambiguous parts.
   floors: {
     tellSec: 0.25,
     exposureSec: 0.45,
-    orbitExposureSec: 1.25,
-    coldStartExposureSec: 0.8,
-    stopAndPopExposureSec: 0.55,
     enemyReactionSec: 0.25,
     preparedReactionSec: 0.15,
     minTargetScale: 1.0,

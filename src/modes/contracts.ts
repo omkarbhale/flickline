@@ -101,11 +101,11 @@ export interface EchoSpawn {
 export interface TargetSpawner {
   /**
    * Create a target (humanoid: feet position; orb: centre); `scale` is ×real head size; `strafe`
-   * is for a Strafer. `durable` targets take any number of hits without dying (Spray Wall's Post).
+   * is for a Strafer.
    * `echo` carries a Peeker's anchor, shooting back and a crouched pose (Sweep).
    * Returns its id, or -1 when it could not be created.
    */
-  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn, durable?: boolean, echo?: EchoSpawn): number;
+  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn, echo?: EchoSpawn): number;
   despawn(id: number): void;
   /** Feet position of a live target into `out`; false when it is not alive. Absent: positions are unknown. */
   position?(id: number, out: Vec3): boolean;
@@ -169,7 +169,7 @@ export interface PlayerView {
   readonly eyeHeight: number;
 }
 
-/** What a mode may read about the player's movement (Stop & Pop arms on the sideways speed). */
+/** What a mode may read about the player's movement. */
 export interface MotionView extends PlayerView {
   /** Velocity, m/s. */
   readonly vel: Vec3;
@@ -185,23 +185,6 @@ export type TrialExtra = Readonly<Record<string, number>>;
  * benchmark stays an independent measurement.
  */
 export type TrialSource = 'matched' | 'baseline';
-
-/**
- * One stored benchmark item (`config/baselineItems.ts`, shuffled and mirrored per run by
- * `buildBaselineSequence`), described relative to the crosshair: `angleDeg` from the crosshair direction, the target's `pitchDeg` above the
- * horizon, `distance` from the eye, an orb `scale` (x real head size) and the `exposureSec` it stays
- * up. `side` mirrors it: +1 puts it to the left of the crosshair, -1 to the right.
- */
-export interface FixedItem {
-  angleDeg: number;
-  pitchDeg: number;
-  distance: number;
-  scale: number;
-  exposureSec: number;
-  side: 1 | -1;
-  /** Position of the item in its stored list (before the run's shuffle). */
-  index: number;
-}
 
 /**
  * The facts the framework reads from the sim: the subset of `SimEvents` (design §14.3) it needs,
@@ -234,7 +217,6 @@ export interface SourceEvents {
     aimTargetId?: number; aimErr?: number; aimDYaw?: number; aimDPitch?: number;
   };
   /** Horizontal speed first fell to the accuracy threshold; `counterStrafe`: the stop began with the opposite key, not a release. */
-  playerStopped: { tick: number; latencyMs: number; counterStrafe: boolean };
   /**
    * The player first saw a target (in view and unoccluded), once per spawn. The sim's payload also
    * carries the pre-aim error and the flick vector to its head (radians); optional here so a test
@@ -251,33 +233,6 @@ export interface SourceEvents {
   playerDamaged: { tick: number; amount: number; absorbed: number; hp: number; shield: number; sourceId: number };
 }
 
-/**
- * Weapon facts for modes that judge bullets and magazines (Spray Wall). They arrive through
- * `ModeDef.onWeapon`, separate from `ModeEvent`, so a mode that does not care never sees them.
- */
-export interface WeaponSourceEvents {
-  /** A bullet left the gun: the fields a spray trace needs (the sim's payload carries more). */
-  shotFired: {
-    tick: number;
-    shotId: number;
-    /** Weapon id the bullet came from (a mode ignores bullets of a weapon it did not hand out). */
-    weapon: string;
-    /** Bullet direction, recoil and spread included. */
-    dir: Vec3;
-    /** View angles at the tick, radians (the crosshair). */
-    yaw: number;
-    pitch: number;
-    /** Recoil aim offset this bullet was fired with, degrees (pitch + = up, yaw + = right). */
-    recoilPitchDeg: number;
-    recoilYawDeg: number;
-    spreadDeg: number;
-    /** Rounds left after this shot. */
-    ammo: number;
-  };
-  reloadStarted: { tick: number };
-  reloadCompleted: { tick: number };
-}
-
 /** Run-level facts about the player the runner listens to (not mode events: modes never see them). */
 export interface PlayerSourceEvents {
   /** The player's HP reached 0: the run ends with reason `death` (design §14.3). */
@@ -286,7 +241,7 @@ export interface PlayerSourceEvents {
 
 /** Events the framework emits. §14.3 names and payloads, plus `beatStarted` and `scoreAwarded`. */
 export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents, SectorEvents, Pick<RunEvents, 'contactSettled' | 'runBanked' | 'overtimeLost'> {
-  /** The run moved the player (a mode with several stand points, Spray Wall): the view should face `yaw` again. */
+  /** The run moved the player (a sector entry, a gate's far side): the view should face `yaw` again. */
   playerPlaced: { tick: number; x: number; y: number; z: number; yaw: number };
   runReady: { tick: number; mode: ModeId; seed: number; dial: number };
   runStarted: { tick: number };

@@ -12,7 +12,7 @@ declare module '../debug/hook' {
   interface FlicklineDebug {
     /**
      * The progress save (design 14.5) for playtests. `state()` summarises it (where it persists, plays, run bests per
-     * band, drill bests, situation records, ranks, medals, history length). `pace()` reads the pace bar's numbers now.
+     * band, the read-only drill bests of old saves, situation records, ranks, medals, history length). `pace()` reads the pace bar's numbers now.
      * `fakeBest()` stores a best run for a dial's band with `sectors` sectors that each earn `score / sectors`, so the
      * pace bar can be looked at without playing a run for it. `situations()` lists the situation records.
      * `exportText()` is the file's text; `importText()` validates and applies one (no reload); `reset()` clears the save.

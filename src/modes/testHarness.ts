@@ -2,22 +2,19 @@ import { EventBus } from '../core/eventBus';
 import { vec3, type Vec3 } from '../core/vec3';
 import { cloneTunables, type Tunables } from '../config/tunables';
 import type {
-  AnchorLike, AxisValues, DialSource, ModeEvents, PlayerSourceEvents, SourceEvents, StrafeSpawn, TargetSpawner, WeaponSourceEvents,
+  AnchorLike, AxisValues, DialSource, ModeEvents, PlayerSourceEvents, SourceEvents, StrafeSpawn, TargetSpawner,
 } from './contracts';
 import { createLinearDial, type AxisRange } from './linearDial';
 import { ModeRunner } from './runner';
 import { TEST_MODE_AXES } from './testMode';
 
-/** `shotFired` as a test may emit it: the framework's fields, plus the weapon fields only Spray Wall reads. */
-type HarnessSourceEvents = Omit<SourceEvents, 'shotFired'> & { shotFired: SourceEvents['shotFired'] & Partial<WeaponSourceEvents['shotFired']> };
-
 /** Test support: a runner wired to fake sim sides, with a JSON log of every event it emits. */
 export interface Harness {
-  bus: EventBus<ModeEvents & HarnessSourceEvents & PlayerSourceEvents & Omit<WeaponSourceEvents, 'shotFired'>>;
+  bus: EventBus<ModeEvents & SourceEvents & PlayerSourceEvents>;
   runner: ModeRunner;
   tunables: Tunables;
   log: { type: string; data: Record<string, unknown> }[];
-  targets: Map<number, { kind: string; pos: Vec3; scale: number; strafe?: StrafeSpawn; durable?: boolean }>;
+  targets: Map<number, { kind: string; pos: Vec3; scale: number; strafe?: StrafeSpawn }>;
   dialCalls: number[];
   /** Every `placePlayer` the mode asked for, in order (feet position and yaw). */
   placed: { x: number; y: number; z: number; yaw: number }[];
@@ -50,15 +47,15 @@ export function ringAnchors(stepDeg = 30): AnchorLike[] {
 export function makeHarness(
   table: Record<string, AxisRange> = TEST_MODE_AXES, baseDial = 50, axesFor?: (dial: number) => AxisValues,
 ): Harness {
-  const bus = new EventBus<ModeEvents & HarnessSourceEvents & PlayerSourceEvents & Omit<WeaponSourceEvents, 'shotFired'>>();
+  const bus = new EventBus<ModeEvents & SourceEvents & PlayerSourceEvents>();
   const tunables = cloneTunables();
   const log: Harness['log'] = [];
   const targets: Harness['targets'] = new Map();
   let nextId = 1;
   const spawner: TargetSpawner = {
-    spawn(kind, pos, scale, strafe, durable) {
+    spawn(kind, pos, scale, strafe) {
       const id = nextId++;
-      targets.set(id, { kind, pos: vec3(pos.x, pos.y, pos.z), scale, strafe: strafe && { ...strafe }, durable });
+      targets.set(id, { kind, pos: vec3(pos.x, pos.y, pos.z), scale, strafe: strafe && { ...strafe } });
       return id;
     },
     despawn(id) {

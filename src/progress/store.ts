@@ -4,6 +4,7 @@ import { progress as progressCfg, type ProgressTunables } from '../config/progre
 import type { SkillSnapshot } from '../adaptive/skillModel';
 import type { StorageLike } from '../settings/settings';
 import { bandOf } from './bests';
+import type { ColdLevelState, ColdOpenerRecord } from './coldOpeners';
 import { stepRank } from './ranks';
 import { applyRunRecord, recordContacts, situationStats, type ApplyResult, type RunRecord, type SituationStats } from './runRecords';
 import { defaultProgress, readProgress, sanitizeProgress, SAVE_VERSION, toSave, type BandRecords, type ProgressData, type RunBest, type RunSummary } from './save';
@@ -213,6 +214,36 @@ export class ProgressStore {
     this.data.medals[id] = { count: (m?.count ?? 0) + 1, last: date };
     this.dirty = true;
     this.events?.emit('progressChanged', { modeId: null });
+  }
+
+  /**
+   * A cold opener ended for real (design §8.5): its record joins the list (capped, oldest dropped) and the level
+   * state is replaced. Deferred like a medal (it ends mid-run, at the move into sector 2): `commit()` writes it.
+   */
+  addColdOpener(record: ColdOpenerRecord, level: ColdLevelState): void {
+    const d = this.data;
+    d.coldOpeners.push({ ...record } as unknown as Record<string, unknown>);
+    if (d.coldOpeners.length > this.cfg.maxColdOpeners) d.coldOpeners.splice(0, d.coldOpeners.length - this.cfg.maxColdOpeners);
+    d.coldOpenerLevels = { ...level, moves: level.moves.map((m) => ({ ...m })) } as unknown as Record<string, unknown>;
+    this.dirty = true;
+    this.events?.emit('progressChanged', { modeId: null });
+  }
+
+  /** Replace the cold opener's level state (after a warm answer changed what counted). */
+  setColdOpenerLevel(level: ColdLevelState): void {
+    this.data.coldOpenerLevels = { ...level, moves: level.moves.map((m) => ({ ...m })) } as unknown as Record<string, unknown>;
+    this.changed(null);
+  }
+
+  /** The newest cold opener's answer to "Aimed in any game in the last hour?" (design §8.5); false when there is none. */
+  setColdOpenerWarm(warm: boolean): boolean {
+    const list = this.data.coldOpeners;
+    const last = list[list.length - 1];
+    if (!last) return false;
+    if (last.warm === warm) return true;
+    last.warm = warm;
+    this.changed(null);
+    return true;
   }
 
   setFlaggedSkill(skill: SkillId | null): void {

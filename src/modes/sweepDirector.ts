@@ -5,6 +5,7 @@ import type { GateStake, HeardBucket, HoldCard, SectorRole, SweepCard, SweepTuna
 import { MAX_ROUTE } from '../sim/enemyAi';
 import type { PeekPattern } from '../sim/mapTypes';
 import type { Expectation } from '../sim/enemyTiming';
+import type { ColdOpenerPlan } from './coldOpener';
 
 /**
  * The Sweep run director (design §4, #201): from the run's seed, which sectors the run visits, the
@@ -203,6 +204,11 @@ export interface RunPlan {
   readonly openerStages: readonly SectorPlan[];
   readonly gates: GatePlan[];
   readonly doors: (0 | 1)[];
+  /**
+   * The run opens with a cold opener (design §8.5): its pick and its legs, played as the Opener (one sector to the
+   * rest of the game). `sectors[0]` is its first leg.
+   */
+  readonly cold?: ColdOpenerPlan;
 }
 
 /** What the plan needs about the player: eye height when standing at an entry. */

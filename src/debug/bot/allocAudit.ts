@@ -1,5 +1,10 @@
 import { Session } from 'node:inspector';
-import { createTickInput } from '../../sim/types';
+import { cloneTunables } from '../../config/tunables';
+import { EventBus } from '../../core/eventBus';
+import type { EnemyBody } from '../../sim/enemyBody';
+import { testRoom } from '../../sim/levels';
+import { createTickInput, type SimEvents } from '../../sim/types';
+import { World } from '../../sim/world';
 import { Bot } from './bot';
 import { HeadlessGame } from './headless';
 import { FREEPLAY } from './play';
@@ -100,6 +105,60 @@ export function auditAllocations(opts: AuditOptions = {}): AllocAudit {
     }
   };
 
+  return profileTicks(run, warmupTicks, ticks, ceiling);
+}
+
+/**
+ * Allocation audit of Echoes playing through the shared body (#87): `count` bodies driven the way
+ * a mind will drive them (strafe legs and stops, a crouch, a jump, bursts of fire: movement, the
+ * gun model and an Echo's bullet trace every shot) while the player strafes and sprays. Same
+ * profiler and ceiling as the free-play audit. Strafers are left out on purpose: their FSM's once-per-leg code
+ * (seeded draws on state entry) runs cold and boxes, as it did before the body existed (#87 notes).
+ */
+export function auditEnemyBodies(opts: AuditOptions & { count?: number } = {}): AllocAudit {
+  const ticks = opts.ticks ?? 50_000;
+  const warmupTicks = opts.warmupTicks ?? 20_000;
+  const count = opts.count ?? 8;
+  const tunables = cloneTunables();
+  const world = new World({ level: testRoom, tunables, seed: opts.seed ?? 1 });
+  const bus = new EventBus<SimEvents>();
+  const driven: EnemyBody[] = [];
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2;
+    const id = world.spawnTarget('post', 10 * Math.cos(a), 0, 10 * Math.sin(a), bus);
+    const b = world.targetField.byId(id)!.body;
+    b.driven = true;
+    b.cmd.yaw = Math.atan2(-Math.cos(a), -Math.sin(a)); // facing away from the player: nobody dies
+    driven.push(b);
+  }
+  const input = createTickInput();
+  input.pitch = 1.2; // the player's bullets go into the open sky: no Echo dies, the scene never changes
+  let at = 0;
+  const run = (n: number): void => {
+    for (let i = 0; i < n; i++, at++) {
+      // The player strafes and sprays too, as in play: the gun code the Echoes share runs hot from both sides.
+      input.moveX = Math.floor(at / 64) % 2 === 0 ? 1 : -1;
+      input.fire = at % 128 < 48;
+      for (let k = 0; k < driven.length; k++) {
+        const c = driven[k]!.cmd;
+        const phase = (at + k * 37) % 256;
+        const cycle = Math.floor((at + k * 37) / 256) + k;
+        // A 0.6 s leg each way with a stop between and a burst of fire in each stop; a jump or a
+        // crouch in some stops. Legs are symmetric and jumps start from a stop, so a body never
+        // drifts into the walls: the audit sees the same paths all the way through.
+        c.moveX = phase < 80 ? 1 : phase >= 128 && phase < 208 ? -1 : 0;
+        c.fire = (phase >= 88 && phase < 120) || (phase >= 216 && phase < 248);
+        c.jump = phase === 96 && cycle % 3 === 0;
+        c.crouch = phase >= 212 && cycle % 4 === 0;
+      }
+      world.step(input, bus);
+    }
+  };
+  return profileTicks(run, warmupTicks, ticks, opts.ceilingBytesPerTick ?? 8);
+}
+
+/** Run `warmupTicks`, then profile the allocations of `ticks` more. */
+function profileTicks(run: (n: number) => void, warmupTicks: number, ticks: number, ceiling: number): AllocAudit {
   run(warmupTicks);
   const session = new Session();
   session.connect();

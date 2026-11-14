@@ -4,7 +4,7 @@
  * with armour on; training only unarmoured bullet counts would teach the wrong thresholds (a
  * three-tap body kill, a one-tap Pace headshot). An economy picks the shield tier of the player
  * and of every Echo and the weapon the Echoes carry. The scenario card (#97) carries one of these;
- * a mode that fires back declares a default. Drills do not use it (nothing shoots the player).
+ * a mode that fires back declares a default. A mode without one has nothing that shoots the player.
  */
 import type { WeaponId } from './weapon';
 
@@ -23,7 +23,7 @@ export interface EconomyDef {
 
 export interface EconomyTunables {
   levels: Record<Economy, EconomyDef>;
-  /** The economy of a mode that fires back and whose card does not set one (design §5.1: Corner Clear, Vigil, Sweep). */
+  /** The economy of a mode that fires back and whose card does not set one (design §5.1: Sweep). */
   defaultEnemyFire: Economy;
 }
 

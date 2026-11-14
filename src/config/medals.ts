@@ -1,8 +1,8 @@
 /**
  * Medal tunables (design §8.4 "Medals", §7.3). Thresholds are the design's numbers; the few extras
  * (minimum sample sizes) exist so a medal cannot be earned from a degenerate run, and are noted next
- * to each. The medals are about fights in a Sweep run (#217): none is tied to a drill any more, so `modes`
- * is empty and every medal counts wherever the run has the facts it reads. (Metronome, a drill-rhythm medal, is
+ * to each. The medals are about fights in a Sweep run (#217): none is tied to a mode any more, so `modes`
+ * is empty and every medal counts wherever the run has the facts it reads. (Metronome, a rhythm medal, is
  * retired with the drills.)
  */
 export const MEDAL_IDS = [

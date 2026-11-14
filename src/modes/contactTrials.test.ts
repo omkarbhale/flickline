@@ -90,7 +90,7 @@ function sector(contacts: { card: string; difficulty: number; take?: boolean; ec
   return { ct, out, play, of: (s: SkillId) => out.filter((o) => o.skill === s) };
 }
 
-describe('precision: the first shot at an Echo seen near the crosshair (Cold Start rule)', () => {
+describe('precision: the first shot at an Echo seen near the crosshair (the retired Cold Start rule)', () => {
   it('a first bullet on the head wins, on the body loses, and only the first shot counts', () => {
     const s = sector([{ card: 'take-expected', difficulty: 40, echoes: [{ id: 1 }, { id: 2 }] }]);
     s.play([
@@ -130,7 +130,7 @@ describe('precision: the first shot at an Echo seen near the crosshair (Cold Sta
   });
 });
 
-describe('flick: the first shot at an Echo first seen more than 20° away (Orbit rule)', () => {
+describe('flick: the first shot at an Echo first seen more than 20° away (the retired Orbit rule)', () => {
   it('a hit inside the feasible time wins; a slow hit or a miss loses; overshoot is signed along the flick', () => {
     const d = 50;
     const limit = (trialCfg.flick.baseSec + trialCfg.flick.perDegSec * 45) * barAt(trialCfg.flick.slack, d);
