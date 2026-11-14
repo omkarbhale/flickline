@@ -53,7 +53,11 @@ export interface FeedbackTunables {
   };
   hitmarker: { bodyMs: number; legMs: number; headMs: number; killMs: number };
   moveGlyphMs: number;
-  floatText: { ms: number; rtTtkMs: number; pool: number; riseRem: number };
+  /**
+   * `killLiftRem`: a kill's `+score` starts this far above the kill point (which is where the crosshair is), so the
+   * crosshair and the kill hitmarker are never covered. `rtDropRem`: the TTS/TTK readout sits this far below it.
+   */
+  floatText: { ms: number; rtTtkMs: number; pool: number; riseRem: number; killLiftRem: number; rtDropRem: number };
   /** Screen-edge pulse on kills (research R10): milliseconds, alpha cap, rate limit. */
   pulse: { ms: number; maxAlpha: number; maxPerSecond: number };
   /** Provisional kill score until the scoring module (#22) exists (design §8.1 base and head precision). */
@@ -97,7 +101,7 @@ export const feedback: FeedbackTunables = {
   ghost: { lifeSec: 0.25, radius: 0.4, maxOffsetDeg: 25, color: palette.trim },
   hitmarker: { bodyMs: 90, legMs: 90, headMs: 140, killMs: 220 },
   moveGlyphMs: 300,
-  floatText: { ms: 700, rtTtkMs: 600, pool: 12, riseRem: 3.2 },
+  floatText: { ms: 700, rtTtkMs: 600, pool: 12, riseRem: 3.2, killLiftRem: 3, rtDropRem: 2.5 },
   pulse: { ms: 90, maxAlpha: 0.15, maxPerSecond: 3 },
   provisionalScore: { base: 100, headMultiplier: 1.5 },
   targetFlashSec: 0.06,

@@ -793,8 +793,3 @@ function otherRows(snap: SpecSnapshot, t: Tunables): Rows {
 export function buildRows(snap: SpecSnapshot, t: Tunables): RowDef[] {
   return [...otherRows(snap, t), ...globalRows(snap, t), ...handlingRows(snap, t), ...spreadRows(snap, t), ...damageRows(snap, t)];
 }
-
-/** Archetypes the table covers, for the sections of the table. */
-export function archetypes(snap: SpecSnapshot): string[] {
-  return Object.keys(snap.handling);
-}

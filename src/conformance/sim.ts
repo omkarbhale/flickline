@@ -1,5 +1,5 @@
 import { cloneTunables, type Tunables } from '../config/tunables';
-import { weapon as defaultWeapons, type WeaponId } from '../config/weapon';
+import type { WeaponId } from '../config/weapon';
 import { EventBus } from '../core/eventBus';
 import { RAD2DEG } from '../core/math';
 import { TICK_DT } from '../core/time';
@@ -141,9 +141,4 @@ export function settle(sim: Sim): void {
 /** Run forward until the speed stops changing (3 s covers any acceleration time). */
 export function runToFullSpeed(sim: Sim, patch: Partial<TickInput> = {}): void {
   sim.run(ticksOf(3), { moveZ: 1, ...patch });
-}
-
-/** The weapons a row set iterates: every id in the config's weapon table. */
-export function weaponIds(): WeaponId[] {
-  return Object.keys(defaultWeapons) as WeaponId[];
 }

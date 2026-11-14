@@ -18,6 +18,7 @@
     "bot": "node scripts/bot.mjs",
     "conformance": "node scripts/conformance.mjs",
     "perf": "node scripts/perf.mjs",
+    "human-check": "node scripts/human-check.mjs",
     "reward-experiment": "vitest run src/feedback/contactExperiment.test.ts"
   },
   "dependencies": {

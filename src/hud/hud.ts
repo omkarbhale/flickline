@@ -81,6 +81,8 @@ export class Hud {
     root.style.setProperty('--float-ms', `${cfg.floatText.ms}ms`);
     root.style.setProperty('--rt-ms', `${cfg.floatText.rtTtkMs}ms`);
     root.style.setProperty('--float-rise', `${cfg.floatText.riseRem}rem`);
+    root.style.setProperty('--kill-lift', `${cfg.floatText.killLiftRem}rem`);
+    root.style.setProperty('--rt-drop', `${cfg.floatText.rtDropRem}rem`);
     root.style.setProperty('--pulse-ms', `${cfg.pulse.ms}ms`);
     root.style.setProperty('--pulse-alpha', String(cfg.pulse.maxAlpha));
     for (const k of ['trim', 'gold', 'ok', 'warn', 'alert', 'core'] as const) {

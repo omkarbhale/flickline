@@ -7,7 +7,7 @@ export interface DataHost {
   exportSave(): string;
   /** Apply the parts of an imported save (already validated). */
   importSave(parts: SaveParts): void;
-  /** Reset progress (profile and play log); settings are kept. */
+  /** Reset progress (profile and the progress save); settings are kept. */
   resetProgress(): void;
 }
 

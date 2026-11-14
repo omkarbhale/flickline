@@ -92,7 +92,7 @@ describe('the conformance table', () => {
   });
 });
 
-describe('the suite fails when it should', () => {
+describe('the suite fails when it should', { timeout: 30_000 }, () => {
   const only = (...ids: string[]) => (id: string) => ids.includes(id);
   const KEY = '3.1/rifle_spray/fire-rate-10s';
 

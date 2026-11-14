@@ -25,7 +25,7 @@ function stats(p: Partial<RunStats> = {}): RunStats {
     leadErrorBiasDeg: null, leadErrorMeanAbsDeg: null, leadSamples: 0,
     flickErrorBiasDeg: null, flickErrorMeanAbsDeg: null, flickCount: 0, maxChain: 3, maxCleanStreak: 4, cleanStreak: 1,
     targets: [target(), target({ id: 2, firstBullet: false }), target({ id: 3 }), target({ id: 4, bullets: 0, killed: false, rtMs: null })],
-    sprayBursts: [],
+    sprayBursts: [], sprays: [], sprayHitRateByIndex: [], sprayPullErrorByIndex: [], sprayCollapseIndex: null, sprayPullFallsApartIndex: null,
     ...p,
   };
 }

@@ -11,6 +11,7 @@ npm install
 npm run dev         # play at http://127.0.0.1:5173/ (click to lock the mouse)
 npm run typecheck
 npm test
+npm run conformance # regenerate docs/conformance.md (spec numbers vs the game; npm test fails when it is stale)
 npm run build       # production build in dist/
 ```
 
