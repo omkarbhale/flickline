@@ -9,6 +9,7 @@ import type { RunEndReason } from '../modes/contracts';
 import type { WeaponId } from '../config/weapon';
 import type { ShowcaseItem } from '../render/targetsView';
 import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
+import { cloneHud, HUD_ELEMENTS, type HudElementId } from '../settings/hud';
 import type { Settings } from '../settings/settings';
 import type { HitZone, SimEvents, TargetKind, TickInput } from '../sim/types';
 
@@ -122,6 +123,19 @@ export interface FlicklineDebug {
   readonly run: FlicklineRunApi;
   /** Named timestamps (ms since page load): panel shown, play clicked, lock, first shot. */
   timeline(): Record<string, number>;
+  /**
+   * Live HUD (design 7.2, 13.1): `state()` reads what is displayed (text per element), `pb()` installs a
+   * fake personal best (a straight line to `finalScore` over `durationSec`; `null` removes it, so the
+   * ghost-pace bar hides), `hp()` shows a health bar (`null` hides it), `show()` toggles an element and
+   * `scale()` sets the HUD scale (both through the real settings store).
+   */
+  readonly hud: {
+    state(): unknown;
+    pb(curve: { finalScore: number; durationSec: number } | null): void;
+    hp(hp: number | null, max?: number): void;
+    show(id: HudElementId, visible: boolean): void;
+    scale(s: number): void;
+  };
   /**
    * Fire one shot of `weaponId` (a loadout id, e.g. 'kestrel' or 'pace') at the current look, with
    * deterministic stepping: swaps, equips, reloads and waits for the fire interval as the sim
@@ -397,6 +411,30 @@ export function installDebugHook(game: Game): FlicklineDebug {
     },
     hpAlwaysVisible: (v = true) => game.damage.setHpAlwaysVisible(v),
     tunables: game.tunables,
+    hud: {
+      state() {
+        const out: Record<string, unknown> = { scale: game.settings.get().hud.scale, edge: { rate: game.edge.rate, count: game.edge.count } };
+        for (const id of HUD_ELEMENTS) {
+          const el = game.hud.root.querySelector(`[data-el="${id}"]`) as HTMLElement | null;
+          out[id] = el ? { hidden: el.hidden || el.classList.contains('off'), text: el.textContent?.replace(/\s+/g, ' ').trim() } : null;
+        }
+        return out;
+      },
+      pb(curve) {
+        game.hud.live.setPersonalBest(curve ? { scoreAt: (_m, t) => (curve.finalScore * Math.min(t, curve.durationSec)) / curve.durationSec } : null);
+      },
+      hp: (hp, max) => game.hud.live.setHp(hp, max),
+      show(id, visible) {
+        const h = cloneHud(game.settings.get().hud);
+        h.show[id] = visible;
+        game.settings.set({ hud: h });
+      },
+      scale(s) {
+        const h = cloneHud(game.settings.get().hud);
+        h.scale = s;
+        game.settings.set({ hud: h });
+      },
+    },
     mode: {
       start: (id = 'test', opts = {}) => game.modes.start(id, opts),
       stop: () => game.modes.stop(),

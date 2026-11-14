@@ -2,12 +2,13 @@ import { TICK_DT } from '../core/time';
 import type { Subscribable } from '../core/eventBus';
 import { css } from '../config/palette';
 import type { FeedbackTunables } from '../config/feedback';
-import type { SessionStats } from '../feedback/sessionStats';
-import type { WeaponTable } from '../config/weapon';
 import { colorToHex, type CrosshairParams } from '../settings/crosshair';
 import type { SettingsEvents } from '../settings/settings';
-import type { HitZone, SimEvents, WeaponState } from '../sim/types';
+import type { ModeEvents } from '../modes/contracts';
+import type { HitZone, SimEvents } from '../sim/types';
 import { CrosshairView } from './crosshairView';
+import { LiveHud, type LiveHudDeps } from './liveHud';
+import { restartAnimation } from './restartAnimation';
 import { formatRtTtk, hitmarkerKind, provisionalKillScore, type HitmarkerKind } from '../feedback/hitFeedback';
 import type { FeedbackOptions } from '../feedback/options';
 import { PulseBudget } from '../feedback/pulseBudget';
@@ -42,25 +43,23 @@ export class Hud {
   private readonly moveGlyph: HTMLElement;
   private readonly rtFloat: HTMLElement;
   private readonly pulse: HTMLElement;
-  private readonly counters: HTMLElement;
   private readonly floats: HTMLElement[] = [];
   private nextFloat = 0;
   private readonly labels: string[] = [];
   private readonly budget: PulseBudget;
   private readonly scratch = { x: 0, y: 0 };
   private markerKind: (typeof MARKER_CLASSES)[number] = 'hm-body';
-  private readonly ammo: HTMLElement;
+  /** The live readouts (design §7.2, §13.1): timer, score, counters, stat strip, ghost-pace, edge meter, ammo. */
+  readonly live: LiveHud;
   readonly root: HTMLElement;
   /** The crosshair canvas; redraws only on change (see `CrosshairView`). */
   readonly crosshair: CrosshairView;
 
   constructor(
     root: HTMLElement,
-    bus: Subscribable<SimEvents & SettingsEvents>,
-    private readonly stats: SessionStats,
+    bus: Subscribable<SimEvents & SettingsEvents & ModeEvents>,
     crosshair: Readonly<CrosshairParams>,
-    private readonly weapon: WeaponState,
-    private readonly weapons: WeaponTable,
+    liveDeps: LiveHudDeps,
     private readonly fx: HudFeedbackDeps,
   ) {
     this.root = root;
@@ -84,14 +83,11 @@ export class Hud {
       <div class="hitmarker"><i></i><i></i><i></i><i></i><b></b></div>
       <div class="move-glyph" aria-hidden="true">⇆</div>
       <div class="rt-float"></div>
-      <div class="floats"></div>
-      <div class="counters"></div>
-      <div class="ammo"></div>`;
+      <div class="floats"></div>`;
     this.pulse = root.querySelector('.edge-pulse') as HTMLElement;
     this.hitMarker = root.querySelector('.hitmarker') as HTMLElement;
     this.moveGlyph = root.querySelector('.move-glyph') as HTMLElement;
     this.rtFloat = root.querySelector('.rt-float') as HTMLElement;
-    this.counters = root.querySelector('.counters') as HTMLElement;
     const floatRoot = root.querySelector('.floats') as HTMLElement;
     for (let i = 0; i < cfg.floatText.pool; i++) {
       const el = document.createElement('div');
@@ -101,8 +97,8 @@ export class Hud {
       this.floats.push(el);
     }
     this.budget = new PulseBudget(cfg.pulse.maxPerSecond);
-    this.ammo = root.querySelector('.ammo') as HTMLElement;
     this.crosshair = new CrosshairView(root, crosshair);
+    this.live = new LiveHud(root, bus, liveDeps);
     this.applyHitColor(crosshair);
 
     bus.on('settingsChanged', ({ settings, changed }) => {
@@ -113,13 +109,11 @@ export class Hud {
     bus.on('shotFired', (e) => {
       if (e.moving) this.crosshair.pulse();
       if (e.moving && fx.options.coachingCues) this.restart(this.moveGlyph, 'show');
-      this.refresh();
     });
     bus.on('targetHit', (e) => {
       const kind = hitmarkerKind(e.zone, e.killed);
       this.showMarker(kind);
       if (!e.killed && fx.options.damageNumbers) this.floatNumber(e.point.x, e.point.y, e.point.z, e.damage, e.zone, false);
-      this.refresh();
     });
     bus.on('targetKilled', (e) => {
       if (!fx.options.reduceFlashing && this.budget.tryAcquire(e.tick * TICK_DT)) this.restart(this.pulse, 'show');
@@ -129,21 +123,13 @@ export class Hud {
         this.rtFloat.textContent = text;
         this.restart(this.rtFloat, 'show');
       }
-      this.refresh();
     });
 
-    bus.on('reloadStarted', () => this.refresh());
-    bus.on('reloadCompleted', () => this.refresh());
-    bus.on('reloadCancelled', () => this.refresh());
-    bus.on('weaponSwitched', () => this.refresh());
-    this.refresh();
   }
 
-  /** Restart a one-shot CSS animation on `el` by toggling `cls` (forces one reflow; per event, not per frame). */
+  /** Restart a one-shot CSS animation on `el` (twin classes, no forced reflow; see `restartAnimation`). */
   private restart(el: HTMLElement, cls: string): void {
-    el.classList.remove(cls);
-    void el.offsetWidth;
-    el.classList.add(cls);
+    restartAnimation(el, cls);
   }
 
   private applyHitColor(p: Readonly<CrosshairParams>): void {
@@ -153,9 +139,9 @@ export class Hud {
   private showMarker(kind: HitmarkerKind): void {
     const el = this.hitMarker;
     const cls = MARKER_CLASS[kind];
-    el.classList.remove('show', this.markerKind);
-    void el.offsetWidth;
-    el.classList.add('show', cls);
+    el.classList.remove(this.markerKind);
+    el.classList.add(cls);
+    this.restart(el, 'show');
     this.markerKind = cls;
     if (kind === 'head' || kind === 'headKill') this.restart(this.crosshair.canvas, 'gap');
   }
@@ -175,23 +161,20 @@ export class Hud {
     el.style.transform = `translate(${p.x.toFixed(0)}px, ${p.y.toFixed(0)}px)`;
     const span = el.firstChild as HTMLElement;
     span.textContent = kill ? `+${this.label(value)}` : this.label(value);
-    el.classList.remove('show', 'f-body', 'f-leg', 'f-head', 'f-kill');
-    void el.offsetWidth;
-    el.classList.add('show', kill ? 'f-kill' : zone === 'head' ? 'f-head' : zone === 'leg' ? 'f-leg' : 'f-body');
+    el.classList.remove('f-body', 'f-leg', 'f-head', 'f-kill');
+    this.restart(el, 'show');
+    el.classList.add(kill ? 'f-kill' : zone === 'head' ? 'f-head' : zone === 'leg' ? 'f-leg' : 'f-body');
     if (kill && zone === 'head') el.classList.add('f-head');
   }
 
-  /** Rewrite the counters and ammo text (called from events only). */
+  /** Re-read every live readout from its source (after a reset). */
   refresh(): void {
-    const s = this.stats;
-    this.counters.textContent = `KILLS ${s.kills}   ACC ${(s.accuracy * 100).toFixed(0)}%`;
-    const w = this.weapon;
-    const slot = w.slots[w.active];
-    if (!slot) return;
-    const name = this.weapons[slot.id].name.toUpperCase();
-    const mag = w.infiniteMagazine ? '\u221e' : String(slot.mag);
-    const reserve = w.infiniteReserve ? '\u221e' : String(slot.reserve);
-    this.ammo.textContent = `${name}   ${mag} / ${reserve}${w.reloadLeft > 0 ? '   RELOADING' : ''}`;
+    this.live.refreshAll();
+  }
+
+  /** Per frame: the run clock and ghost-pace bar. Cheap; writes the DOM only on change. */
+  update(): void {
+    this.live.update();
   }
 
   setVisible(v: boolean): void {
