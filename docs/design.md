@@ -693,13 +693,13 @@ targetExpired { id }                      targetShielded { id }   (Bulwark plate
 enemyTell { id, durationMs }              enemyFired { id, hit: boolean, dir }
 playerDamaged { amount (HP lost), absorbed, hp, shield, dir, sourceId }   playerSlowed { factor, durationMs }   playerDied { }
 chainUpdated { count }                    streakUpdated { streak, mult }   surgeStarted { }  surgeEnded { }
-contactSettled { contactId, outcome: 'cleared'|'disengaged'|'avoided'|'died', kept, points }
+contactSettled { contactId, outcome: 'cleared'|'disengaged'|'avoided'|'died', kept, enemies, points, card }
 medalAwarded { id }                       skillTrial { skill, itemDifficulty, success, rtMs?, extra }
-sectorEntered { sectorId, index, role, condition, stake, dial }    sectorEnded { sectorId, cleared, keptSector, tempo: boolean, points }
+sectorEntered { sectorId, mapId, index, of, role, condition, stake, dial, depth, contacts, echoes }    sectorEnded { sectorId, index, cleared, keptSector, tempo: boolean, points, clearPoints, reason: 'exit'|'death'|'quit' }
 gateChosen { index, door: 0|1, stake, role, heard }               runBanked { points, overtimeSectors }   (a Leave gate)
 ```
 
-`runEnded.reason` gains `'left'` (a Leave gate); `'timer'` is retired with the drills. A run's `mode` is `sweep`; the cold opener is flagged on `sectorEntered` (`condition: 'cold'`), not as a mode.
+`runEnded.reason` gains `'left'` (a Leave gate; in v0, #201, the last sector's exit); `'timer'` is retired with the drills. A run's `mode` is `sweep`; the cold opener is flagged on `sectorEntered` (`condition: 'cold'`), not as a mode.
 
 Event naming follows the architecture issue: camelCase past-tense facts, plain-data read-only payloads valid only during the callback, no allocation on emit. Each owner declares its event map next to its code and merges it into the open `GameEvents` interface (`core/gameEvents.ts`) with `declare module`; no shared list is edited.
 

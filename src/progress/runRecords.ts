@@ -24,6 +24,7 @@ import type { BandRecords, ContactRecord, ProgressData, RouteTile, RunBest } fro
 
 /** The facts the recorder reads (a subset of the run events, so the bus or a log can feed it). */
 export interface SectorEnteredFact {
+  /** 0-based position in the run, as `sectorEntered` carries it; the strip prints it 1-based. */
   index: number;
   role: string;
   condition: string;
@@ -108,7 +109,7 @@ export class RunRecorder {
   sectorEntered(e: SectorEnteredFact): void {
     this.closeOpen();
     this.open = {
-      index: e.index, role: e.role, condition: e.condition, stake: e.stake,
+      index: e.index + 1, role: e.role, condition: e.condition, stake: e.stake,
       won: 0, lost: 0, hpIn: Math.round(this.health()), hpOut: 0, cleared: false, flawless: false,
     };
     this.openEnded = false;

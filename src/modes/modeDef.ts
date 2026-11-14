@@ -5,8 +5,8 @@ import type { Tunables } from '../config/tunables';
 import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import type {
-  AxisId, AxisValues, ModeEvents, ModeId, ModeRef, MotionView, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra, TrialSource, WaveCurve,
-  WeaponSourceEvents,
+  AxisId, AxisValues, FireSpawn, ModeEvents, ModeId, ModeRef, MotionView, PeekSpawn, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra,
+  TrialSource, VitalsView, WaveCurve, WeaponSourceEvents,
 } from './contracts';
 import type { SpawnScheduler } from './scheduler';
 
@@ -85,6 +85,11 @@ export interface ModeDef<S = unknown> extends ModeRef {
   onEvent(ctx: ModeContext<S>, ev: ModeEvent): void;
   /** Weapon facts (bullets fired, reloads); only modes that judge them implement it. */
   onWeapon?(ctx: ModeContext<S>, ev: WeaponEvent): void;
+  /**
+   * The run is ending (any reason, the player's death included), before `runEnded` is emitted: a
+   * mode settles what is still open (Sweep's contacts). Phase is still `live` or `ready`.
+   */
+  onEnd?(ctx: ModeContext<S>, reason: RunEndReason): void;
 }
 
 /** One sim fact. The runner reuses these wrapper objects: copy what you keep. */
@@ -106,6 +111,19 @@ export interface SpawnOptions {
   difficulty?: number;
   /** The target takes any number of hits without dying (Spray Wall's Post). */
   durable?: boolean;
+  /** Peeker only: its anchor and pattern. */
+  peek?: PeekSpawn;
+  /** The Echo shoots back with these numbers (the host's enemy-fire switch must be on too, see `ModeDef.economy`). */
+  fire?: FireSpawn;
+  /** Crouched humanoid pose. */
+  crouched?: boolean;
+  /** Scenario card of the contact the target belongs to: carried on its `skillTrial` (Sweep). */
+  card?: string;
+  /**
+   * Placed out of the player's sight by the caller (Sweep's director checks it against the level):
+   * the spawn fairness floors, which guard targets appearing in view, do not apply.
+   */
+  placed?: boolean;
 }
 
 /** What a mode tells the scoring table about a result that is not a kill (Spray Wall's spray). */
@@ -146,6 +164,8 @@ export interface ModeContext<S = unknown> {
   readonly rng: Rng;
   readonly tunables: Tunables;
   readonly player: MotionView;
+  /** The player's health and shield (read-only). */
+  readonly vitals: VitalsView;
   /**
    * Where a mode announces facts about its own state for presentation to draw (the Lane's armed
    * stripe, a stance ring). Payloads are read-only and valid only during the call.
@@ -198,7 +218,28 @@ export interface ModeContext<S = unknown> {
   placePlayer(x: number, y: number, z: number, yaw: number): void;
   /** Surge multiplier hook (the meter itself is the Sweep work). */
   setSurge(on: boolean): void;
-  /** End the run (`death`, `complete`, `quit`; the timer ends it by itself). */
+  /**
+   * Multiply every point earned from now on (kills, awards, `awardPoints`) by `mult`: Sweep's depth
+   * multiplier (design §8.1). Default 1; reset to 1 at every run start.
+   */
+  setPointsMultiplier(mult: number): void;
+  /**
+   * Pay points that are not a kill (a contact settle, a sector clear; already multiplied by the
+   * caller, the points multiplier is NOT applied again). Emits `scoreAwarded` with `targetId` -1.
+   * Returns the points paid (rounded, never negative).
+   */
+  awardPoints(points: number): number;
+  /** Feet position of a live target into `out`; false when it is gone (or the host cannot tell). */
+  targetPosition(id: number, out: Vec3): boolean;
+  /** An Echo that shoots back and the player can see each other now (line of sight either way, in range). */
+  targetInSight(id: number): boolean;
+  /**
+   * Load another shipped map now, mid-run (Sweep moving between sectors): collision, anchors and the
+   * level visuals switch, the player and the run are untouched. No-op when it is already loaded.
+   * Returns false for an unknown map.
+   */
+  loadMap(id: string): boolean;
+  /** End the run (`death`, `complete`, `quit`, `left`; the timer ends it by itself). */
   end(reason: RunEndReason): void;
 }
 

@@ -19,7 +19,9 @@ export type MetricId =
   | 'headHeight'
   | 'bestChain'
   | 'cleanKills'
-  | 'cleanStreak';
+  | 'cleanStreak'
+  | 'depth'
+  | 'contacts';
 
 export interface FixCopy {
   title: string;
@@ -109,13 +111,13 @@ export const results: ResultsTunables = {
     strafeTrack: ['timeOnTarget', 'leadError'],
     stopAndPop: ['stopLatency', 'cleanKills'],
     cornerClear: ['preAimError', 'headHeight'],
-    sweep: ['bestChain', 'preAimError'],
+    sweep: ['depth', 'contacts'],
   },
   defaultKeyMetrics: ['firstShotRate', 'preAimError'],
   oneBulletModes: ['coldStart', 'orbit', 'placement'],
   oneBulletTile: 'cleanStreak',
   tierColours: ['#aab4c2', '#d9a35a', '#9fb4cc', '#5b8cff', '#38e8ff', '#c792ff', '#ffd23f'],
-  endLabels: { timer: "Time's up", death: 'Eliminated', complete: 'Run complete', quit: 'Run ended early', left: 'Left and banked' },
+  endLabels: { timer: "Time's up", death: 'Eliminated', complete: 'Run complete', quit: 'Run ended early', left: 'Made it out' },
   skillLabels: {
     precision: 'Precision', flick: 'Flick', track: 'Tracking', footwork: 'Footwork', spray: 'Spray control',
     switch: 'Target switching', angles: 'Angles', line: 'Line rating',

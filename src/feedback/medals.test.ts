@@ -70,8 +70,9 @@ class Feed {
     this.engine.observe('contactSettled', { tick: this.tick, outcome: o.outcome ?? 'cleared', kept: o.kept ?? 1, enemies: o.enemies ?? 1 });
   }
 
-  enter(index: number): void {
-    this.engine.observe('sectorEntered', { tick: this.tick, index });
+  /** Sector `n` (1-based, as the design numbers them); the event carries it 0-based. */
+  enter(n: number): void {
+    this.engine.observe('sectorEntered', { tick: this.tick, index: n - 1 });
   }
 
   end(cleared = true): void {

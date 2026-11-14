@@ -14,7 +14,7 @@ import type { Vec3 } from '../core/vec3';
  * events belong to the mode framework (`ModeEvents`, `feedback/streaks.ts`).
  */
 
-/** `left` is a Leave gate (design §14.3, §4.7); `timer` and `complete` belong to the drills that are being retired. */
+/** `left`: the player walked out of a run's last exit alive (a Leave gate, design §4.9). */
 export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit' | 'left';
 
 /**
@@ -57,7 +57,54 @@ export interface SprayEvents {
   };
 }
 
-export interface RunEvents extends SprayEvents {
+export type SweepSectorRole = 'take' | 'hold' | 'meet';
+
+/**
+ * Sweep's sector facts (design §4.2, §14.3), emitted by the Sweep mode (`modes/sweep.ts`) and logged. Payloads are
+ * reused: copy what you keep.
+ */
+export interface SectorEvents {
+  sectorEntered: {
+    tick: number;
+    t: number;
+    sectorId: string;
+    mapId: string;
+    /** 0-based position in the run. */
+    index: number;
+    /** Sectors in the run. */
+    of: number;
+    role: SweepSectorRole;
+    /** Economy condition (design §4.6; v0: always `full`). */
+    condition: 'full' | 'light' | 'eco' | 'cold';
+    /** Door stake (design §4.5; v0 has no gates: `plain`). */
+    stake: 'plain' | 'shield' | 'arms' | 'hot';
+    dial: number;
+    /** Depth multiplier on every point earned in the sector (design §8.1). */
+    depth: number;
+    contacts: number;
+    echoes: number;
+  };
+  sectorEnded: {
+    tick: number;
+    t: number;
+    sectorId: string;
+    index: number;
+    /** Every Echo of the sector dead and the player alive. */
+    cleared: boolean;
+    /** Health+shield at the exit ÷ at the entry, capped at 1 (0 when the player died). */
+    keptSector: number;
+    /** Tempo bonus earned (design §4.3; #100). v0: always false. */
+    tempo: boolean;
+    /** Points earned in the sector, kills, settles and the clear, depth multiplier included. */
+    points: number;
+    /** The sector clear's part of `points`. */
+    clearPoints: number;
+    /** `exit`: the player walked out; `death`: the player died in it; `quit`: the run was stopped. */
+    reason: 'exit' | 'death' | 'quit';
+  };
+}
+
+export interface RunEvents extends SprayEvents, SectorEvents {
   runReady: { tick: number; mode: string; seed: number; dial: number };
   runStarted: { tick: number };
   runEnded: { tick: number; t: number; reason: RunEndReason };
@@ -87,19 +134,11 @@ export interface RunEvents extends SprayEvents {
     kept: number;
     enemies: number;
     points: number;
-    /** The scenario card the contact was drawn from (design §4.4: `take-expected`, `clear`, ...); the situation records are keyed by it. */
+    /** The scenario card the contact was drawn from (Sweep, design §4.4); absent where contacts have no card. */
     card?: string;
   };
 
-  /**
-   * The run entered sector `index` (1-based; 7+ is Overtime), design §14.3. `role`, `condition` (`full`, `light`,
-   * `eco`, or `cold` for the cold opener) and `stake` (`shield`, `arms`, `hot`, `plain`) are the sector's own facts:
-   * the route strip prints them. Emitted by the run director (#201, #204).
-   */
-  sectorEntered: { tick: number; t: number; sectorId: string; index: number; role: string; condition: string; stake: string; dial: number };
-  /** The sector ended: `cleared` = every Echo dead and the player alive; `points` is what the sector earned. */
-  sectorEnded: { tick: number; t: number; sectorId: string; cleared: boolean; keptSector: number; tempo: boolean; points: number };
-  /** A Leave gate banked the run: `points` includes the Overtime points that were at risk (design §4.7). */
+  /** A Leave gate banked the run (design §4.7, §14.3; Overtime and its gates arrive with #204, so nothing emits this yet): `points` includes the Overtime points that were at risk (design §4.7). */
   runBanked: { tick: number; t: number; points: number; overtimeSectors: number };
 }
 

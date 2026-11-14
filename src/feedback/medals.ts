@@ -59,7 +59,7 @@ export interface MedalEvents {
   targetExpired: { tick: number; targetId: number };
   aimOnTarget: { tick: number; on: boolean; id: number };
   contactSettled: { tick: number; outcome: 'cleared' | 'disengaged' | 'avoided' | 'died'; kept: number; enemies: number };
-  /** Sector `index` (1-based) began / ended (design §14.3); the Flawless and Closer medals are about sectors. */
+  /** Sector `index` (0-based, as the run director emits it) began / ended (design §14.3); the Flawless and Closer medals are about sectors. */
   sectorEntered: { tick: number; index: number };
   sectorEnded: { tick: number; cleared: boolean };
   /** A Leave gate banked the run: `points` of Overtime were at risk (design §4.7). */
@@ -375,7 +375,7 @@ export class MedalEngine {
 
   private sectorBegan(e: MedalEvents['sectorEntered']): void {
     this.flushPending();
-    this.sectorIndex = e.index;
+    this.sectorIndex = e.index + 1; // 1-based from here: the Finale is sector 6
     this.sectorHits = this.sectorMisses = this.sectorMoving = 0;
   }
 

@@ -13,8 +13,9 @@ class Script {
     this.rec.begin(seed, dial);
   }
 
-  enter(index: number, role = 'take', condition = 'full', stake = 'plain'): this {
-    this.rec.sectorEntered({ index, role, condition, stake });
+  /** Sector `n` (1-based, as the design numbers them); the event carries it 0-based. */
+  enter(n: number, role = 'take', condition = 'full', stake = 'plain'): this {
+    this.rec.sectorEntered({ index: n - 1, role, condition, stake });
     return this;
   }
 
