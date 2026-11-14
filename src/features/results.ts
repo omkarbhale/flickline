@@ -79,9 +79,9 @@ export const feature = defineFeature({
     let fake: number | null | undefined;
     // A playtest's stand-in death cause line (`results.demo`), until the attribution engine (#123) provides one.
     let fakeCause: string | null = null;
-    const noBest = game.tunables.progress.noBestModes;
+    const runModes = game.tunables.progress.runModes;
     game.bus.on('runReady', (e) => {
-      before = noBest.includes(e.mode) ? null : (game.progress.bestAt(e.mode, e.dial)?.score ?? null);
+      before = runModes.includes(e.mode) ? (game.progress.bestRun(e.dial)?.score ?? null) : null;
     });
     // The run's story (route strip, fights by situation) is folded from the run director's facts (#201, design §14.3:
     // `sectorEntered`, `sectorEnded`, `contactSettled` with its card, `runBanked`) and the player's health events. The
@@ -95,9 +95,14 @@ export const feature = defineFeature({
       bus: game.bus,
       run: game.run,
       deathCause: () => fakeCause,
+      // The running record per scenario card (#217): the progress producer has already added this run's contacts.
+      situationHistory(cardId) {
+        const r = game.progress.situation(cardId, game.tunables.progress.situationWindow);
+        return r.contacts > 0 ? { won: r.wins, played: r.contacts } : null;
+      },
       ratings: game.modes.skills,
       skillOf,
-      pb: { best: () => (fake === undefined ? before : fake), keepsBest: (mode) => !noBest.includes(mode) },
+      pb: { best: () => (fake === undefined ? before : fake), keepsBest: (mode) => runModes.includes(mode) },
       onCard: (model) => {
         card.setPlayLabel(game.nextRunLabel());
         card.show(model, endedAt);

@@ -137,6 +137,9 @@ export interface RunEvents extends SprayEvents, SectorEvents {
     /** The scenario card the contact was drawn from (Sweep, design §4.4); absent where contacts have no card. */
     card?: string;
   };
+
+  /** A Leave gate banked the run (design §4.7, §14.3; Overtime and its gates arrive with #204, so nothing emits this yet): `points` includes the Overtime points that were at risk (design §4.7). */
+  runBanked: { tick: number; t: number; points: number; overtimeSectors: number };
 }
 
 declare module '../core/gameEvents' {
