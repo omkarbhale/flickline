@@ -98,8 +98,8 @@ export class SkillState {
   private readonly grid: Float64Array;
   private readonly counts = new Uint32Array(SKILL_IDS.length);
   private readonly schedule = new Map<string, ModeSchedule>();
-  private readonly priorMean: number;
-  private readonly priorSd: number;
+  private priorMean: number;
+  private priorSd: number;
   /** Unplayed skills' grids are rebuilt lazily, on the first read after a trial. */
   private unplayedStale = false;
 
@@ -114,6 +114,21 @@ export class SkillState {
     this.priorMean = clamp(p.mean, DIAL_MIN, DIAL_MAX);
     this.priorSd = Math.max(p.sd, this.h);
     for (let k = 0; k < SKILL_IDS.length; k++) this.setGaussian(k, this.priorMean, this.priorSd);
+  }
+
+  /**
+   * Start over from a new prior, in place: every skill back to the prior, no trials counted, no
+   * beat schedule. The first-run player's self-report arrives after the model was built, and the
+   * results card, cue planner and session flow all hold this instance, so it cannot be replaced.
+   */
+  reseed(prior: SkillPrior | SelfReport): void {
+    const p = typeof prior === 'string' ? { mean: this.cfg.priorMean[prior], sd: this.cfg.priorSd } : prior;
+    this.priorMean = clamp(p.mean, DIAL_MIN, DIAL_MAX);
+    this.priorSd = Math.max(p.sd, this.h);
+    for (let k = 0; k < SKILL_IDS.length; k++) this.setGaussian(k, this.priorMean, this.priorSd);
+    this.counts.fill(0);
+    this.schedule.clear();
+    this.unplayedStale = false;
   }
 
   /** Update `skill`'s posterior with one trial; unplayed skills follow (see the header). */
