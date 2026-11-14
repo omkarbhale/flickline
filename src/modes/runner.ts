@@ -13,7 +13,7 @@ import type {
   TargetSpawner, VitalsView, WeaponSourceEvents,
 } from './contracts';
 import { effectiveDial } from './itemDifficulty';
-import type { AwardOptions, ModeContext, ModeDef, ModeEvent, ResolveOptions, RunPhase, RunStats, SpawnOptions, WeaponEvent } from './modeDef';
+import type { AwardOptions, ModeContext, ModeDef, ModeEvent, ResolveOptions, RunPhase, RunStats, SpawnOptions, TrialOptions, WeaponEvent } from './modeDef';
 import { mindSkillFor } from './modeDef';
 import { AnchorIndex, SpawnScheduler } from './scheduler';
 
@@ -44,6 +44,8 @@ export interface RunOptions {
   /** Pin the dial to a fixed value ("Pin difficulty", design §9.3): the skill model is not asked. */
   pinDial?: number;
   anchors?: AnchorSource;
+  /** The skill model has never measured this profile (design §9.2; the host decides). */
+  newProfile?: boolean;
   /** The scenario cards the run leans toward (design §4.4, #210). */
   lean?: readonly string[];
 }
@@ -64,6 +66,8 @@ interface TargetRecord {
 }
 
 const MAX_TARGETS = 64;
+/** A flat wave: `targetDial` without a dial source `target` asks for beat 0 with no offset. */
+const FLAT: readonly number[] = [0];
 
 /**
  * Runs one mode: owns the run's timing (`ready` -> `live` -> `result`), beats and the dial, the
@@ -96,6 +100,7 @@ export class ModeRunner implements ModeContext<unknown> {
   endReason: RunEndReason | null = null;
   /** Spawns refused by the fairness floor or a full pool (debug). */
   refusedSpawns = 0;
+  newProfile = false;
 
   readonly tunables: Tunables;
   readonly player: MotionView;
@@ -108,6 +113,7 @@ export class ModeRunner implements ModeContext<unknown> {
   private readonly firedEv: ModeEvent & { type: 'shotFired' };
   private readonly stoppedEv: ModeEvent & { type: 'playerStopped' };
   private readonly visibleEv: ModeEvent = { type: 'targetVisible', payload: null as never };
+  private readonly aimOnEv: ModeEvent = { type: 'aimOnTarget', payload: null as never };
   private readonly sawEv: ModeEvent = { type: 'enemySawPlayer', payload: null as never };
   private readonly enemyFiredEv: ModeEvent = { type: 'enemyFired', payload: null as never };
   private readonly damagedEv: ModeEvent = { type: 'playerDamaged', payload: null as never };
@@ -197,6 +203,7 @@ export class ModeRunner implements ModeContext<unknown> {
       }),
       bus.on('playerStopped', (e) => this.onStopped(e)),
       bus.on('targetVisible', (e) => this.forward(this.visibleEv, e)),
+      bus.on('aimOnTarget', (e) => this.forward(this.aimOnEv, e)),
       bus.on('enemySawPlayer', (e) => this.forward(this.sawEv, e)),
       bus.on('enemyFired', (e) => this.forward(this.enemyFiredEv, e)),
       bus.on('playerDamaged', (e) => this.forward(this.damagedEv, e)),
@@ -214,6 +221,7 @@ export class ModeRunner implements ModeContext<unknown> {
     this.seed = opts.seed;
     this.rng = new Rng((opts.seed ^ 0x9e3779b9) >>> 0);
     this.pinDial = opts.pinDial;
+    this.newProfile = opts.newProfile ?? false;
     this.lean = opts.lean ?? [];
     this.scheduler = new SpawnScheduler(m, this.tunables.dial.floors, this.rng, new AnchorIndex(opts.anchors ?? null), this.player);
     this.streaks.reset();
@@ -292,8 +300,42 @@ export class ModeRunner implements ModeContext<unknown> {
     this.deps.events.emit('runEnded', e);
   }
 
-  advanceBeat(): void {
-    if (this.phase === 'live') this.applyBeat(this.beat + 1);
+  get pinned(): boolean {
+    return this.pinDial !== undefined;
+  }
+
+  advanceBeat(dial?: number): void {
+    if (this.phase === 'live') this.applyBeat(this.beat + 1, dial);
+  }
+
+  setDial(dial: number): void {
+    if (this.phase !== 'ready' && this.phase !== 'live') return;
+    if (clamp(this.pinDial ?? dial, 0, 100) === this.dial) return; // nothing changes: no second `beatStarted`
+    this.applyBeat(this.beat, dial);
+  }
+
+  targetDial(): number {
+    const src = this.deps.dial;
+    return clamp(src.target ? src.target(this.mode.id) : src.dialFor(this.mode.id, 0, FLAT), 0, 100);
+  }
+
+  recordTrial(skill: SkillId, success: boolean, opts: TrialOptions): void {
+    if (this.phase !== 'live') return;
+    const t = this.timeSec;
+    const e = this.trialEv;
+    e.tick = this.simTick;
+    e.t = t;
+    e.skill = skill;
+    e.itemDifficulty = opts.difficulty;
+    e.success = success;
+    e.rtMs = opts.rtMs !== undefined && opts.rtMs >= 0 ? opts.rtMs : undefined;
+    e.extra = opts.extra;
+    e.source = this.mode.trialSource ?? 'matched';
+    e.card = opts.card;
+    this.deps.events.emit('skillTrial', e);
+    this.stats.trials++;
+    if (success) this.stats.trialsWon++;
+    else this.streaks.onBreak(this.simTick, t);
   }
 
   axesAt(dial: number): AxisValues {
@@ -360,6 +402,8 @@ export class ModeRunner implements ModeContext<unknown> {
     const rec = this.adopt(id);
     rec.skill = opts?.skill ?? this.mode.skills[0]!;
     rec.card = opts?.card ?? null;
+    // No trial of its own: the record is born resolved, so neither its kill nor its expiry emits one.
+    if (opts?.trial === false) rec.resolved = true;
     if (opts?.difficulty !== undefined) rec.itemDifficulty = opts.difficulty;
     if (opts?.lifetimeSec !== undefined) {
       rec.expireTick = this.liveTick + secondsToTicks(Math.max(opts.lifetimeSec, fl.exposureSec));
@@ -546,10 +590,10 @@ export class ModeRunner implements ModeContext<unknown> {
 
   // ---- internals ---------------------------------------------------------------------------
 
-  /** Beat boundary: the one place the dial module is asked and axis values change. */
-  private applyBeat(index: number): void {
+  /** Beat boundary: the one place the dial module is asked and axis values change. `dial`: the mode's own, instead of asking. */
+  private applyBeat(index: number, dial?: number): void {
     this.beat = index;
-    const d = clamp(this.pinDial ?? this.deps.dial.dialFor(this.mode.id, index, this.mode.waveCurve ?? this.tunables.dial.waves.drill), 0, 100);
+    const d = clamp(this.pinDial ?? dial ?? this.deps.dial.dialFor(this.mode.id, index, this.mode.waveCurve ?? this.tunables.dial.waves.drill), 0, 100);
     this.dial = d;
     const next: AxisValues = this.deps.dial.axes(d);
     for (const k in next) this.axes[k] = next[k]!;
