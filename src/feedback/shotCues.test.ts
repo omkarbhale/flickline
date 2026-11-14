@@ -112,7 +112,7 @@ describe('moving-shot coaching cue', () => {
   });
 
   it('with coaching cues off the tracer is never amber', () => {
-    const r = rig({ coachingCues: false });
+    const r = rig({ coachingCues: false, missGhost: false });
     r.frame(40, { moveZ: 1 });
     r.frame(1, { moveZ: 1, fire: true });
     expect(tracerKinds(r.cues)).toEqual([TRACER_NORMAL]);

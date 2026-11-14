@@ -56,7 +56,9 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 @keyframes rt { 0% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
 
 @media (prefers-reduced-motion: reduce) { .edge-pulse.show { animation: none; } }
-.counters { position: absolute; left: 16px; bottom: 14px; font: 600 13px/1 ui-monospace, monospace; letter-spacing: .08em; color: rgba(232,237,242,.85); text-shadow: 0 1px 2px #000; }
+.counters, .ammo { position: absolute; bottom: 14px; font: 600 13px/1 ui-monospace, monospace; letter-spacing: .08em; color: rgba(232,237,242,.85); text-shadow: 0 1px 2px #000; }
+.counters { left: 16px; }
+.ammo { right: 16px; }
 
 #menu { position: fixed; inset: 0; display: none; place-items: center; background: rgba(7,10,14,.72); backdrop-filter: blur(3px); }
 #menu.open { display: grid; }

@@ -3,6 +3,7 @@ import { audio } from '../config/audio';
 import type { CueId } from '../config/audio';
 import { EventBus } from '../core/eventBus';
 import type { FeedbackEvents } from '../feedback/events';
+import type { WeaponId } from '../config/weapon';
 import type { HitZone, SimEvents } from '../sim/types';
 import type { CuePlayer, PlayOptions } from './audioEngine';
 import { attachSfx } from './sfx';
@@ -10,7 +11,14 @@ import { attachSfx } from './sfx';
 type E = SimEvents & FeedbackEvents;
 const v = { x: 1, y: 2, z: 3 };
 
-const impact = (onTarget: boolean): E['shotImpact'] => ({ tick: 1, point: v, normal: v, onTarget, distance: 5, targetId: onTarget ? 1 : -1, zone: onTarget ? 'body' : null });
+const impact = (onTarget: boolean): E['shotImpact'] => ({
+  tick: 1, t: 0, shotId: 1, result: onTarget ? 'hit' : 'miss', targetId: onTarget ? 1 : -1, zone: onTarget ? 'body' : null,
+  damage: onTarget ? 39 : 0, killed: false, point: v, normal: v, onTarget, distance: 5,
+});
+const shot = (tick: number, moving: boolean, weapon: WeaponId = 'kestrel'): E['shotFired'] => ({
+  tick, t: 0, shotId: tick, weapon, origin: v, dir: v, moving, speed: 0, airborne: false, crouching: false,
+  spreadDeg: 0.2, recoilIndex: 0, recoilPitchDeg: 0, recoilYawDeg: 0, ammo: 29,
+});
 const hit = (zone: HitZone): E['targetHit'] => ({ tick: 1, t: 0, targetId: 1, kind: 'beacon', zone, point: v, damage: 1, hpLeft: 1, distance: 1, killed: false });
 const kill = (zone: HitZone): E['targetKilled'] => ({ tick: 1, t: 0, targetId: 1, kind: 'beacon', zone, point: v, distance: 1, ttkMs: 0, rtMs: 0, firstBullet: true, bullets: 1, clean: true });
 
@@ -24,18 +32,17 @@ function setup() {
 }
 
 describe('attachSfx', () => {
-  it('plays the weapon shot for the weapon id, defaulting to Kestrel', () => {
+  it('plays the weapon shot for the weapon id', () => {
     const { bus, cues } = setup();
-    bus.emit('shotFired', { tick: 1, origin: v, dir: v, moving: false, weapon: 'pace' });
-    bus.emit('shotFired', { tick: 2, origin: v, dir: v, moving: false, weapon: 'kestrel' });
-    bus.emit('shotFired', { tick: 3, origin: v, dir: v, moving: false });
-    expect(cues()).toEqual(['shotPace', 'shotKestrel', 'shotKestrel']);
+    bus.emit('shotFired', shot(1, false, 'pace'));
+    bus.emit('shotFired', shot(2, false, 'kestrel'));
+    expect(cues()).toEqual(['shotPace', 'shotKestrel']);
   });
 
   it('layers the moving-shot tock under a moving shot only', () => {
     const { bus, cues } = setup();
-    bus.emit('shotFired', { tick: 1, origin: v, dir: v, moving: false });
-    bus.emit('shotFired', { tick: 2, origin: v, dir: v, moving: true });
+    bus.emit('shotFired', shot(1, false));
+    bus.emit('shotFired', shot(2, true));
     expect(cues()).toEqual(['shotKestrel', 'shotKestrel', 'movingShot']);
   });
 
@@ -88,7 +95,7 @@ describe('attachSfx', () => {
     const calls: CueId[] = [];
     const off = attachSfx(bus, { play: (c) => { calls.push(c); } }, audio);
     off();
-    bus.emit('shotFired', { tick: 1, origin: v, dir: v, moving: false });
+    bus.emit('shotFired', shot(1, false));
     expect(calls).toEqual([]);
   });
 });
