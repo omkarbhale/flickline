@@ -4,15 +4,16 @@ import { Rng } from '../core/rng';
 import { secondsToTicks, TICK_DT } from '../core/time';
 import type { Vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
+import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import { createScoreBreakdown, scoreKill, type ScoreBreakdown } from '../feedback/scoring';
 import { StreakTracker } from '../feedback/streaks';
 import type {
   AnchorSource, AxisValues, DialSource, ModeEvents, MotionView, PlayerSourceEvents, RunEndReason, SkillId, SourceEvents,
-  TargetSpawner, TrialSource, VitalsView, WeaponSourceEvents,
+  TargetSpawner, VitalsView, WeaponSourceEvents,
 } from './contracts';
 import { effectiveDial } from './itemDifficulty';
-import type { AwardOptions, ModeContext, ModeDef, ModeEvent, ResolveOptions, RunPhase, RunStats, SpawnOptions, WeaponEvent } from './modeDef';
+import type { AwardOptions, ModeContext, ModeDef, ModeEvent, ResolveOptions, RunPhase, RunStats, SpawnOptions, TrialOptions, WeaponEvent } from './modeDef';
 import { AnchorIndex, SpawnScheduler } from './scheduler';
 
 export interface RunnerDeps {
@@ -27,6 +28,12 @@ export interface RunnerDeps {
   vitals?: VitalsView;
   /** Load another map mid-run, returning the anchors of the new one (null: unknown map). Absent: `loadMap` fails. */
   loadMap?: (id: string) => AnchorSource | null;
+  /** Fill the player's shield up to a value (a Shield door); returns what was added. Absent: nothing happens. */
+  refillShield?: (to: number) => number;
+  /** Swap the player's primary weapon for another (an Arms door); false when it cannot be done. Absent: it cannot. */
+  setPrimary?: (weaponId: string) => boolean;
+  /** Equip both sides as an economy does (`ModeContext.setEconomy`). Absent: nothing changes. */
+  setEconomy?: (economy: Economy) => void;
 }
 
 const FULL_VITALS: VitalsView = { hp: 100, maxHp: 100, shield: 0, maxShield: 0, alive: true };
@@ -36,6 +43,10 @@ export interface RunOptions {
   /** Pin the dial to a fixed value ("Pin difficulty", design §9.3): the skill model is not asked. */
   pinDial?: number;
   anchors?: AnchorSource;
+  /** The skill model has never measured this profile (design §9.2; the host decides). */
+  newProfile?: boolean;
+  /** The scenario cards the run leans toward (design §4.4, #210). */
+  lean?: readonly string[];
   /** The run opens with a cold opener at this level (design §8.5; `ModeContext.coldOpenerLevel`). */
   coldOpenerLevel?: number;
 }
@@ -53,11 +64,11 @@ interface TargetRecord {
   rtMs: number;
   /** Scenario card of its contact, or null. */
   card: string | null;
-  /** Its trial's stream, or null for the mode's. */
-  source: TrialSource | null;
 }
 
 const MAX_TARGETS = 64;
+/** A flat wave: `targetDial` without a dial source `target` asks for beat 0 with no offset. */
+const FLAT: readonly number[] = [0];
 
 /**
  * Runs one mode: owns the run's timing (`ready` -> `live` -> `result`), beats and the dial, the
@@ -74,6 +85,7 @@ export class ModeRunner implements ModeContext<unknown> {
   seed = 0;
   coldOpenerLevel: number | null = null;
   rng = new Rng(1);
+  lean: readonly string[] = [];
   state: unknown = undefined;
   scheduler!: SpawnScheduler;
   liveTick = 0;
@@ -90,6 +102,7 @@ export class ModeRunner implements ModeContext<unknown> {
   endReason: RunEndReason | null = null;
   /** Spawns refused by the fairness floor or a full pool (debug). */
   refusedSpawns = 0;
+  newProfile = false;
 
   readonly tunables: Tunables;
   readonly player: MotionView;
@@ -102,6 +115,7 @@ export class ModeRunner implements ModeContext<unknown> {
   private readonly firedEv: ModeEvent & { type: 'shotFired' };
   private readonly stoppedEv: ModeEvent & { type: 'playerStopped' };
   private readonly visibleEv: ModeEvent = { type: 'targetVisible', payload: null as never };
+  private readonly aimOnEv: ModeEvent = { type: 'aimOnTarget', payload: null as never };
   private readonly sawEv: ModeEvent = { type: 'enemySawPlayer', payload: null as never };
   private readonly enemyFiredEv: ModeEvent = { type: 'enemyFired', payload: null as never };
   private readonly damagedEv: ModeEvent = { type: 'playerDamaged', payload: null as never };
@@ -131,7 +145,7 @@ export class ModeRunner implements ModeContext<unknown> {
   private quietId = -1;
   /** Stand-in record for a target beyond the pool capacity, so its trial is still emitted. */
   private readonly overflow: TargetRecord = {
-    active: false, id: -1, skill: 'precision', dial: 0, itemDifficulty: 0, expireTick: -1, resolved: false, rtMs: -1, card: null, source: null,
+    active: false, id: -1, skill: 'precision', dial: 0, itemDifficulty: 0, expireTick: -1, resolved: false, rtMs: -1, card: null,
   };
 
   constructor(private readonly deps: RunnerDeps) {
@@ -140,7 +154,7 @@ export class ModeRunner implements ModeContext<unknown> {
     this.vitals = deps.vitals ?? FULL_VITALS;
     this.streaks = new StreakTracker(deps.tunables.scoring, deps.events);
     for (let i = 0; i < MAX_TARGETS; i++) {
-      this.records.push({ active: false, id: -1, skill: 'precision', dial: 0, itemDifficulty: 0, expireTick: -1, resolved: false, rtMs: -1, card: null, source: null });
+      this.records.push({ active: false, id: -1, skill: 'precision', dial: 0, itemDifficulty: 0, expireTick: -1, resolved: false, rtMs: -1, card: null });
     }
     this.killEv = { type: 'targetKilled', payload: null as never };
     this.expiredEv = { type: 'targetExpired', payload: null as never };
@@ -187,6 +201,7 @@ export class ModeRunner implements ModeContext<unknown> {
       }),
       bus.on('playerStopped', (e) => this.onStopped(e)),
       bus.on('targetVisible', (e) => this.forward(this.visibleEv, e)),
+      bus.on('aimOnTarget', (e) => this.forward(this.aimOnEv, e)),
       bus.on('enemySawPlayer', (e) => this.forward(this.sawEv, e)),
       bus.on('enemyFired', (e) => this.forward(this.enemyFiredEv, e)),
       bus.on('playerDamaged', (e) => this.forward(this.damagedEv, e)),
@@ -205,6 +220,8 @@ export class ModeRunner implements ModeContext<unknown> {
     this.coldOpenerLevel = opts.coldOpenerLevel ?? null;
     this.rng = new Rng((opts.seed ^ 0x9e3779b9) >>> 0);
     this.pinDial = opts.pinDial;
+    this.newProfile = opts.newProfile ?? false;
+    this.lean = opts.lean ?? [];
     this.scheduler = new SpawnScheduler(m, this.tunables.dial.floors, this.rng, new AnchorIndex(opts.anchors ?? null), this.player);
     this.streaks.reset();
     const s = this.stats;
@@ -219,7 +236,7 @@ export class ModeRunner implements ModeContext<unknown> {
     this.durationTicks = Number.isFinite(mode.durationSec) ? secondsToTicks(mode.durationSec) : Infinity;
     this.manualBeats = mode.beatSec === null;
     this.beatTicks = this.manualBeats ? Infinity : secondsToTicks(mode.beatSec ?? this.tunables.dial.beat.drillSec);
-    this.readyTicksLeft = secondsToTicks(m.readySec);
+    this.readyTicksLeft = secondsToTicks(mode.readySec ?? m.readySec);
     this.phase = 'ready';
     this.applyBeat(0);
     const r = this.readyEv;
@@ -229,6 +246,20 @@ export class ModeRunner implements ModeContext<unknown> {
     r.dial = this.dial;
     this.deps.events.emit('runReady', r);
     this.state = (mode as ModeDef<unknown>).setup(this);
+  }
+
+  /** Seconds of the `ready` phase left (0 outside it). */
+  get readyLeftSec(): number {
+    return this.phase === 'ready' ? this.readyTicksLeft * TICK_DT : 0;
+  }
+
+  /** End the `ready` phase at the next tick (the primary pick starts the run at once, design §4.1). */
+  skipReady(): void {
+    if (this.phase === 'ready') this.readyTicksLeft = 1;
+  }
+
+  setEconomy(economy: Economy): void {
+    this.deps.setEconomy?.(economy);
   }
 
   /** Advance one sim tick; call right after `world.step`. */
@@ -268,8 +299,42 @@ export class ModeRunner implements ModeContext<unknown> {
     this.deps.events.emit('runEnded', e);
   }
 
-  advanceBeat(): void {
-    if (this.phase === 'live') this.applyBeat(this.beat + 1);
+  get pinned(): boolean {
+    return this.pinDial !== undefined;
+  }
+
+  advanceBeat(dial?: number): void {
+    if (this.phase === 'live') this.applyBeat(this.beat + 1, dial);
+  }
+
+  setDial(dial: number): void {
+    if (this.phase !== 'ready' && this.phase !== 'live') return;
+    if (clamp(this.pinDial ?? dial, 0, 100) === this.dial) return; // nothing changes: no second `beatStarted`
+    this.applyBeat(this.beat, dial);
+  }
+
+  targetDial(): number {
+    const src = this.deps.dial;
+    return clamp(src.target ? src.target(this.mode.id) : src.dialFor(this.mode.id, 0, FLAT), 0, 100);
+  }
+
+  recordTrial(skill: SkillId, success: boolean, opts: TrialOptions): void {
+    if (this.phase !== 'live') return;
+    const t = this.timeSec;
+    const e = this.trialEv;
+    e.tick = this.simTick;
+    e.t = t;
+    e.skill = skill;
+    e.itemDifficulty = opts.difficulty;
+    e.success = success;
+    e.rtMs = opts.rtMs !== undefined && opts.rtMs >= 0 ? opts.rtMs : undefined;
+    e.extra = opts.extra;
+    e.source = opts.source ?? this.mode.trialSource ?? 'matched';
+    e.card = opts.card;
+    this.deps.events.emit('skillTrial', e);
+    this.stats.trials++;
+    if (success) this.stats.trialsWon++;
+    else this.streaks.onBreak(this.simTick, t);
   }
 
   axesAt(dial: number): AxisValues {
@@ -311,6 +376,14 @@ export class ModeRunner implements ModeContext<unknown> {
     return true;
   }
 
+  refillShield(to: number): number {
+    return this.deps.refillShield?.(to) ?? 0;
+  }
+
+  setPrimary(weaponId: string): boolean {
+    return this.deps.setPrimary?.(weaponId) ?? false;
+  }
+
   spawn(kind: EnemyKind, pos: Vec3, opts?: SpawnOptions): number {
     const fl = this.tunables.dial.floors;
     // Spawn fairness (design §9.3.5): the floor distance in any direction and the view-cone rule.
@@ -328,8 +401,9 @@ export class ModeRunner implements ModeContext<unknown> {
     const rec = this.adopt(id);
     rec.skill = opts?.skill ?? this.mode.skills[0]!;
     rec.card = opts?.card ?? null;
-    rec.source = opts?.source ?? null;
     if (opts?.dial !== undefined) rec.dial = opts.dial;
+    // No trial of its own: the record is born resolved, so neither its kill nor its expiry emits one.
+    if (opts?.trial === false) rec.resolved = true;
     if (opts?.difficulty !== undefined) rec.itemDifficulty = opts.difficulty;
     if (opts?.lifetimeSec !== undefined) {
       rec.expireTick = this.liveTick + secondsToTicks(Math.max(opts.lifetimeSec, fl.exposureSec));
@@ -363,7 +437,7 @@ export class ModeRunner implements ModeContext<unknown> {
     e.success = success;
     e.rtMs = rt >= 0 ? rt : undefined;
     e.extra = opts?.extra;
-    e.source = rec.source ?? this.mode.trialSource ?? 'matched';
+    e.source = this.mode.trialSource ?? 'matched';
     e.card = rec.card ?? undefined;
     this.deps.events.emit('skillTrial', e);
     this.stats.trials++;
@@ -516,10 +590,10 @@ export class ModeRunner implements ModeContext<unknown> {
 
   // ---- internals ---------------------------------------------------------------------------
 
-  /** Beat boundary: the one place the dial module is asked and axis values change. */
-  private applyBeat(index: number): void {
+  /** Beat boundary: the one place the dial module is asked and axis values change. `dial`: the mode's own, instead of asking. */
+  private applyBeat(index: number, dial?: number): void {
     this.beat = index;
-    const d = clamp(this.pinDial ?? this.deps.dial.dialFor(this.mode.id, index, this.mode.waveCurve ?? this.tunables.dial.waves.drill), 0, 100);
+    const d = clamp(this.pinDial ?? dial ?? this.deps.dial.dialFor(this.mode.id, index, this.mode.waveCurve ?? this.tunables.dial.waves.drill), 0, 100);
     this.dial = d;
     const next: AxisValues = this.deps.dial.axes(d);
     for (const k in next) this.axes[k] = next[k]!;
@@ -572,7 +646,6 @@ export class ModeRunner implements ModeContext<unknown> {
       r.resolved = false;
       r.rtMs = -1;
       r.card = null;
-      r.source = null;
       this.recordsUsed++;
       return r;
     }
@@ -586,7 +659,6 @@ export class ModeRunner implements ModeContext<unknown> {
     r.resolved = false;
     r.rtMs = -1;
     r.card = null;
-    r.source = null;
     return r;
   }
 

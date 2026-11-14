@@ -54,7 +54,7 @@ function centre(b: BoxDef): Vec3 {
 
 describe('shipped maps', () => {
   it('are registered under their ids', () => {
-    expect(Object.keys(MAPS).sort()).toEqual(['elbow', 'lane', 'range']);
+    expect(Object.keys(MAPS).sort()).toEqual(['elbow', 'gate', 'lane', 'range']);
     expect(MAPS.lane).toBe(laneMap);
     expect(MAPS.elbow).toBe(elbowMap);
   });

@@ -3,12 +3,14 @@ import { secondsToTicks, TICK_DT } from '../../core/time';
 import { vec3, type Vec3 } from '../../core/vec3';
 import { lineClear } from '../../sim/exposure';
 import { targetAimPoint, wrapPi, yawOf } from '../../sim/aim';
-import { currentSector, sectorKey, type SweepState } from '../../modes/sweep';
+import { Rng } from '../../core/rng';
+import { currentSector, sectorKey, type GateRt, type SweepState } from '../../modes/sweep';
 import { navRoute } from '../../modes/sweepCatalog';
 import type { TickInput } from '../../sim/types';
 import type { World } from '../../sim/world';
 import type { Bot, BotStats } from './bot';
 import type { BotGame } from './headless';
+import { leftDoor, type GatePolicy } from './gatePolicy';
 
 /** A waypoint counts as reached within this horizontal distance, metres. */
 const REACH_M = 0.6;
@@ -25,6 +27,8 @@ const STUCK_SEC = 3;
  * Echo it has seen, it counter-strafes to a stop and lets the aimer fire only while the Echo is in
  * plain sight. It never looks through walls (`Bot.visibleOnly`) and never writes sim state.
  *
+ * At a gate it chooses a door with its `GatePolicy` (default: the left door), walks to it and through.
+ *
  * What it does not do (so its numbers are a floor, not a ceiling): clear angles one at a time,
  * pre-aim, use cover, crouch, reposition or back off a fight it is losing. #53 tunes against it.
  */
@@ -37,11 +41,36 @@ export class SweepBot {
   private bestDist = Infinity;
   private bestAt = 0;
   private readonly aim = vec3();
+  /** The gate it is walking through and the door it chose. */
+  private gate: GateRt | null = null;
+  private door: 0 | 1 = 0;
+  /** Tick the current fight began (the bot stopped being idle), -1 while idle, and how long it keeps running into it. */
+  private engagedAt = -1;
+  private holdOffTicks = 0;
+  /** This fight is one the bot fires in on the move (the planted weakness). */
+  private movingFight = false;
+  private readonly rng: Rng;
 
+  /**
+   * `stopDelayMaxSec`: the bot keeps running its route for a uniform 0..this many seconds after it first engages an
+   * Echo before it counter-strafes, without shooting (a person who has seen the enemy and not yet stopped). 0 (the
+   * default): it stops at once, as every report before the meet sectors (#212) assumed. The meet report sets it so
+   * both orders of "who stopped first" occur.
+   */
   constructor(
     private readonly bot: Bot,
     private readonly game: BotGame,
+    private readonly stopDelayMaxSec = 0,
+    seed = 1,
+    private readonly policy: GatePolicy = leftDoor,
+    /**
+     * A planted weakness (#210, the lean's A/B): this share of the fights it takes, it never stops: it keeps running its
+     * route and fires on the move, as a player who has not learned to counter-strafe does. 0 (the default): it stops in
+     * every fight, as every report before the lean assumed. No random draw is made at 0, so those reports do not change.
+     */
+    private readonly movingFireShare = 0,
   ) {
+    this.rng = new Rng((seed ^ 0x2545f491) >>> 0 || 1);
     bot.visibleOnly = true;
     bot.inSight = (t) => {
       const p = game.world.player;
@@ -59,10 +88,38 @@ export class SweepBot {
     if (!world.health.alive || !world.live) return out;
     const st = this.game.modes.runner.state as SweepState | undefined;
     if (!st?.plan) return out;
+    if (st.gate) return this.throughGate(st.gate, world, out);
+    this.gate = null;
     if (sectorKey(st) !== this.sector) this.plan(st, true);
 
     const p = world.player;
     const eyeY = p.pos.y + p.eyeHeight;
+    if (this.bot.idle) this.engagedAt = -1;
+    else if (this.engagedAt < 0) {
+      this.engagedAt = world.tick;
+      this.holdOffTicks = this.stopDelayMaxSec > 0 ? secondsToTicks(this.rng.next() * this.stopDelayMaxSec) : 0;
+      this.movingFight = this.movingFireShare > 0 && this.rng.next() < this.movingFireShare;
+    }
+    if (!this.bot.idle && this.movingFight) {
+      // The planted weakness: keep running the route and shoot whatever is in plain sight, stopped or not.
+      const wp = this.path[this.wp];
+      if (wp) this.moveTowards(wp, out);
+      const t = world.targetField.byId(this.bot.target);
+      if (out.fire && t) {
+        targetAimPoint(t, this.game.tunables.targets, this.aim);
+        if (!lineClear(world.boxes, p.pos.x, eyeY, p.pos.z, this.aim.x, this.aim.y, this.aim.z)) out.fire = false;
+      }
+      this.fought = true;
+      return out;
+    }
+    if (!this.bot.idle && world.tick - this.engagedAt < this.holdOffTicks) {
+      // Seen, not stopped yet: keep running the route (aim stays on the Echo; no shot while moving).
+      const wp = this.path[this.wp];
+      if (wp) this.moveTowards(wp, out);
+      out.fire = false;
+      this.fought = true;
+      return out;
+    }
     if (!this.bot.idle) {
       // In a fight: stop, then shoot only at what is in plain sight.
       const def = this.game.tunables.weapon[world.weapon.slots[world.weapon.active]!.id];
@@ -115,13 +172,44 @@ export class SweepBot {
     this.bot.pitch += (0 - this.bot.pitch) * 0.2;
     out.yaw = this.bot.yaw;
     out.pitch = this.bot.pitch;
-    // Move in the view's frame: forward and right components of the way to go.
+    this.moveTowards(target, out);
+    out.fire = false;
+    return out;
+  }
+
+  /** Keys that move towards `target` in the view's frame: the forward and right components of the way to go. */
+  private moveTowards(target: Vec3, out: TickInput): void {
+    const p = this.game.world.player;
+    const dx = target.x - p.pos.x, dz = target.z - p.pos.z;
+    const dist = Math.hypot(dx, dz);
     const ux = dx / (dist || 1), uz = dz / (dist || 1);
     const fwd = -ux * Math.sin(out.yaw) - uz * Math.cos(out.yaw);
     const right = ux * Math.cos(out.yaw) - uz * Math.sin(out.yaw);
     out.moveZ = Math.abs(fwd) > 0.3 ? Math.sign(fwd) : 0;
     out.moveX = Math.abs(right) > 0.3 ? Math.sign(right) : 0;
+  }
+
+  /** In a gate: choose the door once, then walk straight to it and through (nothing shoots at the player there). */
+  private throughGate(gate: GateRt, world: World, out: TickInput): TickInput {
+    if (this.gate !== gate) {
+      this.gate = gate;
+      this.door = this.policy(gate.plan, { hp: world.health.hp, shield: world.health.shield });
+    }
+    const g = this.game.tunables.sweep.gate;
+    const door = g.doors[this.door];
+    // Aim past the commit line, down the door's alcove.
+    const tx = door.x, tz = door.z - g.commitDepthM - 0.6;
+    const p = world.player;
+    const dx = tx - p.pos.x, dz = tz - p.pos.z;
+    this.bot.yaw = yawOf(dx, dz);
+    this.bot.pitch = 0;
+    out.yaw = this.bot.yaw;
+    out.pitch = 0;
+    out.moveX = 0;
+    out.moveZ = 1;
     out.fire = false;
+    this.fought = false;
+    this.sector = -1;
     return out;
   }
 

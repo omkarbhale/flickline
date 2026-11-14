@@ -184,6 +184,7 @@ export class World implements EnemyWorld {
   reset(seed: number = this.seed): void {
     this.seed = seed;
     this.rng.setState(seed);
+    this.targetField.runSeed = seed;
     this.tick = 0;
     const p = this.player;
     const m = this.tunables.movement;
@@ -282,6 +283,22 @@ export class World implements EnemyWorld {
   setShields(player: number, enemy: number): void {
     this.healthSys.setShield(player);
     this.targetField.enemyShield = Math.max(0, enemy);
+  }
+
+  /** Fill the player's shield up to `to` (a Shield door, design §4.5); returns what was added and emits `playerShielded`. */
+  refillShield(to: number, events: EventSink<SimEvents>): number {
+    return this.healthSys.refillShield(to, this.tick, events);
+  }
+
+  /**
+   * Change the shield the player wears for the rest of this life (see `PlayerHealthSystem.wearShield`)
+   * and what every Echo spawned from now on carries: its shield and the weapon it fires. Used by a
+   * Sweep sector condition (design §4.6); `setShields` stays the run-start call.
+   */
+  setKit(playerMax: number, playerShield: number, enemyShield: number, enemyWeapon: WeaponId): void {
+    this.healthSys.wearShield(playerMax, playerShield);
+    this.targetField.enemyShield = Math.max(0, enemyShield);
+    this.enemyWeapon = enemyWeapon;
   }
 
   /**

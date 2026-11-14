@@ -11,7 +11,7 @@ describe('cold opener bot harness', () => {
   const t = cloneTunables();
   const report = coldHarness(t, 60, 0xc0ffee);
 
-  it('one cold opener is good to about ±11 dial points with one trial per contact (the figure on #209)', () => {
+  it('one cold opener is good to about ±11 dial points at the classifier\'s trial yield (the figure on #209)', () => {
     expect(report.se).toBeGreaterThan(5);
     expect(report.se).toBeLessThan(13);
   });
@@ -31,8 +31,7 @@ describe('cold opener bot harness', () => {
     expect(days.length).toBe(12);
   });
 
-  it('a level change puts a step of about 12 dial points in the series (the flat prior over few trials per skill; reported on #209)', () => {
-    // transfer.md H4 asks for no step larger than the band: this is the figure the follow-up has to bring down.
-    expect(coldLevelStep(t, 150, 11)).toBeLessThan(15);
+  it('a level change puts a step of about 4 dial points in the series, inside the band (transfer.md H4)', () => {
+    expect(coldLevelStep(t, 150, 11)).toBeLessThan(6);
   });
 });

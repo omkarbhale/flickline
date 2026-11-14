@@ -2,6 +2,8 @@ import type { EventBus } from '../core/eventBus';
 import { vec3, type Vec3 } from '../core/vec3';
 import { axes } from '../adaptive/dial';
 import { SkillState } from '../adaptive/skillModel';
+import { SKILL_IDS } from '../config/dial';
+import type { Economy } from '../config/economy';
 import type { Tunables } from '../config/tunables';
 import type { EnemyKind } from '../config/scoring';
 import type { WeaponId } from '../config/weapon';
@@ -21,6 +23,7 @@ import { FIRE_IDLE } from '../sim/enemyAi';
 import { rayBox } from '../sim/collision';
 import { findMap } from '../sim/mapLoader';
 import type { MapDef } from '../sim/mapTypes';
+import '../sim/economyEvents';
 import type { SpawnOptions } from '../sim/targets';
 import type { World } from '../sim/world';
 import type { GameEvents } from '../core/gameEvents';
@@ -36,6 +39,9 @@ export const MODES: Readonly<Record<string, ModeDef<never>>> = {
   stopAndPop: stopAndPop as ModeDef<never>,
   sweep: sweep as ModeDef<never>,
 };
+
+/** The sidearm of a loadout with a primary pick: always Pace (design §4.1). */
+const SIDEARM: WeaponId = 'pace';
 
 /** A durable target's health: a spray cannot kill it. */
 const DURABLE_HP = 1e6;
@@ -131,9 +137,19 @@ export class ModeHost {
   private anchors: AnchorSource;
   private priorInfiniteMagazine = false;
   private priorInfiniteReserve = false;
+  /** The primary the next Sweep run carries (design §4.1): the last pick, restored from the save by `features/primaryPick.ts`. */
+  private primaryId: WeaponId;
+  /** The shield tier the run started with (the baseline a sector condition is applied to and restored to). */
+  private baseShield = 0;
+  /** A sector condition is on: the shield the player carried in, the part of it he wore, whether the primary is away. */
+  private kit: { carried: number; worn: number; holstered: boolean } | null = null;
+  /** `ready` is held for the primary pick: no movement and no fire until the run goes live. */
+  private readyHold = false;
   private readonly ray = vec3();
   private readonly placedEv = { tick: 0, x: 0, y: 0, z: 0, yaw: 0 };
   private readonly mapEv = { tick: 0, mapId: '' };
+  private readonly kitEv = { tick: 0, economy: 'full' as Economy, shield: 0, maxShield: 0, holstered: false };
+  private readonly pickEv = { tick: 0, weapon: '' };
 
   constructor(
     private readonly world: World,
@@ -143,15 +159,23 @@ export class ModeHost {
     skills: SkillState = new SkillState('skip'),
   ) {
     this.skills = skills;
+    this.primaryId = tunables.sweep.pick.defaultPrimary;
     const dial: DialSource = {
       dialFor: (mode, beat, wave) => skills.dialFor(mode, beat, wave),
       axes: (d) => axes(d, undefined, tunables.dial) as unknown as AxisValues,
+      target: (mode) => {
+        const def = tunables.dial.modes[mode];
+        return def ? skills.targetDial(def.skill, def.targetSuccess) : skills.targetDial('line', 0.7);
+      },
     };
     this.runner = new ModeRunner({
       events: bus, tunables, dial, spawner: new WorldSpawner(world, bus), player: world.player,
       placePlayer: (x, y, z, yaw) => this.placePlayer(x, y, z, yaw),
       vitals: world.health,
       loadMap: (mapId) => (this.loadMap(mapId) ? this.anchors : null),
+      refillShield: (to) => this.world.refillShield(to, this.bus),
+      setPrimary: (id) => this.armsPrimary(id),
+      setEconomy: (economy) => this.applyEconomy(economy),
     });
     this.runner.attach(bus);
     this.anchors = this.anchorsOf(map);
@@ -159,6 +183,13 @@ export class ModeHost {
     bus.on('skillTrial', (e) => {
       if (e.source !== 'baseline') skills.observeTrial(e);
     });
+    // A decided contact feeds the fight track the run's dial follows (design §9.3.1: contacts won; #203).
+    bus.on('contactSettled', (e) => {
+      // The cold opener's contacts are its measurement (design §8.5): they never move the run's dial.
+      if (e.difficulty === undefined || e.outcome === 'avoided' || this.active?.trialSource === 'baseline' || e.source === 'baseline') return;
+      skills.observeFight(e.difficulty, e.outcome === 'cleared');
+    });
+    bus.on('runStarted', () => this.releaseReady());
     bus.on('runEnded', (e) => {
       if (this.active?.id === 'placement' && e.reason !== 'quit') this.finishPlacement();
     });
@@ -207,7 +238,21 @@ export class ModeHost {
     return true;
   }
 
-  start(id: string, opts: Partial<RunOptions> = {}): boolean {
+  /** An Arms door (design §4.5): the named primary takes the primary slot (the sidearm stays) and goes in hand. */
+  private armsPrimary(id: string): boolean {
+    const w = this.world;
+    if (this.tunables.weapon[id as WeaponId]?.slotClass !== 'primary') return false;
+    if (w.loadout[0] === id) return true;
+    if (!w.setLoadout({ primary: id, sidearm: w.loadout[1]! }).ok) return false;
+    return w.equipWeapon(id as WeaponId);
+  }
+
+  /**
+   * Start a run. `pick` (a primary id) answers a mode's `ready` screen in the same call, as pressing
+   * `1`..`3` would, so the run goes live at its next tick: bots, tests and `?primary=`. Without it the
+   * screen waits for the player (or times out on the last pick).
+   */
+  start(id: string, opts: Partial<RunOptions> & { pick?: string } = {}): boolean {
     const mode = MODES[id];
     if (!mode) return false;
     this.stop(); // the previous run ends before the field is cleared
@@ -218,9 +263,23 @@ export class ModeHost {
     this.applyPlayerSetup(mode);
     this.active = mode;
     this.runner.begin(mode, {
-      seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors,
+      seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors, lean: opts.lean, newProfile: opts.newProfile ?? this.newProfile,
       coldOpenerLevel: opts.coldOpenerLevel ?? this.coldOpenerFor?.(id, seed) ?? undefined,
     });
+    if (opts.pick !== undefined) this.pickPrimary(opts.pick);
+    return true;
+  }
+
+  /**
+   * Whether a new profile's first run places it (design §9.2). The game always does; the headless
+   * game of the tests and the bot turns it off unless asked, so their runs keep the usual shape.
+   */
+  placesNewProfiles = true;
+
+  /** The skill model has never measured this profile: no matched trial yet (design §9.2: its first Opener places it). */
+  get newProfile(): boolean {
+    if (!this.placesNewProfiles) return false;
+    for (const s of SKILL_IDS) if (this.skills.trialCount(s) > 0) return false;
     return true;
   }
 
@@ -234,6 +293,8 @@ export class ModeHost {
     this.world.swapLocked = false;
     this.world.setShields(0, 0);
     this.world.enemiesFire = false;
+    this.kit = null;
+    this.readyHold = false;
     this.active = null;
   }
 
@@ -280,14 +341,20 @@ export class ModeHost {
       }
     }
     w.placePlayer(x, y, z, yaw);
-    const id = mode.weapon as WeaponId;
-    if (!w.equipWeapon(id)) {
-      // The mode's weapon is not in the current loadout (e.g. Rill after Kestrel): put it in the
-      // slot of its class, keeping the other slot, and take it in hand.
-      const cur = w.loadout;
-      const isSidearm = this.tunables.weapon[id]?.slotClass === 'sidearm';
-      w.setLoadout({ primary: isSidearm ? cur[0]! : id, sidearm: isSidearm ? id : cur[1]! });
-      w.equipWeapon(id);
+    this.kit = null;
+    if (setup?.pickPrimary) {
+      // The run's primary is the pick (the sidearm is always Pace): fresh magazines, primary in hand.
+      this.equipPick();
+    } else {
+      const id = mode.weapon as WeaponId;
+      if (!w.equipWeapon(id)) {
+        // The mode's weapon is not in the current loadout (e.g. Rill after Kestrel): put it in the
+        // slot of its class, keeping the other slot, and take it in hand.
+        const cur = w.loadout;
+        const isSidearm = this.tunables.weapon[id]?.slotClass === 'sidearm';
+        w.setLoadout({ primary: isSidearm ? cur[0]! : id, sidearm: isSidearm ? id : cur[1]! });
+        w.equipWeapon(id);
+      }
     }
     w.swapLocked = !(setup?.allowSwap ?? false);
     this.priorInfiniteMagazine = w.weapon.infiniteMagazine;
@@ -297,9 +364,109 @@ export class ModeHost {
     w.movementLocked = setup?.lockMovement ?? false;
     const level = mode.economy ? economyShield(mode.economy, this.tunables.economy, this.tunables.player.shield) : 0;
     w.setShields(level, level);
+    this.baseShield = level;
     // A mode with an economy is a mode where enemies shoot back (design §5.3); drills never have one.
     w.enemiesFire = mode.economy !== undefined;
     if (mode.economy) w.enemyWeapon = this.tunables.economy.levels[mode.economy].enemyWeapon;
+    // The ready screen of a mode with a primary pick waits for the pick: nothing moves and nothing fires until it is over.
+    this.readyHold = setup?.pickPrimary === true;
+    if (this.readyHold) {
+      w.movementLocked = true;
+      w.swapLocked = true;
+      w.enemiesFire = false;
+    }
+  }
+
+  /** The ready screen is over: the run's own rules apply (movement, swap keys, Echo fire). */
+  private releaseReady(): void {
+    if (!this.readyHold || !this.active) return;
+    this.readyHold = false;
+    const w = this.world;
+    const setup = this.active.player;
+    w.movementLocked = setup?.lockMovement ?? false;
+    w.swapLocked = !(setup?.allowSwap ?? false) || (this.kit?.holstered ?? false);
+    w.enemiesFire = this.active.economy !== undefined;
+  }
+
+  /** The primary the next Sweep run carries (design §4.1). */
+  get primary(): WeaponId {
+    return this.primaryId;
+  }
+
+  /** Make `id` the primary of the next run without starting anything (restoring the save). False when it is not one of the picks. */
+  setPrimary(id: string): boolean {
+    const pick = this.tunables.sweep.pick.primaries.find((p) => p === id);
+    if (!pick) return false;
+    this.primaryId = pick;
+    return true;
+  }
+
+  /**
+   * The pick on the `ready` screen (`1`..`3`, design §4.1): `id` is the primary from now on and the run
+   * starts at once. False when no run is waiting on the screen or `id` is not one of the picks.
+   */
+  pickPrimary(id: string): boolean {
+    if (!this.active?.player?.pickPrimary || this.runner.phase !== 'ready' || !this.setPrimary(id)) return false;
+    this.equipPick();
+    const e = this.pickEv;
+    e.tick = this.world.tick;
+    e.weapon = this.primaryId;
+    this.bus.emit('primaryPicked', e);
+    this.runner.skipReady();
+    return true;
+  }
+
+  /** Primary = the pick, sidearm = Pace, primary in hand. */
+  private equipPick(): void {
+    const w = this.world;
+    w.setLoadout({ primary: this.primaryId, sidearm: SIDEARM });
+    w.equipWeapon(this.primaryId);
+  }
+
+  /**
+   * Equip both sides as `economy` does (`ModeContext.setEconomy`, design §4.6). The Echoes spawned
+   * from now on carry its shield and weapon. The player wears its shield capacity, never more shield
+   * than he carried in; with no shield tier (eco) the primary is holstered: the sidearm is in hand
+   * and the swap keys are dead for the sector. Calling it again first undoes the last call.
+   */
+  private applyEconomy(economy: Economy): void {
+    const w = this.world;
+    const t = this.tunables;
+    this.undoEconomy();
+    const cap = economyShield(economy, t.economy, t.player.shield);
+    const carried = w.health.shield;
+    const worn = Math.min(carried, cap);
+    const holstered = t.economy.levels[economy].tier === 'none' && this.active?.player?.pickPrimary === true;
+    this.kit = { carried, worn, holstered };
+    w.setKit(cap, worn, cap, t.economy.levels[economy].enemyWeapon);
+    if (holstered) {
+      w.swapLocked = true;
+      w.equipWeapon(w.loadout[1]!);
+    }
+    const e = this.kitEv;
+    e.tick = w.tick;
+    e.economy = economy;
+    e.shield = worn;
+    e.maxShield = cap;
+    e.holstered = holstered;
+    this.bus.emit('economyApplied', e);
+  }
+
+  /**
+   * Take the last economy off: the shield the player carried in comes back minus what the sector's
+   * shield absorbed (a shield is only ever spent, never refilled or lost to a condition), and a holstered primary is back in hand.
+   */
+  private undoEconomy(): void {
+    const k = this.kit;
+    if (!k) return;
+    this.kit = null;
+    const w = this.world;
+    const spent = Math.max(0, k.worn - w.health.shield);
+    w.setKit(this.baseShield, Math.max(0, k.carried - spent), this.baseShield, w.enemyWeapon);
+    if (k.holstered) {
+      w.swapLocked = !(this.active?.player?.allowSwap ?? false);
+      w.equipWeapon(w.loadout[0]!);
+    }
   }
 
   /** A mode moves the player (Spray Wall's alcoves): place the sim's player and tell the view to follow. */

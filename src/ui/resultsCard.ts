@@ -115,8 +115,10 @@ export class ResultsCard {
             <p class="rc-fix-title" data-k="fixTitle"></p>
             <p data-k="fixEvidence"></p>
             <p data-k="fixAction"></p>
+            <p class="rc-lean" data-k="fixLean" hidden></p>
           </section>
         </div>
+        <ul class="rc-notes" aria-label="Armour" data-k="notes" hidden></ul>
         <section class="rc-rating" aria-label="Rating" data-k="rating">
           <div class="rc-rating-row" data-k="ratingRow">
             <span class="rc-skill" data-k="skill"></span>
@@ -243,6 +245,9 @@ export class ResultsCard {
       q('bartext').textContent = r.progressText;
     }
 
+    const notes = q('notes');
+    notes.replaceChildren(...m.notes.map((n) => h('li', { text: n })));
+    notes.hidden = m.notes.length === 0;
     this.writeRoute(m);
     this.writeFights(m);
     this.writeStats(m);
@@ -251,6 +256,10 @@ export class ResultsCard {
     q('fixTitle').textContent = m.fix.title;
     q('fixEvidence').textContent = m.fix.evidence;
     q('fixAction').textContent = m.fix.action;
+    // What the next run leans toward (design §8.3, #210): plain words, only when a card the run can deal practises it.
+    const lean = q('fixLean');
+    lean.textContent = m.fix.lean?.line ?? '';
+    lean.hidden = m.fix.lean === null;
 
     this.open = true;
     this.el.classList.add('open');

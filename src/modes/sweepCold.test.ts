@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cloneTunables } from '../config/tunables';
 import { HeadlessGame } from '../debug/bot/headless';
 import { createTickInput } from '../sim/types';
+import { playMode } from '../debug/bot/play';
 import { pickColdOpener } from './coldOpener';
 import { currentSector, sweepPlan, type SweepState } from './sweep';
 
@@ -22,22 +23,22 @@ function startCold(seed: number) {
     g.world.placePlayer(sp.exit.x, sp.exit.y, sp.exit.z, 0);
     g.advance(input);
   };
-  const ready = Math.ceil(tunables.run.readySec * 128) + 1;
-  for (let k = 0; k < ready; k++) g.advance(input);
+  // The ready screen (the primary pick) times out on its own.
+  for (let k = 0; k < 128 * 30 && g.modes.runner.phase !== 'live'; k++) g.advance(input);
+  expect(g.modes.runner.phase).toBe('live');
   return { g, log, input, state, toExit };
 }
 
 describe('Sweep with a cold opener (#209)', () => {
-  it('plans the cold opener as the Opener: its legs, then the run continues into sector 2 with the same later sectors', () => {
+  it('plans the cold opener as the Opener: its first leg stands in for the drawn opener; a placing run never has one', () => {
     const plain = sweepPlan(5, tunables);
-    const cold = sweepPlan(5, tunables, LEVEL);
+    const cold = sweepPlan(5, tunables, undefined, false, LEVEL);
     const pick = pickColdOpener(5, LEVEL);
     expect(cold.cold?.legs).toEqual(pick.legs);
     expect(cold.sectors).toHaveLength(plain.sectors.length);
     expect(cold.sectors[0]).toBe(cold.cold!.sectors[0]);
-    expect(cold.sectors.slice(1).map((s) => s.sectorId)).toEqual(plain.sectors.slice(1).map((s) => s.sectorId));
-    // Contacts are numbered after the legs'.
-    expect(cold.sectors[1]!.contacts[0]!.index).toBe(pick.legs.length);
+    expect(cold.sectors[0]!.role).toBe('take');
+    expect(sweepPlan(5, tunables, undefined, true, LEVEL).cold).toBeUndefined();
   });
 
   it('plays every leg on its own map (mirrored ones on <map>~m) with nothing in sight on arrival, as one sector to the rest of the game', () => {
@@ -60,25 +61,45 @@ describe('Sweep with a cold opener (#209)', () => {
         expect(log.filter((l) => l.type === 'sectorEnded')).toHaveLength(0);
         toExit();
       }
-      // The last leg's exit ends the Opener once, then sector 2 begins as normal.
+      // The last leg's exit ends the Opener once, then the run goes on through the gate before sector 2 as normal.
       expect(log.filter((l) => l.type === 'sectorEnded')).toHaveLength(1);
+      expect(log.find((l) => l.type === 'sectorEnded')!.e).toMatchObject({ index: 0, sectorId: 'cold-opener', reason: 'exit' });
       expect(log.find((l) => l.type === 'coldOpenerEnded')!.e).toMatchObject({ reason: 'exit', legsDone: plan.sectors.length });
-      expect(state().sector).toBe(1);
       expect(state().leg).toBe(-1);
-      expect(log.filter((l) => l.type === 'sectorEntered').at(-1)!.e).toMatchObject({ index: 1 });
+      expect(state().gate).not.toBeNull();
     }
   });
 
-  it("its Echoes' trials are benchmark trials at the level's difficulty; the run's later ones are matched", () => {
-    const { g, log, toExit, state } = startCold(4);
-    const id = state().contacts[0]!.echoIds[0]!;
-    expect(g.modes.runner.resolveTrial(id, true)).toBe(true);
-    const cold = log.filter((l) => l.type === 'skillTrial').at(-1)!.e;
-    expect(cold).toMatchObject({ source: 'baseline', itemDifficulty: LEVEL, success: true });
-    for (let leg = 0; leg < state().plan.cold!.sectors.length; leg++) toExit();
-    const later = state().contacts[0]!.echoIds.find((x) => x >= 0)!;
-    expect(g.modes.runner.resolveTrial(later, false)).toBe(true);
-    expect(log.filter((l) => l.type === 'skillTrial').at(-1)!.e.source).toBe('matched');
+  it("bot-played: the opener's trials and contacts are benchmark ones at the level's difficulty, never the matched model's; the rest are matched", () => {
+    let coldTrials = 0, later = 0;
+    for (const seed of [1, 2, 3]) {
+      const g = new HeadlessGame({ seed });
+      g.modes.coldOpenerFor = () => LEVEL;
+      let inCold = false;
+      let before = '';
+      let afterCold = '';
+      g.bus.on('coldOpenerStarted', () => {
+        inCold = true;
+        before = JSON.stringify(g.modes.skills.serialize());
+      });
+      g.bus.on('coldOpenerEnded', () => {
+        inCold = false;
+        afterCold = JSON.stringify(g.modes.skills.serialize());
+      });
+      g.bus.on('skillTrial', (e) => {
+        expect(e.source).toBe(inCold ? 'baseline' : 'matched');
+        if (inCold) {
+          coldTrials++;
+          expect(e.itemDifficulty).toBe(LEVEL + tunables.trials.cardOffset[e.card as 'clear']);
+        } else later++;
+      });
+      g.bus.on('contactSettled', (e) => expect(e.source).toBe(inCold ? 'baseline' : undefined));
+      playMode(g, { mode: 'sweep', skill: 50, seed, maxSeconds: 400 });
+      // Nothing the opener measured moved the matched model (its trials or its fight track).
+      expect(afterCold).toBe(before);
+    }
+    expect(coldTrials).toBeGreaterThan(10);
+    expect(later).toBeGreaterThan(0);
   });
 
   it('a run quit inside it ends it as quit (offered again); a death ends it as death', () => {

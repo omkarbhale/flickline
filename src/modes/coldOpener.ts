@@ -195,7 +195,10 @@ export function coldLegs(pick: ColdOpenerPick, catalog: readonly SectorSource[],
     const contact: ContactPlan = { index: firstContact + i, card: c.card as SweepCard, spots: c.spots.slice(), echoes };
     const entry = m ? mirrorPoint(src.entry) : { ...src.entry };
     const exit = m ? mirrorPoint(src.exit) : { ...src.exit };
-    return { index: 0, mapId: m ? mirrorId(src.mapId) : src.mapId, sectorId: src.id, entry, entryYaw: m ? mirrorYaw(src.entryYaw) : src.entryYaw, exit, contacts: [contact] };
+    return {
+      index: 0, mapId: m ? mirrorId(src.mapId) : src.mapId, sectorId: src.id, entry, entryYaw: m ? mirrorYaw(src.entryYaw) : src.entryYaw, exit,
+      role: 'take', drawn: 'take', stake: 'plain', sightlineM: src.sightlineM, condition: 'full', contacts: [contact],
+    };
   });
 }
 

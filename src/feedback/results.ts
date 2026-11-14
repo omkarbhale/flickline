@@ -2,6 +2,8 @@ import type { Subscribable } from '../core/eventBus';
 import { clamp } from '../core/math';
 import { displayRating, tier as tierOf, createTierInfo } from '../adaptive/dial';
 import type { SkillId } from '../config/dial';
+import type { DiagnosticId } from '../config/lean';
+import type { LeanView } from '../modes/lean';
 import { results as defaultResults, type FixCopy, type MetricId, type ResultsTunables } from '../config/results';
 import { tunables } from '../config/tunables';
 import { dailyLabel } from '../modes/dailyRoute';
@@ -61,13 +63,20 @@ export interface RatingView {
   progressText: string;
 }
 
-export type FixKind = 'movingShots' | 'slowTimeToShot' | 'placeholder';
+/** The one thing to fix is one of the twelve diagnostics of design §8.3 (the #26 stub finds two; #39 all twelve), or nothing stood out. */
+export type FixKind = DiagnosticId | 'placeholder';
 
 export interface FixView {
   kind: FixKind;
   title: string;
   evidence: string;
   action: string;
+  /**
+   * What the next run leans toward (design §8.3, #210): the cards that exercise the fix and the "Next run leans: …" line.
+   * Null when nothing stood out, when no card the run can deal exercises it, and for a run whose next run does not lean
+   * (the Daily Route: everyone plays the same route that day).
+   */
+  lean: LeanView | null;
 }
 
 export interface MedalView {
@@ -151,6 +160,8 @@ export interface CardModel {
   route: RouteTileView[];
   /** Fights by situation (design §8.2 section 3): the scenario cards fought this run; empty without cards. */
   situations: SituationView[];
+  /** Sentences naming what the shield changed in a kill of this run (design §5.2, §4.6): the armour note and the eco note; usually empty. */
+  notes: string[];
   /** Null when the run does not move a rating (a plain run). */
   rating: RatingView | null;
   stats: StatCell[];
@@ -180,10 +191,14 @@ export interface ResultsInput {
   story?: RunStory;
   /** The death cause line (#123), when known. */
   deathCause?: string | null;
+  /** What the next run leans toward for a finding (#210), or null when it does not; omitted: the card names no lean. */
+  leanFor?(kind: string): LeanView | null;
   /** The player's recent win rate per scenario card (#104/#217), or null when unknown. */
   situationHistory?(card: string): { won: number; played: number } | null;
   /** The run was a clean run (default false). */
   clean?: boolean;
+  /** The armour and eco notes of the run (`feedback/armourNoteTracker.ts`). */
+  notes?: readonly string[];
   /** Whether the mode keeps personal bests at all (default true; the Placement run does not). */
   keepsBest?: boolean;
   /**
@@ -285,7 +300,7 @@ export function timeToShotBaselineMs(dial: number, cfg: ResultsTunables = defaul
 }
 
 function fixView(kind: FixKind, copy: FixCopy, vars: Readonly<Record<string, string | number>> = {}): FixView {
-  return { kind, title: copy.title, evidence: fill(copy.evidence, vars), action: fill(copy.action, vars) };
+  return { kind, title: copy.title, evidence: fill(copy.evidence, vars), action: fill(copy.action, vars), lean: null };
 }
 
 /**
@@ -580,11 +595,18 @@ export function buildCard(rawInput: ResultsInput, cfg: ResultsTunables = default
         : { points: formatThousands(overtimePoints), state: reason === 'death' ? 'lost' : 'banked' },
     route: story ? story.sectors.map((t) => tileView(t, cfg)) : [],
     situations: story ? story.situations.map((r) => situationView(r, input.situationHistory, cfg)) : [],
+    notes: input.notes ? input.notes.slice() : [],
     rating: input.rating ? ratingView(input.rating, cfg) : null,
     stats: statCells(s, cfg),
     medals: Array.from(medals.values()),
-    fix: pickFix(s, input.split, cfg),
+    fix: withLean(pickFix(s, input.split, cfg), isRun && daily === null ? input.leanFor : undefined),
   };
+}
+
+/** The finding with the lean it sets (design §8.3, #210): the line under it names the next run's situations. */
+function withLean(fix: FixView, leanFor: ResultsInput['leanFor']): FixView {
+  if (fix.kind === 'placeholder' || !leanFor) return fix;
+  return { ...fix, lean: leanFor(fix.kind) };
 }
 
 // ---------------------------------------------------------------- recorder
@@ -625,8 +647,12 @@ export interface ResultsRecorderDeps {
   story?: { snapshot(): RunStory };
   /** The death cause line (#123) for the run that just ended, if the attribution engine has one. */
   deathCause?(): string | null;
+  /** The notes naming what the shield changed (`ArmourNoteTracker.notes`), read at `runEnded`. */
+  notes?(): readonly string[];
   /** The player's recent win rate per scenario card (#104 / #217), if the progress record has one. */
   situationHistory?(card: string): { won: number; played: number } | null;
+  /** What the next run leans toward for a finding (#210). */
+  leanFor?(kind: string): LeanView | null;
 }
 
 /**
@@ -680,7 +706,9 @@ export class ResultsRecorder {
         medals: this.medals,
         story: this.deps.story?.snapshot(),
         deathCause: this.deps.deathCause?.() ?? null,
+        notes: this.deps.notes?.(),
         situationHistory: this.deps.situationHistory,
+        leanFor: this.deps.leanFor,
         clean: this.deps.isClean?.() === true,
         daily: this.daily,
       },

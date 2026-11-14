@@ -47,6 +47,8 @@ export interface HealthEvents {
   playerDied: { tick: number; t: number; sourceId: number };
   /** HP was restored (kill-heal, design §4.8). `amount` is what was actually added (after the cap). */
   playerHealed: { tick: number; t: number; amount: number; hp: number; maxHp: number; source: 'kill' };
+  /** The shield was refilled (a Shield door, design §4.5): `shield` now, `added` is what the refill put back. */
+  playerShielded: { tick: number; t: number; added: number; shield: number; maxShield: number; hp: number; maxHp: number; source: 'gate' };
 }
 
 declare module './types' {
@@ -114,6 +116,7 @@ export class PlayerHealthSystem {
   private readonly slowEv: SimEvents['playerSlowed'] = { tick: 0, t: 0, factor: 1, durationMs: 0 };
   private readonly deathEv: SimEvents['playerDied'] = { tick: 0, t: 0, sourceId: -1 };
   private readonly healEv: SimEvents['playerHealed'] = { tick: 0, t: 0, amount: 0, hp: 0, maxHp: 0, source: 'kill' };
+  private readonly shieldEv: SimEvents['playerShielded'] = { tick: 0, t: 0, added: 0, shield: 0, maxShield: 0, hp: 0, maxHp: 0, source: 'gate' };
 
   constructor(
     private readonly cfg: PlayerTunables,
@@ -126,6 +129,17 @@ export class PlayerHealthSystem {
   setShield(level: number): void {
     this.shieldLevel = Math.max(0, level);
     this.state.shield = this.state.maxShield = this.shieldLevel;
+  }
+
+  /**
+   * Put the shield on for the rest of this life: `max` capacity with `current` points in it (a Sweep
+   * sector condition, design §4.6, wears a lighter shield than the run's and takes it off again).
+   * Unlike `setShield` it does not touch the shield a later `reset()` starts a life with.
+   */
+  wearShield(max: number, current: number): void {
+    const h = this.state;
+    h.maxShield = Math.max(0, max);
+    h.shield = Math.min(h.maxShield, Math.max(0, current));
   }
 
   reset(p: PlayerState): void {
@@ -223,6 +237,22 @@ export class PlayerHealthSystem {
     const e = this.healEv;
     e.tick = tick; e.t = tick * TICK_DT; e.amount = added; e.hp = h.hp; e.maxHp = h.maxHp;
     events.emit('playerHealed', e);
+    return added;
+  }
+
+  /**
+   * Fill the shield up to `to` (a Shield door, design §4.5; never lowers it). The shield's ceiling
+   * becomes `to` when it was lower. Returns what was added; emits `playerShielded` when > 0.
+   */
+  refillShield(to: number, tick: number, events: EventSink<SimEvents>): number {
+    const h = this.state;
+    if (!h.alive || !(to > h.shield)) return 0;
+    const added = to - h.shield;
+    h.shield = to;
+    if (h.maxShield < to) h.maxShield = to;
+    const e = this.shieldEv;
+    e.tick = tick; e.t = tick * TICK_DT; e.added = added; e.shield = h.shield; e.maxShield = h.maxShield; e.hp = h.hp; e.maxHp = h.maxHp;
+    events.emit('playerShielded', e);
     return added;
   }
 

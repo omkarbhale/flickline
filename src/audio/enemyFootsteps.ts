@@ -1,4 +1,5 @@
 import type { AudioTunables } from '../config/audio';
+import { TICK_RATE } from '../core/time';
 import { vec3 } from '../core/vec3';
 import type { TargetState } from '../sim/types';
 import type { CuePlayer } from './audioEngine';
@@ -11,7 +12,8 @@ const at = vec3();
  * horizontal distance walked per tick accumulates, and every `enemy.strideM` metres one positioned
  * step plays, if the enemy is within `enemy.maxAudibleM` of the listener. A target that stands
  * still makes no sound; a respawn (new id) or a jump of more than `enemy.teleportM` in one tick
- * restarts the count. Call once per sim tick. Slots are preallocated, nothing allocates per call.
+ * restarts the count. A walk is silent (`enemy.silentBelowMps`): only a run makes steps, as the player's
+ * shift-walk makes none. Call once per sim tick. Slots are preallocated, nothing allocates per call.
  */
 export class EnemyFootsteps {
   private readonly lastX: Float64Array;
@@ -54,6 +56,8 @@ export class EnemyFootsteps {
         const d = Math.sqrt(dx * dx + dz * dz);
         if (d > this.t.teleportM) {
           this.accum[i] = 0;
+        } else if (d * TICK_RATE < this.t.silentBelowMps) {
+          // Walking, or standing: no sound (the distance walked quietly does not count towards the next step).
         } else if ((this.accum[i]! += d) >= this.t.strideM) {
           this.accum[i]! -= this.t.strideM;
           const lx = x - listenerX;

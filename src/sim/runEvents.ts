@@ -69,20 +69,41 @@ export interface SectorEvents {
     t: number;
     sectorId: string;
     mapId: string;
-    /** 0-based position in the run. */
+    /** 0-based position in the run (design §4.1's rows: 0 is the Opener; a placing Opener's contact sectors are all 0). */
     index: number;
+    /** One of a new profile's placing Opener's contact sectors (design §9.2, #203). */
+    opener: boolean;
     /** Sectors in the run. */
     of: number;
     role: SweepSectorRole;
     /** Economy condition (design §4.6; v0: always `full`). */
     condition: 'full' | 'light' | 'eco' | 'cold';
-    /** Door stake (design §4.5; v0 has no gates: `plain`). */
+    /** Door stake the sector was entered by (design §4.5; the opener's is `plain`). */
     stake: 'plain' | 'shield' | 'arms' | 'hot';
+    /** Arms stake: the primary the door named (empty for any other stake). */
+    arms: string;
     dial: number;
     /** Depth multiplier on every point earned in the sector (design §8.1). */
     depth: number;
     contacts: number;
     echoes: number;
+  };
+  /**
+   * The player is in a gate and its two doors are drawn (design §4.5, #205). `index` is the 0-based
+   * index of the sector the gate leads to. The doors' facts are in the run's state (`SweepState.gate`);
+   * this is the moment the "Pick a door" hint (#202) fires.
+   */
+  gateEntered: { tick: number; t: number; index: number };
+  /** The player walked through a door (design §14.3): the other closes. `heard` is the bucket the door showed. */
+  gateChosen: {
+    tick: number;
+    t: number;
+    /** 0-based index of the sector entered. */
+    index: number;
+    door: 0 | 1;
+    stake: 'plain' | 'shield' | 'arms' | 'hot';
+    role: SweepSectorRole;
+    heard: 'quiet' | 'few' | 'several';
   };
   sectorEnded: {
     tick: number;
@@ -136,6 +157,18 @@ export interface RunEvents extends SprayEvents, SectorEvents {
     points: number;
     /** The scenario card the contact was drawn from (Sweep, design §4.4); absent where contacts have no card. */
     card?: string;
+    /** Skill trials the contact's facts produced up to its settle (Sweep, design §3.1); absent elsewhere. */
+    trials?: number;
+    /** The contact's item difficulty (its placement dial + its card's offset, design §9.1): a decided contact feeds the fight track at it (#203). */
+    difficulty?: number;
+    /** `baseline`: a cold-opener contact (design §8.5), the measurement: it never feeds the fight track. Absent: matched. */
+    source?: 'matched' | 'baseline';
+    /**
+     * Meet contacts (#212, design §4.2): which side first dropped to counter-strafe speed or below (the accuracy
+     * deadzone, `sweep.meet.stopSpeedMps`) once the contact opened: the player, an Echo, both in the same tick, or
+     * neither before it settled. Absent on every other card.
+     */
+    stopFirst?: 'player' | 'echo' | 'both' | 'neither';
   };
 
   /** A Leave gate banked the run (design §4.7, §14.3; Overtime and its gates arrive with #204, so nothing emits this yet): `points` includes the Overtime points that were at risk (design §4.7). */

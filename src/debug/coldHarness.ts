@@ -48,25 +48,34 @@ function dateOf(day: number): string {
 
 const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x));
 
+/**
+ * What one contact of a cold opener yields, measured with the real-sim bot (#209: 40 seeded Sweep runs with a cold
+ * opener at level 45): about two legs in three are fought (the others are walked past unseen, as in any take
+ * sector), and a fought contact gives about four trials through the classifier (#203), one each of these skills.
+ */
+export const COLD_YIELD = { engaged: 0.65, skills: ['angles', 'flick', 'footwork', 'track'] as readonly string[] };
+
 /** One cold opener played by a bot of cold ability `theta` at `level` on run seed `seed`. */
-export function playColdOpener(t: Tunables, rng: Rng, theta: number, level: number, seed: number, date: string, pool: ColdPool = COLD_POOL): ColdOpenerRecord {
+export function playColdOpener(
+  t: Tunables, rng: Rng, theta: number, level: number, seed: number, date: string, pool: ColdPool = COLD_POOL, yieldModel = COLD_YIELD,
+): ColdOpenerRecord {
   const cfg = t.coldOpener;
   const pick = pickColdOpener(seed, level, pool, cfg);
   const trials: { skill: string; itemDifficulty: number; success: boolean }[] = [];
   let won = 0;
+  let contacts = 0;
   for (const leg of pick.legs) {
-    let all = true;
-    for (let k = 0; k < leg.contact.echoes.length; k++) {
-      const success = rng.next() < sigmoid((theta - level) / cfg.scale);
-      trials.push({ skill: t.sweep.cardSkill[leg.contact.card], itemDifficulty: level, success });
-      if (!success) all = false;
-    }
-    if (all) won++;
+    if (rng.next() >= yieldModel.engaged) continue;
+    contacts++;
+    const d = level + t.trials.cardOffset[leg.contact.card];
+    // The contact is won with the model's own probability; each trial is its own draw at the contact's difficulty.
+    if (rng.next() < sigmoid((theta - d) / cfg.scale)) won++;
+    for (const skill of yieldModel.skills) trials.push({ skill, itemDifficulty: d, success: rng.next() < sigmoid((theta - d) / cfg.scale) });
   }
   const score = coldScore(trials, cfg, t.dial);
   return buildColdRecord(
     {
-      version: cfg.version, seed, level, legs: pick.legs.length, of: pick.legs.length, trials, contacts: pick.legs.length, won,
+      version: cfg.version, seed, level, legs: pick.legs.length, of: pick.legs.length, trials, contacts, won,
       firstBulletHeads: 0, engaged: trials.length, ttsMs: [], shots: 0, movingShots: 0, kept: 1, end: 'exit',
     },
     score,

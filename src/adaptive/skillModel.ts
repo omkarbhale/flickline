@@ -22,6 +22,19 @@
  * step 16 → 8 → 4 → 2. The trials feed the posterior as usual; `finishPlacement` then keeps the
  * posterior mean within ±`sanityBound` of the staircase's own estimate.
  *
+ * **The fight track (#203).** A mode that follows all seven skills (`skill: 'line'`, Sweep) aims at
+ * contacts won (design §9.3.1), so its dial follows an eighth posterior on the same grid: the player's
+ * ability to win **contacts**, updated by every decisive contact at its item difficulty
+ * (`observeFight`), and also by every skill trial at `fight.skillWeight` of a trial's evidence (its
+ * likelihood raised to that power). The skill trials place a new player quickly; the fights keep the
+ * dial honest when the skills' bars and the fights disagree. Without it a player who wins every fight
+ * but never pre-aims (the Sweep bot: 100 % of fights won) fails the angles and track bars at any dial
+ * and drags a skill-only line, and with it the dial, to the floor. `fightRating()` is its mean; the
+ * Line Rating shown to the player stays the plain mean of the seven skills.
+ *
+ * `matchRating()` is the seven skill means weighted by their precision (1 / variance): the skills'
+ * own summary of the line, which counts a barely measured skill for what its evidence is worth.
+ *
  * **Steady state.** `dialFor(mode, beatIndex, wave)` is called once per beat (10 s in drills, a
  * contact in Sweep). It aims the *matched dial* at the mode's target success rate
  * (θ − s·logit(p): 70 % for every mode, `config/dial.ts`), moves it by at most ±3 per beat, resets it to the target
@@ -50,6 +63,10 @@ export interface SkillTrial {
   success: boolean;
 }
 
+/** Index of the fight track in the grid, after the seven skills. */
+const FIGHT = SKILL_IDS.length;
+const TRACKS = SKILL_IDS.length + 1;
+
 /** The fields of the `skillTrial` event (design §14.3) the model reads; extra fields are ignored. */
 export interface SkillTrialEvent extends SkillTrial {
   skill: string;
@@ -64,6 +81,8 @@ export interface SkillSnapshot {
   grid: number;
   prior: [number, number];
   skills: Partial<Record<SkillId, { n: number; p: string }>>;
+  /** The fight track (absent before the first contact or skill trial, and in older saves). */
+  fight?: { n: number; p: string };
 }
 
 const SNAPSHOT_VERSION = 1;
@@ -94,9 +113,9 @@ export class SkillState {
   private readonly n: number;
   /** Dial units per grid cell. */
   private readonly h: number;
-  /** SKILL_IDS.length grids of `n` points, normalised to sum 1. */
+  /** SKILL_IDS.length skill grids then the fight track, of `n` points each, normalised to sum 1. */
   private readonly grid: Float64Array;
-  private readonly counts = new Uint32Array(SKILL_IDS.length);
+  private readonly counts = new Uint32Array(TRACKS);
   private readonly schedule = new Map<string, ModeSchedule>();
   private priorMean: number;
   private priorSd: number;
@@ -109,11 +128,11 @@ export class SkillState {
   ) {
     this.n = Math.max(2, Math.floor(cfg.gridPoints));
     this.h = (DIAL_MAX - DIAL_MIN) / (this.n - 1);
-    this.grid = new Float64Array(SKILL_IDS.length * this.n);
+    this.grid = new Float64Array(TRACKS * this.n);
     const p = typeof prior === 'string' ? { mean: cfg.priorMean[prior], sd: cfg.priorSd } : prior;
     this.priorMean = clamp(p.mean, DIAL_MIN, DIAL_MAX);
     this.priorSd = Math.max(p.sd, this.h);
-    for (let k = 0; k < SKILL_IDS.length; k++) this.setGaussian(k, this.priorMean, this.priorSd);
+    for (let k = 0; k < TRACKS; k++) this.setGaussian(k, this.priorMean, this.priorSd);
   }
 
   /**
@@ -125,7 +144,7 @@ export class SkillState {
     const p = typeof prior === 'string' ? { mean: this.cfg.priorMean[prior], sd: this.cfg.priorSd } : prior;
     this.priorMean = clamp(p.mean, DIAL_MIN, DIAL_MAX);
     this.priorSd = Math.max(p.sd, this.h);
-    for (let k = 0; k < SKILL_IDS.length; k++) this.setGaussian(k, this.priorMean, this.priorSd);
+    for (let k = 0; k < TRACKS; k++) this.setGaussian(k, this.priorMean, this.priorSd);
     this.counts.fill(0);
     this.schedule.clear();
     this.unplayedStale = false;
@@ -138,9 +157,36 @@ export class SkillState {
     const d = trial.itemDifficulty;
     if (!Number.isFinite(d)) return;
     if (this.counts[k] === 0) this.syncUnplayed();
-    this.update(k, d, trial.success);
+    this.update(k, d, trial.success, 1);
     this.counts[k]++;
     this.unplayedStale = true;
+    const w = this.cfg.fight.skillWeight;
+    if (w > 0) {
+      this.update(FIGHT, d, trial.success, w);
+      this.counts[FIGHT]++;
+    }
+  }
+
+  /** A contact was decided (design §2.3): won (cleared) or lost (died, or left hurt), at its item difficulty. */
+  observeFight(itemDifficulty: number, won: boolean): void {
+    if (!Number.isFinite(itemDifficulty)) return;
+    this.update(FIGHT, itemDifficulty, won, 1);
+    this.counts[FIGHT]++;
+  }
+
+  /** The fight track's mean: the ability to win contacts, on the dial scale (see the header). */
+  fightRating(): number {
+    return this.mean(FIGHT);
+  }
+
+  /** The fight track's s.d. */
+  fightConfidence(): number {
+    return Math.sqrt(this.variance(FIGHT));
+  }
+
+  /** Updates the fight track has had (contacts, and skill trials at their weight count as one each). */
+  fightCount(): number {
+    return this.counts[FIGHT]!;
   }
 
   /** Feed a `skillTrial` event payload; returns false (and ignores it) for an unknown skill. */
@@ -162,6 +208,29 @@ export class SkillState {
     return k < 0 ? NaN : this.mean(k);
   }
 
+  /**
+   * The estimate a 'line' mode's dial is aimed from (see the header): the seven posterior means
+   * weighted by their precision.
+   */
+  matchRating(): number {
+    this.syncUnplayed();
+    let sw = 0;
+    let sum = 0;
+    for (let k = 0; k < SKILL_IDS.length; k++) {
+      const w = 1 / Math.max(this.variance(k), 1e-6);
+      sw += w;
+      sum += w * this.mean(k);
+    }
+    return sum / sw;
+  }
+
+  /** Variance of `matchRating` as a precision-weighted mean (1 / the summed precision). */
+  private matchVariance(): number {
+    let sw = 0;
+    for (let k = 0; k < SKILL_IDS.length; k++) sw += 1 / Math.max(this.variance(k), 1e-6);
+    return 1 / sw;
+  }
+
   /** Posterior s.d. in dial points (smaller = more certain); 'line' = s.d. of the mean. */
   confidence(skill: SkillId | 'line'): number {
     this.syncUnplayed();
@@ -180,9 +249,13 @@ export class SkillState {
     return k < 0 ? 0 : this.counts[k];
   }
 
-  /** Dial at which the expected success rate is `targetSuccess` for the current estimate. */
+  /**
+   * Dial at which the expected success rate is `targetSuccess` for the current estimate ('line':
+   * from the fight track, the estimate the run's dial follows, design §9.3.1: contacts won).
+   */
   targetDial(skill: SkillId | 'line', targetSuccess: number): number {
-    return clamp(this.rating(skill) - successOffset(targetSuccess, this.cfg.scale), DIAL_MIN, DIAL_MAX);
+    const est = skill === 'line' ? this.fightRating() : this.rating(skill);
+    return clamp(est - successOffset(targetSuccess, this.cfg.scale), DIAL_MIN, DIAL_MAX);
   }
 
   /**
@@ -242,7 +315,9 @@ export class SkillState {
     for (let k = 0; k < SKILL_IDS.length; k++) {
       if (this.counts[k] > 0) skills[SKILL_IDS[k]] = { n: this.counts[k], p: this.encode(k) };
     }
-    return { v: SNAPSHOT_VERSION, grid: this.n, prior: [this.priorMean, this.priorSd], skills };
+    const snap: SkillSnapshot = { v: SNAPSHOT_VERSION, grid: this.n, prior: [this.priorMean, this.priorSd], skills };
+    if (this.counts[FIGHT]! > 0) snap.fight = { n: this.counts[FIGHT]!, p: this.encode(FIGHT) };
+    return snap;
   }
 
   /**
@@ -265,6 +340,17 @@ export class SkillState {
       if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || typeof p !== 'string') return null;
       if (!state.decode(k, p)) return null;
       state.counts[k] = n;
+    }
+    const f = (snap as { fight?: unknown }).fight;
+    if (f !== undefined) {
+      if (typeof f !== 'object' || f === null) return null;
+      const { n, p } = f as { n?: unknown; p?: unknown };
+      if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || typeof p !== 'string' || !state.decode(FIGHT, p)) return null;
+      state.counts[FIGHT] = n;
+    } else {
+      // A save from before the fight track: start it from the skills' own summary.
+      state.unplayedStale = true;
+      state.setGaussian(FIGHT, state.matchRating(), Math.max(4, Math.sqrt(state.matchVariance())));
     }
     state.unplayedStale = true;
     return state;
@@ -325,7 +411,8 @@ export class SkillState {
     }
   }
 
-  private update(k: number, d: number, success: boolean): void {
+  /** Multiply track `k` by the trial's likelihood raised to `weight` (1: a full trial). */
+  private update(k: number, d: number, success: boolean, weight: number): void {
     const g = this.grid;
     const o = k * this.n;
     const s = success ? this.cfg.scaleSuccess : this.cfg.scaleFailure;
@@ -333,7 +420,7 @@ export class SkillState {
     for (let i = 0; i < this.n; i++) {
       // success: σ((θ−d)/s) = 1/(1+e^{−(θ−d)/s}); failure: 1/(1+e^{(θ−d)/s})
       const like = 1 / (1 + Math.exp((sign * (i * this.h - d)) / s));
-      g[o + i] *= like;
+      g[o + i] *= weight === 1 ? like : Math.pow(like, weight);
     }
     this.normalise(k);
     this.drift(k);

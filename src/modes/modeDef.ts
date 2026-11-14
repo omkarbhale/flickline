@@ -25,6 +25,12 @@ export interface PlayerSetup {
   infiniteReserve?: boolean;
   /** The run has a loadout: `1` / `2` swap primary and sidearm (default false; Sweep only, design §4). */
   allowSwap?: boolean;
+  /**
+   * The player's primary is the one picked on the `ready` screen (design §4.1: `1`..`3`, last pick by
+   * default, sidearm always Pace) instead of `ModeDef.weapon`; movement is held and the Echoes do not
+   * fire until the run goes live, so the screen can wait for the pick (Sweep).
+   */
+  pickPrimary?: boolean;
 }
 
 /**
@@ -48,6 +54,8 @@ export interface ModeDef<S = unknown> extends ModeRef {
    * A scenario card's own `economy` overrides it.
    */
   readonly economy?: Economy;
+  /** Length of the `ready` phase in seconds (default `tunables.modes.readySec`). */
+  readonly readySec?: number;
   /** Live-phase length in seconds; `Infinity` = the mode ends the run itself (`ctx.end`). */
   readonly durationSec: number;
   /** Difficulty axes (design §9.4 ids) this mode uses; they define each item's difficulty. */
@@ -120,15 +128,15 @@ export interface SpawnOptions {
   /** Scenario card of the contact the target belongs to: carried on its `skillTrial` (Sweep). */
   card?: string;
   /**
-   * The stream the target's `skillTrial` belongs to (default: the mode's `trialSource`). The cold
-   * opener's Echoes are `baseline` inside an otherwise matched run (design §8.5).
-   */
-  source?: TrialSource;
-  /**
    * The dial the target was set at, for its kill's difficulty term (default: the beat's). The cold
-   * opener's Echoes play at its level, not at the run's dial.
+   * opener's Echoes play at its level, not at the run's dial (design §8.5).
    */
   dial?: number;
+  /**
+   * The target produces a trial of its own (default true: killed = success, expired = failure). A
+   * mode that classifies its fights into trials itself (Sweep, `recordTrial`) turns it off.
+   */
+  trial?: boolean;
   /**
    * Placed out of the player's sight by the caller (Sweep's director checks it against the level):
    * the spawn fairness floors, which guard targets appearing in view, do not apply.
@@ -155,6 +163,18 @@ export interface ResolveOptions {
   extra?: TrialExtra;
 }
 
+/** A trial that is not one target's fate (Sweep's classified contact trials, `recordTrial`). */
+export interface TrialOptions {
+  /** Item difficulty on the dial scale (design §9.1). */
+  difficulty: number;
+  /** Scenario card of its contact. */
+  card?: string;
+  /** The stream the trial belongs to (default: the mode's `trialSource`): the cold opener's are `baseline` inside a matched run (design §8.5). */
+  source?: TrialSource;
+  rtMs?: number;
+  extra?: TrialExtra;
+}
+
 export interface RunStats {
   score: number;
   kills: number;
@@ -177,6 +197,8 @@ export interface ModeContext<S = unknown> {
   readonly coldOpenerLevel: number | null;
   /** The run's seeded stream: use it for every random choice, never `Math.random`. */
   readonly rng: Rng;
+  /** The scenario cards the run leans toward (design §4.4, #210); empty for no lean. Only Sweep reads it. */
+  readonly lean: readonly string[];
   readonly tunables: Tunables;
   readonly player: MotionView;
   /** The player's health and shield (read-only). */
@@ -222,8 +244,28 @@ export interface ModeContext<S = unknown> {
    * target is unknown or already resolved.
    */
   resolveTrial(id: number, success: boolean, opts?: ResolveOptions): boolean;
-  /** Manual-beat modes (`beatSec: null`): start the next beat now (calls the dial module). */
-  advanceBeat(): void;
+  /**
+   * Manual-beat modes (`beatSec: null`): start the next beat now. Without `dial` the dial module is
+   * asked; with one, that dial is the beat's (a mode that schedules its own dial: Sweep's sectors and
+   * its Opener staircase). A pinned run keeps its pin either way.
+   */
+  advanceBeat(dial?: number): void;
+  /** Replace the current beat's dial (a mode that schedules its own dial, from `setup` on). Pinned runs keep the pin. */
+  setDial(dial: number): void;
+  /**
+   * The matched dial the skill model aims this mode at now, before any wave or depth offset
+   * (θ − s·logit(target), design §9.3.1). Reads the posterior: call it at beat boundaries only.
+   */
+  targetDial(): number;
+  /** The run was started for a profile the skill model has never measured (design §9.2: its first Opener places it). */
+  readonly newProfile: boolean;
+  /** The run's dial is pinned ("Pin difficulty", design §9.3.6): the mode's own dial schedule is ignored. */
+  readonly pinned: boolean;
+  /**
+   * Emit a `skillTrial` that is not a target's fate (Sweep's trials from contacts, design §3.1):
+   * counted in the run's trials like any other; a failure breaks the clean streak.
+   */
+  recordTrial(skill: SkillId, success: boolean, opts: TrialOptions): void;
   /**
    * Score a result that is not a kill (the table of design §8.1 applied to a spray) and count it
    * in the streak. Emits `scoreAwarded` for target `id`; returns the points.
@@ -254,6 +296,18 @@ export interface ModeContext<S = unknown> {
    * Returns false for an unknown map.
    */
   loadMap(id: string): boolean;
+  /** Fill the player's shield up to `to` (Sweep's Shield door); returns what was added (0 when it was already there). */
+  refillShield(to: number): number;
+  /** Put another primary weapon in the player's primary slot and in hand (Sweep's Arms door); false when it is not a primary. */
+  setPrimary(weaponId: string): boolean;
+  /**
+   * Equip both sides as `economy` does (design §4.6, `config/economy.ts`) from now on: the Echoes spawned
+   * after this carry its shield and weapon, the player wears its shield (never more than the shield he
+   * carried in) and, with no shield tier at all, holsters the primary for the Pace. Calling it again
+   * first undoes the last call: what the player carried in comes back minus what the sector took off
+   * it, the primary comes back in hand. A no-op without a host.
+   */
+  setEconomy(economy: Economy): void;
   /** End the run (`death`, `complete`, `quit`, `left`; the timer ends it by itself). */
   end(reason: RunEndReason): void;
 }

@@ -34,19 +34,21 @@ describe('flat-prior estimate (design 8.5)', () => {
 });
 
 describe('cold score', () => {
-  it('is the mean of the per-skill estimates on the rating scale (x30), with each skill recorded', () => {
+  it('skills: the mean of the per-skill estimates on the rating scale (x30), with each skill recorded', () => {
     const ts = [tr('angles', 45, true), tr('angles', 45, false), tr('precision', 45, true), tr('precision', 45, false)];
-    const s = coldScore(ts, coldOpener);
+    const s = coldScore(ts, { ...coldOpener, aggregate: 'skills' });
     expect(Object.keys(s.skills)).toEqual(['angles', 'precision']);
     expect(s.dial).toBeCloseTo((s.skills.angles!.mean + s.skills.precision!.mean) / 2, 6);
     expect(s.score).toBe(Math.round(s.dial * 30));
     expect(s.trials).toBe(4);
   });
 
-  it('pooled: one estimate over every trial', () => {
+  it('pooled (the default, #209): one estimate over every trial, the per-skill ones still recorded', () => {
+    expect(coldOpener.aggregate).toBe('pooled');
     const ts = [tr('angles', 45, true), tr('precision', 45, true), tr('precision', 45, false)];
     const s = coldScore(ts, { ...coldOpener, aggregate: 'pooled' });
     expect(s.dial).toBeCloseTo(flatPriorEstimate(ts, null).mean, 6);
+    expect(Object.keys(s.skills)).toEqual(['angles', 'precision']);
   });
 
   it('without trials there is no score', () => {

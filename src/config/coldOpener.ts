@@ -133,7 +133,7 @@ export const coldOpener: ColdOpenerTunables = {
   generatorSeed: 0xc01d0b37,
   firstLevelSuccess: 0.7,
   firstLevelRule: 'atOrBelow',
-  aggregate: 'skills',
+  aggregate: 'pooled',
   upAbove: 0.85,
   downBelow: 0.35,
   moveOf: 3,

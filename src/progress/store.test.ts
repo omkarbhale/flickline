@@ -31,6 +31,27 @@ function record(score: number, o: Partial<RunRecord> & { sectors?: number } = {}
   return { seed: 1, dial: 50, score, depth: sectors, cleared: sectors, finaleCleared: false, strip, pace, contacts: [], ...o };
 }
 
+describe('the last primary pick (#207, design §4.1)', () => {
+  const key = cfg.storageKey;
+
+  it('is empty before the first pick, kept across a reload, and an older save without it reads as empty', () => {
+    const storage = memoryStorage();
+    const a = new ProgressStore(null, storage);
+    expect(a.lastPrimary).toBe('');
+    a.setLastPrimary('rill');
+    expect(a.lastPrimary).toBe('rill');
+    expect(new ProgressStore(null, storage).lastPrimary).toBe('rill');
+    const old = { ...toSave(defaultProgress()) } as Record<string, unknown>;
+    delete old.lastPrimary;
+    expect(new ProgressStore(null, memoryStorage({ [key]: JSON.stringify(old) })).lastPrimary).toBe('');
+  });
+
+  it('a hand-edited value that is not a plain id is dropped', () => {
+    const bad = { ...toSave(defaultProgress()), lastPrimary: '<script>' };
+    expect(new ProgressStore(null, memoryStorage({ [key]: JSON.stringify(bad) })).lastPrimary).toBe('');
+  });
+});
+
 describe('progress store: bests, plays and history', () => {
   it('starts empty and answers the menu\'s three reads', () => {
     const s = new ProgressStore(null, memoryStorage());

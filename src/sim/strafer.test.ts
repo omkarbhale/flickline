@@ -4,7 +4,7 @@ import { cloneTunables } from '../config/tunables';
 import { EventBus } from '../core/eventBus';
 import { TICK_DT } from '../core/time';
 import { vec3 } from '../core/vec3';
-import { straferParams } from './enemyParams';
+import { fireParams, straferParams } from './enemyParams';
 import { brakeSeconds, STRAFER_DECEL, STRAFER_LEG, STRAFER_STAND } from './strafer';
 import { createTickInput, type LevelDef, type SimEvents } from './types';
 import { World } from './world';
@@ -162,5 +162,77 @@ describe('Strafer FSM at the dial endpoints (design §5.2, §9.4, spec §5.3)', 
     }
     expect(dz).toBeLessThan(1e-9);
     expect(Math.abs(t.pos.x)).toBeLessThanOrEqual(cfg.freeHalfRangeM + 1e-9);
+  });
+});
+
+describe('Strafer on a route (meet sectors, #212)', () => {
+  /** An Echo on a route from z = -30 to z = 0 towards the player at z = 20, at the dial's numbers; `fire` makes it shoot back. */
+  function route(dial: number, seed: number, fire: boolean, speed?: number) {
+    const tun = cloneTunables();
+    const world = new World({ level: arena, tunables: tun, seed });
+    world.enemiesFire = fire;
+    const bus = new EventBus<SimEvents>();
+    const ax = axes(dial);
+    const id = world.spawnTarget('strafer', 0, 0, -30, bus, {
+      strafe: { ...straferParams(ax), speed: speed ?? ax.strafeSpeed, laneA: vec3(0, 0, -30), laneB: vec3(0, 0, 0), travel: true },
+      fire: fire ? fireParams(ax) : undefined,
+    });
+    return { world, bus, t: world.targetField.byId(id)!, input: createTickInput() };
+  }
+
+  it('without a player to react to it runs its route to the far end without reversing, and brakes inside the lane', () => {
+    const { world, bus, t, input } = route(50, 3, false, 5.4);
+    let maxV = 0, minZ = Infinity, firstStopTick = -1;
+    for (let i = 0; i < 128 * 12; i++) {
+      world.step(input, bus);
+      if (firstStopTick < 0 && t.fsm.state === STRAFER_STAND) firstStopTick = i;
+      if (firstStopTick < 0) {
+        expect(t.ai.vel).toBeGreaterThanOrEqual(-1e-9); // never turns back before its first stop
+        expect(t.pos.z).toBeLessThanOrEqual(1e-9);
+      }
+      maxV = Math.max(maxV, t.ai.vel);
+      minZ = Math.min(minZ, t.pos.z);
+    }
+    expect(maxV).toBeCloseTo(5.4, 5);
+    expect(minZ).toBeCloseTo(-30, 1);
+    // 30 m at 5.4 m/s with the start ramp and the 0.16 s brake: about 5.6 s + 0.2 s, no timer stops on the way.
+    expect(firstStopTick * TICK_DT).toBeGreaterThan(5.3);
+    expect(firstStopTick * TICK_DT).toBeLessThan(6.5);
+    expect(t.pos.z).toBeGreaterThan(-30);
+    expect(t.pos.z).toBeLessThanOrEqual(0);
+  });
+
+  it('keeps running through its reaction to the player, then brakes with the spec\'s braking and shoots only from the stop', () => {
+    for (const dial of [20, 60]) {
+      const { world, bus, t, input } = route(dial, 11, true);
+      const speedAtShot: number[] = [];
+      let tellStartSpeed = -1;
+      let speedDuringReaction = 0;
+      bus.on('enemyTell', () => { if (tellStartSpeed < 0) tellStartSpeed = Math.abs(t.ai.vel); });
+      bus.on('enemyFired', () => speedAtShot.push(Math.abs(t.ai.vel)));
+      let sawAt = -1;
+      for (let i = 0; i < 128 * 14 && speedAtShot.length === 0; i++) {
+        world.step(input, bus);
+        if (sawAt < 0 && t.ai.contactTick >= 0) sawAt = t.ai.contactTick;
+        // Halfway through the reaction it is still moving at its gait.
+        if (sawAt >= 0 && i === sawAt + Math.floor((t.ai.readyTick - sawAt) / 2)) speedDuringReaction = Math.abs(t.ai.vel);
+      }
+      expect(sawAt, `dial ${dial}`).toBeGreaterThanOrEqual(0);
+      expect(speedDuringReaction, `dial ${dial}`).toBeGreaterThan(1.5);
+      expect(speedAtShot.length).toBeGreaterThan(0);
+      for (const v of speedAtShot) expect(v, `dial ${dial}`).toBe(0);
+      expect(tellStartSpeed).toBeLessThan(speedDuringReaction);
+    }
+  });
+
+  it('after its first stop it strafes on its line like any Strafer (the route is over)', () => {
+    const { world, bus, t, input } = route(50, 5, false, 5.4);
+    let reversed = false;
+    for (let i = 0; i < 128 * 40; i++) {
+      world.step(input, bus);
+      if (t.ai.vel < -1) reversed = true;
+    }
+    expect(reversed).toBe(true);
+    expect(t.ai.travel).toBe(false);
   });
 });

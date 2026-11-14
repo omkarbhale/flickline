@@ -12,7 +12,7 @@ import { RunStoryTracker, storyConfigFrom } from './runStory';
  * from the event log, nothing is recomputed in the UI).
  */
 describe('the results card matches real Sweep runs', () => {
-  for (const [skill, seed] of [[30, 3], [50, 4], [70, 5]] as const) {
+  for (const [skill, seed] of [[30, 6], [50, 4], [70, 5]] as const) {
     it(`skill ${skill}, seed ${seed}`, () => {
       const g = new HeadlessGame({ seed });
       const tracker = new RunStoryTracker(storyConfigFrom(player, cfg.run.routeSectors, cfg.run.maxSectors));

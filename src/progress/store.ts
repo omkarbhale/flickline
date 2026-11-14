@@ -136,6 +136,11 @@ export class ProgressStore {
     return this.data.flaggedSkill;
   }
 
+  /** The primary picked last on the Sweep `ready` screen, or '' before the first pick (design §4.1). */
+  get lastPrimary(): string {
+    return this.data.lastPrimary;
+  }
+
   medalCount(id: string): number {
     return this.data.medals[id]?.count ?? 0;
   }
@@ -244,6 +249,13 @@ export class ProgressStore {
   setFlaggedSkill(skill: SkillId | null): void {
     if (this.data.flaggedSkill === skill) return;
     this.data.flaggedSkill = skill;
+    this.changed(null);
+  }
+
+  /** The player picked a primary on the Sweep `ready` screen: it is the default of the next run. */
+  setLastPrimary(id: string): void {
+    if (this.data.lastPrimary === id) return;
+    this.data.lastPrimary = id;
     this.changed(null);
   }
 
