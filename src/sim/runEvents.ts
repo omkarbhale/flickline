@@ -14,7 +14,8 @@ import type { Vec3 } from '../core/vec3';
  * events belong to the mode framework (`ModeEvents`, `feedback/streaks.ts`).
  */
 
-export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit';
+/** `left`: the player walked out of a run's last exit alive (a Leave gate, design §4.9). */
+export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit' | 'left';
 
 /**
  * Spray Wall's facts (design §4.5): one spray = one trial. They are logged (`feedback/eventLog.ts`)
