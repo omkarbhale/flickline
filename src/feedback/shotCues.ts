@@ -4,6 +4,9 @@ import type { TargetTunables } from '../config/targets';
 import { vec3 } from '../core/vec3';
 import { zoneCentre } from '../sim/hitZones';
 import type { SimEvents, TargetState } from '../sim/types';
+import type { CueTunables } from '../config/cues';
+import { tunables as allTunables } from '../config/tunables';
+import { ghostShown, movingCueShown } from './cueGate';
 import type { FeedbackOptions } from './options';
 
 /**
@@ -140,6 +143,7 @@ export class ShotCues {
     private readonly options: Readonly<FeedbackOptions>,
     private readonly targets: readonly TargetState[],
     private readonly targetTunables: TargetTunables,
+    private readonly cueCfg: CueTunables = allTunables.cues,
   ) {
     for (let i = 0; i < cfg.tracer.capacity + 1; i++) {
       this.tracers.push({ ...base(), ax: 0, ay: 0, az: 0, bx: 0, by: 0, bz: 0, kind: TRACER_NORMAL });
@@ -213,7 +217,7 @@ export class ShotCues {
     t.ax = mx; t.ay = my; t.az = mz;
     const far = fx.tracer.maxLength;
     t.bx = this.ox + this.dx * far; t.by = this.oy + this.dy * far; t.bz = this.oz + this.dz * far;
-    t.kind = e.moving && this.options.coachingCues ? TRACER_MOVING : TRACER_NORMAL;
+    t.kind = e.moving && movingCueShown(this.options, this.cueCfg, e.speed, e.airborne) ? TRACER_MOVING : TRACER_NORMAL;
     this.lastTracer = idx;
   }
 
@@ -245,7 +249,7 @@ export class ShotCues {
       d.nx = n.x; d.ny = n.y; d.nz = n.z;
       d.variation = (this.nextDecal * 0.61803398875) % 1;
       this.decalsDirty = true;
-      if (this.options.missGhost) this.spawnGhost();
+      this.spawnGhost();
     }
   }
 
@@ -296,6 +300,8 @@ export class ShotCues {
       if (off < best && off <= maxTan) { best = off; bi = i; bt = t; }
     }
     if (bi < 0) return;
+    // Per-skill fading (design §7.4): in the bandwidth phase only a miss well off the head speaks.
+    if (!ghostShown(this.options, this.cueCfg, (Math.atan(best) * 180) / Math.PI)) return;
     const tg = this.targets[bi]!;
     const c = this.ghost;
     this.recycle(c);

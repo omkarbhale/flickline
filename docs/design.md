@@ -225,7 +225,7 @@ Only in **Corner Clear** and **Sweep** (and they never shoot in drills). The rul
 
 *Adopted from research (#130): tell and floor from #12 P5/P6 and #52 R8; aimed shots from #71 (`docs/research/player-like-enemies.md` §5.6).*
 
-1. **Tell.** An enemy that has acquired the player begins a **tell**: its head node flares and a thin bright line flickers from its muzzle towards the player's position for `tell` seconds (0.7 s at dial 0 → 0.30 s at dial 100; **never below 0.25 s**). The floor is one mean simple reaction time (0.218 s) plus the time a strafe needs to clear the accuracy deadzone; 0.30 s is the first tell at which a typical player's strafe takes effect before the shot (#12 §5). The tell is the enemy's real aiming phase: it lasts `max(aim phase, tell floor)`, so it never adds delay to an enemy that is still aiming (#71 F5). An enemy that was **prepared** for the player (holding this spot with information, #127) does not hold fire for a tell: its tell runs from the moment it sees the player until its shot (`docs/research/prepared-holders.md`). A rising synthesised tone plays from its position (section 12).
+1. **Tell.** An enemy that has acquired the player begins a **tell**: its head node flares and a thin bright line flickers from its muzzle towards the player's position for `tell` seconds (0.7 s at dial 0 → 0.30 s at dial 100; **never below 0.25 s**). The floor is one mean simple reaction time (0.218 s) plus the time a strafe needs to clear the accuracy deadzone; 0.30 s is the first tell at which a typical player's strafe takes effect before the shot (#12 §5). The tell is the enemy's real aiming phase: it lasts `max(aim phase, tell floor)`, so it never adds delay to an enemy that is still aiming (#71 F5). An enemy that was **prepared** for the player (holding this spot with information, #127) does not hold fire for a tell: its tell runs from the moment it sees the player until its shot (`docs/research/prepared-holders.md`). A rising synthesised tone plays from its position (section 12). These added cues **fade as the player's dial rises** (tell cue axis, sections 9.4 and 7.4): above the fade band only the true cues remain (the enemy raising the weapon, stopping, the muzzle flash), as in the reference game. The tell's duration and its floor are unchanged.
 2. **Fire.** At tell end it fires a burst of 1–3 shots at the spec's fire-rate for a sidearm/rifle archetype. Each shot is **aimed, not rolled**: a hitscan shot from the enemy's simulated crosshair through the spec's spread, recoil and movement error, with no hidden hit roll (#71). Strafing is a real defence for the same reasons as in the reference game: the player's movement takes the hit zones away from where the enemy aims, and an enemy that moves gets the spec's movement error. The dial's enemy hit chance (0.15 → 0.6 at standstill) is a **calibration target** the bot harness measures (#28, #53), not an input. A near miss draws a thin tracer past the player's head and plays a whiz from the correct side.
 3. **Damage.** Per-zone damage from the spec, through the player's shield first (66% of each hit until the shield is spent, section 5.1). A hit applies the spec's **tagging** slow (spec §4.3: speed capped to 27.5% of max, 0.10 s ramp-in, held while hits continue, 0.5 s release; all four are tunables) to the player, shows the damage arc pointing at the shooter, and plays the damage cue (section 7).
 4. **Reaction.** Enemy `reaction` (time from first seeing the player to starting the tell) scales 1.2 s → 0.3 s with the dial. A prepared enemy reacts on a human pre-aimed draw instead (floor 0.15 s, #127).
@@ -264,7 +264,7 @@ Rule: every event the player causes is answered **in the same frame** with at le
 | Event | See | Hear | Read |
 |---|---|---|---|
 | **Shot fired** | Muzzle flash (one frame sprite) on the viewmodel; tracer (thin bright quad, 80 ms); viewmodel recoil as the spec requires (camera recoil is the spec's; no extra camera shake). | Weapon shot, per weapon (section 12). | Ammo count ticks down. |
-| **Shot fired while moving too fast** (coaching cue, toggleable) | Tracer is **violet** (`warn`) and dashed; a small `⇆` glyph flashes under the crosshair for 0.3 s. | A dull, flat "tock" layered under the shot. | "Moving shots" counter in the stat strip increments. |
+| **Shot fired while moving too fast** (coaching cue, toggleable, fades: section 7.4) | Tracer is **violet** (`warn`) and dashed; a small `⇆` glyph flashes under the crosshair for 0.3 s. | A dull, flat "tock" layered under the shot. | "Moving shots" counter in the stat strip increments. |
 | **Miss** | Impact spark + decal at the hit point; (option, default on) a faint ghost ring where the nearest target's head was, for 0.25 s, with an offset arrow. | Short "pfft" on the impact surface. | Nothing text-based; miss data goes to the run's miss map. |
 | **Body hit** | White hitmarker tick (4 short lines around the crosshair, 90 ms); target flashes white 60 ms; damage number floats up if enabled. | Low "thock". | Damage number. |
 | **Leg hit** | Dimmer tick, smaller. | A shorter, quieter thock 3 semitones lower, with no click (section 12). | — |
@@ -297,6 +297,32 @@ In-world: stance rings (Stop & Pop), checkpoint marks (Corner Clear), the wall d
 - **Personal bests** per mode and difficulty dial band, per skill; the live ghost-pace bar compares against them.
 - **Flawless** (no miss, no moving shot, full run) — gold card frame.
 - **Rank progress** (section 8).
+
+### 7.4 Fading cues: feedback that goes away as you improve
+
+The augmented cues above (violet moving-shot tracer, `⇆`, "tock", miss ghost, damage numbers, the RT/TTK readout, and the enemy tells of section 5.3) teach what happened, but none of them exists in the reference game. A player who waits for the tell's laser before strafing, or knows they moved because they heard the tock, has built a habit that fails there (vision principle 1). Feedback on every trial also trains learners to lean on it instead of their own senses; reducing its frequency costs a little practice performance and helps retention (guidance hypothesis, Winstein and Schmidt 1990). So the answer stays instant and specific (principle 3) but **stops being constant** (issue #129; `config/cues.ts`, `adaptive/cueFade.ts`, `feedback/cueGate.ts`, `feedback/cuePlanner.ts`).
+
+**Phase per skill.** At each run start the mode's skill (the Line rating for modes that train several) is read from the posterior (section 9.1) and put in one phase. Both gates must hold, so a lucky minute that lifts the mean but leaves a wide band does not strip the cues:
+
+| Phase | Enters when (starting values, HYPOTHESIS) | What the player gets |
+|---|---|---|
+| **Every trial** | default; new players, a wide band, or a low rating | every cue of section 7.1, as designed |
+| **Bandwidth** | rating ≥ dial 25 and posterior s.d. ≤ 5.5 (about one run of evidence) | a cue only on a **large error** (rules below) |
+| **Summary** | rating ≥ dial 50 and posterior s.d. ≤ 3.2 (two or three runs) | no per-event coaching cue; the results card carries the pattern (moving-shot count, the one thing to fix) |
+
+A player already in a phase stays in it until the rating falls 3 dial points below its gate or the band widens 1 point above it (hysteresis), so one on a border does not see the cues blink on and off between runs. A real decline brings the cues back, because the phase is a function of the posterior only.
+
+**Bandwidth rules.** Moving-shot tracer, `⇆` and tock: only when the shot is at or above 3.5 m/s (the deadzone is about 1.5 m/s, a walk 2.7, a run 5.4: so only near-running shots) or airborne. Miss ghost: only when the shot passed 1.5° or more from the nearest head. Time-to-shot readout: only when slower than 1.3× or faster than 0.75× the run median (a good trial is worth saying too: feedback after good trials helps learning, Chiviacowsky and Wulf 2007). Damage numbers carry no error signal, so they stop at bandwidth; the hitmarker colour already names the zone. Rewards (chime ladder, score, streak, chain) are not coaching cues and never fade.
+
+**Tells are a dial axis.** `axes(dial).tellCue` is 1 up to dial 35 and falls in a straight line to 0 at dial 60. It scales the **added** tell cues (head-node flare, laser line, rising tone). The windup itself, its duration and its floor are untouched, so a fight is not made unfair; what changes is that the player learns to read the real signs. Surge (first release) may bring the tells back as a reward (`FeedbackOptions.surge`).
+
+**The clean run.** The first scored run of a session, once the player has completed three scored runs ever, has **no coaching cues at all, no added tells, and a reference-like HUD**: the stat strip, edge meter and ghost-pace bar are hidden (crosshair, timer, ammo, health and the reward counters stay). It is never the Placement run. It is spent only when it ends for real; quitting it early offers it again. Its results card says so. It is the cold-open benchmark for the transfer question (#128): a score earned the way the reference game would let you earn it.
+
+**Settings (section 13.3).** *Coaching cues* remains the master switch (off = no cue, no added tell, always). *Fade cues as I improve* (default on) off keeps every cue at full forever. *One clean run per session* (default on).
+
+**Settling experiment (open, tracked in its own issue).** Two groups practise Stop & Pop for a week, one with fading off and one on, then play a cues-off retention test (a clean run). If faded cues retain as well or better, fading stays the default; if not, the thresholds in `config/cues.ts` move or the default flips.
+
+Known limits: the posterior is not persisted yet (#38), so cues start every session at full until it is; the enemy tell visuals and tone (#32, #41) read `tellStrength()` when they land.
 
 ---
 
@@ -433,6 +459,7 @@ The dial 0–100 maps to the seven axes (each mode uses a subset; linear unless 
 | Exposure, Peeker wide peek (s) | 1.4 (g) | 0.45 | Corner Clear, Sweep |
 | Exposure, Gnat (s) | 1.5 | 0.6 | Switchboard, Sweep (axis added with the Gnat) |
 | Enemy reaction (s) / tell (s) | 1.2 / 0.7 | 0.3 / 0.30 | Sweep, Corner Clear |
+| Tell cue strength (head-node flare, laser, tone; the windup is not scaled) | 1 up to dial 35 | 0 from dial 60 | Sweep, Corner Clear (section 7.4) |
 | Enemy hit chance at standstill | 0.15 | 0.6 | Sweep, Corner Clear (a calibration target, §5.3) |
 | Density (simultaneous targets) | 1 | 6 (step) | Switchboard, Sweep, Strafe Track |
 
@@ -568,7 +595,7 @@ Rendered in a dedicated lightweight overlay (CSS or one 2D canvas drawn on chang
 | **Keys** | Fully rebindable; defaults: `WASD` move, `Shift` walk, `Ctrl` crouch, `Space` jump, `1`–`3` weapons, `R` reload, `Backspace` restart run, `Enter` next run / confirm, `Esc` menu, `Tab` hold for the stat sheet, `F11` fullscreen. |
 | **Audio** | Master, weapons, hits, enemies, UI volumes; "hit sound style" (Standard, Soft); mono option; enemy tell volume. |
 | **Graphics** | Preset (Low/Medium/High), render scale, FPS cap (60 / 144 / 240 / uncapped), show FPS and 1% lows, post effects, enemy outline, enemy colour preset, **Reduce flashing**, viewmodel (on/off, left/right). |
-| **Gameplay** | **Coaching cues** (violet moving-shot tracer, `⇆` glyph, miss ghost; on by default for learning, off for a pure reference-like view), show damage numbers, stat strip items, HUD scale, difficulty pin (per mode). |
+| **Gameplay** | **Coaching cues** (violet moving-shot tracer, `⇆` glyph, miss ghost; on by default for learning, off for a pure reference-like view), **Fade cues as I improve** (default on), **One clean run per session** (default on; section 7.4), show damage numbers, stat strip items, HUD scale, difficulty pin (per mode). |
 | **Data** | Export/import save (JSON), reset progress (confirm), reference check-in prompt (on by default; section 8.5). |
 
 Settings persist immediately and apply live.

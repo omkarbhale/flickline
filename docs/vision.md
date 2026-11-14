@@ -30,7 +30,7 @@ Playing must be extremely fun for its mechanics, not a chore endured for the imp
 
 This is how Flickline beats the reference game as practice. Every shot gets an immediate, specific answer and every kill a reward, so the player learns what worked and what to fix while the moment is fresh.
 
-*Currently:* same-frame sight, sound and number for every shot; one thing to fix on each results card; rewards from mechanics only, never time played (design §7, §8).
+*Currently:* same-frame sight, sound and number for every shot; one thing to fix on each results card; rewards from mechanics only, never time played (design §7, §8); the cues fade with the skill rating so the feedback never becomes a crutch, and one run per session is cue-free (design §7.4).
 
 ### 4. Numbers, feel and fun are separate qualities
 
