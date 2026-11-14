@@ -728,6 +728,7 @@ Aligned with the layout and layering rule in the architecture issue (#54). Pure 
 | Echo shader, look, post, viewmodels, effects | `render/` | no |
 | Synthesis and cue wiring | `audio/` | no |
 | Bot harness, perf harness | `debug/` (and `scripts/`) | no |
+| Spec conformance suite: spec snapshot, rows, `docs/conformance.md` (`npm run conformance`) | `conformance/` (and `scripts/conformance.mjs`) | yes (reads files only in the script and the tests) |
 
 ### 14.7 Four quality tracks: numbers, feel, fun, transfer
 

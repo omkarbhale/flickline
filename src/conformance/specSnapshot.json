@@ -1,0 +1,1238 @@
+{
+  "schema": 1,
+  "spec": {
+    "researchDate": "2026-11-14",
+    "build": "13.10"
+  },
+  "global": [
+    {
+      "key": "sim.tick_hz",
+      "value": 128,
+      "unit": "Hz",
+      "conf": "H",
+      "sec": "1.4",
+      "note": ""
+    },
+    {
+      "key": "view.vfov_deg",
+      "value": 70.5328,
+      "unit": "deg (hFOV 103 at 16:9)",
+      "conf": "H",
+      "sec": "1.1",
+      "note": ""
+    },
+    {
+      "key": "view.fov_hor_plus",
+      "value": true,
+      "unit": "bool",
+      "conf": "M",
+      "sec": "1.1",
+      "note": ""
+    },
+    {
+      "key": "input.yaw_deg_per_count_at_sens1",
+      "value": 0.07,
+      "unit": "deg",
+      "conf": "H",
+      "sec": "1.2",
+      "note": ""
+    },
+    {
+      "key": "input.pitch_deg_per_count_at_sens1",
+      "value": 0.07,
+      "unit": "deg",
+      "conf": "M",
+      "sec": "1.2",
+      "note": ""
+    },
+    {
+      "key": "input.pitch_limit_deg",
+      "value": 89,
+      "unit": "deg",
+      "conf": "P",
+      "sec": "1.2",
+      "note": ""
+    },
+    {
+      "key": "input.scoped_fov_model",
+      "value": "angle_div",
+      "unit": "enum (angle_div, tangent)",
+      "conf": "M",
+      "sec": "1.3",
+      "note": ""
+    },
+    {
+      "key": "input.scope_zoom_ads_rifle",
+      "value": 1.25,
+      "unit": "x",
+      "conf": "M",
+      "sec": "1.3",
+      "note": ""
+    },
+    {
+      "key": "input.scope_zoom_ads_smg",
+      "value": 1.15,
+      "unit": "x",
+      "conf": "M",
+      "sec": "1.3",
+      "note": ""
+    },
+    {
+      "key": "input.scope_zoom_sniper_1",
+      "value": 2.5,
+      "unit": "x",
+      "conf": "M",
+      "sec": "1.3",
+      "note": ""
+    },
+    {
+      "key": "input.scope_zoom_sniper_2",
+      "value": 5,
+      "unit": "x",
+      "conf": "M",
+      "sec": "1.3",
+      "note": ""
+    },
+    {
+      "key": "input.scope_multiplier_default",
+      "value": 1,
+      "unit": "x",
+      "conf": "H",
+      "sec": "1.3",
+      "note": ""
+    },
+    {
+      "key": "move.run_speed_knife",
+      "value": 6.75,
+      "unit": "m/s",
+      "conf": "H",
+      "sec": "2.1",
+      "note": ""
+    },
+    {
+      "key": "move.walk_fraction",
+      "value": 0.5,
+      "unit": "of run",
+      "conf": "L",
+      "sec": "2.2",
+      "note": ""
+    },
+    {
+      "key": "move.crouch_walk_fraction",
+      "value": 0.34,
+      "unit": "of run",
+      "conf": "L",
+      "sec": "2.2",
+      "note": ""
+    },
+    {
+      "key": "move.accel_time_to_max",
+      "value": 0.2,
+      "unit": "s",
+      "conf": "L",
+      "sec": "2.3",
+      "note": ""
+    },
+    {
+      "key": "move.brake_decel_high",
+      "value": 39,
+      "unit": "m/s²",
+      "conf": "M",
+      "sec": "2.3",
+      "note": "(scaled by max/5.4)"
+    },
+    {
+      "key": "move.brake_decel_low",
+      "value": 24,
+      "unit": "m/s²",
+      "conf": "M",
+      "sec": "2.3",
+      "note": "(scaled by max/5.4)"
+    },
+    {
+      "key": "move.brake_band_split_fraction",
+      "value": 0.25,
+      "unit": "of max",
+      "conf": "M",
+      "sec": "2.3",
+      "note": ""
+    },
+    {
+      "key": "move.stop_time_from_run",
+      "value": 0.16,
+      "unit": "s",
+      "conf": "M",
+      "sec": "2.3",
+      "note": ""
+    },
+    {
+      "key": "move.deadzone_fraction",
+      "value": 0.275,
+      "unit": "of max",
+      "conf": "M",
+      "sec": "2.4",
+      "note": ""
+    },
+    {
+      "key": "move.deadzone_fraction_sniper",
+      "value": 0.15,
+      "unit": "of max",
+      "conf": "M",
+      "sec": "2.4",
+      "note": ""
+    },
+    {
+      "key": "move.jump_apex",
+      "value": 1,
+      "unit": "m",
+      "conf": "L",
+      "sec": "2.6",
+      "note": ""
+    },
+    {
+      "key": "move.gravity",
+      "value": 20,
+      "unit": "m/s²",
+      "conf": "P",
+      "sec": "2.6",
+      "note": ""
+    },
+    {
+      "key": "move.air_accel_fraction",
+      "value": 0.25,
+      "unit": "of ground",
+      "conf": "L",
+      "sec": "2.6",
+      "note": ""
+    },
+    {
+      "key": "move.landing_spread_add",
+      "value": 7,
+      "unit": "deg",
+      "conf": "M",
+      "sec": "2.6",
+      "note": ""
+    },
+    {
+      "key": "move.landing_spread_duration",
+      "value": 0.225,
+      "unit": "s",
+      "conf": "M",
+      "sec": "2.6",
+      "note": ""
+    },
+    {
+      "key": "move.landing_speed_loss",
+      "value": 0,
+      "unit": "fraction",
+      "conf": "L",
+      "sec": "2.6",
+      "note": ""
+    },
+    {
+      "key": "body.height_stand",
+      "value": 1.8,
+      "unit": "m",
+      "conf": "L",
+      "sec": "2.7",
+      "note": ""
+    },
+    {
+      "key": "body.height_crouch",
+      "value": 1.3,
+      "unit": "m",
+      "conf": "P",
+      "sec": "2.7",
+      "note": ""
+    },
+    {
+      "key": "body.radius",
+      "value": 0.3,
+      "unit": "m",
+      "conf": "P",
+      "sec": "2.7",
+      "note": ""
+    },
+    {
+      "key": "body.eye_height_stand",
+      "value": 1.62,
+      "unit": "m",
+      "conf": "L",
+      "sec": "2.7",
+      "note": ""
+    },
+    {
+      "key": "body.eye_height_crouch",
+      "value": 1.17,
+      "unit": "m",
+      "conf": "P",
+      "sec": "2.7",
+      "note": ""
+    },
+    {
+      "key": "body.crouch_transition",
+      "value": 0.15,
+      "unit": "s",
+      "conf": "P",
+      "sec": "2.7",
+      "note": ""
+    },
+    {
+      "key": "hit.head_radius",
+      "value": 0.14,
+      "unit": "m",
+      "conf": "L",
+      "sec": "5.1",
+      "note": ""
+    },
+    {
+      "key": "hit.head_centre_stand",
+      "value": 1.66,
+      "unit": "m",
+      "conf": "L",
+      "sec": "5.1",
+      "note": ""
+    },
+    {
+      "key": "hit.head_centre_crouch",
+      "value": 1.16,
+      "unit": "m",
+      "conf": "L",
+      "sec": "5.1",
+      "note": ""
+    },
+    {
+      "key": "hit.torso_range_stand",
+      "value": [
+        0.8,
+        1.52
+      ],
+      "unit": "m",
+      "conf": "L",
+      "sec": "5.1",
+      "note": ""
+    },
+    {
+      "key": "hit.torso_range_crouch",
+      "value": [
+        0.55,
+        1.02
+      ],
+      "unit": "m",
+      "conf": "L",
+      "sec": "5.1",
+      "note": ""
+    },
+    {
+      "key": "hit.leg_top_stand",
+      "value": 0.8,
+      "unit": "m",
+      "conf": "L",
+      "sec": "5.1",
+      "note": ""
+    },
+    {
+      "key": "hit.leg_top_crouch",
+      "value": 0.55,
+      "unit": "m",
+      "conf": "L",
+      "sec": "5.1",
+      "note": ""
+    },
+    {
+      "key": "spread.half_angle",
+      "value": true,
+      "unit": "bool",
+      "conf": "M",
+      "sec": "3.3",
+      "note": ""
+    },
+    {
+      "key": "spread.center_bias_power_still",
+      "value": 1.5,
+      "unit": "exponent",
+      "conf": "L",
+      "sec": "3.3",
+      "note": ""
+    },
+    {
+      "key": "spread.center_bias_power_moving",
+      "value": 0.5,
+      "unit": "exponent",
+      "conf": "L",
+      "sec": "3.3",
+      "note": ""
+    },
+    {
+      "key": "health.max",
+      "value": 100,
+      "unit": "HP",
+      "conf": "H",
+      "sec": "4.1",
+      "note": ""
+    },
+    {
+      "key": "armor.light",
+      "value": 25,
+      "unit": "HP",
+      "conf": "H",
+      "sec": "4.1",
+      "note": ""
+    },
+    {
+      "key": "armor.heavy",
+      "value": 50,
+      "unit": "HP",
+      "conf": "H",
+      "sec": "4.1",
+      "note": ""
+    },
+    {
+      "key": "armor.absorb_fraction",
+      "value": 0.66,
+      "unit": "fraction",
+      "conf": "H",
+      "sec": "4.1",
+      "note": ""
+    },
+    {
+      "key": "tag.speed_scale",
+      "value": 0.275,
+      "unit": "of max",
+      "conf": "M",
+      "sec": "4.3",
+      "note": ""
+    },
+    {
+      "key": "tag.ramp_in",
+      "value": 0.1,
+      "unit": "s",
+      "conf": "P",
+      "sec": "4.3",
+      "note": ""
+    },
+    {
+      "key": "tag.release",
+      "value": 0.5,
+      "unit": "s",
+      "conf": "L",
+      "sec": "4.3",
+      "note": ""
+    },
+    {
+      "key": "flinch.pitch_head",
+      "value": 2,
+      "unit": "deg",
+      "conf": "P",
+      "sec": "4.4",
+      "note": ""
+    },
+    {
+      "key": "flinch.pitch_body",
+      "value": 0.6,
+      "unit": "deg",
+      "conf": "P",
+      "sec": "4.4",
+      "note": ""
+    },
+    {
+      "key": "flinch.pitch_leg",
+      "value": 0.3,
+      "unit": "deg",
+      "conf": "P",
+      "sec": "4.4",
+      "note": ""
+    },
+    {
+      "key": "flinch.recovery",
+      "value": 0.25,
+      "unit": "s",
+      "conf": "P",
+      "sec": "4.4",
+      "note": ""
+    },
+    {
+      "key": "target.speed_slow",
+      "value": 2,
+      "unit": "m/s",
+      "conf": "P",
+      "sec": "5.3",
+      "note": ""
+    },
+    {
+      "key": "target.speed_medium",
+      "value": 3.5,
+      "unit": "m/s",
+      "conf": "P",
+      "sec": "5.3",
+      "note": ""
+    },
+    {
+      "key": "target.speed_fast",
+      "value": 5.4,
+      "unit": "m/s",
+      "conf": "P",
+      "sec": "5.3",
+      "note": ""
+    },
+    {
+      "key": "target.stop_time",
+      "value": 0.16,
+      "unit": "s",
+      "conf": "M",
+      "sec": "5.3",
+      "note": ""
+    }
+  ],
+  "handling": {
+    "rifle_precise": {
+      "fire_rate_hz": 9.75,
+      "mag": 25,
+      "reload_s": 2.5,
+      "equip_s": 1,
+      "run_mult": 0.8,
+      "ads_move_mult": 0.76,
+      "run_speed_mps": 5.4,
+      "reserve": 50,
+      "mode": "auto"
+    },
+    "rifle_spray": {
+      "fire_rate_hz": 11,
+      "mag": 30,
+      "reload_s": 2.5,
+      "equip_s": 1,
+      "run_mult": 0.8,
+      "ads_move_mult": 0.76,
+      "run_speed_mps": 5.4,
+      "reserve": 60,
+      "mode": "auto"
+    },
+    "smg": {
+      "fire_rate_hz": 13.333,
+      "mag": 30,
+      "reload_s": 2.25,
+      "equip_s": 0.75,
+      "run_mult": 0.85,
+      "ads_move_mult": 0.76,
+      "run_speed_mps": 5.7375,
+      "reserve": 90,
+      "mode": "auto"
+    },
+    "pistol_light": {
+      "fire_rate_hz": 6.75,
+      "mag": 12,
+      "reload_s": 1.75,
+      "equip_s": 0.75,
+      "run_mult": 0.85,
+      "ads_move_mult": null,
+      "run_speed_mps": 5.7375,
+      "reserve": 36,
+      "mode": "semi"
+    },
+    "pistol_accurate": {
+      "fire_rate_hz": 6.75,
+      "mag": 13,
+      "reload_s": 1.5,
+      "equip_s": 0.75,
+      "run_mult": 0.85,
+      "ads_move_mult": null,
+      "run_speed_mps": 5.7375,
+      "reserve": 39,
+      "mode": "semi"
+    },
+    "pistol_heavy": {
+      "fire_rate_hz": 4,
+      "mag": 6,
+      "reload_s": 2.25,
+      "equip_s": 1,
+      "run_mult": 0.8,
+      "ads_move_mult": null,
+      "run_speed_mps": 5.4,
+      "reserve": 24,
+      "mode": "semi"
+    },
+    "sniper": {
+      "fire_rate_hz": 0.6,
+      "mag": 5,
+      "reload_s": 3.7,
+      "equip_s": 1.5,
+      "run_mult": 0.76,
+      "ads_move_mult": 0.72,
+      "run_speed_mps": 5.13,
+      "reserve": 10,
+      "mode": "semi"
+    }
+  },
+  "spread": {
+    "rifle_precise": {
+      "spread_first_deg": 0.25,
+      "spread_max_deg": 1,
+      "crouch_mult": 0.85,
+      "recovery_s": 0.375,
+      "tap_eff": 6,
+      "n_ramp": 8,
+      "err_crouchmove_deg": 0.8,
+      "err_walk_deg": 3,
+      "err_run_deg": 6,
+      "err_air_deg": 10,
+      "deadzone": 0.275
+    },
+    "rifle_spray": {
+      "spread_first_deg": 0.2,
+      "spread_max_deg": 0.9,
+      "crouch_mult": 0.85,
+      "recovery_s": 0.35,
+      "tap_eff": 4,
+      "n_ramp": 8,
+      "err_crouchmove_deg": 0.8,
+      "err_walk_deg": 3,
+      "err_run_deg": 6,
+      "err_air_deg": 10,
+      "deadzone": 0.275
+    },
+    "smg": {
+      "spread_first_deg": 0.4,
+      "spread_max_deg": 1.3,
+      "crouch_mult": 0.85,
+      "recovery_s": 0.25,
+      "tap_eff": 3,
+      "n_ramp": 6,
+      "err_crouchmove_deg": 0.15,
+      "err_walk_deg": 1,
+      "err_run_deg": 2.5,
+      "err_air_deg": 10,
+      "deadzone": 0.275
+    },
+    "pistol_light": {
+      "spread_first_deg": 0.4,
+      "spread_max_deg": 1.8,
+      "crouch_mult": 0.75,
+      "recovery_s": 0.25,
+      "tap_eff": 3,
+      "n_ramp": 4,
+      "err_crouchmove_deg": 0.5,
+      "err_walk_deg": 1.1,
+      "err_run_deg": 2.3,
+      "err_air_deg": 7,
+      "deadzone": 0.275
+    },
+    "pistol_accurate": {
+      "spread_first_deg": 0.3,
+      "spread_max_deg": 1.65,
+      "crouch_mult": 0.75,
+      "recovery_s": 0.25,
+      "tap_eff": 3,
+      "n_ramp": 4,
+      "err_crouchmove_deg": 0.5,
+      "err_walk_deg": 1.1,
+      "err_run_deg": 2.3,
+      "err_air_deg": 7,
+      "deadzone": 0.275
+    },
+    "pistol_heavy": {
+      "spread_first_deg": 0.25,
+      "spread_max_deg": 2.75,
+      "crouch_mult": 0.75,
+      "recovery_s": 0.35,
+      "tap_eff": 3,
+      "n_ramp": 4,
+      "err_crouchmove_deg": 0.5,
+      "err_walk_deg": 1.2,
+      "err_run_deg": 3,
+      "err_air_deg": 7,
+      "deadzone": 0.275
+    },
+    "sniper_unscoped": {
+      "spread_first_deg": 5,
+      "spread_max_deg": 5,
+      "crouch_mult": 0.9,
+      "recovery_s": null,
+      "tap_eff": null,
+      "n_ramp": null,
+      "err_crouchmove_deg": 7.5,
+      "err_walk_deg": 10,
+      "err_run_deg": 15,
+      "err_air_deg": 15,
+      "deadzone": 0.15
+    },
+    "sniper_scoped": {
+      "spread_first_deg": 0,
+      "spread_max_deg": 0,
+      "crouch_mult": null,
+      "recovery_s": null,
+      "tap_eff": null,
+      "n_ramp": null,
+      "err_crouchmove_deg": 7.5,
+      "err_walk_deg": 10,
+      "err_run_deg": 15,
+      "err_air_deg": 15,
+      "deadzone": 0.15
+    }
+  },
+  "damage": {
+    "rifle_precise": [
+      {
+        "upToM": 50,
+        "head": 160,
+        "body": 40,
+        "leg": 34
+      }
+    ],
+    "rifle_spray": [
+      {
+        "upToM": 20,
+        "head": 156,
+        "body": 39,
+        "leg": 33.15
+      },
+      {
+        "upToM": 50,
+        "head": 140,
+        "body": 35,
+        "leg": 29.75
+      }
+    ],
+    "smg": [
+      {
+        "upToM": 15,
+        "head": 78,
+        "body": 26,
+        "leg": 22.1
+      },
+      {
+        "upToM": 30,
+        "head": 66,
+        "body": 22,
+        "leg": 18.7
+      },
+      {
+        "upToM": 50,
+        "head": 60,
+        "body": 20,
+        "leg": 17
+      }
+    ],
+    "pistol_light": [
+      {
+        "upToM": 30,
+        "head": 78,
+        "body": 26,
+        "leg": 22.1
+      },
+      {
+        "upToM": 50,
+        "head": 66,
+        "body": 22,
+        "leg": 18.7
+      }
+    ],
+    "pistol_accurate": [
+      {
+        "upToM": 30,
+        "head": 105,
+        "body": 30,
+        "leg": 25.5
+      },
+      {
+        "upToM": 50,
+        "head": 87.5,
+        "body": 25,
+        "leg": 21.25
+      }
+    ],
+    "pistol_heavy": [
+      {
+        "upToM": 30,
+        "head": 159.5,
+        "body": 55,
+        "leg": 46.75
+      },
+      {
+        "upToM": 50,
+        "head": 145,
+        "body": 50,
+        "leg": 42.5
+      }
+    ],
+    "sniper": [
+      {
+        "upToM": 50,
+        "head": 255,
+        "body": 150,
+        "leg": 120
+      }
+    ]
+  },
+  "penetration": {
+    "rifle_precise": "M",
+    "rifle_spray": "M",
+    "smg": "L",
+    "pistol_light": "L",
+    "pistol_accurate": "M",
+    "pistol_heavy": "H",
+    "sniper": "H"
+  },
+  "fovByAspect": [
+    {
+      "aspect": "16:9",
+      "ratio": 1.7777777777777777,
+      "hfovDeg": 103
+    },
+    {
+      "aspect": "16:10",
+      "ratio": 1.6,
+      "hfovDeg": 97.06
+    },
+    {
+      "aspect": "4:3",
+      "ratio": 1.3333333333333333,
+      "hfovDeg": 86.63
+    },
+    {
+      "aspect": "5:4",
+      "ratio": 1.25,
+      "hfovDeg": 82.95
+    },
+    {
+      "aspect": "21:9 (64:27)",
+      "ratio": 2.3703703703703702,
+      "hfovDeg": 118.36
+    },
+    {
+      "aspect": "32:9",
+      "ratio": 3.5555555555555554,
+      "hfovDeg": 136.62
+    }
+  ],
+  "ttk": [
+    {
+      "archetype": "rifle_precise",
+      "fromM": 0,
+      "toM": 50,
+      "zone": "head",
+      "bullets": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "archetype": "rifle_precise",
+      "fromM": 0,
+      "toM": 50,
+      "zone": "body",
+      "bullets": [
+        3,
+        4,
+        4
+      ]
+    },
+    {
+      "archetype": "rifle_precise",
+      "fromM": 0,
+      "toM": 50,
+      "zone": "leg",
+      "bullets": [
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "archetype": "rifle_spray",
+      "fromM": 0,
+      "toM": 20,
+      "zone": "head",
+      "bullets": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "archetype": "rifle_spray",
+      "fromM": 0,
+      "toM": 20,
+      "zone": "body",
+      "bullets": [
+        3,
+        4,
+        4
+      ]
+    },
+    {
+      "archetype": "rifle_spray",
+      "fromM": 0,
+      "toM": 20,
+      "zone": "leg",
+      "bullets": [
+        4,
+        4,
+        5
+      ]
+    },
+    {
+      "archetype": "rifle_spray",
+      "fromM": 20,
+      "toM": 50,
+      "zone": "head",
+      "bullets": [
+        1,
+        1,
+        2
+      ]
+    },
+    {
+      "archetype": "rifle_spray",
+      "fromM": 20,
+      "toM": 50,
+      "zone": "body",
+      "bullets": [
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "archetype": "rifle_spray",
+      "fromM": 20,
+      "toM": 50,
+      "zone": "leg",
+      "bullets": [
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "archetype": "smg",
+      "fromM": 0,
+      "toM": 15,
+      "zone": "head",
+      "bullets": [
+        2,
+        2,
+        2
+      ]
+    },
+    {
+      "archetype": "smg",
+      "fromM": 0,
+      "toM": 15,
+      "zone": "body",
+      "bullets": [
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "archetype": "smg",
+      "fromM": 0,
+      "toM": 15,
+      "zone": "leg",
+      "bullets": [
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "archetype": "smg",
+      "fromM": 15,
+      "toM": 30,
+      "zone": "head",
+      "bullets": [
+        2,
+        2,
+        3
+      ]
+    },
+    {
+      "archetype": "smg",
+      "fromM": 15,
+      "toM": 30,
+      "zone": "body",
+      "bullets": [
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "archetype": "smg",
+      "fromM": 15,
+      "toM": 30,
+      "zone": "leg",
+      "bullets": [
+        6,
+        7,
+        9
+      ]
+    },
+    {
+      "archetype": "smg",
+      "fromM": 30,
+      "toM": 50,
+      "zone": "head",
+      "bullets": [
+        2,
+        3,
+        3
+      ]
+    },
+    {
+      "archetype": "smg",
+      "fromM": 30,
+      "toM": 50,
+      "zone": "body",
+      "bullets": [
+        5,
+        7,
+        8
+      ]
+    },
+    {
+      "archetype": "smg",
+      "fromM": 30,
+      "toM": 50,
+      "zone": "leg",
+      "bullets": [
+        6,
+        8,
+        9
+      ]
+    },
+    {
+      "archetype": "pistol_heavy",
+      "fromM": 0,
+      "toM": 30,
+      "zone": "head",
+      "bullets": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "archetype": "pistol_heavy",
+      "fromM": 0,
+      "toM": 30,
+      "zone": "body",
+      "bullets": [
+        2,
+        3,
+        3
+      ]
+    },
+    {
+      "archetype": "pistol_heavy",
+      "fromM": 0,
+      "toM": 30,
+      "zone": "leg",
+      "bullets": [
+        3,
+        3,
+        4
+      ]
+    },
+    {
+      "archetype": "pistol_heavy",
+      "fromM": 30,
+      "toM": 50,
+      "zone": "head",
+      "bullets": [
+        1,
+        1,
+        2
+      ]
+    },
+    {
+      "archetype": "pistol_heavy",
+      "fromM": 30,
+      "toM": 50,
+      "zone": "body",
+      "bullets": [
+        2,
+        3,
+        3
+      ]
+    },
+    {
+      "archetype": "pistol_heavy",
+      "fromM": 30,
+      "toM": 50,
+      "zone": "leg",
+      "bullets": [
+        3,
+        3,
+        4
+      ]
+    },
+    {
+      "archetype": "pistol_light",
+      "fromM": 0,
+      "toM": 30,
+      "zone": "head",
+      "bullets": [
+        2,
+        2,
+        2
+      ]
+    },
+    {
+      "archetype": "pistol_light",
+      "fromM": 0,
+      "toM": 30,
+      "zone": "body",
+      "bullets": [
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "archetype": "pistol_light",
+      "fromM": 0,
+      "toM": 30,
+      "zone": "leg",
+      "bullets": [
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "archetype": "pistol_light",
+      "fromM": 30,
+      "toM": 50,
+      "zone": "head",
+      "bullets": [
+        2,
+        2,
+        3
+      ]
+    },
+    {
+      "archetype": "pistol_light",
+      "fromM": 30,
+      "toM": 50,
+      "zone": "body",
+      "bullets": [
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "archetype": "pistol_light",
+      "fromM": 30,
+      "toM": 50,
+      "zone": "leg",
+      "bullets": [
+        6,
+        7,
+        9
+      ]
+    },
+    {
+      "archetype": "pistol_accurate",
+      "fromM": 0,
+      "toM": 30,
+      "zone": "head",
+      "bullets": [
+        1,
+        2,
+        2
+      ]
+    },
+    {
+      "archetype": "pistol_accurate",
+      "fromM": 0,
+      "toM": 30,
+      "zone": "body",
+      "bullets": [
+        4,
+        5,
+        5
+      ]
+    },
+    {
+      "archetype": "pistol_accurate",
+      "fromM": 0,
+      "toM": 30,
+      "zone": "leg",
+      "bullets": [
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "archetype": "pistol_accurate",
+      "fromM": 30,
+      "toM": 50,
+      "zone": "head",
+      "bullets": [
+        2,
+        2,
+        2
+      ]
+    },
+    {
+      "archetype": "pistol_accurate",
+      "fromM": 30,
+      "toM": 50,
+      "zone": "body",
+      "bullets": [
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "archetype": "pistol_accurate",
+      "fromM": 30,
+      "toM": 50,
+      "zone": "leg",
+      "bullets": [
+        5,
+        6,
+        8
+      ]
+    },
+    {
+      "archetype": "sniper",
+      "fromM": 0,
+      "toM": 50,
+      "zone": "head",
+      "bullets": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "archetype": "sniper",
+      "fromM": 0,
+      "toM": 50,
+      "zone": "body",
+      "bullets": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "archetype": "sniper",
+      "fromM": 0,
+      "toM": 50,
+      "zone": "leg",
+      "bullets": [
+        1,
+        2,
+        2
+      ]
+    }
+  ]
+}

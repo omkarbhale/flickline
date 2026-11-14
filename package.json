@@ -17,6 +17,7 @@
     "map-lint": "node scripts/map-lint.mjs",
     "bot": "node scripts/bot.mjs",
     "baseline:items": "node scripts/gen-baseline-items.mjs",
+    "conformance": "node scripts/conformance.mjs",
     "perf": "node scripts/perf.mjs",
     "human-check": "node scripts/human-check.mjs",
     "reward-experiment": "vitest run src/feedback/contactExperiment.test.ts"
