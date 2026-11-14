@@ -51,4 +51,13 @@ describe('settings', () => {
     store.set({ volume: 0.1 });
     expect(store.get().volume).toBe(0.1);
   });
+
+  it('sanitises Reduce flashing and the flinch strength', () => {
+    expect(DEFAULT_SETTINGS.reduceFlashing).toBe(false);
+    expect(DEFAULT_SETTINGS.flinchStrength).toBe(1);
+    const s = sanitizeSettings({ reduceFlashing: 'yes', flinchStrength: 9 });
+    expect(s.reduceFlashing).toBe(false);
+    expect(s.flinchStrength).toBe(2);
+    expect(sanitizeSettings({ reduceFlashing: true, flinchStrength: 0 })).toMatchObject({ reduceFlashing: true, flinchStrength: 0 });
+  });
 });

@@ -4,12 +4,14 @@ import { TICK_DT, TICK_RATE } from '../core/time';
 import { cloneTunables, tunables as liveTunables, type Tunables } from '../config/tunables';
 import type { WeaponId } from '../config/weapon';
 import { AudioEngine } from '../audio/audioEngine';
+import { attachDamageAudio } from '../audio/damageAudio';
 import { attachSfx } from '../audio/sfx';
 import { attachUiSounds } from '../audio/uiSounds';
 import { DebugOverlay } from '../debug/overlay';
 import { PerfStats } from '../debug/perfStats';
 import { SessionStats } from '../feedback/sessionStats';
 import type { ModeEvents } from '../modes/contracts';
+import { DamageView } from '../hud/damageView';
 import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
@@ -50,6 +52,8 @@ export class Game {
   readonly input: InputManager;
   readonly audio: AudioEngine;
   readonly hud: Hud;
+  /** Arc, vignette, desaturation and HP bar for damage taken (design §7.1). */
+  readonly damage: DamageView;
   readonly menu: Menu;
   readonly overlay: DebugOverlay;
   readonly perf = new PerfStats();
@@ -70,6 +74,10 @@ export class Game {
   private readonly scriptInput = createTickInput();
   private lastTs = 0;
   private running = false;
+  /** View angles frozen at the moment of death (radians; the frame the results card sits over). */
+  private frozenYaw = 0;
+  private frozenPitch = 0;
+  private wasAlive = true;
 
   constructor(canvas: HTMLCanvasElement, hudRoot: HTMLElement, menuRoot: HTMLElement, debugRoot: HTMLElement) {
     let storage: Storage | null = null;
@@ -104,6 +112,12 @@ export class Game {
     attachUiSounds(document, this.audio);
 
     this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair, this.world.weapon, this.tunables.weapon);
+    this.damage = new DamageView(
+      hudRoot, this.bus, this.tunables.damageFx, this.world.health, s.reduceFlashing,
+      () => performance.now(), () => this.viewYaw(),
+    );
+    attachDamageAudio(this.bus, this.audio);
+    this.tunables.player.flinch.strength = s.flinchStrength;
     this.menu = new Menu(menuRoot, this.settings, this.tunables, () => this.play());
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
@@ -119,6 +133,8 @@ export class Game {
       if (changed.includes('sensitivity')) this.input.setSensitivity(settings.sensitivity);
       if (changed.some((k) => k === 'volume' || k.endsWith('Volume'))) this.applyAudioSettings(settings);
       if (changed.includes('quality')) this.renderer.setQuality(settings.quality);
+      if (changed.includes('reduceFlashing')) this.damage.setReduceFlashing(settings.reduceFlashing);
+      if (changed.includes('flinchStrength')) this.tunables.player.flinch.strength = settings.flinchStrength;
       this.menu.sync();
     });
     this.bus.on('pointerLockChanged', () => this.refreshChrome());
@@ -138,6 +154,7 @@ export class Game {
 
   private readonly onResize = (): void => {
     this.renderer.resize(window.innerWidth, window.innerHeight);
+    this.damage.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
   };
 
   /** Start playing: needs a user gesture (browser rule for pointer lock + audio). */
@@ -179,8 +196,16 @@ export class Game {
       if (o.switchTo !== undefined) inp.switchTo = o.switchTo;
     }
 
+    // A dead player freezes the world and the view: the last frame the results card is drawn over.
+    const alive = this.world.health.alive;
+    if (!alive && this.wasAlive) {
+      this.frozenYaw = this.input.yaw;
+      this.frozenPitch = this.input.pitch + this.world.player.aimPunch;
+    }
+    this.wasAlive = alive;
+
     let ticks = 0;
-    if ((this.input.locked || this.forceRun) && !this.hold) {
+    if ((this.input.locked || this.forceRun) && !this.hold && alive) {
       ticks = this.stepper.advance(dt);
       for (let i = 0; i < ticks; i++) {
         const t0 = performance.now();
@@ -201,12 +226,26 @@ export class Game {
     this.perf.ticksLastFrame = ticks;
 
     this.drawFrame(this.stepper.alpha, dt);
+    this.damage.update();
     this.perf.endFrame();
     this.overlay.update(ts);
   };
 
+  /** The yaw the camera shows: the live mouse yaw, frozen once the player is dead. */
+  private viewYaw(): number {
+    return this.world.health.alive ? this.input.yaw : this.frozenYaw;
+  }
+
   private drawFrame(alpha: number, dt: number): void {
-    this.renderer.render(this.world, alpha, this.input.yaw, this.input.pitch, dt);
+    const w = this.world;
+    if (!w.health.alive) {
+      this.renderer.render(w, 1, this.frozenYaw, this.frozenPitch, dt);
+      return;
+    }
+    // The aim punch from being hit moves the view too (spec §4.4); never past the pitch limit.
+    const maxPitch = this.input.maxPitch;
+    const pitch = Math.max(-maxPitch, Math.min(maxPitch, this.input.pitch + w.player.aimPunch));
+    this.renderer.render(w, alpha, this.input.yaw, pitch, dt);
   }
 
   /** Render once immediately with no interpolation lag (used after deterministic stepping). */
@@ -313,10 +352,45 @@ export class Game {
     return true;
   }
 
+  /**
+   * Debug and, later, the enemies' fire: the player takes `amount` HP to `zone` from a shooter
+   * `distance` metres away at `bearingDeg` clockwise from where the player is facing (0 = ahead,
+   * 90 = right). Returns whether it killed the player.
+   */
+  hurt(amount: number, zone: HitZone = 'body', bearingDeg = 0, distance = 10, sourceId = -1): boolean {
+    const [sx, sy, sz] = this.shooterPoint(bearingDeg, distance);
+    const killed = this.world.damagePlayer(amount, zone, sx, sy, sz, sourceId, this.bus);
+    this.renderNow();
+    return killed;
+  }
+
+  /** As `hurt`, but the damage is `weapon`'s band for `zone` at `distance` (spec §3.2 / §7.4). */
+  hitBy(weapon: WeaponId, zone: HitZone = 'body', bearingDeg = 0, distance = 10, sourceId = -1): boolean {
+    const [sx, sy, sz] = this.shooterPoint(bearingDeg, distance);
+    const killed = this.world.hitPlayer(weapon, zone, sx, sy, sz, sourceId, this.bus);
+    this.renderNow();
+    return killed;
+  }
+
+  /** A point `distance` m from the eye at `bearingDeg` clockwise from the player's facing, at eye height. */
+  private shooterPoint(bearingDeg: number, distance: number): [number, number, number] {
+    const p = this.world.player;
+    const b = (bearingDeg * Math.PI) / 180;
+    const yaw = p.yaw;
+    // forward = (-sin, -cos), right = (cos, -sin)
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    return [
+      p.pos.x + (fx * Math.cos(b) + rx * Math.sin(b)) * distance,
+      p.pos.y + p.eyeHeight,
+      p.pos.z + (fz * Math.cos(b) + rz * Math.sin(b)) * distance,
+    ];
+  }
+
   resetWorld(seed?: number): void {
     this.modes.stop();
     this.world.reset(seed);
     this.session.reset();
+    this.damage.reset();
     this.hud.refresh();
     this.input.setLook(this.world.player.yaw, 0);
     this.stepper.reset();
@@ -360,6 +434,11 @@ export class Game {
         eyeHeight: p.eyeHeight, height: p.height,
       },
       weapon: { ...w.weapon, slots: w.weapon.slots.map((sl) => ({ ...sl })) },
+      health: {
+        ...w.health,
+        tagSince: Number.isFinite(w.health.tagSince) ? w.health.tagSince : null,
+        tagScale: p.tagScale, aimPunchDeg: (p.aimPunch * 180) / Math.PI,
+      },
       targets: w.targets
         .filter((t) => t.alive)
         .map((t) => ({

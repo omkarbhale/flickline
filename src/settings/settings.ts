@@ -16,6 +16,10 @@ export interface Settings {
   enemiesVolume: number;
   uiVolume: number;
   quality: QualityLevel;
+  /** Disables screen pulses and chromatic effects (design §13.3); the damage arc stays, fading slowly. */
+  reduceFlashing: boolean;
+  /** Aim punch when hit, multiplier of the spec's kick (spec §4.4: 1 = default, 0 disables). */
+  flinchStrength: number;
   /** Crosshair appearance (design 13.2). Replaced as a whole by `set`. */
   crosshair: CrosshairParams;
 }
@@ -29,6 +33,8 @@ export const DEFAULT_SETTINGS: Settings = {
   enemiesVolume: 1,
   uiVolume: 1,
   quality: 'medium',
+  reduceFlashing: false,
+  flinchStrength: 1,
   crosshair: DEFAULT_CROSSHAIR,
 };
 
@@ -61,6 +67,8 @@ export function sanitizeSettings(raw: unknown): Settings {
   if (typeof r.quality === 'string' && (QUALITY_LEVELS as readonly string[]).includes(r.quality)) {
     out.quality = r.quality as QualityLevel;
   }
+  out.reduceFlashing = typeof r.reduceFlashing === 'boolean' ? r.reduceFlashing : out.reduceFlashing;
+  out.flinchStrength = num(r.flinchStrength, 0, 2, out.flinchStrength);
   out.crosshair = sanitizeCrosshair(r.crosshair);
   return out;
 }

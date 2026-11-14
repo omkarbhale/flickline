@@ -15,6 +15,8 @@ export class Menu {
   private readonly cm: HTMLInputElement;
   private readonly vol: HTMLInputElement;
   private readonly quality: HTMLSelectElement;
+  private readonly reduceFlashing: HTMLInputElement;
+  private readonly flinch: HTMLSelectElement;
   private readonly title: HTMLElement;
   private readonly crosshair: CrosshairEditor;
 
@@ -37,6 +39,8 @@ export class Menu {
           <label>cm / 360°<input data-k="cm" name="cm" id="set-cm" type="number" step="0.5" min="1" max="1000" /></label>
           <label>Volume<input data-k="vol" name="vol" id="set-vol" type="range" min="0" max="1" step="0.01" /></label>
           <label>Graphics<select data-k="quality" name="quality" id="set-quality">${QUALITY_LEVELS.map((q) => `<option value="${q}">${q}</option>`).join('')}</select></label>
+          <label>Reduce flashing<input data-k="reduceFlashing" name="reduceFlashing" id="set-reduce-flashing" type="checkbox" /></label>
+          <label>Hit flinch<select data-k="flinch" name="flinch" id="set-flinch"><option value="0">off</option><option value="0.5">half</option><option value="1">normal</option><option value="2">strong</option></select></label>
         </div>
         <details class="ch-editor"><summary>Crosshair</summary><div data-k="crosshair"></div></details>
         <p class="note"></p>
@@ -48,6 +52,8 @@ export class Menu {
     this.cm = q('cm');
     this.vol = q('vol');
     this.quality = q('quality');
+    this.reduceFlashing = q('reduceFlashing');
+    this.flinch = q('flinch');
     this.crosshair = new CrosshairEditor(q('crosshair'), store);
     this.title = root.querySelector('[data-title]') as HTMLElement;
     (root.querySelector('.note') as HTMLElement).textContent = tunables.view.fovLockNote;
@@ -78,6 +84,8 @@ export class Menu {
     this.quality.addEventListener('change', () => {
       this.store.set({ quality: this.quality.value as 'low' | 'medium' | 'high' });
     });
+    this.reduceFlashing.addEventListener('change', () => this.store.set({ reduceFlashing: this.reduceFlashing.checked }));
+    this.flinch.addEventListener('change', () => this.store.set({ flinchStrength: parseFloat(this.flinch.value) }));
     this.sync();
   }
 
@@ -89,6 +97,8 @@ export class Menu {
     this.cm.value = cmPer360(s.sensitivity, s.dpi).toFixed(1);
     this.vol.value = String(s.volume);
     this.quality.value = s.quality;
+    this.reduceFlashing.checked = s.reduceFlashing;
+    this.flinch.value = String(s.flinchStrength);
     this.crosshair.sync();
   }
 

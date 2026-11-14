@@ -18,6 +18,23 @@ export interface CuePlayer {
   play(cue: CueId, opts?: PlayOptions): void;
 }
 
+/** The master low-pass dip (taking damage, design §7.1). Separate from `CuePlayer` so cue fakes stay small. */
+export interface LowpassDipper {
+  dipLowpass(): void;
+}
+
+/** The last low-pass dip that was scheduled (debug: what was scheduled where). */
+export interface DipLogEntry {
+  /** Audio-clock time the dip started (seconds). */
+  at: number;
+  hz: number;
+  durationMs: number;
+  /** How many dips so far. */
+  count: number;
+  /** false when the context was not running, so nothing sounded. */
+  sounded: boolean;
+}
+
 export interface SoundSetStats {
   renderMs: number;
   buffers: number;
@@ -59,11 +76,15 @@ const DUCKERS: ReadonlySet<CueId> = new Set<CueId>(['hitBody', 'hitLeg', 'hitHea
  * network). `play()` starts a pre-rendered buffer on the audio clock: one source + one gain node
  * (+ one HRTF panner for positional voices) per call, nothing else is allocated.
  *
- * Graph:  voice -> [panner] -> bus.volume -> bus.duck -> master.volume -> limiter -> destination
+ * Graph:  voice -> [panner] -> bus.volume -> bus.duck -> master.volume -> low-pass (open) -> limiter -> destination
  */
-export class AudioEngine implements CuePlayer {
+export class AudioEngine implements CuePlayer, LowpassDipper {
   private ctx: BaseAudioContext | null = null;
   private master: GainNode | null = null;
+  private lowpass: BiquadFilterNode | null = null;
+  private lowpassOpenHz = 20000;
+  /** The last dip, for the debug hook. */
+  readonly lastDip: DipLogEntry = { at: 0, hz: 0, durationMs: 0, count: 0, sounded: false };
   private buses: Partial<Record<BusId, Bus>> = {};
   private buffers: Partial<Record<CueId, AudioBuffer[]>> = {};
   private cueBus: Partial<Record<CueId, BusId>> = {};
@@ -112,8 +133,15 @@ export class AudioEngine implements CuePlayer {
     limiter.oversample = 'none';
     limiter.connect(ctx.destination);
 
+    // The damage dip lives on the master: open (20 kHz, or just under Nyquist) it is transparent.
+    this.lowpassOpenHz = Math.min(20000, ctx.sampleRate / 2 - 100);
+    this.lowpass = ctx.createBiquadFilter();
+    this.lowpass.type = 'lowpass';
+    this.lowpass.frequency.value = this.lowpassOpenHz;
+    this.lowpass.Q.value = t.damageDip.q;
+    this.lowpass.connect(limiter);
     this.master = ctx.createGain();
-    this.master.connect(limiter);
+    this.master.connect(this.lowpass);
     for (const id of BUS_IDS) {
       const volume = ctx.createGain();
       const duck = ctx.createGain();
@@ -140,6 +168,31 @@ export class AudioEngine implements CuePlayer {
       this.buffers[id] = list;
     }
     this.stats = { renderMs: performance.now() - t0, buffers, seconds: samples / ctx.sampleRate, sampleRate: ctx.sampleRate };
+  }
+
+  /**
+   * Dip the master low-pass: the cutoff falls to `damageDip.hz` and comes back over
+   * `damageDip.durationMs` (design §7.1, taking damage). A hit during a dip restarts it. Parameter
+   * scheduling only: nothing is created per call. No-op before the first user gesture.
+   */
+  dipLowpass(): void {
+    const c = this.ctx;
+    const f = this.lowpass;
+    const d = this.t.damageDip;
+    const e = this.lastDip;
+    e.count++;
+    e.hz = d.hz;
+    e.durationMs = d.durationMs;
+    e.sounded = false;
+    if (!c || !f) return;
+    const now = c.currentTime;
+    e.at = now;
+    e.sounded = c.state === 'running';
+    const p = f.frequency;
+    p.cancelScheduledValues(now);
+    p.setValueAtTime(p.value, now);
+    p.linearRampToValueAtTime(d.hz, now + d.attackMs / 1000);
+    p.exponentialRampToValueAtTime(this.lowpassOpenHz, now + d.durationMs / 1000);
   }
 
   /** Master volume 0..1 (settings). */

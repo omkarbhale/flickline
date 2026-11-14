@@ -66,3 +66,22 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .ch-codebox input { flex: 1; min-width: 0; font: 13px ui-monospace, monospace; padding: 6px 8px; background: #0b0e12; color: var(--fg); border: 1px solid #243040; border-radius: 4px; }
 .ch-msg { margin: 0; min-height: 16px; font-size: 12px; color: #7dff9c; }
 .ch-msg.bad { color: #ff7a7a; }
+
+/* Damage taken (design §7.1): arc, vignette, desaturation, HP bar. Event-driven; see hud/damageView.ts. */
+.dmg-root { position: absolute; inset: 0; pointer-events: none; }
+.dmg-vignette { position: absolute; inset: -6%; opacity: 0; will-change: transform, opacity;
+  background: radial-gradient(ellipse at center, rgba(255,61,90,0) 42%, rgba(255,61,90,.16) 68%, rgba(120,10,28,.62) 100%); }
+.dmg-vignette.hit { animation: dmg-vignette var(--dmg-vignette-ms, 320ms) ease-out; }
+@keyframes dmg-vignette { 0% { opacity: 0; transform: scale(1.18); } 25% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.1); } }
+.dmg-desat { position: absolute; inset: 0; opacity: 0; -webkit-backdrop-filter: saturate(var(--dmg-desat-to, .35)); backdrop-filter: saturate(var(--dmg-desat-to, .35)); }
+.dmg-desat.hit { animation: dmg-desat var(--dmg-desat-ms, 150ms) ease-out; }
+@keyframes dmg-desat { 0% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+.dmg-arcs { position: absolute; left: 50%; top: 50%; width: 84vmin; height: 84vmin; transform: translate(-50%, -50%); display: block; }
+.hp { position: absolute; left: 16px; bottom: 34px; width: 150px; height: 14px; border-radius: 3px; background: rgba(8,10,14,.62); border: 1px solid rgba(232,237,242,.28);
+  opacity: 0; transition: opacity .15s linear; overflow: hidden; }
+.hp.shown { opacity: 1; }
+.hp-fill { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--hp, 1) * 100%); background: #cfd8e3; }
+.hp.low .hp-fill { background: #ff3d5a; }
+.hp-text { position: absolute; left: 6px; top: 0; line-height: 14px; font: 700 11px/14px ui-monospace, monospace; letter-spacing: .06em; color: #fff; text-shadow: 0 0 2px #000, 0 1px 1px #000; }
+.hp.hit { animation: hp-flash var(--dmg-hp-flash-ms, 260ms) ease-out; }
+@keyframes hp-flash { 0% { box-shadow: 0 0 0 0 rgba(255,61,90,.95); transform: scaleY(1.5); } 100% { box-shadow: 0 0 0 8px rgba(255,61,90,0); transform: scaleY(1); } }
