@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "First-person aim and movement trainer with tactical-shooter gunplay, instant feedback, and skill-matched difficulty",
+  "description": "First-person shooter you replay, not an aim trainer: tactical-shooter gunplay, instant feedback, skill-matched enemies",
   "engines": {
     "node": ">=20"
   },

@@ -157,7 +157,8 @@ export class ResultsCard {
     q('clean').hidden = !m.clean;
     q('score').textContent = m.score;
     const pb = q('pb');
-    pb.textContent = m.pbText === DASH ? 'Personal best: —' : `${m.pbText} vs personal best`;
+    pb.textContent = m.pbLabel;
+    pb.hidden = m.pbLabel === '';
     pb.dataset.tone = m.pbTone;
 
     const r = m.rating;
