@@ -63,7 +63,7 @@ export function scriptedRun(seed: number, sectorCount: number, endReason: string
     tick += 100;
     const role = ROLES[rng.int(ROLES.length)]!;
     push('sectorEntered', {
-      sectorId: `sector-${s}`, index: s, role, condition: CONDS[rng.int(CONDS.length)]!, stake: STAKES[rng.int(STAKES.length)]!, dial: 50,
+      sectorId: `sector-${s}`, index: s, of: sectorCount, role, condition: CONDS[rng.int(CONDS.length)]!, stake: STAKES[rng.int(STAKES.length)]!, dial: 50,
     });
     const tile = { role, won: 0, lost: 0, avoided: 0, kills: 0, hpIn: hp, hpOut: hp, flawless: false };
     let shots = 0;

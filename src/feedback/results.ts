@@ -417,14 +417,18 @@ function word(map: Readonly<Record<string, string>>, id: string): string {
 export function depthLabel(story: RunStory, endReason: string | null, cfg: ResultsTunables = defaultResults): string {
   const n = story.sectors.length;
   if (n === 0) return '';
-  const total = cfg.run.routeSectors;
-  const last = story.sectors[n - 1]!;
   const c = cfg.depthCopy;
-  if (n > total) return fill(c.overtime, { k: n - total });
-  const died = endReason === 'death';
-  if (n === total) return died ? c.finaleDied : last.cleared || endReason === 'left' ? c.finale : fill(c.sector, { n, total });
-  // A route shorter than the full six (the run director's first version): leaving at its end is clearing it.
-  if (endReason === 'left' && last.ended) return fill(c.routeDone, { n });
+  const finale = cfg.run.routeSectors;
+  if (n > finale) return fill(c.overtime, { k: n - finale });
+  const last = story.sectors[n - 1]!;
+  // A route as long as the design's (six sectors, the last the Finale) is told in the design's words; a shorter
+  // one (the run director's first version) is "n of total", and leaving at its end is clearing it.
+  const total = story.total ?? finale;
+  if (total >= finale) {
+    if (n === finale) return endReason === 'death' ? c.finaleDied : last.cleared || endReason === 'left' ? c.finale : fill(c.sector, { n, total });
+    return fill(c.sector, { n, total });
+  }
+  if (endReason === 'left' && n >= total) return fill(c.routeDone, { n });
   return fill(c.sector, { n, total });
 }
 

@@ -358,7 +358,7 @@ describe('the run results card (design §8.2, #213)', () => {
     won: 1, lost: 0, avoided: 0, kills: 2, hpIn: 100, hpOut: 80, flawless: false, overtime: n > 6, points: 100, ...p,
   });
   const story = (n: number, p: Partial<RunStory> = {}): RunStory => ({
-    sectors: Array.from({ length: n }, (_, i) => tile(i + 1)), situations: [], overtimeSectors: Math.max(0, n - 6), banked: null, won: n, lost: 0, ...p,
+    sectors: Array.from({ length: n }, (_, i) => tile(i + 1)), situations: [], overtimeSectors: Math.max(0, n - 6), banked: null, total: null, won: n, lost: 0, ...p,
   });
   const make = (st: RunStats, rs: RunStory | undefined, extra: object = {}) =>
     buildCard({ stats: st, split: null, score: 9000, rating: null, pb: null, medals: [], story: rs, ...extra });
@@ -396,8 +396,11 @@ describe('the run results card (design §8.2, #213)', () => {
     expect(depthLabel(story(6, { sectors: Array.from({ length: 6 }, (_, i) => tile(i + 1, { cleared: i < 5 })) }), 'death')).toBe('Fell in the Finale');
     expect(depthLabel(story(6), 'left')).toBe('Finale cleared');
     expect(depthLabel(story(9), 'death')).toBe('Overtime 3');
-    expect(depthLabel(story(4), 'left')).toBe('Route cleared, 4 sectors');
     expect(depthLabel(story(4), 'quit')).toBe('Sector 4 of 6');
+    // A shorter route (the run director's v0 reports four sectors): n of total, and leaving at its end clears it.
+    expect(depthLabel(story(4, { total: 4 }), 'left')).toBe('Route cleared, 4 sectors');
+    expect(depthLabel(story(3, { total: 4 }), 'death')).toBe('Sector 3 of 4');
+    expect(depthLabel(story(2, { total: 4 }), 'quit')).toBe('Sector 2 of 4');
   });
 
   it('puts the end label, death cause and Overtime banked or lost in the header', () => {

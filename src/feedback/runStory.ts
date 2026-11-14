@@ -26,7 +26,7 @@ export type ContactOutcome = 'cleared' | 'disengaged' | 'avoided' | 'died';
 /** The payloads the story reads: the subset of design §14.3 it needs, typed structurally. */
 export interface StoryEvents {
   runReady: { mode: string; seed: number; dial: number };
-  sectorEntered: { sectorId: string; index: number; role: string; condition?: string; stake?: string; dial?: number };
+  sectorEntered: { sectorId: string; index: number; of?: number; role: string; condition?: string; stake?: string; dial?: number };
   sectorEnded: { sectorId: string; cleared: boolean; keptSector?: number; tempo?: boolean; points?: number };
   contactSettled: { contactId: number; outcome: ContactOutcome; kept: number; points: number; card?: string };
   playerDamaged: { hp: number; shield: number };
@@ -85,6 +85,8 @@ export interface SituationRow {
 export interface RunStory {
   sectors: SectorTile[];
   situations: SituationRow[];
+  /** Sectors in the run's route as the run director reported them (`sectorEntered.of`); null when it never did. */
+  total: number | null;
   /** Overtime sectors entered (0 when the run never went past the route's last sector). */
   overtimeSectors: number;
   /** Points a Leave gate banked, from `runBanked`; null when none was reported. */
@@ -123,6 +125,7 @@ export class RunStoryTracker {
   private current: MutableTile | null = null;
   private hp: number;
   private banked: number | null = null;
+  private total: number | null = null;
   private won = 0;
   private lost = 0;
 
@@ -136,6 +139,7 @@ export class RunStoryTracker {
     this.current = null;
     this.hp = this.cfg.startHp;
     this.banked = null;
+    this.total = null;
     this.won = 0;
     this.lost = 0;
   }
@@ -184,6 +188,7 @@ export class RunStoryTracker {
   }
 
   private enter(e: StoryEvents['sectorEntered']): void {
+    if (e.of !== undefined && e.of > 0) this.total = e.of;
     // The previous sector's exit may not have been reported (the run director can chain entries):
     // close it at the HP the player walked out with.
     if (this.current && !this.current.ended) this.current.hpOut = this.hp;
@@ -279,6 +284,7 @@ export class RunStoryTracker {
       situations: Array.from(this.cards.values(), (r) => ({ ...r })),
       overtimeSectors: sectors.reduce((n, s) => n + (s.overtime ? 1 : 0), 0),
       banked: this.banked,
+      total: this.total,
       won: this.won,
       lost: this.lost,
     };
