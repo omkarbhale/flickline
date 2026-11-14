@@ -9,9 +9,10 @@ declare module '../debug/hook' {
     /**
      * Add a target and return its id (-1 if the registry is full). `pos` is `{x,y,z}` or `[x,y,z]`
      * in metres: a Post's feet centre, a Beacon's centre. `opts.crouched` poses a Post crouched;
-     * `opts.lifetimeSec` makes it expire (`targetExpired`).
+     * `opts.lifetimeSec` makes it expire (`targetExpired`); `opts.shield` gives a Post that many shield
+     * points (default: the run's economy, see `shields`).
      */
-    spawn(kind: TargetKind, pos: Vec3Like, opts?: { crouched?: boolean; lifetimeSec?: number }): number;
+    spawn(kind: TargetKind, pos: Vec3Like, opts?: { crouched?: boolean; lifetimeSec?: number; shield?: number }): number;
     /** Remove a target without a kill (emits `targetExpired`). */
     despawn(id: number): boolean;
     /** Point the view at the centre of a zone of a live target. Returns false for an unknown id. */

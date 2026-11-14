@@ -175,6 +175,7 @@ export class Game {
       settings: s.hud,
       weapon: this.world.weapon,
       weapons: this.tunables.weapon,
+      health: this.world.health,
     }, {
       options: this.feedbackOptions,
       cfg: this.tunables.feedback,
@@ -597,7 +598,7 @@ export class Game {
       targets: w.targets
         .filter((t) => t.alive)
         .map((t) => ({
-          id: t.id, kind: t.kind, pos: { ...t.pos }, hp: t.hp, crouched: t.crouched, radius: t.radius,
+          id: t.id, kind: t.kind, pos: { ...t.pos }, hp: t.hp, shield: t.shield, crouched: t.crouched, radius: t.radius,
           visible: t.visibleTick >= 0, bullets: t.bullets,
         })),
       session: { shots: this.session.shots, hits: this.session.hits, kills: this.session.kills },
