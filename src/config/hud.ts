@@ -17,8 +17,6 @@ export interface HudTunables {
   /** HUD scale limits (the scale slider and the sanitiser). */
   scaleMin: number;
   scaleMax: number;
-  /** Capacity of the per-run median buffers (RT and TTK samples); a run never produces more kills than this. */
-  medianCapacity: number;
   /** Chain counter: shown from this many kills (a lone kill is a chain of 1 and not worth a callout). */
   chainShowFrom: number;
   /** Chain callout names by count (design §7.3); counts beyond the table use the last entry. */
@@ -36,7 +34,6 @@ export const hud: HudTunables = {
   ghostRefreshHz: 10,
   scaleMin: 0.6,
   scaleMax: 1.6,
-  medianCapacity: 1024,
   chainShowFrom: 2,
   chainLabels: ['', '', 'PAIR', 'TRIPLE', 'QUAD', 'SURGE CHAIN'],
   timerTenthsBelowSec: 10,

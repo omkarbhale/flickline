@@ -1,94 +1,58 @@
 import { describe, expect, it } from 'vitest';
 import { EventBus } from '../core/eventBus';
-import { SortedSamples } from '../core/sortedSamples';
 import { hud } from '../config/hud';
 import type { ModeEvents } from '../modes/contracts';
 import type { SimEvents } from '../sim/types';
 import { EdgeMeter } from './edgeMeter';
 import { NO_PERSONAL_BEST, paceFraction } from './ghostPace';
-import { LiveStats } from './liveStats';
+import { TrackerHudStats } from './hudStats';
+import type { RunStats } from './statTracker';
 
 type Ev = SimEvents & ModeEvents;
 
-const shot = (moving: boolean) => ({ moving }) as unknown as SimEvents['shotFired'];
-const hit = (zone: 'head' | 'body' | 'leg') => ({ zone }) as unknown as SimEvents['targetHit'];
-const kill = (rtMs: number, ttkMs: number) => ({ rtMs, ttkMs }) as unknown as SimEvents['targetKilled'];
 const trial = (success: boolean) => ({ success }) as unknown as ModeEvents['skillTrial'];
 
-describe('SortedSamples', () => {
-  it('keeps samples ordered and reports the median (mean of the middle two when even)', () => {
-    const s = new SortedSamples(8);
-    expect(s.median()).toBeNaN();
-    for (const v of [5, 1, 9, 3]) s.add(v);
-    expect(s.count).toBe(4);
-    expect(s.median()).toBe(4);
-    s.add(7);
-    expect(s.median()).toBe(5);
-    s.clear();
-    expect(s.count).toBe(0);
-  });
-  it('ignores NaN and anything past its capacity', () => {
-    const s = new SortedSamples(2);
-    s.add(NaN);
-    s.add(10);
-    s.add(20);
-    s.add(1000);
-    expect(s.count).toBe(2);
-    expect(s.median()).toBe(15);
-  });
-  it('handles duplicates', () => {
-    const s = new SortedSamples(8);
-    for (const v of [2, 2, 2, 8]) s.add(v);
-    expect(s.median()).toBe(2);
-  });
-});
+describe('TrackerHudStats (the stat strip source)', () => {
+  const stats = (over: Partial<RunStats> = {}): RunStats => ({
+    shots: 0, hits: 0, movingShots: 0, accuracy: null, headshotRate: null, medianRtMs: null, medianTtkMs: null, ...over,
+  }) as RunStats;
 
-describe('LiveStats (the stat strip source)', () => {
-  function setup() {
+  it('maps the tracker\'s null (no data) to NaN so the HUD shows a dash', () => {
+    const h = new TrackerHudStats({ liveStats: () => stats() });
+    expect(h.accuracy).toBeNaN();
+    expect(h.headshotRate).toBeNaN();
+    expect(h.medianRtMs).toBeNaN();
+    expect(h.medianTtkMs).toBeNaN();
+    expect(h.shots).toBe(0);
+  });
+
+  it('passes the tracker figures through unchanged (no stat is computed here)', () => {
+    const h = new TrackerHudStats({ liveStats: () => stats({ shots: 4, movingShots: 1, accuracy: 0.75, headshotRate: 2 / 3, medianRtMs: 210, medianTtkMs: 410 }) });
+    expect(h.shots).toBe(4);
+    expect(h.movingShots).toBe(1);
+    expect(h.accuracy).toBe(0.75);
+    expect(h.headshotRate).toBeCloseTo(2 / 3);
+    expect(h.medianRtMs).toBe(210);
+    expect(h.medianTtkMs).toBe(410);
+  });
+
+  it('takes one snapshot per batch of events, however many figures are read', () => {
+    let calls = 0;
     const bus = new EventBus<Ev>();
-    const st = new LiveStats(hud);
-    st.attach(bus);
-    return { bus, st };
-  }
-
-  it('has no data before the first shot or kill', () => {
-    const { st } = setup();
-    expect(st.accuracy).toBe(0);
-    expect(st.headshotRate).toBe(0);
-    expect(st.medianRtMs).toBeNaN();
-    expect(st.medianTtkMs).toBeNaN();
-    expect(st.movingShots).toBe(0);
-  });
-
-  it('accuracy = hits / shots, headshot rate = head hits / hits, moving shots counted at fire time', () => {
-    const { bus, st } = setup();
-    for (const m of [false, false, true, false]) bus.emit('shotFired', shot(m));
-    bus.emit('targetHit', hit('head'));
-    bus.emit('targetHit', hit('body'));
-    bus.emit('targetHit', hit('head'));
-    expect(st.shots).toBe(4);
-    expect(st.accuracy).toBeCloseTo(0.75);
-    expect(st.headshotRate).toBeCloseTo(2 / 3);
-    expect(st.movingShots).toBe(1);
-  });
-
-  it('medians come from kills; unmeasured (negative) reaction times are not samples', () => {
-    const { bus, st } = setup();
-    bus.emit('targetKilled', kill(180, 0));
-    bus.emit('targetKilled', kill(-1, 410));
-    bus.emit('targetKilled', kill(240, 820));
-    expect(st.medianRtMs).toBe(210);
-    expect(st.medianTtkMs).toBe(410);
-  });
-
-  it('resets when a run is readied', () => {
-    const { bus, st } = setup();
-    bus.emit('shotFired', shot(true));
-    bus.emit('targetKilled', kill(200, 300));
+    const h = new TrackerHudStats({ liveStats: () => { calls++; return stats({ shots: calls }); } });
+    h.attach(bus as never);
+    void h.accuracy; void h.medianRtMs; void h.shots;
+    expect(calls).toBe(1);
+    bus.emit('shotFired', {} as never);
+    void h.accuracy; void h.medianRtMs;
+    expect(calls).toBe(2);
+    bus.emit('targetKilled', {} as never);
     bus.emit('runReady', { tick: 0, mode: 'test', seed: 1, dial: 50 });
-    expect(st.shots).toBe(0);
-    expect(st.movingShots).toBe(0);
-    expect(st.medianRtMs).toBeNaN();
+    void h.shots;
+    expect(calls).toBe(3);
+    h.invalidate();
+    void h.shots;
+    expect(calls).toBe(4);
   });
 });
 

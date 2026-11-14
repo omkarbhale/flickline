@@ -3,7 +3,7 @@ import type { HudTunables } from '../config/hud';
 import type { WeaponTable } from '../config/weapon';
 import type { EdgeMeter } from '../feedback/edgeMeter';
 import { NO_PERSONAL_BEST, paceFraction, type PersonalBestSource } from '../feedback/ghostPace';
-import type { HudStatsSource } from '../feedback/liveStats';
+import type { HudStatsSource } from '../feedback/hudStats';
 import type { ModeEvents } from '../modes/contracts';
 import { HUD_ELEMENTS, HUD_LABELS, type HudElementId, type HudSettings } from '../settings/hud';
 import type { SettingsEvents } from '../settings/settings';
@@ -11,6 +11,7 @@ import type { SimEvents, WeaponState } from '../sim/types';
 import {
   chainText, formatClock, formatDelta, formatMs, formatMult, formatPercent, formatScore, formatSeconds, formatTenths,
 } from './format';
+import { restartAnimation as restart } from './restartAnimation';
 
 /** The run clock the timer reads (the mode host satisfies it). */
 export interface HudClock {
@@ -284,10 +285,10 @@ export class LiveHud {
     const s = this.d.stats;
     const k = this.statKey;
     // Keys are the displayed figure (-1 = no data), so a string is built only when it changes.
-    const acc = s.shots === 0 ? -1 : Math.round(s.accuracy * 100);
-    if (force || acc !== k.acc) { k.acc = acc; this.statV.acc.textContent = formatPercent(acc < 0 ? NaN : s.accuracy); }
-    const hs = s.hits === 0 ? -1 : Math.round(s.headshotRate * 100);
-    if (force || hs !== k.hs) { k.hs = hs; this.statV.hs.textContent = formatPercent(hs < 0 ? NaN : s.headshotRate); }
+    const acc = s.accuracy >= 0 ? Math.round(s.accuracy * 100) : -1;
+    if (force || acc !== k.acc) { k.acc = acc; this.statV.acc.textContent = formatPercent(s.accuracy); }
+    const hs = s.headshotRate >= 0 ? Math.round(s.headshotRate * 100) : -1;
+    if (force || hs !== k.hs) { k.hs = hs; this.statV.hs.textContent = formatPercent(s.headshotRate); }
     const rt = s.medianRtMs >= 0 ? Math.round(s.medianRtMs) : -1;
     if (force || rt !== k.rt) { k.rt = rt; this.statV.rt.textContent = formatMs(s.medianRtMs); }
     const ttk = s.medianTtkMs >= 0 ? Math.round(s.medianTtkMs / 10) : -1;
@@ -402,21 +403,5 @@ export class LiveHud {
   private applySettings(h: Readonly<HudSettings>): void {
     for (const id of HUD_ELEMENTS) this.el[id].hidden = !h.show[id];
     this.root.style.setProperty('--hud-scale', String(h.scale));
-  }
-}
-
-/**
- * Restart a CSS animation without forcing layout: alternate between two class names whose keyframes
- * are identical (`<name>-a` / `<name>-b`); changing the animation name restarts it.
- */
-function restart(el: HTMLElement, name: string): void {
-  const a = `${name}-a`;
-  const b = `${name}-b`;
-  if (el.classList.contains(a)) {
-    el.classList.remove(a);
-    el.classList.add(b);
-  } else {
-    el.classList.remove(b);
-    el.classList.add(a);
   }
 }
