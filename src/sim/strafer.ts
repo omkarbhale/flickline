@@ -1,8 +1,9 @@
 import type { StraferTunables } from '../config/enemies';
 import { moveTowards } from '../core/math';
 import { TICK_DT } from '../core/time';
+import { arriveStep, walkReach } from './arrival';
 import { FIRE_WAIT, type EnemyAi, type StrafeParams } from './enemyAi';
-import { fireBusy, fireStep } from './enemyFire';
+import { fireBusy, fireStep, seesPlayer } from './enemyFire';
 import {
   fsmSetTimerRange, fsmSetTimerTicks, STAY, type Behaviour, type BehaviourContext, type BehaviourState,
 } from './fsm';
@@ -23,6 +24,8 @@ import type { TargetState } from './types';
 export const STRAFER_LEG = 0;
 export const STRAFER_DECEL = 1;
 export const STRAFER_STAND = 2;
+/** Walking its route in (hold sectors, `sim/arrival.ts`): the state of an arriving Strafer until it hands over to the legs. */
+export const STRAFER_ARRIVE = 3;
 
 /** Distance the braking bands cover from cruise speed `v`, metres (spec §2.3 bands scaled by v / ref speed). */
 export function brakeDistance(v: number, cfg: StraferTunables): number {
@@ -93,6 +96,53 @@ function room(a: EnemyAi, dir: number): number {
   return dir > 0 ? a.laneLen - a.s : a.s;
 }
 
+/** Metres between the samples of the lane's wall test. */
+const LANE_STEP_M = 0.25;
+
+/**
+ * The strafe lane of an arrival that has stopped walking: through where it stands, square to the way
+ * it was heading (to the way to the player when it has him in its sights), as long each way as it can
+ * walk without meeting a wall. In a corridor too narrow to strafe across it strafes along it.
+ */
+function laneHere(t: TargetState, ctx: BehaviourContext): void {
+  const a = t.ai;
+  const cfg = ctx.tunables.enemies.strafer;
+  const hull = ctx.tunables.movement.hullHalfWidth;
+  const boxes = ctx.world.boxes;
+  let hx = a.headX, hz = a.headZ;
+  if (seesPlayer(t, ctx)) {
+    const p = ctx.world.player;
+    const dx = p.pos.x - t.pos.x, dz = p.pos.z - t.pos.z;
+    const l = Math.sqrt(dx * dx + dz * dz);
+    if (l > 1e-6) { hx = dx / l; hz = dz / l; }
+  }
+  let ax = -hz, az = hx;
+  let fwd = walkReach(boxes, hull, t.pos.x, t.pos.y, t.pos.z, ax, az, cfg.freeHalfRangeM, LANE_STEP_M);
+  let back = walkReach(boxes, hull, t.pos.x, t.pos.y, t.pos.z, -ax, -az, cfg.freeHalfRangeM, LANE_STEP_M);
+  if (fwd + back < cfg.minLegRoomM * 2) {
+    ax = hx; az = hz;
+    fwd = walkReach(boxes, hull, t.pos.x, t.pos.y, t.pos.z, ax, az, cfg.freeHalfRangeM, LANE_STEP_M);
+    back = walkReach(boxes, hull, t.pos.x, t.pos.y, t.pos.z, -ax, -az, cfg.freeHalfRangeM, LANE_STEP_M);
+  }
+  a.axis.x = ax; a.axis.y = 0; a.axis.z = az;
+  a.laneOrigin.x = t.pos.x - ax * back; a.laneOrigin.y = t.pos.y; a.laneOrigin.z = t.pos.z - az * back;
+  a.laneLen = fwd + back;
+  a.s = back;
+  a.vel = 0;
+  a.brakeFrom = 0;
+  placeOnLane(t);
+}
+
+const arrive: BehaviourState = {
+  name: 'arrive',
+  update(t, ctx) {
+    if (!arriveStep(t, ctx, true)) return STAY;
+    t.ai.arriving = false;
+    laneHere(t, ctx);
+    return STRAFER_LEG;
+  },
+};
+
 const leg: BehaviourState = {
   name: 'leg',
   enter(t, ctx) {
@@ -114,7 +164,9 @@ const leg: BehaviourState = {
   update(t, ctx) {
     const a = t.ai;
     const cfg = ctx.tunables.enemies.strafer;
-    a.vel = moveTowards(a.vel, a.dir * a.speed, (a.speed / cfg.accelSec) * TICK_DT);
+    // An arrival that has not told the player it is here yet runs its legs (steps that carry) rather than walks them.
+    const cruise = a.honest && a.audibleTick < 0 && t.visibleTick < 0 ? Math.max(a.speed, ctx.tunables.audio.enemy.silentBelowMps + 0.4) : a.speed;
+    a.vel = moveTowards(a.vel, a.dir * cruise, (cruise / cfg.accelSec) * TICK_DT);
     advance(t);
     fireStep(t, ctx, false);
     // On its route it keeps moving through its reaction to the player (first sight to the tell), then brakes so the tell starts in the stop.
@@ -174,6 +226,7 @@ const stand: BehaviourState = {
 
 export const straferBehaviour: Behaviour = {
   name: 'strafer',
-  states: [leg, decel, stand],
+  states: [leg, decel, stand, arrive],
   initial: STRAFER_LEG,
+  arrive: STRAFER_ARRIVE,
 };

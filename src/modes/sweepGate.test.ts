@@ -15,8 +15,9 @@ const env = sweepEnv(tunables);
 /** A mix of both doors, by seed and depth. */
 const mixed = (seed: number) => (_g: GatePlan, plan: RunPlan): 0 | 1 => ((seed + plan.sectors.length) & 1) as 0 | 1;
 const echoesOf = (d: DoorPlan): number => d.sector.contacts.reduce((n, c) => n + c.echoes.length, 0);
-/** Echoes the door can claim to hear: every one but a meet group that walks (walking is silent, design 4.4). */
-const audibleOf = (d: DoorPlan): number => d.sector.contacts.reduce((n, c) => n + c.echoes.filter((e) => e.gait !== 'walk').length, 0);
+/** Echoes the door can claim to hear: every one but a meet group or a hold arrival that walks (walking is silent, design 4.4). */
+const audibleOf = (d: DoorPlan): number =>
+  d.sector.contacts.reduce((n, c) => n + c.echoes.filter((e) => e.gait !== 'walk' && (e.arrive === undefined || e.arrive.running)).length, 0);
 /** The bucket by the design's words (§4.5), written out here so the test does not lean on the code it checks. */
 const bucketOf = (n: number): 'quiet' | 'few' | 'several' => (n === 0 ? 'quiet' : n <= 2 ? 'few' : 'several');
 
@@ -39,7 +40,8 @@ describe('gate doors (#205)', () => {
           expect(d.facts.stake).toBe(d.sector.stake);
           expect(d.facts.arms).toBe(d.sector.arms);
           expect(d.facts.sightline).toBe(d.sector.sightlineM >= cfg.gate.longSightlineM ? 'long' : 'close');
-          // "From the same audio radii the fights use": every Echo of the sector is inside the footstep radius of its entry.
+          // "From the same audio radii the fights use": every audible Echo of the sector is inside the footstep radius of its entry
+          // (a hold arrival counts where its run ends).
           expect(heardCount(d.sector, tunables.audio.enemy.maxAudibleM)).toBe(n);
           roles.add(d.sector.role);
           buckets.add(d.facts.heard);
@@ -51,8 +53,8 @@ describe('gate doors (#205)', () => {
     expect(doors).toBe(500 * 2 * (cfg.sectors - 1));
     // Every bucket the design names is seen: the facts are not a constant.
     expect([...buckets].sort()).toEqual(['few', 'quiet', 'several']);
-    expect([...roles].sort()).toEqual(['meet', 'take']);
-  });
+    expect([...roles].sort()).toEqual(['hold', 'meet', 'take']);
+  }, 30_000);
 
   it('in the sim, over 60 seeds: the sector a door leads to is entered as shown (role, stake, Echoes placed in the world, heard bucket)', () => {
     for (let seed = 1; seed <= 60; seed++) {
@@ -67,6 +69,7 @@ describe('gate doors (#205)', () => {
       for (let k = 0; k < 140; k++) g.advance(input);
       for (let depth = 1; depth < cfg.sectors && g.run.state !== 'result'; depth++) {
         const sp = st().plan.sectors[st().sector]!;
+        if (sp.role === 'hold') st().exitOpen = true; // a hold's exit opens when its Echoes are dead (#204)
         g.world.placePlayer(sp.exit.x, sp.exit.y, sp.exit.z, 0);
         g.advance(input);
         const gate = st().gate!;
@@ -85,8 +88,11 @@ describe('gate doors (#205)', () => {
         expect(e.role).toBe(shown.facts.role);
         expect(e.stake).toBe(shown.facts.stake);
         expect(e.arms).toBe(shown.facts.arms ?? '');
-        expect(e.echoes).toBe(echoesOf(shown));
-        expect(g.world.targets.filter((t) => t.alive)).toHaveLength(e.echoes);
+        // What the door showed, plus the survivors of the sector just left that followed (up to `follow.max`, arriving later).
+        expect(e.echoes).toBeGreaterThanOrEqual(echoesOf(shown));
+        expect(e.echoes).toBeLessThanOrEqual(echoesOf(shown) + cfg.follow.max);
+        // A hold's Echoes (and any follower's) are not in the world yet: they arrive.
+        expect(g.world.targets.filter((t) => t.alive)).toHaveLength(shown.facts.role === 'hold' ? 0 : echoesOf(shown));
         expect(heardBucket(audibleOf(shown), cfg)).toBe(shown.facts.heard);
         expect(g.modes.currentMap.id).toBe(shown.sector.mapId);
       }
@@ -148,7 +154,7 @@ describe('gate doors (#205)', () => {
 
   it('candidates: never the sector just played nor the other door\'s, on another map when the pool has one, else with the other sightline', () => {
     const src = (mapId: string, id: string, role: string, sightlineM: number): SectorSource =>
-      ({ mapId, id, roles: [role], entry: { x: 0, y: 0, z: 0 }, entryYaw: 0, exit: { x: 1, y: 0, z: 0 }, sightlineM, spots: [], visible: () => false, walkable: () => true });
+      ({ mapId, id, roles: [role], entry: { x: 0, y: 0, z: 0 }, entryYaw: 0, exit: { x: 1, y: 0, z: 0 }, sightlineM, spots: [], approaches: [], visible: () => false, walkable: () => true, route: (_f, t) => [t] });
     const a = src('m1', 'a', 'take', 10), b = src('m1', 'b', 'take', 25), c = src('m2', 'c', 'take', 12), d = src('m1', 'd', 'take', 12);
     const cur = { mapId: 'm1', sectorId: 'a' } as RunPlan['sectors'][number];
     const rng = new Rng(1);

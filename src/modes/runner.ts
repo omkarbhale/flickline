@@ -393,7 +393,7 @@ export class ModeRunner implements ModeContext<unknown> {
       return -1;
     }
     const scale = Math.max(opts?.scale ?? 1, fl.minTargetScale);
-    const echo = opts && (opts.peek || opts.fire || opts.crouched) ? opts : undefined;
+    const echo = opts && (opts.peek || opts.fire || opts.crouched || opts.arrive) ? opts : undefined;
     const id = this.deps.spawner.spawn(kind, pos, scale, opts?.strafe, opts?.durable, echo);
     if (id < 0) {
       this.refusedSpawns++;

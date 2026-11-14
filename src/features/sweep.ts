@@ -35,6 +35,8 @@ declare module '../debug/hook' {
       state(): unknown;
       plan(seed?: number, lean?: readonly string[]): unknown;
       toExit(): boolean;
+      /** Shoot every live Echo dead with a headshot (a stand-in for a perfect player); returns how many fell. A hold sector's exit opens when the last is gone. */
+      killAll(): number;
       gate(): unknown;
       choose(door: 0 | 1, ticks?: number): unknown;
       walk(maxTicks?: number, stopAtM?: number): { ticks: number; seen: number };
@@ -144,13 +146,18 @@ export const feature = defineFeature({
       armed = false;
       exitAt = performance.now();
     });
+    /** The label's words: the sector's place in the run, its role and condition (a hold's exit is shut until its Echoes are dead). */
+    const sectorLabel = (index: number, of: number, role: string, condition: string, open: boolean): string => {
+      const word = game.tunables.results.conditionLabels[condition as 'full' | 'light' | 'eco'] ?? '';
+      return `Sector ${index + 1} / ${of}` + (index === of - 1 ? ' \u00b7 Finale' : '') + ` \u00b7 ${role}` + (word ? ` \u00b7 ${word}` : '') + (open ? ' \u00b7 exit open' : '');
+    };
     game.bus.on('sectorEntered', (e) => {
       const st = state();
       const sp = st?.plan.sectors[e.index];
       gateView.hide();
-      if (sp) marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
-      const word = game.tunables.results.conditionLabels[e.condition] ?? '';
-      label.textContent = `Sector ${e.index + 1} / ${e.of} · ${e.role}` + (word ? ` · ${word}` : '');
+      // A take's or meet's exit is open from the first tick; a hold's opens when its Echoes are dead (`sectorExitOpened`).
+      if (sp && e.role !== 'hold') marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
+      label.textContent = sectorLabel(e.index, e.of, e.role, e.condition, false);
       label.style.opacity = '0.9';
       hideBanner();
       const copy = cfg.conditionCopy[e.condition as 'full' | 'light' | 'eco'];
@@ -169,6 +176,13 @@ export const feature = defineFeature({
       }
       lastSector = e.sectorId;
       lastMap = e.mapId;
+    });
+    game.bus.on('sectorExitOpened', (e) => {
+      const st = state();
+      const sp = st?.plan.sectors[e.index];
+      if (!st || !sp) return;
+      marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
+      label.textContent = sectorLabel(e.index, game.tunables.sweep.sectors, 'hold', sp.condition, true);
     });
     game.onFrameEnd(() => {
       if (!awaitFrame || !pending) return;
@@ -232,7 +246,7 @@ export const feature = defineFeature({
             mapId: game.modes.currentMap.id,
             won: st.won,
             lost: st.lost,
-            contacts: st.contacts.map((c) => ({ card: c.plan.card, open: c.open, alive: c.alive, echoes: c.echoIds.slice(), engaged: c.engaged, trials: c.trials })),
+            contacts: st.contacts.map((c) => ({ card: c.plan.card, open: c.open, alive: c.alive, pending: c.pending, echoes: c.echoIds.slice(), engaged: c.engaged, trials: c.trials })),
             // Skill matching (#203): the sector's dial, the matched dial behind it, the fight track and the placing Opener's staircase.
             dial: {
               sector: st.dial.dial, matched: st.dial.matched, placing: st.dial.placing, openerStage: st.openerStage, openerFought: st.openerFought,
@@ -276,6 +290,18 @@ export const feature = defineFeature({
           game.world.placePlayer(sp.exit.x, sp.exit.y, sp.exit.z, game.world.player.yaw);
           game.step(1);
           return true;
+        },
+        killAll() {
+          if (!state()) return 0;
+          const field = game.world.targetField;
+          let n = 0;
+          for (let slot = 0; slot < field.slots.length; slot++) {
+            const t = field.slots[slot]!;
+            if (!t.alive) continue;
+            field.applyHit(slot, 'head', t.pos, 10, 1e6, game.world.tick, game.bus);
+            n++;
+          }
+          return n;
         },
         timeMapSwitch(mapId) {
           const before = game.modes.currentMap.id;
