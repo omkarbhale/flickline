@@ -3,7 +3,7 @@ import { vec3 } from '../core/vec3';
 import { SectorDial } from '../adaptive/sectorDial';
 import { SKILL_IDS } from '../config/dial';
 import type { EnemyKind } from '../config/scoring';
-import { sweep as sweepDefaults, type SweepCard } from '../config/sweep';
+import { sweep as sweepDefaults, type SectorRole, type SweepCard } from '../config/sweep';
 import type { Tunables } from '../config/tunables';
 import { createContactSettle, settleContact, type ContactFacts } from '../feedback/contactScore';
 import { difficultyMultiplier } from '../feedback/scoring';
@@ -13,14 +13,19 @@ import type { SkillId } from './contracts';
 import { ContactTrials, type SightQuery, type TrialSink } from './contactTrials';
 import type { ModeContext, ModeDef, ModeEvent } from './modeDef';
 import { sectorCatalog } from './sweepCatalog';
-import { perSector, planRun, type ContactPlan, type EchoPlan, type GatePlan, type RunPlan, type SectorPlan, type SectorSource } from './sweepDirector';
+import { perSector, planFollowers, planRun, type ContactPlan, type EchoPlan, type GatePlan, type RunPlan, type SectorPlan, type SectorSource } from './sweepDirector';
 import { NO_LEAN, leanedSweep, type Lean } from './lean';
 import { commitGate, planGate, type GateEnv } from './sweepGate';
 
 /**
- * Sweep, the run (design §4; v0 is #201): a seeded chain of take sectors across the sector maps.
- * Echoes are placed on each sector's hold anchors the moment the player is put at its entry, out of
- * the player's sight (`sweepDirector.ts`); every fight is a **contact** dealt from a scenario card, tracked
+ * Sweep, the run (design §4; v0 is #201, hold sectors and the Finale #204): six sectors across the sector
+ * maps, each a take, a hold or a meet (`sweepDirector.ts`).
+ * - **Take**: Echoes are placed on the sector's hold anchors the moment the player is put at its entry,
+ *   out of the player's sight. Walking into the exit ends the sector; survivors of fights follow.
+ * - **Hold**: the sector starts empty and its contacts **arrive** along its approach lanes at the
+ *   planned times (`ArrivePlan`); the exit opens when every Echo of the sector is dead. A flank is
+ *   armed only when the contact before it was won.
+ * Every fight is a **contact** dealt from a scenario card, tracked
  * from the first information either side has to its end and settled once (design §2.3, §8.1).
  * Health and shield carry from sector to sector (the world is never reset inside a run; kills heal,
  * the sim does that). Walking into a sector's exit ends it and puts the player in a **gate** (#205,
@@ -44,10 +49,16 @@ interface ContactRt {
   /** Settle id of the current opening (a contact the player left and came back to opens again with a new id); -1 while closed. */
   id: number;
   open: boolean;
-  /** Target ids of its Echoes (-1: refused at spawn) and their kinds, index for index. */
+  /** Target ids of its Echoes (-1: refused at spawn, `NOT_YET`: it arrives later) and their kinds, index for index. */
   echoIds: number[];
   kinds: EnemyKind[];
   alive: number;
+  /** Echoes that have not arrived yet (hold sectors, followers). */
+  pending: number;
+  /** A flank: the tick the contact before it was won, -1 until then (its Echoes count their `atSec` from it). */
+  armedTick: number;
+  /** An arrival due while its lane start is in the player's sight waits: the tick it first was due and blocked, 0 = not blocked. */
+  deferredAt: number[];
   /** Health+shield when it opened and what the player lost since. */
   startEhp: number;
   damage: number;
@@ -81,8 +92,25 @@ export interface GateRt {
 /** Who first dropped to counter-strafe speed in a meet contact (design §4.2). */
 type StopFirst = 'none' | 'player' | 'echo' | 'both';
 
+/** An Echo of a hold contact that has not spawned yet. */
+const NOT_YET = -2;
+
 export interface SweepState {
   plan: RunPlan;
+  /** The role the current sector plays. */
+  role: SectorRole;
+  /** Sim tick the current sector began on. */
+  sectorTick0: number;
+  /** Hold: every Echo of the sector is dead (or the fallback ran out) and the exit is open. */
+  exitOpen: boolean;
+  /** Hold: tick after which the exit opens whatever is alive (a stuck Echo must not hold the run). */
+  exitFallbackTick: number;
+  /** Contacts won in the current sector (a flank follows only a won contact). */
+  wonSector: number;
+  /** Survivors that follow the player into the next sector, set when a sector is left. */
+  carry: { count: number; won: boolean } | null;
+  /** Index the next contact planned at run time (a follower's) takes, after the plan's own. */
+  nextPlanIndex: number;
   /** The gate drawn for the sector after this one (drawn when this one is entered, under the fade), or null after the last. */
   nextGate: GatePlan | null;
   /** In a gate: its doors and the choice. Null while a sector plays. */
@@ -114,6 +142,8 @@ export interface SweepState {
 const settle = createContactSettle();
 const facts: ContactFacts & { kinds: EnemyKind[] } = { kinds: [], dial: 50, startEhp: 0, damageTaken: 0, allDead: false, died: false };
 const body = vec3();
+const exitOpenedEv: SectorEvents['sectorExitOpened'] = { tick: 0, t: 0, sectorId: '', index: 0 };
+const probe = vec3();
 const enteredEv: SectorEvents['sectorEntered'] = {
   tick: 0, t: 0, sectorId: '', mapId: '', index: 0, opener: false, of: 0, role: 'take', condition: 'full', stake: 'plain', arms: '', dial: 0, depth: 1, contacts: 0, echoes: 0,
 };
@@ -131,6 +161,11 @@ let catalogCache: { tunables: Tunables; sectors: SectorSource[] } | null = null;
 export function sweepCatalog(tunables: Tunables): SectorSource[] {
   if (catalogCache?.tunables !== tunables) catalogCache = { tunables, sectors: sectorCatalog(Object.values(MAPS), tunables) };
   return catalogCache.sectors;
+}
+
+/** The catalog entry of a planned sector. */
+function sourceOf(tunables: Tunables, mapId: string, sectorId: string): SectorSource | undefined {
+  return sweepCatalog(tunables).find((x) => x.mapId === mapId && x.id === sectorId);
 }
 
 /** What the gate planner reads: the catalog, the tunables, how far Echoes are heard (the fights' radius) and the starting primary. */
@@ -188,8 +223,10 @@ function spawnEcho(ctx: ModeContext<SweepState>, c: ContactRt, e: EchoPlan): num
   const a = ctx.axes;
   const cfg = ctx.tunables.sweep;
   const fire = { tellSec: a.tellSec!, reactionSec: a.enemyReactionSec!, hitChance: a.enemyHitChance!, expectation: e.expectation };
-  // No trial per Echo: the contact's facts are classified into trials (`contactTrials.ts`).
-  const common = { fire, crouched: e.crouched, card: c.plan.card, placed: true, trial: false };
+  const arrive = e.arrive ? { route: e.arrive.route, speed: e.arrive.speed, engageM: e.arrive.engageM } : undefined;
+  // No trial per Echo: the contact's facts are classified into trials (`contactTrials.ts`). An arrival is out of the sector when
+  // it spawns; the fairness floors bind it as it walks in (`sim/arrival.ts`).
+  const common = { fire, crouched: e.crouched, card: c.plan.card, placed: true, trial: false, arrive };
   if (e.gait) {
     // A meet Echo: it travels its route at its gait, stops once it has reacted to the player, then strafes in stops.
     const speed = e.gait === 'run' ? cfg.meet.runSpeedMps : cfg.meet.walkSpeedMps;
@@ -207,6 +244,17 @@ function spawnEcho(ctx: ModeContext<SweepState>, c: ContactRt, e: EchoPlan): num
   });
 }
 
+/** The runtime of a contact: nothing open, nobody counted; its trials are registered with the sector's trial tracker. */
+function newContact(ctx: ModeContext<SweepState>, cp: ContactPlan, take: boolean): ContactRt {
+  const c: ContactRt = {
+    plan: cp, id: -1, open: false, echoIds: [], kinds: [], alive: 0, pending: 0, armedTick: -1, deferredAt: [], startEhp: 0, damage: 0,
+    lastSightTick: 0, engaged: false, prevX: [], prevZ: [], moved: [], playerMoved: false, stopFirst: 'none',
+    trials: 0, difficulty: ctx.itemDifficulty + ctx.tunables.trials.cardOffset[cp.card], trialIndex: -1,
+  };
+  c.trialIndex = ctx.state.trials.addContact(cp.card, c.difficulty, take);
+  return c;
+}
+
 /**
  * Put the player at the entry of `sp` (the plan of the sector entered: the opener, or the sector
  * behind the door walked through), apply its door's stake and place its Echoes (they are out of the
@@ -218,6 +266,11 @@ function enterSector(ctx: ModeContext<SweepState>, sp: SectorPlan): void {
   const i = sp.index;
   st.sector = i;
   st.gate = null;
+  st.role = sp.role;
+  st.exitOpen = sp.role !== 'hold';
+  st.exitFallbackTick = Infinity;
+  st.wonSector = 0;
+  st.sectorTick0 = ctx.simTick;
   ctx.loadMap(sp.mapId);
   ctx.placePlayer(sp.entry.x, sp.entry.y, sp.entry.z, sp.entryYaw);
   // One dial per sector (design §4.1, §9.3.2): read from the fight track here and nowhere else; a placing Opener's later
@@ -237,21 +290,38 @@ function enterSector(ctx: ModeContext<SweepState>, sp: SectorPlan): void {
   ctx.setPointsMultiplier(st.mult);
   st.contacts.length = 0;
   st.trials.reset();
+  // Survivors that followed the player here arrive as one more contact (design §4.2).
+  const plans: ContactPlan[] = sp.contacts.slice();
+  const carry = st.carry;
+  st.carry = null;
+  if (carry) {
+    const src = sourceOf(ctx.tunables, sp.mapId, sp.sectorId);
+    const f = src ? planFollowers(st.plan.seed, cfg, src, carry.count, carry.won, i, st.nextPlanIndex) : null;
+    if (f) {
+      plans.push(f);
+      st.nextPlanIndex++;
+    }
+  }
   let echoes = 0;
-  for (const cp of sp.contacts) {
-    const c: ContactRt = {
-      plan: cp, id: -1, open: false, echoIds: [], kinds: [], alive: 0, startEhp: 0, damage: 0, lastSightTick: 0, engaged: false,
-      prevX: [], prevZ: [], moved: [], playerMoved: false, stopFirst: 'none',
-      trials: 0, difficulty: ctx.itemDifficulty + ctx.tunables.trials.cardOffset[cp.card], trialIndex: -1,
-    };
-    c.trialIndex = st.trials.addContact(cp.card, c.difficulty, sp.role === 'take');
+  let lastDueSec = 0;
+  for (const cp of plans) {
+    const c = newContact(ctx, cp, sp.role === 'take');
     for (const e of cp.echoes) {
-      const id = spawnEcho(ctx, c, e);
-      c.echoIds.push(id);
       c.kinds.push(e.kind);
       c.prevX.push(e.feet.x);
       c.prevZ.push(e.feet.z);
       c.moved.push(false);
+      c.deferredAt.push(0);
+      if (e.arrive) {
+        // It arrives later: nothing is in the world yet.
+        c.echoIds.push(NOT_YET);
+        c.pending++;
+        echoes++;
+        lastDueSec = Math.max(lastDueSec, e.arrive.atSec);
+        continue;
+      }
+      const id = spawnEcho(ctx, c, e);
+      c.echoIds.push(id);
       if (id >= 0) {
         c.alive++;
         echoes++;
@@ -261,6 +331,7 @@ function enterSector(ctx: ModeContext<SweepState>, sp: SectorPlan): void {
     }
     st.contacts.push(c);
   }
+  if (sp.role === 'hold') st.exitFallbackTick = ctx.simTick + secondsToTicks(lastDueSec + cfg.hold.exitFallbackSec);
   st.entryEhp = ehp(ctx);
   st.entryScore = ctx.stats.score;
   // The gate after this sector is drawn now, while the screen is cut (it costs a few ms the first time a sector is placed).
@@ -279,9 +350,65 @@ function enterSector(ctx: ModeContext<SweepState>, sp: SectorPlan): void {
   ev.arms = sp.arms ?? '';
   ev.dial = ctx.dial;
   ev.depth = depth;
-  ev.contacts = sp.contacts.length;
+  ev.contacts = plans.length;
   ev.echoes = echoes;
   ctx.events.emit('sectorEntered', ev);
+}
+
+/** Whether the first point of an arrival's route is in line of sight of the player's eye (the Echo would pop into view). */
+function startShows(ctx: ModeContext<SweepState>, e: EchoPlan): boolean {
+  const r = e.arrive!.route[0]!;
+  probe.x = r.x;
+  probe.y = r.y + 1.4;
+  probe.z = r.z;
+  return ctx.scheduler.sightClear(ctx.scheduler.eyePosition(), probe);
+}
+
+/** Spawn the arrivals that are due: on the sector's clock, or (a flank) on the clock of the win that armed it. */
+function spawnDue(ctx: ModeContext<SweepState>): void {
+  const st = ctx.state;
+  const deferTicks = secondsToTicks(ctx.tunables.sweep.hold.deferMaxSec);
+  for (let ci = 0; ci < st.contacts.length; ci++) {
+    const c = st.contacts[ci]!;
+    if (c.pending === 0) continue;
+    if (c.plan.after !== undefined && c.armedTick < 0) {
+      const before = st.contacts[c.plan.after];
+      // A flank is armed by a contact the player won: every Echo of it dead.
+      if (before && before.pending === 0 && before.alive === 0 && before.engaged) c.armedTick = ctx.simTick;
+      else continue;
+    }
+    const base = c.plan.after !== undefined ? c.armedTick : st.sectorTick0;
+    for (let k = 0; k < c.echoIds.length; k++) {
+      if (c.echoIds[k] !== NOT_YET) continue;
+      const e = c.plan.echoes[k]!;
+      const due = base + secondsToTicks(e.arrive!.atSec);
+      if (ctx.simTick < due) continue;
+      // The lane's start in plain view: wait for the player to look away or move, a few seconds at most.
+      if (ctx.simTick < due + deferTicks && startShows(ctx, e)) {
+        if (c.deferredAt[k] === 0) c.deferredAt[k] = ctx.simTick;
+        continue;
+      }
+      const id = spawnEcho(ctx, c, e);
+      c.echoIds[k] = id;
+      c.pending--;
+      if (id >= 0) {
+        c.alive++;
+        // Joining a contact that is open: the two seconds without a sight start from now.
+        c.lastSightTick = ctx.simTick;
+        // An arrival that has stopped walking strafes (a Peeker peeks): it is a moving Echo for the fight's trials.
+        st.trials.addEcho(c.trialIndex, id, e.kind === 'strafer');
+      }
+    }
+  }
+}
+
+/** Every Echo of a hold sector has come and gone (the exit opens). */
+function allDone(st: SweepState): boolean {
+  for (let i = 0; i < st.contacts.length; i++) {
+    const c = st.contacts[i]!;
+    if (c.pending > 0 || c.alive > 0) return false;
+  }
+  return true;
 }
 
 /** The sector is left through its exit: the player is put in the gate before the next one. */
@@ -409,8 +536,10 @@ function settleOpen(ctx: ModeContext<SweepState>, c: ContactRt, died: boolean): 
   settleContact(settle, facts, ctx.tunables.scoring);
   const points = ctx.awardPoints(settle.total * st.mult);
   const lost = settle.outcome === 'died' || settle.outcome === 'disengaged';
-  if (settle.outcome === 'cleared') st.won++;
-  else if (lost) st.lost++;
+  if (settle.outcome === 'cleared') {
+    st.won++;
+    st.wonSector++;
+  } else if (lost) st.lost++;
   st.trials.settle(c.trialIndex, lost);
   // The placing Opener's staircase (design §9.2): up after two clean wins, down after a loss; a fight avoided does not count.
   if (st.openerStage >= 0 && st.dial.placing && settle.outcome !== 'avoided') {
@@ -449,6 +578,7 @@ function endSector(ctx: ModeContext<SweepState>, reason: 'exit' | 'death' | 'qui
   const cfg = ctx.tunables.sweep;
   const died = reason === 'death';
   let alive = 0;
+  let followers = 0;
   let kinds = 0;
   let base = 0;
   st.trials.flush();
@@ -461,9 +591,13 @@ function endSector(ctx: ModeContext<SweepState>, reason: 'exit' | 'death' | 'qui
       base += ctx.tunables.scoring.base[c.kinds[k]!];
       if (!ctx.targetPosition(id, body)) continue; // dead
       alive++;
+      // Echoes that fought the player and lived follow him into the next sector (design §4.2).
+      if (c.engaged) followers++;
       ctx.despawn(id);
     }
   }
+  // Echoes that fought the player and lived follow him into the next sector (design §4.2); one that never met him does not know to.
+  st.carry = reason === 'exit' && followers > 0 ? { count: Math.min(followers, cfg.follow.max), won: st.wonSector > 0 } : null;
   const kept = died || st.entryEhp <= 0 ? 0 : Math.min(1, ehp(ctx) / st.entryEhp);
   const cleared = !died && reason === 'exit' && alive === 0 && kinds > 0;
   let clearPoints = 0;
@@ -519,7 +653,8 @@ export const sweep: ModeDef<SweepState> = {
     // A new profile's first run places it inside its Opener (design §9.2); a pinned run never does.
     const placing = ctx.newProfile && !ctx.pinned;
     ctx.state = {
-      plan: sweepPlan(ctx.seed, ctx.tunables, ctx.lean, placing), nextGate: null, gate: null, mult: 1, sector: 0, contacts: [], entryEhp: 0, entryScore: 0,
+      plan: sweepPlan(ctx.seed, ctx.tunables, ctx.lean, placing), nextGate: null, gate: null, mult: 1, role: 'take', sectorTick0: 0, exitOpen: true,
+      exitFallbackTick: Infinity, wonSector: 0, carry: null, nextPlanIndex: 1000, sector: 0, contacts: [], entryEhp: 0, entryScore: 0,
       nextContactId: 0, won: 0, lost: 0, done: false, dial: new SectorDial(ctx.tunables.dial), trials: trialsFor(ctx),
       openerStage: placing ? 0 : -1, openerFought: 0,
     };
@@ -535,15 +670,29 @@ export const sweep: ModeDef<SweepState> = {
       return;
     }
     st.trials.step(ctx.simTick);
+    spawnDue(ctx);
     const holdTicks = secondsToTicks(ctx.tunables.scoring.contact.disengageSec);
     for (let i = 0; i < st.contacts.length; i++) {
       const c = st.contacts[i]!;
       // A meet group is moving before its contact opens: keep each Echo's last position, so its speed is right at the opening tick.
       if (c.plan.card === 'meet') trackStop(ctx, c, c.open);
-      if (!c.open) continue;
+      // An Echo of the contact that has not arrived yet is not "out of sight": it is on its way.
+      if (!c.open || c.alive === 0) continue;
       if (inSight(ctx, c)) c.lastSightTick = ctx.simTick;
       // Two seconds with no line of sight either way: the contact is over (design §2.3).
       else if (ctx.simTick - c.lastSightTick >= holdTicks) settleOpen(ctx, c, false);
+    }
+    // A hold sector's exit opens when every Echo of it is dead (design §4.2).
+    if (!st.exitOpen) {
+      if (!allDone(st) && ctx.simTick < st.exitFallbackTick) return;
+      st.exitOpen = true;
+      const sp = st.plan.sectors[st.sector]!;
+      const x = exitOpenedEv;
+      x.tick = ctx.simTick;
+      x.t = ctx.timeSec;
+      x.sectorId = sp.sectorId;
+      x.index = st.sector;
+      ctx.events.emit('sectorExitOpened', x);
     }
     if (!atExit(ctx)) return;
     endSector(ctx, 'exit');
@@ -611,7 +760,8 @@ export const sweep: ModeDef<SweepState> = {
         openContact(ctx, c);
         st.trials.killed(ev.payload.tick, ev.payload.targetId);
         c.alive--;
-        if (c.alive <= 0) settleOpen(ctx, c, false);
+        // The contact is won when its last Echo is dead and none is still to come (a trade's second Echo arrives).
+        if (c.alive <= 0 && c.pending === 0) settleOpen(ctx, c, false);
         break;
       }
       default:
