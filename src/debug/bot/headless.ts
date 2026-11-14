@@ -29,6 +29,8 @@ export interface HeadlessOptions {
   map?: MapDef;
   /** Defaults to a fresh clone of the shipped tunables, so runs cannot disturb each other. */
   tunables?: Tunables;
+  /** A new profile's first Sweep run places it with the staircase Opener (design §9.2), as in the game. Default false: the usual run shape. */
+  placesNewProfiles?: boolean;
 }
 
 /**
@@ -49,6 +51,7 @@ export class HeadlessGame implements BotGame {
     this.map = opts.map ?? rangeMap;
     this.world = new World({ level: this.map, tunables: this.tunables, seed: opts.seed ?? 1 });
     this.modes = new ModeHost(this.world, this.bus, this.map, this.tunables);
+    this.modes.placesNewProfiles = opts.placesNewProfiles ?? false;
     this.run = new RunController(this.world, this.bus, this.tunables);
   }
 

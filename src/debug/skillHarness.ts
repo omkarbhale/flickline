@@ -3,7 +3,8 @@ import { SkillState } from '../adaptive/skillModel';
 import { SKILL_IDS, type SelfReport, type SkillId } from '../config/dial';
 import type { Tunables } from '../config/tunables';
 import { Rng } from '../core/rng';
-import { sweepPlan } from '../modes/sweep';
+import { sweepEnv } from '../modes/sweep';
+import { planRoute } from '../modes/sweepGate';
 import { perSector, type RunPlan } from '../modes/sweepDirector';
 
 /**
@@ -97,7 +98,8 @@ function planOf(seed: number, placing: boolean, tunables: Tunables): RunPlan {
   const key = `${seed}|${placing ? 1 : 0}`;
   let p = plans.get(key);
   if (!p) {
-    p = sweepPlan(seed, tunables, placing);
+    // The whole route, door 0 at every gate (the harness plays the structure; which door is not its question).
+    p = planRoute(seed, sweepEnv(tunables), () => 0, placing);
     plans.set(key, p);
   }
   return p;
@@ -146,12 +148,18 @@ export function simulateProfile(ability: number, opts: HarnessOptions, tunables:
       contacts: [], died: false,
     };
     let fought = 0;
-    let sector = 0;
-    while (sector < plan.sectors.length && !r.died) {
-      const sp = plan.sectors[sector]!;
-      if (!sp.opener && sd.placing) r.estimateAfterOpener = skills.fightRating();
-      const offset = perSector(tunables.sweep.dialOffset, sp.depth);
-      const dial = sd.enterSector(sector, sp.opener, sp.opener && sd.placing ? NaN : target(), offset, placing);
+    // As `sweep.ts`: a placing Opener plays its contact sectors one after another, then the route goes on from sector 2.
+    let stage = placing ? 0 : -1;
+    let index = 0;
+    const op = tunables.sweep.opener;
+    while (!r.died) {
+      const sp = stage >= 0 ? plan.openerStages[stage] : plan.sectors[index];
+      if (!sp) break;
+      const sector = sp.index;
+      if (stage < 0 && sd.placing) r.estimateAfterOpener = skills.fightRating();
+      const later = stage > 0;
+      const offset = perSector(tunables.sweep.dialOffset, sector);
+      const dial = sd.enterSector(sector, later, later ? NaN : target(), offset, placing);
       r.dials.push(dial);
       r.matched.push(sd.placing ? NaN : sd.matched);
       for (const cp of sp.contacts) {
@@ -179,8 +187,8 @@ export function simulateProfile(ability: number, opts: HarnessOptions, tunables:
         for (let k = countOf(rng, mix.sprayPerContact); k > 0; k--) trial('spray');
         for (let k = countOf(rng, mix.switchPerExtraEcho * Math.max(0, echoes - 1)); k > 0; k--) trial('switch');
         skills.observeFight(d, won);
-        r.contacts.push({ sector, opener: sp.opener, difficulty: d, pWin: sigmoid((theta - d) / TRUE_SCALE), won, trials });
-        if (sp.opener && sd.placing) {
+        r.contacts.push({ sector, opener: stage >= 0, difficulty: d, pWin: sigmoid((theta - d) / TRUE_SCALE), won, trials });
+        if (stage >= 0 && sd.placing) {
           fought++;
           sd.recordOpener(!won ? 'loss' : clean ? 'win' : 'neutral');
         }
@@ -189,11 +197,13 @@ export function simulateProfile(ability: number, opts: HarnessOptions, tunables:
           break;
         }
       }
-      // The next sector: a placing Opener that fought enough skips its remaining contact sectors (as `sweep.ts`).
-      let next = sector + 1;
-      const op = tunables.sweep.opener;
-      if (sp.opener && sd.openerDone(fought, op.contactsMin, op.contactsMax)) while (next < plan.sectors.length && plan.sectors[next]!.opener) next++;
-      sector = next;
+      if (stage >= 0) {
+        if (stage + 1 < plan.openerStages.length && !sd.openerDone(fought, op.contactsMin, op.contactsMax)) stage++;
+        else {
+          stage = -1;
+          index = 1;
+        }
+      } else index++;
     }
     if (placing && Number.isNaN(r.estimateAfterOpener) && !r.died) r.estimateAfterOpener = skills.fightRating();
     r.estimateEnd = skills.fightRating();

@@ -6,6 +6,7 @@ import { MAPS, rangeMap } from '../../sim/mapLoader';
 import { createTickInput } from '../../sim/types';
 import { Bot, type BotStats } from './bot';
 import { FootworkBot } from './footwork';
+import type { GatePolicy } from './gatePolicy';
 import { SweepBot } from './sweepBot';
 import type { BotGame } from './headless';
 import { clampSkill, resolveParams, type BotParams } from './skill';
@@ -35,6 +36,8 @@ export interface BotRunOptions {
   params?: Partial<BotParams>;
   /** Hard stop in simulated seconds. */
   maxSeconds?: number;
+  /** Sweep only: how the bot chooses a door at a gate (default: the left door). */
+  gatePolicy?: GatePolicy;
   /** Sweep: the longest the bot keeps running into a fight it has seen before it stops (see `SweepBot`); default 0. */
   sweepStopDelaySec?: number;
 }
@@ -152,7 +155,7 @@ export function playMode(game: BotGame, opts: BotRunOptions): BotReport {
   const aimer = new Bot(params, botSeed, game.tunables);
   // Stop & Pop needs feet: the footwork bot strafes, counter-strafes, takes the ring's stance, then lets the aimer fire.
   // Sweep needs feet too: the sweep bot walks each sector entry to exit and stops to fight what it sees.
-  const bot = id === 'stopAndPop' ? new FootworkBot(aimer, game, botSeed) : id === 'sweep' ? new SweepBot(aimer, game, opts.sweepStopDelaySec ?? 0, botSeed) : aimer;
+  const bot = id === 'stopAndPop' ? new FootworkBot(aimer, game, botSeed) : id === 'sweep' ? new SweepBot(aimer, game, opts.sweepStopDelaySec ?? 0, botSeed, opts.gatePolicy) : aimer;
   const input = createTickInput();
   const maxTicks = secondsToTicks(opts.maxSeconds ?? (id === 'sweep' ? MAX_RUN_SEC : MAX_SIM_SEC));
   const startTick = game.world.tick;

@@ -173,6 +173,8 @@ export class ModeHost {
       placePlayer: (x, y, z, yaw) => this.placePlayer(x, y, z, yaw),
       vitals: world.health,
       loadMap: (mapId) => (this.loadMap(mapId) ? this.anchors : null),
+      refillShield: (to) => this.world.refillShield(to, this.bus),
+      setPrimary: (id) => this.armsPrimary(id),
       setEconomy: (economy) => this.applyEconomy(economy),
     });
     this.runner.attach(bus);
@@ -229,6 +231,15 @@ export class ModeHost {
     return true;
   }
 
+  /** An Arms door (design §4.5): the named primary takes the primary slot (the sidearm stays) and goes in hand. */
+  private armsPrimary(id: string): boolean {
+    const w = this.world;
+    if (this.tunables.weapon[id as WeaponId]?.slotClass !== 'primary') return false;
+    if (w.loadout[0] === id) return true;
+    if (!w.setLoadout({ primary: id, sidearm: w.loadout[1]! }).ok) return false;
+    return w.equipWeapon(id as WeaponId);
+  }
+
   /**
    * Start a run. `pick` (a primary id) answers a mode's `ready` screen in the same call, as pressing
    * `1`..`3` would, so the run goes live at its next tick: bots, tests and `?primary=`. Without it the
@@ -251,8 +262,15 @@ export class ModeHost {
     return true;
   }
 
+  /**
+   * Whether a new profile's first run places it (design §9.2). The game always does; the headless
+   * game of the tests and the bot turns it off unless asked, so their runs keep the usual shape.
+   */
+  placesNewProfiles = true;
+
   /** The skill model has never measured this profile: no matched trial yet (design §9.2: its first Opener places it). */
   get newProfile(): boolean {
+    if (!this.placesNewProfiles) return false;
     for (const s of SKILL_IDS) if (this.skills.trialCount(s) > 0) return false;
     return true;
   }

@@ -39,14 +39,14 @@ export class SectorDial {
   }
 
   /**
-   * Sector `index` of the run plan starts: the one decision of the run's dial. `opener`: one of a
-   * placing Opener's contact sectors; `target`: the skill model's matched dial now; `offset`: the
-   * sector's depth offset (design §4.1); `placing`: the run places a new profile (sector 0 only).
-   * Returns the sector's dial.
+   * Sector `index` of the run starts: the one decision of the run's dial. `laterOpener`: a placing
+   * Opener's second or later contact sector (it takes the staircase's dial); `target`: the skill
+   * model's matched dial now; `offset`: the sector's depth offset (design §4.1); `placing`: the run
+   * places a new profile (read at sector 0). Returns the sector's dial.
    */
-  enterSector(index: number, opener: boolean, target: number, offset: number, placing: boolean): number {
+  enterSector(index: number, laterOpener: boolean, target: number, offset: number, placing: boolean): number {
+    if (laterOpener && this.placing) return this.nextOpenerContact();
     if (index === 0) return this.startRun(target, offset, placing);
-    if (opener && this.placing) return this.nextOpenerContact();
     const seed = this.placing;
     this.endOpener();
     return this.nextSector(target, offset, seed);

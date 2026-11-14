@@ -69,35 +69,47 @@ export interface SectorEvents {
     t: number;
     sectorId: string;
     mapId: string;
-    /** 0-based position in the run's plan (the exit marker and the route read it). */
+    /** 0-based position in the run (design §4.1's rows: 0 is the Opener; a placing Opener's contact sectors are all 0). */
     index: number;
-    /**
-     * The sector of the run it plays as (0-based, design §4.1's rows: 0 is the Opener). Equal to
-     * `index` except after a new profile's placing Opener, whose short contact sectors are all 0.
-     */
-    sector: number;
-    /** A placing Opener's contact sector (design §9.2). */
+    /** One of a new profile's placing Opener's contact sectors (design §9.2, #203). */
     opener: boolean;
-    /** Sectors in the run (§4.1 rows, the placing Opener counting as one). */
+    /** Sectors in the run. */
     of: number;
     role: SweepSectorRole;
     /** Economy condition (design §4.6; v0: always `full`). */
     condition: 'full' | 'light' | 'eco' | 'cold';
-    /** Door stake (design §4.5; v0 has no gates: `plain`). */
+    /** Door stake the sector was entered by (design §4.5; the opener's is `plain`). */
     stake: 'plain' | 'shield' | 'arms' | 'hot';
+    /** Arms stake: the primary the door named (empty for any other stake). */
+    arms: string;
     dial: number;
     /** Depth multiplier on every point earned in the sector (design §8.1). */
     depth: number;
     contacts: number;
     echoes: number;
   };
+  /**
+   * The player is in a gate and its two doors are drawn (design §4.5, #205). `index` is the 0-based
+   * index of the sector the gate leads to. The doors' facts are in the run's state (`SweepState.gate`);
+   * this is the moment the "Pick a door" hint (#202) fires.
+   */
+  gateEntered: { tick: number; t: number; index: number };
+  /** The player walked through a door (design §14.3): the other closes. `heard` is the bucket the door showed. */
+  gateChosen: {
+    tick: number;
+    t: number;
+    /** 0-based index of the sector entered. */
+    index: number;
+    door: 0 | 1;
+    stake: 'plain' | 'shield' | 'arms' | 'hot';
+    role: SweepSectorRole;
+    heard: 'quiet' | 'few' | 'several';
+  };
   sectorEnded: {
     tick: number;
     t: number;
     sectorId: string;
     index: number;
-    /** As `sectorEntered.sector`. */
-    sector: number;
     /** Every Echo of the sector dead and the player alive. */
     cleared: boolean;
     /** Health+shield at the exit ÷ at the entry, capped at 1 (0 when the player died). */

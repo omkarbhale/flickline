@@ -3,7 +3,7 @@ import { vec3 } from '../core/vec3';
 import { SectorDial } from '../adaptive/sectorDial';
 import { SKILL_IDS } from '../config/dial';
 import type { EnemyKind } from '../config/scoring';
-import { sweep as sweepDefaults, type SweepCard, type SweepTunables } from '../config/sweep';
+import { sweep as sweepDefaults, type SweepCard } from '../config/sweep';
 import type { Tunables } from '../config/tunables';
 import { createContactSettle, settleContact, type ContactFacts } from '../feedback/contactScore';
 import { difficultyMultiplier } from '../feedback/scoring';
@@ -13,7 +13,8 @@ import type { SkillId } from './contracts';
 import { ContactTrials, type SightQuery, type TrialSink } from './contactTrials';
 import type { ModeContext, ModeDef, ModeEvent } from './modeDef';
 import { sectorCatalog } from './sweepCatalog';
-import { perSector, planRun, type ContactPlan, type EchoPlan, type RunPlan, type SectorSource } from './sweepDirector';
+import { perSector, planRun, type ContactPlan, type EchoPlan, type GatePlan, type RunPlan, type SectorPlan, type SectorSource } from './sweepDirector';
+import { commitGate, planGate, type GateEnv } from './sweepGate';
 
 /**
  * Sweep, the run (design §4; v0 is #201): a seeded chain of take sectors across the sector maps.
@@ -21,15 +22,19 @@ import { perSector, planRun, type ContactPlan, type EchoPlan, type RunPlan, type
  * the player's sight (`sweepDirector.ts`); every fight is a **contact** dealt from a scenario card, tracked
  * from the first information either side has to its end and settled once (design §2.3, §8.1).
  * Health and shield carry from sector to sector (the world is never reset inside a run; kills heal,
- * the sim does that). Walking into a sector's exit ends it: the next sector's map is loaded in place
- * when it differs and the player is put at its entry. The run ends at 0 HP (`death`) or at the
- * last sector's exit (`left`).
+ * the sim does that). Walking into a sector's exit ends it and puts the player in a **gate** (#205,
+ * design §4.5): a small room with two doors, each showing three facts about the sector behind it and
+ * a stake (`sweepGate.ts`). Walking through a door commits: its sector's map is loaded in place when
+ * it differs, the player is put at its entry and the stake is applied (Shield refills the shield,
+ * Arms swaps the primary, Hot adds a contact and multiplies the sector's points). The run ends at 0 HP
+ * (`death`) or at the last sector's exit (`left`; no gate after it).
  *
- * Skill matching inside the run (design §9, #203): the dial is set once per sector from the
- * posterior and the depth curve (`adaptive/sectorDial.ts`); every contact's facts are classified into
- * trials for the seven skills (`contactTrials.ts`), each at the contact's placement dial plus its
- * card's offset. A new profile's first Opener is a chain of single-Echo contact sectors on a
- * placement staircase whose final dial seeds sector 2 (design §9.2).
+ * Skill matching inside the run (design §9, #203): the dial is set once per sector from the skill
+ * model's fight track and the depth curve (`adaptive/sectorDial.ts`); every contact's facts are
+ * classified into trials for the seven skills (`contactTrials.ts`), each at the contact's placement
+ * dial plus its card's offset, and every decided contact is reported with that difficulty for the
+ * fight track. A new profile's first Opener is a chain of single-Echo contact sectors on a placement
+ * staircase, no gate between them, whose final dial seeds sector 2 (design §9.2).
  */
 
 /** One contact while the run plays. */
@@ -64,11 +69,25 @@ interface ContactRt {
   stopFirst: StopFirst;
 }
 
+/** The gate the player stands in. */
+export interface GateRt {
+  plan: GatePlan;
+  /** The door walked through (-1: none yet) and the sim tick it was. */
+  door: -1 | 0 | 1;
+  chosenTick: number;
+}
+
 /** Who first dropped to counter-strafe speed in a meet contact (design §4.2). */
 type StopFirst = 'none' | 'player' | 'echo' | 'both';
 
 export interface SweepState {
   plan: RunPlan;
+  /** The gate drawn for the sector after this one (drawn when this one is entered, under the fade), or null after the last. */
+  nextGate: GatePlan | null;
+  /** In a gate: its doors and the choice. Null while a sector plays. */
+  gate: GateRt | null;
+  /** Multiplier on every point of the current sector: depth x the Hot stake. */
+  mult: number;
   sector: number;
   contacts: ContactRt[];
   /** Health+shield at the current sector's entry. */
@@ -85,6 +104,8 @@ export interface SweepState {
   dial: SectorDial;
   /** The current sector's trial classifier. */
   trials: ContactTrials;
+  /** A placing Opener: the index of its contact sector being played (`plan.openerStages`), -1 once it is over or when the run does not place. */
+  openerStage: number;
   /** Contacts fought (not avoided) in a placing Opener so far. */
   openerFought: number;
 }
@@ -93,11 +114,13 @@ const settle = createContactSettle();
 const facts: ContactFacts & { kinds: EnemyKind[] } = { kinds: [], dial: 50, startEhp: 0, damageTaken: 0, allDead: false, died: false };
 const body = vec3();
 const enteredEv: SectorEvents['sectorEntered'] = {
-  tick: 0, t: 0, sectorId: '', mapId: '', index: 0, sector: 0, opener: false, of: 0, role: 'take', condition: 'full', stake: 'plain', dial: 0, depth: 1, contacts: 0, echoes: 0,
+  tick: 0, t: 0, sectorId: '', mapId: '', index: 0, opener: false, of: 0, role: 'take', condition: 'full', stake: 'plain', arms: '', dial: 0, depth: 1, contacts: 0, echoes: 0,
 };
 const endedEv: SectorEvents['sectorEnded'] = {
-  tick: 0, t: 0, sectorId: '', index: 0, sector: 0, cleared: false, keptSector: 0, tempo: false, points: 0, clearPoints: 0, reason: 'exit',
+  tick: 0, t: 0, sectorId: '', index: 0, cleared: false, keptSector: 0, tempo: false, points: 0, clearPoints: 0, reason: 'exit',
 };
+const gateEnteredEv: SectorEvents['gateEntered'] = { tick: 0, t: 0, index: 0 };
+const gateChosenEv: SectorEvents['gateChosen'] = { tick: 0, t: 0, index: 0, door: 0, stake: 'plain', role: 'take', heard: 'quiet' };
 const settledEv: RunEvents['contactSettled'] = {
   tick: 0, t: 0, contactId: 0, outcome: 'avoided', kept: 1, enemies: 0, points: 0, card: '', trials: 0, difficulty: 0,
 };
@@ -109,34 +132,43 @@ export function sweepCatalog(tunables: Tunables): SectorSource[] {
   return catalogCache.sectors;
 }
 
-/** The plan a seed gives (what `setup` plays; `placing`: a new profile's first run): for tests, the bot report and the debug hook. */
+/** What the gate planner reads: the catalog, the tunables, how far Echoes are heard (the fights' radius) and the starting primary. */
+export function sweepEnv(tunables: Tunables): GateEnv {
+  return {
+    catalog: sweepCatalog(tunables), cfg: tunables.sweep, body: tunables.movement, hearM: tunables.audio.enemy.maxAudibleM, startPrimary: sweep.weapon,
+  };
+}
+
+/**
+ * The plan a seed starts with (what `setup` plays: the opener; the gates are drawn as the run reaches them; `placing`: a new
+ * profile's first run, with its placing Opener): for tests, the bot report and the debug hook.
+ */
 export function sweepPlan(seed: number, tunables: Tunables, placing = false): RunPlan {
   return planRun(seed, sweepCatalog(tunables), tunables.sweep, tunables.movement, placing);
 }
 
-/** The classifier's trials, sent to the runner (one per mode context; the context is the run's). */
+/** The classifier's trials, sent to the runner, and its sight query (the context is the run's). */
 class RunTrials implements TrialSink, SightQuery {
-  ctx: ModeContext<SweepState> | null = null;
+  constructor(private readonly ctx: ModeContext<SweepState>) {}
   private readonly opts = { difficulty: 0, card: '', extra: undefined as Readonly<Record<string, number>> | undefined };
   trial(
     contact: number, skill: SkillId, itemDifficulty: number, success: boolean, card: string, _targetId: number, extra: Readonly<Record<string, number>>,
   ): void {
-    const c = this.ctx?.state.contacts[contact];
+    const c = this.ctx.state.contacts[contact];
     if (c) c.trials++;
     const o = this.opts;
     o.difficulty = itemDifficulty;
     o.card = card;
     o.extra = extra;
-    this.ctx?.recordTrial(skill, success, o);
+    this.ctx.recordTrial(skill, success, o);
   }
   inSight(id: number): boolean {
-    return this.ctx?.targetInSight(id) ?? false;
+    return this.ctx.targetInSight(id);
   }
 }
 
 function trialsFor(ctx: ModeContext<SweepState>): ContactTrials {
-  const link = new RunTrials();
-  link.ctx = ctx;
+  const link = new RunTrials(ctx);
   return new ContactTrials(ctx.tunables.trials, ctx.tunables.targets.reactionAimDeg, link, link);
 }
 
@@ -169,34 +201,33 @@ function spawnEcho(ctx: ModeContext<SweepState>, c: ContactRt, e: EchoPlan): num
 }
 
 /**
- * The sector's dial (design §9.3.2): one beat per sector, read from the posterior here and nowhere
- * else. A placing Opener's contact sectors take the staircase's dial; the sector after it is seeded
- * with the staircase's final dial.
+ * Put the player at the entry of `sp` (the plan of the sector entered: the opener, or the sector
+ * behind the door walked through), apply its door's stake and place its Echoes (they are out of the
+ * player's sight there).
  */
-function sectorDial(ctx: ModeContext<SweepState>, i: number): void {
+function enterSector(ctx: ModeContext<SweepState>, sp: SectorPlan): void {
   const st = ctx.state;
-  const sp = st.plan.sectors[i]!;
-  const offset = perSector(ctx.tunables.sweep.dialOffset, sp.depth);
-  // The staircase's contact sectors do not read the posterior; every other sector does, once.
-  const target = sp.opener && st.dial.placing ? NaN : ctx.targetDial();
-  const dial = st.dial.enterSector(i, sp.opener, target, offset, st.plan.placing);
-  if (i === 0) ctx.setDial(dial);
-  else ctx.advanceBeat(dial);
-}
-
-/** Put the player at sector `i`'s entry and place its Echoes (they are out of the player's sight there). */
-function enterSector(ctx: ModeContext<SweepState>, i: number): void {
-  const st = ctx.state;
-  const sp = st.plan.sectors[i]!;
   const cfg = ctx.tunables.sweep;
+  const i = sp.index;
   st.sector = i;
+  st.gate = null;
   ctx.loadMap(sp.mapId);
   ctx.placePlayer(sp.entry.x, sp.entry.y, sp.entry.z, sp.entryYaw);
-  sectorDial(ctx, i);
+  // One dial per sector (design §4.1, §9.3.2): read from the fight track here and nowhere else; a placing Opener's later
+  // contact sectors take the staircase's dial, and the sector after it is seeded with the staircase's final dial.
+  const laterStage = st.openerStage > 0;
+  const target = laterStage ? NaN : ctx.targetDial();
+  const dial = st.dial.enterSector(i, laterStage, target, perSector(cfg.dialOffset, i), st.plan.placing);
+  if (i === 0 && !laterStage) ctx.setDial(dial);
+  else ctx.advanceBeat(dial);
+  // The stake (design §4.5): what the door promised, applied on entry.
+  if (sp.stake === 'shield') ctx.refillShield(cfg.gate.shieldRefillTo);
+  else if (sp.stake === 'arms' && sp.arms) ctx.setPrimary(sp.arms);
   // The sector's economy (design §4.6) before anyone is placed: the Echoes spawn with its shield and weapon.
   ctx.setEconomy(sp.condition);
-  const depth = perSector(cfg.depthMultiplier, sp.depth);
-  ctx.setPointsMultiplier(depth);
+  const depth = perSector(cfg.depthMultiplier, i);
+  st.mult = depth * (sp.stake === 'hot' ? cfg.gate.hotMultiplier : 1);
+  ctx.setPointsMultiplier(st.mult);
   st.contacts.length = 0;
   st.trials.reset();
   let echoes = 0;
@@ -204,9 +235,7 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
     const c: ContactRt = {
       plan: cp, id: -1, open: false, echoIds: [], kinds: [], alive: 0, startEhp: 0, damage: 0, lastSightTick: 0, engaged: false,
       prevX: [], prevZ: [], moved: [], playerMoved: false, stopFirst: 'none',
-      trials: 0,
-      difficulty: ctx.itemDifficulty + ctx.tunables.trials.cardOffset[cp.card],
-      trialIndex: -1,
+      trials: 0, difficulty: ctx.itemDifficulty + ctx.tunables.trials.cardOffset[cp.card], trialIndex: -1,
     };
     c.trialIndex = st.trials.addContact(cp.card, c.difficulty, sp.role === 'take');
     for (const e of cp.echoes) {
@@ -227,6 +256,8 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
   }
   st.entryEhp = ehp(ctx);
   st.entryScore = ctx.stats.score;
+  // The gate after this sector is drawn now, while the screen is cut (it costs a few ms the first time a sector is placed).
+  st.nextGate = i + 1 < cfg.sectors ? planGate(st.plan, sweepEnv(ctx.tunables)) : null;
   const ev = enteredEv;
   ev.tick = ctx.simTick;
   ev.t = ctx.timeSec;
@@ -235,14 +266,66 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
   ev.condition = sp.condition;
   ev.role = sp.role;
   ev.index = i;
-  ev.sector = sp.depth;
-  ev.opener = sp.opener;
-  ev.of = st.plan.depthCount;
+  ev.opener = sp.opener === true;
+  ev.of = cfg.sectors;
+  ev.stake = sp.stake;
+  ev.arms = sp.arms ?? '';
   ev.dial = ctx.dial;
   ev.depth = depth;
   ev.contacts = sp.contacts.length;
   ev.echoes = echoes;
   ctx.events.emit('sectorEntered', ev);
+}
+
+/** The sector is left through its exit: the player is put in the gate before the next one. */
+function enterGate(ctx: ModeContext<SweepState>): void {
+  const st = ctx.state;
+  const g = ctx.tunables.sweep.gate;
+  const gate = st.nextGate!;
+  st.nextGate = null;
+  st.gate = { plan: gate, door: -1, chosenTick: 0 };
+  ctx.loadMap(g.mapId);
+  ctx.placePlayer(g.entry.x, g.entry.y, g.entry.z, g.entry.yaw);
+  const e = gateEnteredEv;
+  e.tick = ctx.simTick;
+  e.t = ctx.timeSec;
+  e.index = gate.index;
+  ctx.events.emit('gateEntered', e);
+}
+
+/** The door the player's feet are through (past its plane by `commitDepthM`, between its jambs), or -1. */
+function doorThrough(ctx: ModeContext<SweepState>): -1 | 0 | 1 {
+  const g = ctx.tunables.sweep.gate;
+  const p = ctx.player.pos;
+  for (let d = 0; d < 2; d++) {
+    const door = g.doors[d]!;
+    if (Math.abs(p.x - door.x) <= g.doorHalfWidthM && p.z <= door.z - g.commitDepthM) return d as 0 | 1;
+  }
+  return -1;
+}
+
+/** In a gate: wait for a door; once one is walked through, close the other and, after `commitSec`, enter its sector. */
+function gateTick(ctx: ModeContext<SweepState>): void {
+  const gate = ctx.state.gate!;
+  if (gate.door === -1) {
+    const d = doorThrough(ctx);
+    if (d === -1) return;
+    gate.door = d;
+    gate.chosenTick = ctx.simTick;
+    const door = gate.plan.doors[d];
+    const e = gateChosenEv;
+    e.tick = ctx.simTick;
+    e.t = ctx.timeSec;
+    e.index = gate.plan.index;
+    e.door = d;
+    e.stake = door.facts.stake;
+    e.role = door.facts.role;
+    e.heard = door.facts.heard;
+    ctx.events.emit('gateChosen', e);
+    return;
+  }
+  if (ctx.simTick - gate.chosenTick < secondsToTicks(ctx.tunables.sweep.gate.commitSec)) return;
+  enterSector(ctx, commitGate(ctx.state.plan, gate.plan, gate.door));
 }
 
 function contactOf(st: SweepState, targetId: number): ContactRt | null {
@@ -317,14 +400,13 @@ function settleOpen(ctx: ModeContext<SweepState>, c: ContactRt, died: boolean): 
   facts.allDead = c.alive === 0;
   facts.died = died;
   settleContact(settle, facts, ctx.tunables.scoring);
-  const sp = st.plan.sectors[st.sector]!;
-  const points = ctx.awardPoints(settle.total * perSector(ctx.tunables.sweep.depthMultiplier, sp.depth));
+  const points = ctx.awardPoints(settle.total * st.mult);
   const lost = settle.outcome === 'died' || settle.outcome === 'disengaged';
   if (settle.outcome === 'cleared') st.won++;
   else if (lost) st.lost++;
   st.trials.settle(c.trialIndex, lost);
   // The placing Opener's staircase (design §9.2): up after two clean wins, down after a loss; a fight avoided does not count.
-  if (sp.opener && st.dial.placing && settle.outcome !== 'avoided') {
+  if (st.openerStage >= 0 && st.dial.placing && settle.outcome !== 'avoided') {
     st.openerFought++;
     const clean = c.damage <= ctx.tunables.sweep.opener.winMaxShieldLoss * ctx.vitals.maxShield;
     st.dial.recordOpener(lost ? 'loss' : clean ? 'win' : 'neutral');
@@ -338,9 +420,9 @@ function settleOpen(ctx: ModeContext<SweepState>, c: ContactRt, died: boolean): 
   e.enemies = facts.kinds.length;
   e.points = points;
   e.card = c.plan.card;
+  e.stopFirst = c.plan.card === 'meet' ? stoppedFirst(c) : undefined;
   e.trials = c.trials;
   e.difficulty = c.difficulty;
-  e.stopFirst = c.plan.card === 'meet' ? stoppedFirst(c) : undefined;
   ctx.events.emit('contactSettled', e);
 }
 
@@ -380,14 +462,13 @@ function endSector(ctx: ModeContext<SweepState>, reason: 'exit' | 'death' | 'qui
   let clearPoints = 0;
   if (cleared) {
     const kill = (base / kinds) * difficultyMultiplier(ctx.dial, ctx.tunables.scoring);
-    clearPoints = ctx.awardPoints(cfg.clearKills * kill * kept * perSector(cfg.depthMultiplier, sp.depth));
+    clearPoints = ctx.awardPoints(cfg.clearKills * kill * kept * st.mult);
   }
   const e = endedEv;
   e.tick = ctx.simTick;
   e.t = ctx.timeSec;
   e.sectorId = sp.sectorId;
   e.index = st.sector;
-  e.sector = sp.depth;
   e.cleared = cleared;
   e.keptSector = kept;
   e.tempo = false;
@@ -431,16 +512,21 @@ export const sweep: ModeDef<SweepState> = {
     // A new profile's first run places it inside its Opener (design §9.2); a pinned run never does.
     const placing = ctx.newProfile && !ctx.pinned;
     ctx.state = {
-      plan: sweepPlan(ctx.seed, ctx.tunables, placing), sector: 0, contacts: [], entryEhp: 0, entryScore: 0, nextContactId: 0, won: 0, lost: 0,
-      done: false, dial: new SectorDial(ctx.tunables.dial), trials: trialsFor(ctx), openerFought: 0,
+      plan: sweepPlan(ctx.seed, ctx.tunables, placing), nextGate: null, gate: null, mult: 1, sector: 0, contacts: [], entryEhp: 0, entryScore: 0,
+      nextContactId: 0, won: 0, lost: 0, done: false, dial: new SectorDial(ctx.tunables.dial), trials: trialsFor(ctx),
+      openerStage: placing ? 0 : -1, openerFought: 0,
     };
-    enterSector(ctx, 0);
+    enterSector(ctx, ctx.state.plan.sectors[0]!);
     return ctx.state;
   },
 
   tick(ctx) {
     const st = ctx.state;
     if (st.done) return;
+    if (st.gate) {
+      gateTick(ctx);
+      return;
+    }
     st.trials.step(ctx.simTick);
     const holdTicks = secondsToTicks(ctx.tunables.scoring.contact.disengageSec);
     for (let i = 0; i < st.contacts.length; i++) {
@@ -454,13 +540,13 @@ export const sweep: ModeDef<SweepState> = {
     }
     if (!atExit(ctx)) return;
     endSector(ctx, 'exit');
-    const next = nextSector(st, ctx.tunables.sweep);
-    if (next >= st.plan.sectors.length) {
+    if (nextOpenerStage(ctx)) return;
+    if (st.sector + 1 >= ctx.tunables.sweep.sectors) {
       st.done = true;
       ctx.end('left');
       return;
     }
-    enterSector(ctx, next);
+    enterGate(ctx);
   },
 
   onEvent(ctx, ev: ModeEvent) {
@@ -530,21 +616,30 @@ export const sweep: ModeDef<SweepState> = {
     const st = ctx.state;
     if (st.done) return;
     st.done = true;
+    // Stopped in a gate: the sector before it already ended on the way out.
+    if (st.gate) return;
     endSector(ctx, reason === 'death' ? 'death' : 'quit');
   },
 };
 
 /**
- * The sector after the current one: the next in the plan, except that a placing Opener that has
- * fought enough contacts skips its remaining contact sectors (design §9.2).
+ * A placing Opener's exit (design §9.2): until the staircase is done, the next of its contact sectors is
+ * swapped into the route's first place and entered directly, no gate. Returns false once the Opener is
+ * over (the run goes on through the gate before sector 2) or when the run does not place.
  */
-function nextSector(st: SweepState, cfg: SweepTunables): number {
-  let next = st.sector + 1;
-  const cur = st.plan.sectors[st.sector]!;
-  if (cur.opener && st.dial.openerDone(st.openerFought, cfg.opener.contactsMin, cfg.opener.contactsMax)) {
-    while (next < st.plan.sectors.length && st.plan.sectors[next]!.opener) next++;
+function nextOpenerStage(ctx: ModeContext<SweepState>): boolean {
+  const st = ctx.state;
+  if (st.openerStage < 0) return false;
+  const op = ctx.tunables.sweep.opener;
+  const next = st.openerStage + 1;
+  if (next >= st.plan.openerStages.length || st.dial.openerDone(st.openerFought, op.contactsMin, op.contactsMax)) {
+    st.openerStage = -1;
+    return false;
   }
-  return next;
+  st.openerStage = next;
+  st.plan.sectors[0] = st.plan.openerStages[next]!;
+  enterSector(ctx, st.plan.sectors[0]);
+  return true;
 }
 
 /** Cards in the plan of a seed, in order: for tests and the bot report. */
