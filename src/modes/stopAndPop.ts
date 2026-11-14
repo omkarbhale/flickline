@@ -144,7 +144,8 @@ export class StopAndPopTrial {
       const b = this.slots[1]!;
       for (let tries = 0; tries < 6; tries++) {
         if (!ctx.scheduler.pickAnchor(q, b.head)) break;
-        if (Math.hypot(b.head.x - a.head.x, b.head.z - a.head.z) < cfg.doubleMinSeparationM) continue;
+        const sx = b.head.x - a.head.x, sz = b.head.z - a.head.z;
+        if (Math.sqrt(sx * sx + sz * sz) < cfg.doubleMinSeparationM) continue;
         this.place(b, ctx, crouch);
         if (b.id >= 0) n = 2;
         break;
@@ -283,7 +284,7 @@ export class StopAndPopTrial {
       speed = this.firedSpeed;
     } else {
       const p = ctx.player;
-      speed = Math.hypot(p.vel.x, p.vel.z);
+      speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.z * p.vel.z);
       const def = ctx.tunables.weapon[ctx.mode.weapon as WeaponId];
       moving = !p.grounded || speed > def.deadzoneFraction * def.runSpeedMps;
       crouching = p.crouching;

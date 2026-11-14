@@ -74,7 +74,7 @@ try {
 
   // Each browser call times out near 30 s, so wait and poll in short steps.
   let report = null;
-  const deadline = Date.now() + (seconds + 40) * 1000;
+  const deadline = Date.now() + (seconds + 90) * 1000;
   while (Date.now() < deadline && !report) {
     await axi('wait', '2000');
     const r = await axi('eval', 'JSON.stringify(window.__flickline ? window.__flickline.perfStatus() : {state:"loading"})');
@@ -106,7 +106,7 @@ function printReport(r) {
   console.log(`  1% low ${f(r.onePercentLowFps)} fps   0.1% low ${f(r.pointOnePercentLowFps)} fps   over the ${f(c.budgetMs, 2)} ms budget: ${f(r.overBudget * 100, 0)}% of frames   hitches ${r.hitches}`);
   console.log(`  cpu in frame callback   avg ${f(r.cpuAvgMs, 2)} ms   p99 ${f(r.cpuP99Ms, 2)}   worst ${f(r.cpuWorstMs, 2)} ms   draw calls ${r.drawCalls}   triangles ${r.triangles}`);
   if (r.heap.supported) {
-    console.log(`  heap   ${mb(r.heap.startBytes)} -> ${mb(r.heap.endBytes)}   floor growth ${mb(r.heap.growthBytes)}   allocating ${f(r.heap.allocBytesPerSec / 1024, 0)} KiB/s   ${r.heap.collections} collections`);
+    console.log(`  heap   ${mb(r.heap.startBytes)} -> ${mb(r.heap.endBytes)}   floor growth ${mb(r.heap.growthBytes)}   allocating ${f(r.heap.allocBytesPerSec / 1024, 0)} KiB/s (typical ${f(r.heap.typicalAllocBytesPerSec / 1024, 0)})   ${r.heap.collections} collections`);
     console.log(`  allocation   ${f(r.heap.allocBytesPerFrame / 1024, 1)} KiB per frame (sim share and sources: npm run bot -- --alloc)`);
   } else {
     console.log('  heap   not measurable here (performance.memory missing)');

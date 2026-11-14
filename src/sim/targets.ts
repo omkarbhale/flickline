@@ -5,14 +5,14 @@ import { vec3, type Vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
 import { shieldAbsorbed } from './damage';
 import { createAimInfo, measureAim, yawOf, type AimInfo } from './aim';
-import { lineBlocked } from './collision';
+import { lineBlockedRay } from './collision';
 import { createEnemyAi, resetEnemyAi, type FireParams, type PeekParams, type StrafeParams } from './enemyAi';
 import { fireInit } from './enemyFire';
 import { BEHAVIOURS } from './enemies';
 import { peekInit } from './peeker';
 import { strafeInit } from './strafer';
 import { fsmStart, fsmStep, createFsm, type BehaviourContext } from './fsm';
-import { createZoneHit, traceTarget, zoneCentre, type ZoneHit } from './hitZones';
+import { createRay, createZoneHit, traceTargetRay, zoneCentre, type Ray, type ZoneHit } from './hitZones';
 import type { BoxDef, HitZone, PlayerState, SimEvents, TargetKind, TargetState } from './types';
 
 /** Who created a first line of sight: the player's movement or the enemy's (`targetVisible`, `enemySawPlayer`). */
@@ -191,6 +191,9 @@ export class TargetField {
    */
   enemyShield = 0;
   private readonly zoneHit: ZoneHit = createZoneHit();
+  private readonly traceRay: Ray = createRay();
+  /** The line-of-sight ray `updateVisibility` fills each test (a ray in an object: no doubles passed to a call). */
+  private readonly losRay: Ray = createRay();
 
   constructor(readonly tunables: Tunables) {
     for (let i = 0; i < tunables.targets.maxTargets; i++) this.slots.push(createSlot());
@@ -408,7 +411,11 @@ export class TargetField {
         if (Math.abs(vx * ux + vy * uy + vz * uz) > depth * tanV) continue;
         const dist = Math.sqrt(vx * vx + vy * vy + vz * vz);
         const inv = 1 / dist;
-        if (lineBlocked(boxes, ex, ey, ez, vx * inv, vy * inv, vz * inv, dist)) continue;
+        const ray = this.losRay;
+        ray.ox = ex; ray.oy = ey; ray.oz = ez;
+        ray.dx = vx * inv; ray.dy = vy * inv; ray.dz = vz * inv;
+        ray.maxDist = dist;
+        if (lineBlockedRay(boxes, ray)) continue;
         this.markVisible(t, tick, ex, ey, ez, p.yaw, p.pitch, fx, fy, fz, p, boxes, events);
         break;
       }
@@ -430,7 +437,11 @@ export class TargetField {
       const dist = Math.sqrt(vx * vx + vy * vy + vz * vz);
       if (dist < 1e-6) return true;
       const inv = 1 / dist;
-      if (!lineBlocked(boxes, ex, ey, ez, vx * inv, vy * inv, vz * inv, dist)) return true;
+      const ray = this.losRay;
+      ray.ox = ex; ray.oy = ey; ray.oz = ez;
+      ray.dx = vx * inv; ray.dy = vy * inv; ray.dz = vz * inv;
+      ray.maxDist = dist;
+      if (!lineBlockedRay(boxes, ray)) return true;
     }
     return false;
   }
@@ -460,25 +471,24 @@ export class TargetField {
   }
 
   /**
-   * Nearest target struck by a ray, no further than `maxDist`. Fills `outZone`; returns the slot
-   * index or -1. `out` shares its distance semantics with `ZoneHit`.
+   * Nearest target struck by a ray, no further than `ray.maxDist` (left as it was found). Fills
+   * `outZone`; returns the slot index or -1. `out` shares its distance semantics with `ZoneHit`.
    */
-  traceNearest(
-    ox: number, oy: number, oz: number, dx: number, dy: number, dz: number,
-    maxDist: number, outZone: ZoneHit,
-  ): number {
+  traceNearestRay(ray: Ray, outZone: ZoneHit): number {
     const tt = this.tunables.targets;
+    const limit = ray.maxDist;
     let best = -1;
-    let bestDist = maxDist;
+    let bestDist = limit;
     for (let i = 0; i < this.slots.length; i++) {
       const t = this.slots[i]!;
       if (!t.alive) continue;
       // Bounding sphere early-out (perpendicular distance from the ray line to the centre).
-      const lx = t.pos.x - ox, ly = t.pos.y + t.boundsY - oy, lz = t.pos.z - oz;
-      const tca = lx * dx + ly * dy + lz * dz;
+      const lx = t.pos.x - ray.ox, ly = t.pos.y + t.boundsY - ray.oy, lz = t.pos.z - ray.oz;
+      const tca = lx * ray.dx + ly * ray.dy + lz * ray.dz;
       if (tca < -t.radius) continue;
       if (lx * lx + ly * ly + lz * lz - tca * tca > t.radius * t.radius) continue;
-      if (!traceTarget(t, tt.hit, tt.kinds[t.kind], ox, oy, oz, dx, dy, dz, bestDist, this.zoneHit)) continue;
+      ray.maxDist = bestDist;
+      if (!traceTargetRay(t, tt.hit, tt.kinds[t.kind], ray, this.zoneHit)) continue;
       if (this.zoneHit.distance < bestDist) {
         bestDist = this.zoneHit.distance;
         best = i;
@@ -489,7 +499,18 @@ export class TargetField {
         outZone.nz = this.zoneHit.nz;
       }
     }
+    ray.maxDist = limit;
     return best;
+  }
+
+  /** `traceNearestRay` for a ray given as numbers (one-off callers such as the player's shot). */
+  traceNearest(
+    ox: number, oy: number, oz: number, dx: number, dy: number, dz: number,
+    maxDist: number, outZone: ZoneHit,
+  ): number {
+    const r = this.traceRay;
+    r.ox = ox; r.oy = oy; r.oz = oz; r.dx = dx; r.dy = dy; r.dz = dz; r.maxDist = maxDist;
+    return this.traceNearestRay(r, outZone);
   }
 
   /**

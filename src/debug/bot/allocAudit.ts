@@ -7,10 +7,14 @@ import { resolveParams } from './skill';
 
 /**
  * Allocation audit of the simulation tick (architecture §7: no allocation in hot paths). A bot
- * plays a long free-play run on the real sim (movement-free, but shooting, killing, respawning and
- * ticking the run machinery all the time); after a warm-up that lets the JIT settle, V8's sampling
- * heap profiler records every allocation, including the ones the scavenger has already freed, for
- * N ticks. The result is the total, the bytes per tick, and the functions responsible.
+ * plays a free-play run on the real sim (shooting, killing, respawning and ticking the run
+ * machinery all the time) while its view angles and trigger are recorded; that recording is then
+ * replayed, with a scripted movement (strafing, walking, jumping, crouching) overlaid, on a fresh
+ * game with the bot nowhere in the process. After a warm-up that lets the JIT settle, V8's
+ * sampling heap profiler records every allocation of the replay, including the ones the scavenger
+ * has already freed, for N ticks. The result is the total, the bytes per tick, and the functions
+ * responsible. The bot is kept out of the measured run on purpose: its once-per-engagement code is
+ * cold, runs in V8's interpreter and boxes every double there, a test tool's cost, not the game's.
  *
  * Node only (inspector). It measures the simulation and the bot, not the browser: rendering and
  * DOM cost are measured by the page's perf harness (`?perf=1`, `src/debug/perfHarness.ts`).
@@ -28,10 +32,10 @@ export interface AllocAudit {
   totalBytes: number;
   bytesPerTick: number;
   /**
-   * Regression ceiling in bytes per tick. The target is 0 (architecture §7); today's sim sits well
-   * above it because V8 boxes the double returned by `Math.hypot` and by small functions it does
-   * not inline (`raySphereN`, ...), see README "Allocation audit" and the sites listed below. The
-   * ceiling catches a NEW per-tick allocation (a closure, an array, an object literal) the day it appears.
+   * Regression ceiling in bytes per tick. The target is 0 (architecture §7) and the sim sits at a
+   * fraction of a byte; the ceiling is 8 B/tick, under one boxed double every two ticks, so it
+   * catches a NEW per-tick allocation (a closure, an array, an object literal, a double passed to
+   * or returned from a function V8 does not inline) the day it appears. See README "Allocation audit".
    */
   ceilingBytesPerTick: number;
   sites: AllocSite[];
@@ -51,18 +55,47 @@ const SAMPLING_INTERVAL = 64;
 export function auditAllocations(opts: AuditOptions = {}): AllocAudit {
   const ticks = opts.ticks ?? 100_000;
   const warmupTicks = opts.warmupTicks ?? 20_000;
-  const ceiling = opts.ceilingBytesPerTick ?? 400;
+  const ceiling = opts.ceilingBytesPerTick ?? 8;
   const seed = opts.seed ?? 1;
 
+  // Pass 1: the bot plays; its view and trigger are recorded (it never moves the player).
+  const recorded = warmupTicks + ticks;
+  const yaws = new Float64Array(recorded);
+  const pitches = new Float64Array(recorded);
+  const fires = new Uint8Array(recorded);
+  {
+    const game = new HeadlessGame({ seed });
+    game.reset(seed);
+    // A run far longer than the audit, so the run machinery never stops mid-measurement.
+    game.run.startRun({ mode: FREEPLAY, seed, dial: 50, durationSec: 3600 });
+    const bot = new Bot(resolveParams(60), seed, game.tunables);
+    const input = createTickInput();
+    for (let i = 0; i < recorded; i++) {
+      bot.step(game.world, input);
+      yaws[i] = input.yaw;
+      pitches[i] = input.pitch;
+      fires[i] = input.fire ? 1 : 0;
+      game.advance(input);
+    }
+  }
+
+  // Pass 2: the replay, on a fresh game, with scripted movement; only this pass is profiled.
   const game = new HeadlessGame({ seed });
   game.reset(seed);
-  // A run far longer than the audit, so the run machinery never stops mid-measurement.
   game.run.startRun({ mode: FREEPLAY, seed, dial: 50, durationSec: 3600 });
-  const bot = new Bot(resolveParams(60), seed, game.tunables);
   const input = createTickInput();
+  let at = 0;
   const run = (n: number): void => {
-    for (let i = 0; i < n; i++) {
-      bot.step(game.world, input);
+    for (let i = 0; i < n; i++, at++) {
+      input.yaw = yaws[at]!;
+      input.pitch = pitches[at]!;
+      input.fire = fires[at] === 1;
+      // Forward for 2 s of every 4 s, strafing left and right every 0.75 s, a jump every 5.5 s and
+      // a crouch for 0.5 s every 7 s, so the movement, collision and footstep paths all run.
+      input.moveZ = at % 512 < 256 ? 1 : 0;
+      input.moveX = Math.floor(at / 96) % 3 - 1;
+      input.jump = at % 700 === 0;
+      input.crouch = at % 900 < 64;
       game.advance(input);
     }
   };
@@ -90,6 +123,8 @@ export function auditAllocations(opts: AuditOptions = {}): AllocAudit {
   const byKey = new Map<string, AllocSite>();
   let total = 0;
   const walk = (n: ProfileNode): void => {
+    // The inspector session's own messages (start/stop sampling) are the profiler's cost, not the sim's.
+    if (n.callFrame.url.startsWith('node:inspector')) return;
     if (n.selfSize > 0) {
       total += n.selfSize;
       const f = n.callFrame;
@@ -115,7 +150,7 @@ interface ProfileNode {
 
 export function formatAudit(a: AllocAudit): string {
   const lines = [
-    `allocation audit: ${a.ticks} sim ticks after ${a.warmupTicks} warm-up ticks (free play, bot at skill 60)`,
+    `allocation audit: ${a.ticks} sim ticks after ${a.warmupTicks} warm-up ticks (free play replayed from a bot at skill 60, with scripted movement)`,
     `  allocated ${a.totalBytes} bytes = ${a.bytesPerTick.toFixed(2)} bytes/tick (target 0, regression ceiling ${a.ceilingBytesPerTick}): ${a.ok ? 'under the ceiling' : 'OVER THE CEILING'}`,
   ];
   if (a.sites.length) {
