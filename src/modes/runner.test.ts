@@ -249,23 +249,25 @@ describe('skillTrial per resolved target', () => {
 });
 
 describe('fairness floors on spawn', () => {
-  it('refuses to place a target within 3 m of the player', () => {
+  it('refuses a target closer than 4 m anywhere, or closer than 5 m inside the view cone', () => {
     const h = makeHarness();
     h.runner.begin(bareMode(), { seed: 1 });
     h.step(READY);
-    expect(h.runner.spawn('post', vec3(0, 0, -2))).toBe(-1);
-    expect(h.runner.spawn('post', vec3(0, 0, -3.5))).toBeGreaterThan(0);
-    expect(h.runner.refusedSpawns).toBe(1);
-    expect(h.targets.size).toBe(1);
+    expect(h.runner.spawn('post', vec3(0, 0, 3.5))).toBe(-1); // behind, 3.6 m from the eye
+    expect(h.runner.spawn('post', vec3(0, 0, -4.5))).toBe(-1); // straight ahead, 4.8 m
+    expect(h.runner.spawn('post', vec3(0, 0, 4.5))).toBeGreaterThan(0); // behind, 4.8 m: outside the cone
+    expect(h.runner.spawn('post', vec3(0, 0, -5))).toBeGreaterThan(0); // ahead, 5.3 m
+    expect(h.runner.refusedSpawns).toBe(2);
+    expect(h.targets.size).toBe(2);
   });
 
-  it('floors exposure at 0.3 s and scale at the real head size', () => {
+  it('floors exposure at 0.45 s and scale at the real head size', () => {
     const h = makeHarness();
     h.runner.begin(bareMode(), { seed: 1 });
     h.step(READY);
     const id = h.runner.spawn('beacon', far(), { lifetimeSec: 0.05, scale: 0.4 });
     expect(h.targets.get(id)!.scale).toBe(1);
-    h.step(secondsToTicks(0.3));
+    h.step(secondsToTicks(0.45));
     expect(h.targets.has(id)).toBe(true);
     h.step(1);
     expect(h.targets.has(id)).toBe(false);

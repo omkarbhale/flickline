@@ -9,7 +9,12 @@ import { relativeLuminance, scaleLinear, toCss } from '../core/color';
  * DEVIATION FROM THE DESIGN: `ember` is #FF7A4D here, not #FF5A36. Echo-vs-surface >= 7:1 is
  * impossible for #FF5A36 (against pure black it only reaches 6.77:1, against `ink` 6.26:1), so
  * the token was brightened along the same hue until it clears 7:1 against every rendered
- * environment surface below. Recorded on issue #19.
+ * environment surface below. Recorded on issue #19. That also meets research #52 R13 (body >= 4.5:1
+ * and head node >= 7:1 against every surface in all four colour-vision simulations; `palette.test.ts`).
+ *
+ * `warn` is violet #B58CFF (#52 R15, adopted in #130), not amber #FFB020: amber and `gold` (headshot)
+ * were nearly identical under deuteranopia (delta E 7.9). The moving shot keeps its `⇆` glyph,
+ * dashed tracer and dull tock, so it never relies on hue alone.
  */
 export const palette = {
   /** Background / void. */
@@ -27,8 +32,8 @@ export const palette = {
   /** Headshot. */
   gold: 0xffd23f,
   ok: 0x5bf2a5,
-  /** Moving shot. */
-  warn: 0xffb020,
+  /** Moving shot (violet, so it never reads as `gold` under any colour-vision deficiency). */
+  warn: 0xb58cff,
   /** Damage. */
   alert: 0xff3d5a,
 } as const;

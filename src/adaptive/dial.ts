@@ -1,4 +1,4 @@
-import type { AxisDef, DialTunables } from '../config/dial';
+import type { AxisDef, DialTunables, FairnessFloors } from '../config/dial';
 import { tunables } from '../config/tunables';
 import { clamp } from '../core/math';
 
@@ -20,6 +20,9 @@ export interface DialAxes {
   strafeLegSec: number;
   standStillSec: number;
   exposureSec: number;
+  orbitExposureSec: number;
+  coldStartExposureSec: number;
+  stopAndPopExposureSec: number;
   peekWideSec: number;
   enemyReactionSec: number;
   tellSec: number;
@@ -37,6 +40,9 @@ export function createAxes(): DialAxes {
     strafeLegSec: 0,
     standStillSec: 0,
     exposureSec: 0,
+    orbitExposureSec: 0,
+    coldStartExposureSec: 0,
+    stopAndPopExposureSec: 0,
     peekWideSec: 0,
     enemyReactionSec: 0,
     tellSec: 0,
@@ -79,6 +85,9 @@ export function axes(dial: number, out: DialAxes = createAxes(), cfg: DialTunabl
   out.strafeLegSec = axisValue(a.strafeLegSec, dial);
   out.standStillSec = axisValue(a.standStillSec, dial);
   out.exposureSec = Math.max(f.exposureSec, axisValue(a.exposureSec, dial));
+  out.orbitExposureSec = Math.max(f.exposureSec, f.orbitExposureSec, axisValue(a.orbitExposureSec, dial));
+  out.coldStartExposureSec = Math.max(f.exposureSec, f.coldStartExposureSec, axisValue(a.coldStartExposureSec, dial));
+  out.stopAndPopExposureSec = Math.max(f.exposureSec, f.stopAndPopExposureSec, axisValue(a.stopAndPopExposureSec, dial));
   out.peekWideSec = Math.max(f.exposureSec, axisValue(a.peekWideSec, dial));
   out.enemyReactionSec = Math.max(f.enemyReactionSec, axisValue(a.enemyReactionSec, dial));
   out.tellSec = Math.max(f.tellSec, axisValue(a.tellSec, dial));
@@ -88,11 +97,13 @@ export function axes(dial: number, out: DialAxes = createAxes(), cfg: DialTunabl
 }
 
 /**
- * Spawn fairness (design §9.3.5): nothing spawns within `spawnViewAngleDeg` of the view direction
- * *and* closer than `spawnMinDistance` (no point-blank ambush).
+ * Spawn fairness (design §9.3.5): nothing spawns closer than `spawnMinDistance` in any direction,
+ * and nothing inside the view cone (`spawnViewAngleDeg` either side of the view direction) closer
+ * than `spawnViewConeDistance` (no point-blank ambush, #12 P6).
  */
-export function isFairSpawn(angleFromViewDeg: number, distance: number, cfg: DialTunables = tunables.dial): boolean {
-  return !(Math.abs(angleFromViewDeg) < cfg.floors.spawnViewAngleDeg && distance < cfg.floors.spawnMinDistance);
+export function isFairSpawn(angleFromViewDeg: number, distance: number, f: FairnessFloors = tunables.dial.floors): boolean {
+  if (distance < f.spawnMinDistance) return false;
+  return !(Math.abs(angleFromViewDeg) < f.spawnViewAngleDeg && distance < f.spawnViewConeDistance);
 }
 
 export interface TierInfo {

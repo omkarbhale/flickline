@@ -10,10 +10,12 @@ import { makeHarness, type Harness } from './testHarness';
 /** Axis table of the dial module's end points (design §9.4), for the drills' axes. */
 export const TABLE: Record<string, AxisRange> = {
   beaconScale: { at0: 3, at100: 1 },
-  distance: { at0: 5, at100: 50, geometric: true },
-  flickMinDeg: { at0: 20, at100: 90 },
-  flickMaxDeg: { at0: 40, at100: 180 },
+  distance: { at0: 5, at100: 35, geometric: true },
+  flickMinDeg: { at0: 20, at100: 60 },
+  flickMaxDeg: { at0: 40, at100: 120 },
   exposureSec: { at0: 3, at100: 0.45, geometric: true },
+  orbitExposureSec: { at0: 2.5, at100: 1.6, geometric: true },
+  coldStartExposureSec: { at0: 2.5, at100: 1.05, geometric: true },
 };
 
 export const READY = secondsToTicks(0.8);

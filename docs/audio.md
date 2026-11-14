@@ -101,10 +101,10 @@ Each image: waveform on top, spectrogram (0 to 8 kHz, 250 ms wide) below. Regene
 |---|---|---|
 | `shotPace` | Pace: high and dry. 2 ms high-passed noise transient, a 520 -> 210 Hz triangle body over 70 ms, and a short band-passed noise tail sweeping 3.6 -> 2.2 kHz. 82 ms. | ![](audio/shotPace.png) |
 | `shotKestrel` | Kestrel: mid and punchy. 2 ms transient, a 230 -> 84 Hz sine body (110 ms) with a 460 -> 170 Hz triangle snap, and a low-passed noise tail. 152 ms. | ![](audio/shotKestrel.png) |
-| `hitBody` | Thock: 60 ms sine drop 220 -> 110 Hz with a 3 ms low-passed click. Nothing above about 1 kHz. | ![](audio/hitBody.png) |
-| `hitLeg` | The same thock a semitone lower and 6 dB quieter. | ![](audio/hitLeg.png) |
-| `hitHead` | The thock plus the tink: two detuned triangles at 1.90 kHz and 1.92 kHz, 120 ms. The bright line in the spectrogram is the tink; it is the only cue with strong energy at 1.9 kHz. | ![](audio/hitHead.png) |
-| `kill` | Chime on a pentatonic ladder: a 200 ms sine note with a slightly detuned twin (x1.005) for a bell-like shimmer. 8 steps from 440 Hz (A4) at semitones 0, 2, 4, 7, 9, 12, 14, 16, so the top step is 1109 Hz, below the 1.9 kHz tink. See the ladder image below. | ![](audio/kill.png) |
+| `hitBody` | Thock: 60 ms sine drop 260 -> 150 Hz with its second harmonic (520 -> 300 Hz) at -6 dB, and a 3 ms 3 kHz click (a sine burst) peaking about -20 dBFS (research #52 R2/R3). The click is the short blip at 3 kHz in the spectrogram. | ![](audio/hitBody.png) |
+| `hitLeg` | Weaker than the body in three ways at once (#52 R1): the thock 3 semitones lower (219 -> 126 Hz), 6 dB quieter, 35 ms instead of 60, and no click. | ![](audio/hitLeg.png) |
+| `hitHead` | The thock plus the tink: two detuned triangles at 3.00 kHz and 3.03 kHz, 120 ms (#52 R4). The bright line in the spectrogram is the tink, far above the kill ladder's top step (1.1 kHz). | ![](audio/hitHead.png) |
+| `kill` | Chime on a pentatonic ladder: a 200 ms sine note with a slightly detuned twin (x1.005) for a bell-like shimmer. 8 steps from 440 Hz (A4) at semitones 0, 2, 4, 7, 9, 12, 14, 16, so the top step is 1109 Hz, far below the 3 kHz tink. See the ladder image below. | ![](audio/kill.png) |
 | `killSparkle` | Headshot-kill top layer: two detuned triangles an octave above the step note, 90 ms. | ![](audio/killSparkle.png) |
 | `miss` | 20 ms band-passed noise "pfft" sweeping 2.3 -> 1.4 kHz, quiet, positional at the impact point. | ![](audio/miss.png) |
 | `movingShot` | Flat, low, dull "tock": 150 Hz triangle, 70 ms, a soft click, no pitch movement and no ladder. | ![](audio/movingShot.png) |
@@ -140,9 +140,9 @@ Measured (48 kHz, `npm run audio:snapshot`):
 |---|---|---|---|---|---|---|
 | `shotPace` | weapons | 82 ms | -15.0 dBFS | 920 Hz | 398 Hz | 11.0 % |
 | `shotKestrel` | weapons | 152 ms | -15.0 dBFS | 270 Hz | 164 Hz | 3.4 % |
-| `hitBody` | hits | 60 ms | -12.0 dBFS | 177 Hz | 176 Hz | 0.0 % |
-| `hitLeg` | hits | 60 ms | -18.0 dBFS | 167 Hz | 164 Hz | 0.0 % |
-| `hitHead` | hits | 120 ms | -12.0 dBFS | 1802 Hz | 1922 Hz | 89.8 % |
+| `hitBody` | hits | 60 ms | -12.0 dBFS | 263 Hz | 211 Hz | 0.0 % |
+| `hitLeg` | hits | 35 ms | -18.0 dBFS | 221 Hz | 176 Hz | 0.0 % |
+| `hitHead` | hits | 120 ms | -12.0 dBFS | 2830 Hz | 3000 Hz | 89.2 % |
 | `kill` (step 1) | hits | 200 ms | -12.0 dBFS | 441 Hz | 439 Hz | 0.0 % |
 | `killSparkle` (step 1) | hits | 90 ms | -18.0 dBFS | 897 Hz | 885 Hz | 0.6 % |
 | `miss` | hits | 20 ms | -26.0 dBFS | 3842 Hz | 1805 Hz | 88.2 % |
@@ -172,7 +172,9 @@ Measured (48 kHz, `npm run audio:snapshot`):
 | `resultsFanfare` | ui | 540 ms | -16.0 dBFS | 405 Hz | 439 Hz | 0.0 % |
 | `runEnd` | ui | 200 ms | -22.0 dBFS | 410 Hz | 439 Hz | 0.0 % |
 
-**Headshot vs body, by spectrum (the centroid test):** the body thock has 0.0% of its energy above 1.5 kHz and a centroid of 177 Hz; the headshot has 89.8% above 1.5 kHz and a centroid of 1802 Hz (10x). The unit test requires the thock under 3% and the tink over 20% above 1.5 kHz, the headshot centroid at least twice the thock's, and the dominant frequencies on opposite sides of 1.5 kHz and 400 Hz. By ear the difference is a dull knock against a bright "ting" on top of the same knock.
+**Headshot vs body, by spectrum (the centroid test):** the body thock has 0.0% of its energy above 1.5 kHz (its 3 ms click is loud in level, about -20 dBFS, but tiny in energy) and a centroid of 263 Hz; the headshot has 89.2% above 1.5 kHz and a centroid of 2830 Hz (10x). The unit test requires the thock under 3% and the tink over 20% above 1.5 kHz, the headshot centroid at least twice the thock's, the tink dominant above 2.5 kHz and the thock's below 400 Hz. By ear the difference is a knock with a tick on it against a bright "ting" on top of the same knock.
+
+**Cue research #52 R1-R4 (adopted in #130), each with a test in `soundSet.test.ts`:** R1 leg vs body: 3 semitones lower (dominant 211 vs 176 Hz), 6 dB quieter, 35 vs 60 ms, no click (the leg has nothing in the 2.5-4 kHz band). The research's "ERB separation >= 1.5" cannot come from the fundamental alone at this pitch (3 semitones near 200 Hz is about 0.7 ERB); the separation is in the click band, where the body has the click and the leg has none. R2: about a fifth of the body thock's energy is above 250 Hz (it was about 0 at 220 -> 110 Hz). R3: the click peaks at about -21 dBFS in the 2.5-4 kHz band, at least 10 dB over every player weapon's peak there once the body hit's weapon duck (`duckDepthDb`, 3.5 dB) applies. Before the duck the margins are Pace 9.2 dB (its noise tail is the closest), Rill 11.6, Kestrel 13.4, Longnail 16.7. The weapons' pitched bodies were not moved below 200 Hz: the click alone meets the check, and the shot sounds are a feel decision (#62). R4: thock, kill ladder (440-1109 Hz) and tink (3 kHz) are at least 3 ERB apart.
 
 ## The enemy tell
 
@@ -216,8 +218,8 @@ So the hits bus is at least 6 dB above the weapons bus at every hit. Before the 
 
 * **Sample-domain synthesis instead of `OfflineAudioContext`** (issue text): see "Rendering"; same intent (rendered once at load, no network), testable in CI.
 * **Soft-limiter waveshaper instead of a compressor** as the master limiter: see "Graph".
-* **Design 12 vs cue research (#52):** the issue names design 12 for behaviour, so hits follow it (low thock, 1.9 kHz tink). The research's body-hit throttling (skip body sounds within 40 ms) and moving-shot throttling are not in design 12 and are not implemented; per-shot cues play every shot.
-* **Ladder root 440 Hz, not 880 Hz.** The merged cue research (`docs/research/cues.md` 3.4) found that a root above about 760 Hz puts the top ladder step above the 1.9 kHz tink, so a high kill would sound like a headshot. The ladder spans 440 to 1109 Hz and a test keeps every step below 1.5 kHz. The research's other recommendations (R2: thock 260 -> 150 Hz with a 3 kHz click, tink at 3.0 kHz) contradict the numbers design 12 and this issue's spectrum criterion fix (thock 220 -> 110 Hz with no energy above 1.5 kHz, tink at 1.9 kHz), so they are left for a tuning pass after play-testing; they are one-line data edits in `config/audio.ts`.
+* **Design 12 vs cue research (#52):** design 12 adopted R1-R4 in #130 (see "The cues" above). The research's body-hit throttling (skip body sounds within 40 ms) and moving-shot throttling are not in design 12 and are not implemented; per-shot cues play every shot.
+* **Ladder root 440 Hz, not 880 Hz.** The merged cue research (`docs/research/cues.md` 3.4) found that a root above about 760 Hz puts the top ladder step above the old 1.9 kHz tink, so a high kill would sound like a headshot. The ladder spans 440 to 1109 Hz and a test keeps every step below 1.5 kHz; since #130 the tink is at 3 kHz (R4), well clear of it.
 * **Hit-over-weapons duck depth (#41).** Design 12 says hits duck weapons by 3 dB for 80 ms. With weapons at -15 and the body thock at -12 that gives 6 dB, but the leg thock is -18, which a flat 3 dB duck leaves level with the weapons, and #41 requires the hits bus to be at least 6 dB above the weapons bus at every hit. The depth is therefore derived (`duckDepthDb`): the design's 3 dB as the floor, deeper under quieter hit cues (3.5 dB for the body thock, headshot and kill, 9.5 dB for the leg thock). The shots dip only for 80 ms and only on hits; the sparkle no longer ducks on its own (it rides a kill, which does).
 * **Enemy tell volume (#41).** -14 dBFS, 2 dB under a hit, so it can never mask one. Design gives no number.
 * **No bot harness yet (#41).** The mix check replays a scripted busiest-moment event stream through the real wiring; swap in the bot harness (#28) when it lands.

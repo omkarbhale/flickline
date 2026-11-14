@@ -26,7 +26,7 @@ const hzAt = (rootHz: number, semitones: number): number => rootHz * Math.pow(2,
 
 /**
  * Kill chime for a ladder step: a sine note with a slightly detuned twin for a bell-like shimmer.
- * The whole ladder (root 440 Hz, top step about 1.1 kHz) stays below the headshot tink (1.9 kHz),
+ * The whole ladder (root 440 Hz, top step about 1.1 kHz) stays far below the headshot tink (3 kHz),
  * so a high kill never sounds like a headshot (docs/research/cues.md section 3.4).
  */
 export function killLayers(step: number, t: AudioTunables): Layer[] {
