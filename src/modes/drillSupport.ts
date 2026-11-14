@@ -16,6 +16,7 @@ export const TABLE: Record<string, AxisRange> = {
   exposureSec: { at0: 3, at100: 0.45, geometric: true },
   orbitExposureSec: { at0: 2.5, at100: 1.6, geometric: true },
   coldStartExposureSec: { at0: 2.5, at100: 1.35, geometric: true },
+  stopAndPopExposureSec: { at0: 2.0, at100: 0.7, geometric: true },
 };
 
 export const READY = secondsToTicks(0.8);

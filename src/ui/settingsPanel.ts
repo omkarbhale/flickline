@@ -132,6 +132,7 @@ export class SettingsPanel {
       f.selectRow('enemyOutline', 'Enemy outline', OVERRIDES.map((o) => ({ value: o, label: OVERRIDE_LABELS[o] }))),
       f.selectRow('echoPreset', 'Enemy colour', ECHO_PRESET_IDS.map((id) => ({ value: id, label: ECHO_LABELS[id] })), 'Contrast is for the highest visibility.'),
       f.toggleRow('reduceFlashing', 'Reduce flashing', 'Turns off screen pulses, chromatic effects and the Surge glow, and softens the damage flash. On by default when your system asks for reduced motion.'),
+      f.toggleRow('chromaticPulse', 'Chromatic kill pulse', 'A 50 ms red/blue split on each kill. Needs a preset with the full post stack (High) or Post effects on; Reduce flashing overrides it. Off by default.'),
       f.selectRow('viewmodel', 'Weapon', VIEWMODEL_MODES.map((m) => ({ value: m, label: m === 'hidden' ? 'Hidden' : `${m[0]!.toUpperCase()}${m.slice(1)} hand` }))),
     );
 

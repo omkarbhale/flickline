@@ -25,7 +25,8 @@ export interface RunEvents {
   targetShielded: { tick: number; targetId: number };
 
   enemyTell: { tick: number; id: number; durationMs: number };
-  enemyFired: { tick: number; id: number; hit: boolean; dir: Vec3 };
+  /** An enemy fired. `audibleToPlayer`: the shot is within `attribution.soundRadiusM.shot` of the player (fight-attribution F1). */
+  enemyFired: { tick: number; id: number; hit: boolean; dir: Vec3; audibleToPlayer: boolean };
   // `playerDamaged`, `playerSlowed`, `playerDied` and `playerHealed` live in `SimEvents` (sim/types.ts).
 
   surgeStarted: { tick: number };

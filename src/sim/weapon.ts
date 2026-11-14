@@ -22,7 +22,7 @@ import {
 
 /** Events the weapon simulation emits (part of `SimEvents`). */
 export interface WeaponEvents {
-  /** A bullet left the gun (design §14.3). `dir` already includes recoil and spread. */
+  /** A bullet left the gun (design §14.3). `dir` already includes recoil and spread; `aimDir` is the same shot before the spread draw. */
   shotFired: {
     tick: number;
     t: number;
@@ -30,6 +30,13 @@ export interface WeaponEvents {
     weapon: WeaponId;
     origin: Vec3;
     dir: Vec3;
+    /**
+     * Where the barrel pointed before the spread draw: the view plus the recoil offset as the
+     * player countered it (the axis of the spread cone). The fight-attribution aim error is this
+     * ray against the target (`fight-attribution.md` F8): off-target means an aim miss, on-target
+     * with a stray bullet means a spread miss. With no recoil (a first shot) it is the camera ray.
+     */
+    aimDir: Vec3;
     /** Horizontal speed above the weapon's accuracy deadzone, or airborne (design §3). */
     moving: boolean;
     /** Horizontal speed, m/s. */
@@ -168,6 +175,7 @@ export interface WeaponScratch {
   trace: TraceResult;
   origin: Vec3;
   dir: Vec3;
+  aimDir: Vec3;
   fired: SimEvents['shotFired'];
   impact: SimEvents['shotImpact'];
   reloadStarted: SimEvents['reloadStarted'];
@@ -180,13 +188,15 @@ export function createWeaponScratch(): WeaponScratch {
   const t = createTraceResult();
   const origin = vec3();
   const dir = vec3();
+  const aimDir = vec3();
   const weapon: WeaponId = 'kestrel';
   return {
     trace: t,
     origin,
     dir,
+    aimDir,
     fired: {
-      tick: 0, t: 0, shotId: 0, weapon, origin, dir, moving: false, speed: 0, airborne: false,
+      tick: 0, t: 0, shotId: 0, weapon, origin, dir, aimDir, moving: false, speed: 0, airborne: false,
       crouching: false, spreadDeg: 0, recoilIndex: 0, recoilPitchDeg: 0, recoilYawDeg: 0, ammo: 0,
       yaw: 0, pitch: 0, aimTargetId: -1, aimErr: 0, aimDYaw: 0, aimDPitch: 0,
     },
@@ -452,6 +462,8 @@ function fire(
   const power = moving ? rules.centreBiasPowerMoving : rules.centreBiasPowerStill;
   const r = spreadDeg * Math.pow(u, power) * DEG2RAD;
   const d = directionFromAngles(s.dir, yaw, pitch);
+  const ad = s.aimDir;
+  ad.x = d.x; ad.y = d.y; ad.z = d.z; // the cone axis, kept for `shotFired.aimDir` before the spread rotates `d`
   const sy = Math.sin(yaw), cy = Math.cos(yaw), sp = Math.sin(pitch), cp = Math.cos(pitch);
   // right = (cos y, 0, -sin y); up = (sin y sin p, cos p, cos y sin p): orthonormal with d.
   const cr = Math.cos(r), sr = Math.sin(r);
@@ -502,7 +514,7 @@ function fire(
   const tr = trace(world.boxes, field, o.x, o.y, o.z, d.x, d.y, d.z, rules.rangeM, s.trace);
   // Shot bookkeeping for the kill stats (bullets at a target, near misses, moving shots).
   const hitId = tr.kind === 2 ? field.slots[tr.targetIndex]!.id : -1;
-  field.registerShot(o.x, o.y, o.z, d.x, d.y, d.z, hitId, moving, tick, events);
+  field.registerShot(o.x, o.y, o.z, d.x, d.y, d.z, hitId, moving, tick, p, world.boxes, events);
   if (tr.kind === 0) return;
 
   const im = s.impact;
