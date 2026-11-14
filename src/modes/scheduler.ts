@@ -88,9 +88,14 @@ export class SpawnScheduler {
     private readonly cfg: ModeTunables,
     private readonly floors: FairnessFloors,
     private readonly rng: Rng,
-    private readonly index: AnchorIndex,
+    private index: AnchorIndex,
     private readonly player: PlayerView,
   ) {}
+
+  /** Pick from another map's anchors from now on (a run that moves between maps, Sweep). */
+  setAnchors(source: AnchorSource | null): void {
+    this.index = new AnchorIndex(source);
+  }
 
   /** The player's eye position (scratch, valid until the next call). */
   eyePosition(): Vec3 {

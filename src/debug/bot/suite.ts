@@ -1,3 +1,4 @@
+import { MODES } from '../../app/modeHost';
 import { HeadlessGame } from './headless';
 import { listModes, mapForMode, playMode, FREEPLAY, type BotReport, type BotRunOptions } from './play';
 import type { BotParams } from './skill';
@@ -84,9 +85,11 @@ export function runSuite(): SuiteResult {
     const slowest = Math.max(...reports.filter((r) => r.mode === mode).map((r) => r.wallMs));
     const unfinished = reports.filter((r) => r.mode === mode && !r.finished).length;
     add(`${mode}: runs end by themselves within ${RUN_BUDGET_MS} ms`, unfinished === 0 && slowest < RUN_BUDGET_MS, `slowest ${f(slowest, 0)} ms, ${unfinished} unfinished`);
+    // A run with no clock (Sweep) has a fixed set of Echoes, so kills cap out: there the better aim shows as accuracy.
+    const capped = MODES[mode]?.durationSec === Infinity;
     add(
       `${mode}: skill 90 beats skill 20`,
-      (strong.kills > weak.kills || strong.score > weak.score) && acc(strong) >= acc(weak) - 0.05,
+      (strong.kills > weak.kills || strong.score > weak.score || (capped && acc(strong) > acc(weak) + 0.05)) && acc(strong) >= acc(weak) - 0.05,
       `kills ${weak.kills} -> ${strong.kills}, score ${weak.score} -> ${strong.score}, accuracy ${f(acc(weak))} -> ${f(acc(strong))}`,
     );
     const a = play({ mode, skill: 50, seed: 7 });

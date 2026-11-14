@@ -9,7 +9,7 @@ import { createScoreBreakdown, scoreKill, type ScoreBreakdown } from '../feedbac
 import { StreakTracker } from '../feedback/streaks';
 import type {
   AnchorSource, AxisValues, DialSource, ModeEvents, MotionView, PlayerSourceEvents, RunEndReason, SkillId, SourceEvents,
-  TargetSpawner, WeaponSourceEvents,
+  TargetSpawner, VitalsView, WeaponSourceEvents,
 } from './contracts';
 import { effectiveDial } from './itemDifficulty';
 import type { AwardOptions, ModeContext, ModeDef, ModeEvent, ResolveOptions, RunPhase, RunStats, SpawnOptions, WeaponEvent } from './modeDef';
@@ -23,7 +23,13 @@ export interface RunnerDeps {
   player: MotionView;
   /** Move the player (the host places the sim's player and re-syncs the view). Absent: `placePlayer` does nothing. */
   placePlayer?: (x: number, y: number, z: number, yaw: number) => void;
+  /** The player's health (default: always full, never dies). */
+  vitals?: VitalsView;
+  /** Load another map mid-run, returning the anchors of the new one (null: unknown map). Absent: `loadMap` fails. */
+  loadMap?: (id: string) => AnchorSource | null;
 }
+
+const FULL_VITALS: VitalsView = { hp: 100, maxHp: 100, shield: 0, maxShield: 0, alive: true };
 
 export interface RunOptions {
   seed: number;
@@ -43,6 +49,8 @@ interface TargetRecord {
   expireTick: number;
   resolved: boolean;
   rtMs: number;
+  /** Scenario card of its contact, or null. */
+  card: string | null;
 }
 
 const MAX_TARGETS = 64;
@@ -72,12 +80,15 @@ export class ModeRunner implements ModeContext<unknown> {
   /** Last scored kill's terms (valid until the next kill). */
   readonly lastScore: ScoreBreakdown = createScoreBreakdown();
   surge = false;
+  /** Every point earned is multiplied by this (Sweep's depth multiplier); 1 outside it. */
+  pointsMultiplier = 1;
   endReason: RunEndReason | null = null;
   /** Spawns refused by the fairness floor or a full pool (debug). */
   refusedSpawns = 0;
 
   readonly tunables: Tunables;
   readonly player: MotionView;
+  readonly vitals: VitalsView;
   private readonly streaks: StreakTracker;
   private readonly records: TargetRecord[] = [];
   private readonly killEv: ModeEvent & { type: 'targetKilled' };
@@ -85,6 +96,10 @@ export class ModeRunner implements ModeContext<unknown> {
   private readonly impactEv: ModeEvent & { type: 'shotImpact' };
   private readonly firedEv: ModeEvent & { type: 'shotFired' };
   private readonly stoppedEv: ModeEvent & { type: 'playerStopped' };
+  private readonly visibleEv: ModeEvent = { type: 'targetVisible', payload: null as never };
+  private readonly sawEv: ModeEvent = { type: 'enemySawPlayer', payload: null as never };
+  private readonly enemyFiredEv: ModeEvent = { type: 'enemyFired', payload: null as never };
+  private readonly damagedEv: ModeEvent = { type: 'playerDamaged', payload: null as never };
   private readonly weaponFiredEv: WeaponEvent & { type: 'shotFired' };
   private readonly reloadStartedEv: WeaponEvent & { type: 'reloadStarted' };
   private readonly reloadCompletedEv: WeaponEvent & { type: 'reloadCompleted' };
@@ -97,6 +112,8 @@ export class ModeRunner implements ModeContext<unknown> {
   private readonly endEv = { tick: 0, t: 0, reason: 'timer' as RunEndReason };
   private readonly beatEv = { tick: 0, t: 0, beat: 0, dial: 0 };
   private pinDial: number | undefined;
+  /** Inside `end()`: the mode's `onEnd` may not end the run again. */
+  private ending = false;
   simTick = 0;
   private liveStartSimTick = 0;
   private readyTicksLeft = 0;
@@ -109,15 +126,16 @@ export class ModeRunner implements ModeContext<unknown> {
   private quietId = -1;
   /** Stand-in record for a target beyond the pool capacity, so its trial is still emitted. */
   private readonly overflow: TargetRecord = {
-    active: false, id: -1, skill: 'precision', dial: 0, itemDifficulty: 0, expireTick: -1, resolved: false, rtMs: -1,
+    active: false, id: -1, skill: 'precision', dial: 0, itemDifficulty: 0, expireTick: -1, resolved: false, rtMs: -1, card: null,
   };
 
   constructor(private readonly deps: RunnerDeps) {
     this.tunables = deps.tunables;
     this.player = deps.player;
+    this.vitals = deps.vitals ?? FULL_VITALS;
     this.streaks = new StreakTracker(deps.tunables.scoring, deps.events);
     for (let i = 0; i < MAX_TARGETS; i++) {
-      this.records.push({ active: false, id: -1, skill: 'precision', dial: 0, itemDifficulty: 0, expireTick: -1, resolved: false, rtMs: -1 });
+      this.records.push({ active: false, id: -1, skill: 'precision', dial: 0, itemDifficulty: 0, expireTick: -1, resolved: false, rtMs: -1, card: null });
     }
     this.killEv = { type: 'targetKilled', payload: null as never };
     this.expiredEv = { type: 'targetExpired', payload: null as never };
@@ -163,6 +181,10 @@ export class ModeRunner implements ModeContext<unknown> {
         this.onWeaponFired(e);
       }),
       bus.on('playerStopped', (e) => this.onStopped(e)),
+      bus.on('targetVisible', (e) => this.forward(this.visibleEv, e)),
+      bus.on('enemySawPlayer', (e) => this.forward(this.sawEv, e)),
+      bus.on('enemyFired', (e) => this.forward(this.enemyFiredEv, e)),
+      bus.on('playerDamaged', (e) => this.forward(this.damagedEv, e)),
       bus.on('reloadStarted', (e) => this.onReload(this.reloadStartedEv, e)),
       bus.on('reloadCompleted', (e) => this.onReload(this.reloadCompletedEv, e)),
       bus.on('playerDied', () => this.end('death')),
@@ -182,6 +204,7 @@ export class ModeRunner implements ModeContext<unknown> {
     const s = this.stats;
     s.score = s.kills = s.headshotKills = s.misses = s.trials = s.trialsWon = 0;
     this.surge = false;
+    this.pointsMultiplier = 1;
     this.endReason = null;
     this.refusedSpawns = 0;
     this.recordsUsed = 0;
@@ -225,6 +248,11 @@ export class ModeRunner implements ModeContext<unknown> {
 
   end(reason: RunEndReason): void {
     if (this.phase !== 'live' && this.phase !== 'ready') return;
+    if (this.ending) return;
+    this.ending = true;
+    // The mode settles what is still open while the run is live (its points still count).
+    this.mode.onEnd?.(this, reason);
+    this.ending = false;
     this.phase = 'result';
     this.endReason = reason;
     const e = this.endEv;
@@ -246,21 +274,54 @@ export class ModeRunner implements ModeContext<unknown> {
     this.surge = on;
   }
 
+  setPointsMultiplier(mult: number): void {
+    this.pointsMultiplier = mult > 0 ? mult : 1;
+  }
+
+  awardPoints(points: number): number {
+    if (this.phase !== 'live') return 0;
+    const p = Math.max(0, Math.round(points));
+    if (p === 0) return 0;
+    this.stats.score += p;
+    const k = this.lastScore;
+    // A non-kill award: no kill terms. `lastScore` is reused as the payload source, so reset it.
+    k.base = p; k.precision = 1; k.speed = 1; k.streak = 1; k.difficulty = 1; k.surge = 1; k.raw = p; k.total = p;
+    this.emitScore(this.simTick, this.timeSec, -1, 'post', k);
+    return p;
+  }
+
+  targetPosition(id: number, out: Vec3): boolean {
+    return this.deps.spawner.position?.(id, out) ?? false;
+  }
+
+  targetInSight(id: number): boolean {
+    return this.deps.spawner.inSight?.(id) ?? false;
+  }
+
+  loadMap(id: string): boolean {
+    const anchors = this.deps.loadMap?.(id);
+    if (!anchors) return false;
+    this.scheduler.setAnchors(anchors);
+    return true;
+  }
+
   spawn(kind: EnemyKind, pos: Vec3, opts?: SpawnOptions): number {
     const fl = this.tunables.dial.floors;
     // Spawn fairness (design §9.3.5): the floor distance in any direction and the view-cone rule.
-    if (!this.scheduler.fairAt(pos) || this.recordsUsed >= MAX_TARGETS) {
+    if ((!opts?.placed && !this.scheduler.fairAt(pos)) || this.recordsUsed >= MAX_TARGETS) {
       this.refusedSpawns++;
       return -1;
     }
     const scale = Math.max(opts?.scale ?? 1, fl.minTargetScale);
-    const id = this.deps.spawner.spawn(kind, pos, scale, opts?.strafe, opts?.durable);
+    const echo = opts && (opts.peek || opts.fire || opts.crouched) ? opts : undefined;
+    const id = this.deps.spawner.spawn(kind, pos, scale, opts?.strafe, opts?.durable, echo);
     if (id < 0) {
       this.refusedSpawns++;
       return -1;
     }
     const rec = this.adopt(id);
     rec.skill = opts?.skill ?? this.mode.skills[0]!;
+    rec.card = opts?.card ?? null;
     if (opts?.difficulty !== undefined) rec.itemDifficulty = opts.difficulty;
     if (opts?.lifetimeSec !== undefined) {
       rec.expireTick = this.liveTick + secondsToTicks(Math.max(opts.lifetimeSec, fl.exposureSec));
@@ -295,6 +356,7 @@ export class ModeRunner implements ModeContext<unknown> {
     e.rtMs = rt >= 0 ? rt : undefined;
     e.extra = opts?.extra;
     e.source = this.mode.trialSource ?? 'matched';
+    e.card = rec.card ?? undefined;
     this.deps.events.emit('skillTrial', e);
     this.stats.trials++;
     if (success) this.stats.trialsWon++;
@@ -324,6 +386,7 @@ export class ModeRunner implements ModeContext<unknown> {
     kill.base *= w;
     kill.raw *= w;
     kill.total = Math.round(kill.raw);
+    this.applyMultiplier(kill);
     this.streaks.onKill(this.simTick, t, opts.clean ?? true);
     this.stats.score += kill.total;
     this.emitScore(this.simTick, t, id, kind, kill);
@@ -332,6 +395,13 @@ export class ModeRunner implements ModeContext<unknown> {
 
   placePlayer(x: number, y: number, z: number, yaw: number): void {
     this.deps.placePlayer?.(x, y, z, yaw);
+  }
+
+  /** The points multiplier (Sweep's depth) on a scored kill or award. */
+  private applyMultiplier(kill: ScoreBreakdown): void {
+    if (this.pointsMultiplier === 1) return;
+    kill.raw *= this.pointsMultiplier;
+    kill.total = Math.round(kill.raw);
   }
 
   private emitScore(tick: number, t: number, targetId: number, kind: EnemyKind, kill: ScoreBreakdown): void {
@@ -372,6 +442,7 @@ export class ModeRunner implements ModeContext<unknown> {
       dial: rec.dial,
       surge: this.surge,
     }, cfg);
+    this.applyMultiplier(kill);
     this.streaks.onKill(e.tick, t, e.clean);
     const s = this.stats;
     s.kills++;
@@ -420,6 +491,13 @@ export class ModeRunner implements ModeContext<unknown> {
     if (this.phase !== 'live') return;
     wrap.payload = e;
     this.mode.onWeapon?.(this, wrap);
+  }
+
+  /** A fact only the mode reads (Sweep's contacts): pass it on while live. */
+  private forward(wrap: ModeEvent, e: unknown): void {
+    if (this.phase !== 'live') return;
+    (wrap as { payload: unknown }).payload = e;
+    this.mode.onEvent(this, wrap);
   }
 
   private onStopped(e: SourceEvents['playerStopped']): void {
@@ -485,6 +563,7 @@ export class ModeRunner implements ModeContext<unknown> {
       r.expireTick = -1;
       r.resolved = false;
       r.rtMs = -1;
+      r.card = null;
       this.recordsUsed++;
       return r;
     }
@@ -497,6 +576,7 @@ export class ModeRunner implements ModeContext<unknown> {
     r.expireTick = -1;
     r.resolved = false;
     r.rtMs = -1;
+    r.card = null;
     return r;
   }
 

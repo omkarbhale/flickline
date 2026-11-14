@@ -54,13 +54,19 @@ never touches sim state. One engagement is the two-submovement model of aimed mo
 A target that is not in view yet (behind the player in Orbit) is turned to at `searchDegPerSec`.
 
 **Not modelled** (so a mode that needs them is not playable by this bot yet): leading moving
-targets (it trails them with its follow lag), movement of any kind except Stop & Pop's footwork (below; elsewhere it stands still), crouching outside Stop & Pop,
+targets (it trails them with its follow lag), movement of any kind except Stop & Pop's footwork and Sweep's walk (below; elsewhere it stands still), crouching outside Stop & Pop,
 jumping, weapon swaps and reloads (the sim reloads an empty magazine by itself), taking cover,
 and enemies shooting back.
 
 ### Stop & Pop footwork (`footwork.ts`)
 
 Stop & Pop is the one mode with movement, and it is played on its own map (`mapForMode`: Lane). `FootworkBot` wraps the aiming `Bot`: it strafes along the Lane (arming it), and when a target appears waits its reaction time, taps the opposite key until its speed is under the accuracy threshold, lets go, takes the ring's stance (crouch for a blue ring) and only then lets the aimer fire. A weak bot reacts late and runs out of exposure; a strong one does not.
+
+### Sweep (`sweepBot.ts`, `sweepReport.ts`)
+
+Sweep (#201) is a run with no clock: `SweepBot` walks each sector from its entry to its exit along the map's nav graph (`navRoute` in `modes/sweepCatalog.ts`), looking where it walks with the crosshair at head height. When the aimer engages an Echo it has actually seen (`Bot.visibleOnly`, and only while that Echo is in plain sight, so it never aims through walls), it counter-strafes to a stop and fires only along an open line. When a fight pulls it off its route, or it is stuck on a corner for 3 s, it plans a new route from where it stands. It does not clear angles one at a time, pre-aim, use cover, crouch or back off a fight it is losing, so its numbers are a floor for a balance pass (#53), not a target.
+
+`npm run bot -- --sweep-report [--runs 50] [--skills 30,50,70] [--dial D]` plays seeded runs at each skill and prints the balance table posted on #201: contact win rate (cleared ÷ fights; a contact the player left unhurt is not a fight), fights per run, depth reached, the share of runs that made it out, mean health+shield at each sector exit, run length and score.
 
 ### The skill model (`skill.ts`)
 
