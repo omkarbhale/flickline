@@ -17,6 +17,7 @@ import { sweep } from '../modes/sweep';
 import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
 import { economyShield } from '../sim/damage';
+import { FIRE_IDLE } from '../sim/enemyAi';
 import { rayBox } from '../sim/collision';
 import { MAPS } from '../sim/mapLoader';
 import type { MapDef } from '../sim/mapTypes';
@@ -58,6 +59,12 @@ class WorldSpawner implements TargetSpawner {
 
   despawn(id: number): void {
     this.world.despawnTarget(id, this.bus);
+  }
+
+  /** The Echo's shooting model is in contact: it has the player in an unoccluded line, in range (`enemyFire.seesPlayer`). */
+  inSight(id: number): boolean {
+    const t = this.world.targetField.byId(id);
+    return t !== null && t.alive && t.ai.fireOn && t.ai.phase !== FIRE_IDLE;
   }
 
   position(id: number, out: Vec3): boolean {

@@ -294,6 +294,10 @@ export class ModeRunner implements ModeContext<unknown> {
     return this.deps.spawner.position?.(id, out) ?? false;
   }
 
+  targetInSight(id: number): boolean {
+    return this.deps.spawner.inSight?.(id) ?? false;
+  }
+
   loadMap(id: string): boolean {
     const anchors = this.deps.loadMap?.(id);
     if (!anchors) return false;

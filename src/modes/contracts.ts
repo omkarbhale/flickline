@@ -91,6 +91,12 @@ export interface TargetSpawner {
   despawn(id: number): void;
   /** Feet position of a live target into `out`; false when it is not alive. Absent: positions are unknown. */
   position?(id: number, out: Vec3): boolean;
+  /**
+   * The Echo and the player have a line of sight between them now (its shooting model is in
+   * contact: an unoccluded line from its muzzle to the player's eye, in range). False for a target
+   * that does not shoot, or is gone. Absent: never.
+   */
+  inSight?(id: number): boolean;
 }
 
 /** Read-only view of the player's health (the sim's `PlayerHealth` satisfies it). */

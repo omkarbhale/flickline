@@ -3,8 +3,8 @@ import { secondsToTicks, TICK_DT } from '../../core/time';
 import { vec3, type Vec3 } from '../../core/vec3';
 import { lineClear } from '../../sim/exposure';
 import { targetAimPoint, wrapPi, yawOf } from '../../sim/aim';
-import type { MapDef } from '../../sim/mapTypes';
 import type { SweepState } from '../../modes/sweep';
+import { navRoute } from '../../modes/sweepCatalog';
 import type { TickInput } from '../../sim/types';
 import type { World } from '../../sim/world';
 import type { Bot, BotStats } from './bot';
@@ -18,8 +18,6 @@ const WALK_TURN_DEG_PER_SEC = 360;
 const STOPPED_SHARE = 0.85;
 /** No progress towards the waypoint for this long: skip to the next one (stuck on a corner). */
 const STUCK_SEC = 3;
-/** Heights of the walk-line check (shins, chest). */
-const WALK_LINE_Y = [0.3, 1.2];
 
 /**
  * The bot's feet for Sweep (#201): it walks each sector from the entry to the exit along the map's
@@ -121,66 +119,4 @@ export class SweepBot {
     this.bestDist = Infinity;
     this.bestAt = this.game.world.tick;
   }
-}
-
-function walkLine(map: MapDef, a: Vec3, b: Vec3): boolean {
-  for (const y of WALK_LINE_Y) if (!lineClear(map.boxes, a.x, a.y + y, a.z, b.x, b.y + y, b.z)) return false;
-  return true;
-}
-
-/** The nearest nav node with a clear walk line to `p`, or the nearest at all. */
-function nearestNode(map: MapDef, p: Vec3): number {
-  let best = -1, bestD = Infinity, any = -1, anyD = Infinity;
-  const nodes = map.nav.nodes;
-  for (let i = 0; i < nodes.length; i++) {
-    const n = nodes[i]!.pos;
-    const d = Math.hypot(n.x - p.x, n.z - p.z) + Math.abs(n.y - p.y) * 2;
-    if (d < anyD) { anyD = d; any = i; }
-    if (d < bestD && walkLine(map, p, n)) { bestD = d; best = i; }
-  }
-  return best >= 0 ? best : any;
-}
-
-/** Shortest walk from `from` to `to`: straight when the line is clear, else through the nav graph (Dijkstra). */
-export function navRoute(map: MapDef, from: Vec3, to: Vec3): Vec3[] {
-  if (walkLine(map, from, to)) return [{ ...to }];
-  const nodes = map.nav.nodes;
-  if (nodes.length === 0) return [{ ...to }];
-  const index = new Map(nodes.map((n, i) => [n.id, i]));
-  const adj: number[][] = nodes.map(() => []);
-  for (const [a, b] of map.nav.edges) {
-    const i = index.get(a), j = index.get(b);
-    if (i === undefined || j === undefined) continue;
-    adj[i]!.push(j);
-    adj[j]!.push(i);
-  }
-  const s = nearestNode(map, from), g = nearestNode(map, to);
-  const dist = nodes.map(() => Infinity);
-  const prev = nodes.map(() => -1);
-  const done = nodes.map(() => false);
-  dist[s] = 0;
-  for (;;) {
-    let u = -1;
-    for (let i = 0; i < nodes.length; i++) if (!done[i] && (u < 0 || dist[i]! < dist[u]!)) u = i;
-    if (u < 0 || dist[u] === Infinity || u === g) break;
-    done[u] = true;
-    for (const v of adj[u]!) {
-      const a = nodes[u]!.pos, b = nodes[v]!.pos;
-      const nd = dist[u]! + Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-      if (nd < dist[v]!) { dist[v] = nd; prev[v] = u; }
-    }
-  }
-  const chain: Vec3[] = [];
-  for (let v = g; v >= 0; v = prev[v]!) chain.unshift({ ...nodes[v]!.pos });
-  // Cut corners: drop a node when the walk line skips it.
-  const route: Vec3[] = [];
-  let at = from;
-  const all = [...chain, { ...to }];
-  for (let i = 0; i < all.length; i++) {
-    const next = all[i + 1];
-    if (next && walkLine(map, at, next)) continue;
-    route.push(all[i]!);
-    at = all[i]!;
-  }
-  return route;
 }

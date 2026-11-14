@@ -231,6 +231,8 @@ export interface ModeContext<S = unknown> {
   awardPoints(points: number): number;
   /** Feet position of a live target into `out`; false when it is gone (or the host cannot tell). */
   targetPosition(id: number, out: Vec3): boolean;
+  /** An Echo that shoots back and the player can see each other now (line of sight either way, in range). */
+  targetInSight(id: number): boolean;
   /**
    * Load another shipped map now, mid-run (Sweep moving between sectors): collision, anchors and the
    * level visuals switch, the player and the run are untouched. No-op when it is already loaded.

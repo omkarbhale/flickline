@@ -59,7 +59,6 @@ export interface SweepState {
 
 const settle = createContactSettle();
 const facts: ContactFacts & { kinds: EnemyKind[] } = { kinds: [], dial: 50, startEhp: 0, damageTaken: 0, allDead: false, died: false };
-const eye = vec3();
 const body = vec3();
 const enteredEv: SectorEvents['sectorEntered'] = {
   tick: 0, t: 0, sectorId: '', mapId: '', index: 0, of: 0, role: 'take', condition: 'full', stake: 'plain', dial: 0, depth: 1, contacts: 0, echoes: 0,
@@ -146,7 +145,10 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
 }
 
 function contactOf(st: SweepState, targetId: number): ContactRt | null {
-  for (const c of st.contacts) if (c.echoIds.includes(targetId)) return c;
+  for (let i = 0; i < st.contacts.length; i++) {
+    const c = st.contacts[i]!;
+    for (let k = 0; k < c.echoIds.length; k++) if (c.echoIds[k] === targetId) return c;
+  }
   return null;
 }
 
@@ -190,19 +192,11 @@ function settleOpen(ctx: ModeContext<SweepState>, c: ContactRt, died: boolean): 
   ctx.events.emit('contactSettled', e);
 }
 
-/** Line of sight either way between the player's eye and any live Echo of the contact (head or chest). */
+/** Line of sight either way between the player and any live Echo of the contact (the sim's own sight test, no rays here). */
 function inSight(ctx: ModeContext<SweepState>, c: ContactRt): boolean {
-  const p = ctx.player;
-  eye.x = p.pos.x;
-  eye.y = p.pos.y + p.eyeHeight;
-  eye.z = p.pos.z;
-  for (const id of c.echoIds) {
-    if (id < 0 || !ctx.targetPosition(id, body)) continue;
-    const feetY = body.y;
-    body.y = feetY + 1.5;
-    if (ctx.scheduler.sightClear(eye, body)) return true;
-    body.y = feetY + 1.0;
-    if (ctx.scheduler.sightClear(eye, body)) return true;
+  for (let k = 0; k < c.echoIds.length; k++) {
+    const id = c.echoIds[k]!;
+    if (id >= 0 && ctx.targetInSight(id)) return true;
   }
   return false;
 }
@@ -288,7 +282,8 @@ export const sweep: ModeDef<SweepState> = {
     const st = ctx.state;
     if (st.done) return;
     const holdTicks = secondsToTicks(ctx.tunables.scoring.contact.disengageSec);
-    for (const c of st.contacts) {
+    for (let i = 0; i < st.contacts.length; i++) {
+      const c = st.contacts[i]!;
       if (!c.open) continue;
       if (inSight(ctx, c)) c.lastSightTick = ctx.simTick;
       // Two seconds with no line of sight either way: the contact is over (design §2.3).

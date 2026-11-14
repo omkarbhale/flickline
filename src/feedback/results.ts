@@ -317,7 +317,7 @@ function metricCell(id: MetricId, s: RunStats): StatCell {
       };
     case 'contacts': {
       const n = s.contactsWon + s.contactsLost;
-      return { id, label: 'Fights', value: n > 0 ? `${s.contactsWon} won · ${s.contactsLost} lost` : DASH, hint: n > 0 ? 'contacts won and lost' : '' };
+      return { id, label: 'Fights won', value: n > 0 ? `${s.contactsWon} – ${s.contactsLost}` : DASH, hint: n > 0 ? `won – lost, of ${n} fights` : '' };
     }
   }
 }

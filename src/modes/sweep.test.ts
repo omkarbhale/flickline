@@ -3,7 +3,7 @@ import { cloneTunables } from '../config/tunables';
 import type { Vec3 } from '../core/vec3';
 import { HeadlessGame } from '../debug/bot/headless';
 import { playMode } from '../debug/bot/play';
-import { bandExposure, bodyTop } from '../sim/exposure';
+import { bodyTop, lineClear } from '../sim/exposure';
 import { MAPS } from '../sim/mapLoader';
 import { createTickInput } from '../sim/types';
 import { planCards, sweepCatalog, sweepPlan, type SweepState } from './sweep';
@@ -13,14 +13,24 @@ import { Rng } from '../core/rng';
 const tunables = cloneTunables();
 const cfg = tunables.sweep;
 
-/** A finer body grid than the director's own (7 x 8): an independent check that nothing shows. */
+/** A finer body grid than the director's own (9 x 13, crown included): an independent check that nothing shows. */
 const showsMemo = new Map<string, boolean>();
 function shows(mapId: string, eye: Vec3, feet: Vec3, crouched: boolean): boolean {
   const key = [mapId, eye.x, eye.y, eye.z, feet.x.toFixed(3), feet.y.toFixed(3), feet.z.toFixed(3), crouched].join();
   let v = showsMemo.get(key);
   if (v === undefined) {
     const hit = tunables.targets.hit;
-    v = bandExposure(MAPS[mapId]!.boxes, hit, crouched, eye.x, eye.y, eye.z, feet.x, feet.y, feet.z, 0, bodyTop(hit, crouched), 9, 10) > 0;
+    // The crown included (row 0 is the top of the head), then evenly down to the ankles, across the torso's width.
+    const top = bodyTop(hit, crouched);
+    v = false;
+    for (let r = 0; r <= 12 && !v; r++) {
+      const y = feet.y + top - (top - 0.02) * (r / 12);
+      for (let c = 0; c <= 8 && !v; c++) {
+        const off = (c / 8 - 0.5) * hit.torsoWidth;
+        const dx = feet.x - eye.x, dz = feet.z - eye.z, l = Math.hypot(dx, dz) || 1;
+        v = lineClear(MAPS[mapId]!.boxes, eye.x, eye.y, eye.z, feet.x - (dz / l) * off, y, feet.z + (dx / l) * off);
+      }
+    }
     showsMemo.set(key, v);
   }
   return v;
@@ -205,6 +215,22 @@ describe('Sweep mode (#201)', () => {
     expect(log.filter((l) => l.type === 'contactSettled').map((l) => l.e.outcome)).toEqual(['died']);
     expect(log.filter((l) => l.type === 'sectorEnded').map((l) => l.e.reason)).toEqual(['death']);
     expect(g.run.liveStats()).toMatchObject({ endReason: 'death', contactsLost: 1, contactsWon: 0 });
+  });
+
+  it('moving to a sector on another map loads it in place, mid-run: level, anchors and visuals switch, health and the run do not', () => {
+    const { g, log, input } = startRun(3);
+    for (let k = 0; k < 120; k++) g.advance(input);
+    g.world.hitPlayer('kestrel', 'body', 0, 1.2, 0, -1, g.bus);
+    const hp = g.world.health.hp;
+    const other = g.modes.currentMap.id === 'lane' ? 'elbow' : 'lane';
+    expect(g.modes.runner.loadMap(other)).toBe(true);
+    expect(g.modes.currentMap.id).toBe(other);
+    expect(g.world.level).toBe(MAPS[other]);
+    expect(g.world.health.hp).toBe(hp);
+    expect(g.modes.runner.phase).toBe('live');
+    expect(log.filter((l) => l.type === 'mapLoaded').at(-1)!.e.mapId).toBe(other);
+    expect(g.modes.runner.scheduler.anchorsOfKind('hold').length).toBe(MAPS[other]!.anchors.filter((a) => a.kind === 'hold').length);
+    expect(g.modes.runner.loadMap('nowhere')).toBe(false);
   });
 
   it('bot harness: the same seed plays the same run (sectors, placements, cards, fights, score)', () => {
