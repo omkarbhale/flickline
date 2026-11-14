@@ -1,6 +1,6 @@
 # Flickline — Game Design
 
-Status: v1 of the design, written for the first playable and first release. Decisions are made here, not offered as menus. If a rule in this document conflicts with `docs/mechanics-spec.md` on a *number* (speeds, damage, spread, fire rate, FOV, sensitivity scale), the spec wins. If it conflicts with the "Architecture and conventions (read first)" issue (#54) on a *module boundary or event name*, that issue wins. The spec is on branch `fm/fl-mechanics` / PR #35 until it merges; its section numbers are cited as `spec §x.y`. Everything else here is normative.
+Status: v1 of the design, written for the first playable and first release. Decisions are made here, not offered as menus. If a rule in this document conflicts with `docs/mechanics-spec.md` on a *number* (speeds, damage, spread, fire rate, FOV, sensitivity scale), the spec wins. If it conflicts with the "Architecture and conventions (read first)" issue (#54) on a *module boundary or event name*, that issue wins. Section numbers of the spec are cited as `spec §x.y`. Everything else here is normative.
 
 Contents: 1 Pitch and pillars · 2 Core loop · 3 Skills and stat definitions · 4 Modes · 5 Enemies and targets · 6 Weapons · 7 Instant feedback · 8 Results and progression · 9 Skill matching · 10 Maps · 11 Look · 12 Sound · 13 Interface · 14 Technical contracts · 15 Scope · 16 Identity and legal line · 17 Backlog
 
@@ -637,7 +637,7 @@ Flickline copies **mechanics and feel only**: movement speeds and acceleration, 
 
 The work is tracked in GitHub issues on `omkarbhale/flickline`; every issue states its goal, the design section it implements, acceptance criteria, dependencies and what is out of scope. Design and backlog tracking: [#8](https://github.com/omkarbhale/flickline/issues/8).
 
-- Prerequisites outside this backlog: code foundation [#6](https://github.com/omkarbhale/flickline/issues/6), mechanics spec [#7](https://github.com/omkarbhale/flickline/issues/7) (PR #35), architecture and conventions [#54](https://github.com/omkarbhale/flickline/issues/54).
+- Prerequisites outside this backlog: code foundation [#6](https://github.com/omkarbhale/flickline/issues/6) (merged), mechanics spec [#7](https://github.com/omkarbhale/flickline/issues/7) (merged), architecture and conventions [#54](https://github.com/omkarbhale/flickline/issues/54).
 - Phase tracking issues: [#9 first playable](https://github.com/omkarbhale/flickline/issues/9), [#10 first release](https://github.com/omkarbhale/flickline/issues/10), [#11 later (parked ideas)](https://github.com/omkarbhale/flickline/issues/11).
 
 ### First playable
