@@ -1,5 +1,8 @@
 import type { Subscribable } from '../core/eventBus';
 import type { FeedbackTunables } from '../config/feedback';
+import type { TargetTunables } from '../config/targets';
+import { vec3 } from '../core/vec3';
+import { zoneCentre } from '../sim/hitZones';
 import type { SimEvents, TargetState } from '../sim/types';
 import type { FeedbackOptions } from './options';
 
@@ -120,6 +123,7 @@ export class ShotCues {
   // Last shot, copied from the event payload (payloads are only valid during the callback).
   private ox = 0; private oy = 0; private oz = 0;
   private dx = 0; private dy = 0; private dz = -1;
+  private readonly head = vec3();
   private readonly offs: (() => void)[] = [];
 
   constructor(
@@ -127,6 +131,7 @@ export class ShotCues {
     private readonly cfg: FeedbackTunables,
     private readonly options: Readonly<FeedbackOptions>,
     private readonly targets: readonly TargetState[],
+    private readonly targetTunables: TargetTunables,
   ) {
     for (let i = 0; i < cfg.tracer.capacity + 1; i++) {
       this.tracers.push({ ...base(), ax: 0, ay: 0, az: 0, bx: 0, by: 0, bz: 0, kind: TRACER_NORMAL });
@@ -249,8 +254,7 @@ export class ShotCues {
    * Ghost ring on a miss: the head of the target nearest to the aim ray (within maxOffsetDeg),
    * plus the closest point of the ray to it, so the arrow shows exactly how far and which way
    * the shot missed at the target's depth.
-   * TODO(#15): head centre is the sphere centre for the placeholder targets; use the head sphere
-   * (spec hit.head_centre_*) once humanoid zones exist.
+   * The head centre comes from the sim's hit zones (`zoneCentre`), so it follows stance.
    */
   private spawnGhost(): void {
     const g = this.cfg.ghost;
@@ -261,7 +265,8 @@ export class ShotCues {
     for (let i = 0; i < this.targets.length; i++) {
       const tg = this.targets[i]!;
       if (!tg.alive) continue;
-      const vx = tg.pos.x - this.ox, vy = tg.pos.y - this.oy, vz = tg.pos.z - this.oz;
+      const hc = zoneCentre(this.head, tg, this.targetTunables.hit, this.targetTunables.kinds[tg.kind], 'head');
+      const vx = hc.x - this.ox, vy = hc.y - this.oy, vz = hc.z - this.oz;
       const t = vx * this.dx + vy * this.dy + vz * this.dz;
       if (t <= 0) continue;
       const px = vx - this.dx * t, py = vy - this.dy * t, pz = vz - this.dz * t;
@@ -273,7 +278,8 @@ export class ShotCues {
     const c = this.ghost;
     this.recycle(c);
     this.birth(c, g.lifeSec);
-    c.hx = tg.pos.x; c.hy = tg.pos.y; c.hz = tg.pos.z;
+    const hb = zoneCentre(this.head, tg, this.targetTunables.hit, this.targetTunables.kinds[tg.kind], 'head');
+    c.hx = hb.x; c.hy = hb.y; c.hz = hb.z;
     c.mx = this.ox + this.dx * bt; c.my = this.oy + this.dy * bt; c.mz = this.oz + this.dz * bt;
 
     // The arrow line is just another tracer slot (kind GHOST_LINE) so the renderer draws it with

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { cloneTunables } from '../config/tunables';
 import { EventBus } from '../core/eventBus';
 import { TICK_DT, TICK_RATE } from '../core/time';
+import { zoneCentre } from '../sim/hitZones';
 import { testRoom } from '../sim/levels';
+import { vec3 } from '../core/vec3';
 import { createTickInput, type SimEvents, type TickInput } from '../sim/types';
 import { World } from '../sim/world';
 import { formatRtTtk, hitmarkerKind, provisionalKillScore } from './hitFeedback';
@@ -16,7 +18,7 @@ function rig(opts: Partial<FeedbackOptions> = {}) {
   const world = new World({ level: testRoom, tunables: tun, seed: 7 });
   const bus = new EventBus<SimEvents>();
   const options: FeedbackOptions = { coachingCues: true, missGhost: true, damageNumbers: true, reduceFlashing: false, ...opts };
-  const cues = new ShotCues(bus, tun.feedback, options, world.targets);
+  const cues = new ShotCues(bus, tun.feedback, options, world.targets, tun.targets);
   const input = createTickInput();
   const settle = (n = 4): void => {
     for (let i = 0; i < n; i++) world.step(input, bus);
@@ -36,8 +38,9 @@ function rig(opts: Partial<FeedbackOptions> = {}) {
   const aimAt = (i: number, dyaw = 0): void => {
     const t = world.targets[i]!;
     const p = world.player;
-    const dx = t.pos.x - p.pos.x, dz = t.pos.z - p.pos.z;
-    const dy = t.pos.y - (p.pos.y + p.eyeHeight);
+    const hc = zoneCentre(vec3(), t, tun.targets.hit, tun.targets.kinds[t.kind], 'head');
+    const dx = hc.x - p.pos.x, dz = hc.z - p.pos.z;
+    const dy = hc.y - (p.pos.y + p.eyeHeight);
     input.yaw = Math.atan2(-dx, -dz) + dyaw;
     input.pitch = Math.atan2(dy, Math.hypot(dx, dz));
   };
@@ -131,7 +134,8 @@ describe('miss-offset ghost ring', () => {
     const g = r.cues.ghost;
     expect(g.active).toBe(true);
     const t = r.world.targets[0]!;
-    expect([g.hx, g.hy, g.hz]).toEqual([t.pos.x, t.pos.y, t.pos.z]);
+    const head = zoneCentre(vec3(), t, r.tun.targets.hit, r.tun.targets.kinds[t.kind], 'head');
+    expect([g.hx, g.hy, g.hz]).toEqual([head.x, head.y, head.z]);
     expect(r.cues.tracers[r.tun.feedback.tracer.capacity]!.kind).toBe(TRACER_GHOST_LINE);
     // Still there at 0.2 s, gone after 0.25 s.
     for (let i = 0; i < 12; i++) r.frame(1, { fire: false }, 0.016);
