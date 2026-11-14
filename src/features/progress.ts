@@ -1,4 +1,5 @@
 import { defineFeature } from '../app/feature';
+import { TICK_DT } from '../core/time';
 import { SKILL_IDS } from '../config/dial';
 import type { MedalId } from '../config/medals';
 import { endOfRunMedals } from '../feedback/medals';
@@ -7,6 +8,8 @@ import { subTierInfo, subTierOf } from '../progress/ranks';
 import { RunPace, RunRecorder, situationStats } from '../progress/runRecords';
 import { SAVE_VERSION, type ProgressData, type RouteTile, type RunBest } from '../progress/save';
 import { parseSave } from '../settings/saveData';
+
+const DEBUG_EMIT = ['sectorEntered', 'sectorEnded', 'contactSettled', 'runBanked', 'scoreAwarded'];
 
 declare module '../debug/hook' {
   interface FlicklineDebug {
@@ -22,6 +25,12 @@ declare module '../debug/hook' {
       pace(): { score: number; reference: number } | null;
       fakeBest(dial: number, score: number, sectors?: number): void;
       situations(): Record<string, { contacts: number; winRate: number | null; keptMean: number | null }>;
+      /**
+       * Emit one of the run's events (`sectorEntered`, `sectorEnded`, `contactSettled`, `runBanked`, `scoreAwarded`) with the
+       * fields given and `tick`/`t` filled in, as the run director will (#201): drives the recorder, the medals and the
+       * pace bar from a playtest before a Sweep run exists. Returns false for any other type.
+       */
+      emit(type: string, fields: Record<string, unknown>): boolean;
       exportText(): string;
       importText(text: string): { ok: boolean; error?: string };
       reset(): void;
@@ -165,6 +174,12 @@ export const feature = defineFeature({
             out[card] = { contacts: s.contacts, winRate: s.winRate, keptMean: s.keptMean };
           }
           return out;
+        },
+        emit(type, fields) {
+          if (!DEBUG_EMIT.includes(type)) return false;
+          const payload = { tick: game.world.tick, t: game.world.tick * TICK_DT, ...fields };
+          (bus as { emit(t: string, p: unknown): void }).emit(type, payload);
+          return true;
         },
         fakeBest(dial, score, sectors = 4) {
           const strip: RouteTile[] = [];
