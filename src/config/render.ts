@@ -54,6 +54,6 @@ export const render: RenderTunables = {
   light: { ambient: 0.55, sun: 0.45, dir: [0.45, 0.8, 0.3], objectAmbient: 1.6, objectSun: 2.2 },
   gradient: { low: 0.4, height: 4 },
   trim: { intensity: 0.5, baseIntensity: 0.22, baseHeight: 3 },
-  grid: { minor: 1, major: 5, minorWeight: 0.1, majorWeight: 0.28, tickWeight: 0.5, lineWidthPx: 1, tickFadeNear: 14, tickFadeFar: 28 },
+  grid: { minor: 1, major: 5, minorWeight: 0.1, majorWeight: 0.28, tickWeight: 0.5, lineWidthPx: 1, tickFadeNear: 4, tickFadeFar: 9 },
   blob: { capacity: 96, opacity: 0.7, echoScale: 1.5, pillarMaxFootprint: 2, pillarMinHeight: 1.8 },
 };
