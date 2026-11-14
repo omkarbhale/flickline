@@ -19,6 +19,7 @@ import {
   type WeaponScratch,
   type WeaponWorld,
 } from './weapon';
+import { validateLoadout, type LoadoutRequest, type LoadoutResult } from './loadout';
 import { stepPlayer } from './movement';
 import {
   createTickInput,
@@ -70,12 +71,25 @@ export class World {
    * (it belongs to the run); the mode host sets and clears it.
    */
   movementLocked = false;
+  /**
+   * A mode that has no loadout ignores the swap keys (design §4: `1`/`2` swap only where a loadout
+   * makes sense, i.e. Sweep). Like `movementLocked` it belongs to the run: the mode host sets and
+   * clears it, `reset()` leaves it. Free play (no mode) can always swap.
+   */
+  get swapLocked(): boolean {
+    return this.weaponWorld.swapLocked;
+  }
+  set swapLocked(v: boolean) {
+    this.weaponWorld.swapLocked = v;
+  }
   readonly player: PlayerState;
   /** The target registry (see `sim/targets.ts`). */
   readonly targetField: TargetField;
   /** Registry slots: fixed capacity, a slot holds a target when `alive`. Same array as the field's. */
   readonly targets: TargetState[];
+  /** Weapons by slot (primary, sidearm); changed only through `setLoadout`. */
   readonly loadout: readonly WeaponId[];
+  private readonly loadoutSlots: WeaponId[];
   readonly weapon: WeaponState;
   /** The player's HP and the tag / flinch timers (spec §4); damage goes through `damagePlayer`. */
   readonly health: PlayerHealth;
@@ -101,7 +115,8 @@ export class World {
     this.targetField = new TargetField(opts.tunables);
     this.targets = this.targetField.slots;
     this.behaviourCtx = { tick: 0, rng: this.rng, tunables: opts.tunables, events: NULL_SINK };
-    this.loadout = [...(opts.loadout ?? opts.tunables.weaponRules.defaultLoadout)];
+    this.loadoutSlots = [...(opts.loadout ?? opts.tunables.weaponRules.defaultLoadout)];
+    this.loadout = this.loadoutSlots;
     this.weapon = createWeaponState(this.loadout, opts.tunables.weapon);
     this.healthSys = new PlayerHealthSystem(opts.tunables.player, opts.tunables.sweep);
     this.health = this.healthSys.state;
@@ -112,6 +127,7 @@ export class World {
       table: opts.tunables.weapon,
       rules: opts.tunables.weaponRules,
       rng: this.rng,
+      swapLocked: false,
     };
     const m = opts.tunables.movement;
     this.player = {
@@ -277,6 +293,22 @@ export class World {
     p.yaw = yaw;
     p.pitch = 0;
     p.grounded = false;
+  }
+
+  /**
+   * Choose the loadout (design §4.8): `primary` goes in slot 0 and `sidearm` in slot 1. An invalid
+   * request (unknown id, or a weapon in the wrong slot class) changes nothing and says why. On
+   * success the weapon state is rebuilt: full magazines and reserves, the primary in hand,
+   * a fresh spray. It survives `reset()`, so a restarted run keeps the player's pick. Call it
+   * between runs (the mode host and the menu do), not mid-fight.
+   */
+  setLoadout(req: LoadoutRequest): LoadoutResult {
+    const r = validateLoadout(this.tunables.weapon, req);
+    if (!r.ok) return r;
+    this.loadoutSlots.length = 0;
+    this.loadoutSlots.push(r.slots[0], r.slots[1]);
+    resetWeaponState(this.weapon, this.loadoutSlots, this.tunables.weapon);
+    return r;
   }
 
   /** Put a loadout weapon in hand at once (see `selectWeapon`). */

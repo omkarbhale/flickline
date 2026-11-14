@@ -8,7 +8,7 @@ describe('default keys (design §13.3)', () => {
     expect(d.walk[0]).toBe('ShiftLeft');
     expect(d.crouch[0]).toBe('ControlLeft');
     expect(d.jump[0]).toBe('Space');
-    expect([d.weapon1[0], d.weapon2[0], d.weapon3[0]]).toEqual(['Digit1', 'Digit2', 'Digit3']);
+    expect([d.slotPrimary[0], d.slotSidearm[0]]).toEqual(['Digit1', 'Digit2']);
     expect(d.reload[0]).toBe('KeyR');
     expect(d.restart[0]).toBe('Backspace');
     expect(d.confirm[0]).toBe('Enter');

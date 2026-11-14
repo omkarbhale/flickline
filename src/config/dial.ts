@@ -2,9 +2,9 @@
  * Difficulty dial and skill-model tunables (design §8.4 tiers, §9.1–9.4). Pure data: the model in
  * `adaptive/` reads everything from here, so balancing (#53) is a data change.
  *
- * The axis end points and floors are the design's values (§9.3.5, §9.4). Research #12
- * (`docs/research/human-performance.md` §4–5, proposals P5/P6) proposes changes to several of them;
- * they are noted per row below and are for the balance pass (#53) to adopt: numbers only, no code.
+ * The axis end points and floors are the design's values (§9.3.5, §9.4), which adopt research #12
+ * (`docs/research/human-performance.md` §4–5, proposals P5/P6) and #52 (`docs/research/cues.md` R8)
+ * (#130). Tuning beyond those values is the balance pass (#53): numbers only, no code.
  */
 
 /** The seven trained skills (design §3). */
@@ -40,8 +40,19 @@ export interface DialAxesTunables {
   /** Strafer leg duration (s) and stand-still window after the 0.16 s decel (s). */
   strafeLegSec: AxisDef;
   standStillSec: AxisDef;
-  /** Time a timed target stays exposed (s). */
+  /**
+   * Time a timed target stays exposed (s); counted from its spawn today, from `targetVisible` once
+   * #143 lands (design §9.3.5). `exposureSec` is the
+   * generic curve for pre-aimed targets; a target that needs the crosshair to move gets its own
+   * axis, because the time it needs covers reaction plus the aiming movement (design §9.4, #12 §4.1).
+   */
   exposureSec: AxisDef;
+  /** Orbit Beacon time to live (also the Placement run's Orbit-style trials). */
+  orbitExposureSec: AxisDef;
+  /** Cold Start Post exposure (also the Placement run's Cold-Start-style trials). */
+  coldStartExposureSec: AxisDef;
+  /** Stop & Pop target exposure (#47). */
+  stopAndPopExposureSec: AxisDef;
   /** Peeker wide-peek exposure (s). */
   peekWideSec: AxisDef;
   /** Enemy reaction (first sight to tell start) and tell duration (s). */
@@ -62,8 +73,12 @@ export interface DialAxesTunables {
  */
 export interface FairnessFloors {
   tellSec: number;
-  /** Applies to exposureSec and peekWideSec. */
+  /** Pre-aimed minimum: applies to every exposure axis and to every timed target the runner spawns. */
   exposureSec: number;
+  /** Per-mode exposure floors: the minimum feasible time (reaction + aiming movement, #12 §4.1). */
+  orbitExposureSec: number;
+  coldStartExposureSec: number;
+  stopAndPopExposureSec: number;
   enemyReactionSec: number;
   /**
    * Reaction floor for a prepared holder: no ordinary mouse click answers a visual onset faster
@@ -72,9 +87,11 @@ export interface FairnessFloors {
   preparedReactionSec: number;
   /** Minimum target scale relative to the spec's real head size (`hit.head_radius`). */
   minTargetScale: number;
-  /** No spawn closer than this ... */
+  /** No target spawns (or becomes armed) closer than this to the player's eye, in any direction (m). */
   spawnMinDistance: number;
-  /** ... inside this angle from the view direction (degrees). */
+  /** No target spawns closer than this (m) ... */
+  spawnViewConeDistance: number;
+  /** ... inside the view cone, this many degrees either side of the view direction (half the 103° FOV). */
   spawnViewAngleDeg: number;
 }
 
@@ -93,6 +110,17 @@ export interface TierDef {
 export interface ModeDialDef {
   skill: SkillId | 'line';
   targetSuccess: number;
+}
+
+/**
+ * The tell-cue axis (design §5.3, §7.4, issue #129): how loud the *added* tell cues (head-node flare,
+ * laser line, rising tone) are, 1 = full, 0 = gone. Full up to `fullBelow`, then a straight ramp to
+ * nothing at `goneAbove`. Above that only the true cues remain (weapon raise, stop, muzzle flash), as
+ * in the reference game. It scales the cues only, never the tell *duration* (`tellSec`, floored).
+ */
+export interface TellCueAxis {
+  fullBelow: number;
+  goneAbove: number;
 }
 
 export interface DialTunables {
@@ -141,6 +169,7 @@ export interface DialTunables {
   waves: { drill: number[]; sweep: number[]; flat: number[] };
   modes: Record<string, ModeDialDef>;
   axes: DialAxesTunables;
+  tellCue: TellCueAxis;
   floors: FairnessFloors;
   /** Ascending by `from`; first must start at 0 (design §8.4). */
   tiers: TierDef[];
@@ -180,35 +209,49 @@ export const dial: DialTunables = {
   },
   axes: {
     beaconScale: { at0: 3.0, at100: 1.0, curve: 'linear' },
-    // #12 proposes 5 -> 35 m (50 m is below the first-shot cone).
-    distance: { at0: 5, at100: 50, curve: 'geometric' },
-    // #12 proposes 20–40° -> 60–120° (120–180° only above dial 85, rare).
-    flickMinDeg: { at0: 20, at100: 90, curve: 'linear' },
-    flickMaxDeg: { at0: 40, at100: 180, curve: 'linear' },
+    // 35 m (a 0.46° head) at dial 100, not 50 m: a 50 m head (0.32°) is inside the first-shot
+    // spread cone, so success there measures luck (#12 P5).
+    distance: { at0: 5, at100: 35, curve: 'geometric' },
+    // 60–120° at dial 100, not 90–180°: off-screen targets are found by sound, not sight, and no
+    // evidence covers them (#12 P5). The rare 120–180° extreme above dial 85 is #136.
+    flickMinDeg: { at0: 20, at100: 60, curve: 'linear' },
+    flickMaxDeg: { at0: 40, at100: 120, curve: 'linear' },
     strafeSpeed: { at0: 2.0, at100: 5.4, curve: 'linear' },
-    // #12 proposes leg 0.35 s and stand-still 0.25 s at dial 100.
-    strafeLegSec: { at0: 1.0, at100: 0.3, curve: 'linear' },
-    standStillSec: { at0: 0.4, at100: 0.2, curve: 'linear' },
-    // #12 proposes exposure per mode (Orbit 2.5 -> 1.6 s, Cold Start 2.5 -> 1.05 s, Stop & Pop
-    // 2.0 -> 0.7 s) instead of one curve, and a wide peek of 1.4 -> 0.45 s.
+    // A 0.20 s stand-still is shorter than mean simple reaction time (0.218 s); 0.25 s is at it,
+    // and 0.35 s legs leave time to re-acquire a reversal (#12 P5).
+    strafeLegSec: { at0: 1.0, at100: 0.35, curve: 'linear' },
+    standStillSec: { at0: 0.4, at100: 0.25, curve: 'linear' },
+    // Exposure per mode (#12 §4.1): about 1.3x the minimum feasible time (reaction + aiming
+    // movement for the mode's angles and sizes). The generic curve is for pre-aimed targets.
     exposureSec: { at0: 3.0, at100: 0.45, curve: 'geometric' },
-    peekWideSec: { at0: 1.4, at100: 0.3, curve: 'geometric' },
+    orbitExposureSec: { at0: 2.5, at100: 1.6, curve: 'geometric' },
+    coldStartExposureSec: { at0: 2.5, at100: 1.05, curve: 'geometric' },
+    stopAndPopExposureSec: { at0: 2.0, at100: 0.7, curve: 'geometric' },
+    // A 0.3 s wide peek is shorter than a pre-aimed player's time to shot (#12 §4.1).
+    peekWideSec: { at0: 1.4, at100: 0.45, curve: 'geometric' },
     enemyReactionSec: { at0: 1.2, at100: 0.3, curve: 'linear' },
-    // #12 proposes 0.7 -> 0.30 s (0.18 s is below mean simple reaction time).
-    tellSec: { at0: 0.5, at100: 0.18, curve: 'linear' },
+    // 0.30 s at dial 100: the first tell where a typical player's strafe clears the accuracy
+    // deadzone before the shot (#12 P5 row 7, #52 R8); 0.18 s was below mean simple reaction time.
+    tellSec: { at0: 0.7, at100: 0.3, curve: 'linear' },
     enemyHitChance: { at0: 0.15, at100: 0.6, curve: 'linear' },
     density: { at0: 1, at100: 6, curve: 'step' },
   },
-  // #12 proposes tell >= 0.25 s, exposure floors per mode, and spawn rules of no visible target
-  // closer than 4 m where enemies shoot and none in the view cone closer than 5 m.
+  // HYPOTHESIS (#129): tells fade over Steel-Cobalt; the settling experiment (#164) moves these.
+  tellCue: { fullBelow: 35, goneAbove: 60 },
+  // #12 P6 and #52 R8: tell >= 0.25 s (one mean reaction time plus one shot), exposure floors per
+  // mode (minimum feasible time, #12 §4.1), and the spawn rule split in two unambiguous parts.
   floors: {
-    tellSec: 0.15,
-    exposureSec: 0.3,
+    tellSec: 0.25,
+    exposureSec: 0.45,
+    orbitExposureSec: 1.25,
+    coldStartExposureSec: 0.8,
+    stopAndPopExposureSec: 0.55,
     enemyReactionSec: 0.25,
     preparedReactionSec: 0.15,
     minTargetScale: 1.0,
-    spawnMinDistance: 3,
-    spawnViewAngleDeg: 90,
+    spawnMinDistance: 4,
+    spawnViewConeDistance: 5,
+    spawnViewAngleDeg: 51.5,
   },
   tiers: [
     { name: 'Chalk', from: 0, divisions: true },

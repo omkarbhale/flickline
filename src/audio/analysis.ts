@@ -130,3 +130,28 @@ export function spectrogram(
   }
   return rows;
 }
+
+/**
+ * Peak level (dBFS) of the part of `buf` between `loHz` and `hiHz`: an ideal band-pass by FFT
+ * (zero the other bins, inverse transform). Used to check that a short click carries its band.
+ */
+export function bandPeakDb(buf: Float32Array, sampleRate: number, loHz: number, hiHz: number): number {
+  const n = Math.max(4096, nextPow2(buf.length * 2));
+  const re = new Float64Array(n);
+  const im = new Float64Array(n);
+  for (let i = 0; i < buf.length; i++) re[i] = buf[i]!;
+  fft(re, im);
+  for (let k = 0; k < n; k++) {
+    const f = (Math.min(k, n - k) * sampleRate) / n;
+    if (f < loHz || f >= hiHz) {
+      re[k] = 0;
+      im[k] = 0;
+    }
+  }
+  // Inverse FFT: conjugate, forward transform, conjugate, scale by 1/n (only the real part is read).
+  for (let k = 0; k < n; k++) im[k] = -im[k]!;
+  fft(re, im);
+  let p = 0;
+  for (let i = 0; i < n; i++) p = Math.max(p, Math.abs(re[i]! / n));
+  return gainToDb(p);
+}

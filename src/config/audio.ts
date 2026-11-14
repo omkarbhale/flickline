@@ -133,31 +133,40 @@ export const cueRecipes: Record<Exclude<CueId, BuiltCueId>, CueRecipe> = {
       noise('lowpass', 2, 150, 2800, 1100, 0.8, 0.5, 0.55),
     ],
   },
-  // Hits: the thock is a 60 ms sine drop 220 -> 110 Hz with a low-passed click, so it carries no
-  // energy above ~1.5 kHz; the tink (two detuned triangles at 1.9 kHz, 120 ms) is what makes a
-  // headshot.
+  // Hits (design section 12, research #52 R1-R4, adopted in #130). Three families in separate bands:
+  // the thock below 600 Hz plus a 3 kHz click, the kill ladder 440-1100 Hz, the headshot tink at 3 kHz.
+  // Body thock (R2): a 60 ms sine drop 260 -> 150 Hz with its second harmonic at -6 dB, so the pitch
+  // survives laptop speakers, and a 3 ms click at 3 kHz (a sine burst, so its level does not depend
+  // on a noise seed) about 8 dB under the thock: the click carries the hit's identity above the
+  // weapon's low body (R3: click peak about -20 dBFS, at least 10 dB over either ducked weapon in the
+  // 2.5-4 kHz band; `soundSet.test.ts`).
   hitBody: {
     bus: 'hits', peakDb: -12, decayDb: -45,
     layers: [
-      noise('lowpass', 0, 3, 700, undefined, 0.7, 0, 0.5),
-      tone('sine', 0, 60, 220, 110, 0.6, 1.0),
+      tone('sine', 0, 3, 3000, undefined, 0.2, 1.3),
+      tone('sine', 0, 60, 260, 150, 0.6, 1.0),
+      tone('sine', 0, 60, 520, 300, 0.6, 0.5),
     ],
   },
   hitLeg: {
-    // A semitone lower and 6 dB quieter than the body thock.
+    // R1: weaker in three dimensions at once, so it is identified alone, not only by comparison:
+    // 3 semitones lower, 6 dB quieter, 35 ms instead of 60, and no click.
     bus: 'hits', peakDb: -18, decayDb: -45,
     layers: [
-      noise('lowpass', 0, 3, 700 / SEMITONE, undefined, 0.7, 0, 0.5),
-      tone('sine', 0, 60, 220 / SEMITONE, 110 / SEMITONE, 0.6, 1.0),
+      tone('sine', 0, 35, 260 / Math.pow(SEMITONE, 3), 150 / Math.pow(SEMITONE, 3), 0.6, 1.0),
+      tone('sine', 0, 35, 520 / Math.pow(SEMITONE, 3), 300 / Math.pow(SEMITONE, 3), 0.6, 0.5),
     ],
   },
   hitHead: {
+    // The body thock plus the tink (R4): two detuned triangles at 3.0 kHz, 120 ms, well above the
+    // top of the kill ladder (1.1 kHz) so a high kill never sounds like a headshot.
     bus: 'hits', peakDb: -12, decayDb: -50,
     layers: [
-      noise('lowpass', 0, 3, 700, undefined, 0.7, 0, 0.5),
-      tone('sine', 0, 60, 220, 110, 0.6, 0.8),
-      tone('triangle', 0, 120, 1900, undefined, 0.8, 0.55),
-      tone('triangle', 0, 120, 1900 * 1.011, undefined, 0.8, 0.55),
+      tone('sine', 0, 3, 3000, undefined, 0.2, 1.05),
+      tone('sine', 0, 60, 260, 150, 0.6, 0.8),
+      tone('sine', 0, 60, 520, 300, 0.6, 0.4),
+      tone('triangle', 0, 120, 3000, undefined, 0.8, 0.55),
+      tone('triangle', 0, 120, 3000 * 1.011, undefined, 0.8, 0.55),
     ],
   },
   // Miss: a quiet 20 ms surface "pfft".

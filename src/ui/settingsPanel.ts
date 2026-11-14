@@ -142,6 +142,8 @@ export class SettingsPanel {
     this.pinsEl = h('div', { class: 'set-pins', attrs: { role: 'group', 'aria-label': 'Difficulty pin per mode' } });
     gameplay.append(
       f.toggleRow('coachingCues', 'Coaching cues', 'The amber moving-shot tracer, the ⇆ glyph and the moving-shot tock. Turn off for a view that matches the reference game.'),
+      f.toggleRow('cueFading', 'Fade cues as I improve', 'The coaching cues and enemy tells step back as your rating rises. Off keeps them at full strength.'),
+      f.toggleRow('cleanRun', 'One clean run per session', 'A run with no coaching cues, like the reference game, as a benchmark.'),
       f.toggleRow('missGhost', 'Miss ghost', 'After a miss, a faint ring where the nearest target’s head was.'),
       f.toggleRow('damageNumbers', 'Damage numbers'),
       f.selectRow('flinchStrength', 'Hit flinch', [

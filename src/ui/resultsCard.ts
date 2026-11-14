@@ -62,6 +62,7 @@ export class ResultsCard {
             <p class="rc-kicker" data-k="end"></p>
             <h2 class="rc-title" data-k="mode"></h2>
             <p class="rc-seed">Seed <span data-k="seed"></span></p>
+            <p class="rc-clean" data-k="clean" hidden>Clean run: no coaching cues, reference-like HUD. Treat this score as your reference-game level.</p>
           </div>
           <div class="rc-score">
             <span class="rc-score-num" data-k="score" aria-label="Score"></span>
@@ -153,6 +154,7 @@ export class ResultsCard {
     q('end').textContent = m.endLabel;
     q('mode').textContent = m.modeLabel;
     q('seed').textContent = String(m.seed);
+    q('clean').hidden = !m.clean;
     q('score').textContent = m.score;
     const pb = q('pb');
     pb.textContent = m.pbText === DASH ? 'Personal best: —' : `${m.pbText} vs personal best`;

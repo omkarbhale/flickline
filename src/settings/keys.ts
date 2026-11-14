@@ -8,7 +8,7 @@
  */
 export const KEY_ACTIONS = [
   'forward', 'back', 'left', 'right', 'walk', 'crouch', 'jump',
-  'weapon1', 'weapon2', 'weapon3', 'reload',
+  'slotPrimary', 'slotSidearm', 'reload',
   'restart', 'confirm', 'statSheet', 'fullscreen',
 ] as const;
 export type KeyAction = (typeof KEY_ACTIONS)[number];
@@ -28,9 +28,8 @@ export const KEY_LABELS: Readonly<Record<KeyAction, string>> = {
   walk: 'Walk (hold)',
   crouch: 'Crouch',
   jump: 'Jump',
-  weapon1: 'Weapon 1',
-  weapon2: 'Weapon 2',
-  weapon3: 'Weapon 3',
+  slotPrimary: 'Primary weapon',
+  slotSidearm: 'Sidearm',
   reload: 'Reload',
   restart: 'Restart run',
   confirm: 'Next run / confirm',
@@ -40,7 +39,8 @@ export const KEY_LABELS: Readonly<Record<KeyAction, string>> = {
 
 /**
  * Defaults: design §13.3 (`WASD`, `Shift`, `Ctrl`, `Space`, `1`-`3`, `R`, `Backspace`, `Enter`,
- * `Tab`, `F11`). The second code keeps what the game already accepted before keys were rebindable
+ * `Tab`, `F11`). The loadout has two slots today (`sim/loadout.ts`: `1` primary, `2` sidearm); a
+ * `3` action joins when a third slot exists (`sanitizeKeys` fills any new action with its default). The second code keeps what the game already accepted before keys were rebindable
  * (arrow keys to move, `C` to crouch, the numpad `Enter`).
  */
 export const DEFAULT_KEYS: Readonly<KeyBindings> = {
@@ -51,9 +51,8 @@ export const DEFAULT_KEYS: Readonly<KeyBindings> = {
   walk: ['ShiftLeft'],
   crouch: ['ControlLeft', 'KeyC'],
   jump: ['Space'],
-  weapon1: ['Digit1'],
-  weapon2: ['Digit2'],
-  weapon3: ['Digit3'],
+  slotPrimary: ['Digit1'],
+  slotSidearm: ['Digit2'],
   reload: ['KeyR'],
   restart: ['Backspace'],
   confirm: ['Enter', 'NumpadEnter'],

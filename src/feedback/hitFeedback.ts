@@ -18,11 +18,15 @@ export function provisionalKillScore(zone: HitZone, fb: FeedbackTunables): numbe
   return Math.round(p.base * (zone === 'head' ? p.headMultiplier : 1));
 }
 
-/** "182 ms · 0.41 s" for the kill float (design §7.1); null when the sim has no timing yet. */
+/**
+ * "TTS 182 ms · TTK 0.41 s" for the kill float (design §7.1): time to shot and time to kill, each
+ * labelled so neither reads as the other (research #12 P1: it is not a reaction time; `rtMs` is the
+ * code name until #137). Null when the sim has no timing yet.
+ */
 export function formatRtTtk(rtMs: number | undefined, ttkMs: number | undefined): string | null {
   if (rtMs === undefined && ttkMs === undefined) return null;
   const parts: string[] = [];
-  if (rtMs !== undefined) parts.push(`${Math.round(rtMs)} ms`);
-  if (ttkMs !== undefined) parts.push(`${(ttkMs / 1000).toFixed(2)} s`);
+  if (rtMs !== undefined) parts.push(`TTS ${Math.round(rtMs)} ms`);
+  if (ttkMs !== undefined) parts.push(`TTK ${(ttkMs / 1000).toFixed(2)} s`);
   return parts.join(' · ');
 }

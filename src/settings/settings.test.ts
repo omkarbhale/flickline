@@ -38,9 +38,11 @@ describe('settings', () => {
     expect(s.quality).toBe(DEFAULT_SETTINGS.quality);
   });
   it('keeps feedback toggles as booleans and defaults them for garbage', () => {
-    expect(DEFAULT_SETTINGS).toMatchObject({ coachingCues: true, missGhost: true, damageNumbers: true, reduceFlashing: false });
+    expect(DEFAULT_SETTINGS).toMatchObject({ coachingCues: true, cueFading: true, cleanRun: true, missGhost: true, damageNumbers: true, reduceFlashing: false });
     const s = sanitizeSettings({ coachingCues: 'yes', missGhost: false, reduceFlashing: true, damageNumbers: 1 });
     expect(s.coachingCues).toBe(true);
+    expect(sanitizeSettings({ cueFading: false, cleanRun: false })).toMatchObject({ cueFading: false, cleanRun: false });
+    expect(sanitizeSettings({ cueFading: 0, cleanRun: 'no' })).toMatchObject({ cueFading: true, cleanRun: true });
     expect(s.missGhost).toBe(false);
     expect(s.reduceFlashing).toBe(true);
     expect(s.damageNumbers).toBe(true);

@@ -1,6 +1,7 @@
 import type { EventSink } from '../core/eventBus';
 import { clamp, DEG2RAD } from '../core/math';
 import { degreesPerCount } from '../core/sensitivity';
+import { SLOT_INDEX } from '../sim/loadout';
 import type { TickInput } from '../sim/types';
 import type { KeyBindings } from '../settings/keys';
 import { defaultBindings, indexBindings, withKeys, type Bindings, type BoundAction } from './bindings';
@@ -42,7 +43,7 @@ export class InputManager {
   private fireEdge = false;
   private jumpEdge = false;
   private reloadEdge = false;
-  /** Weapon slot asked for by a key press since the last tick (-1 none). */
+  /** Loadout slot of the last swap key pressed since a tick consumed it, or -1. */
   private switchEdge = -1;
   private readonly codeToAction = new Map<string, BoundAction>();
   private bindings: Bindings;
@@ -248,9 +249,8 @@ export class InputManager {
     this.down.add(e.code);
     if (action === 'jump') this.jumpEdge = true;
     if (action === 'reload') this.reloadEdge = true;
-    else if (action === 'weapon1') this.switchEdge = 0;
-    else if (action === 'weapon2') this.switchEdge = 1;
-    else if (action === 'weapon3') this.switchEdge = 2;
+    if (action === 'slotPrimary') this.switchEdge = SLOT_INDEX.primary;
+    if (action === 'slotSidearm') this.switchEdge = SLOT_INDEX.sidearm;
   };
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {

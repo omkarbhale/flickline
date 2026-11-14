@@ -136,7 +136,7 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .lh-stat { display: flex; align-items: baseline; gap: calc(var(--u) * 6); }
 .lh-stat .k, .lh-edge .k { font-weight: 700; font-size: calc(var(--u) * 12); letter-spacing: .12em; color: var(--lh-dim); }
 .lh-stat .v { font-weight: 700; font-size: calc(var(--u) * 19); }
-.lh-stat.warn .v { color: #ffb347; }
+.lh-stat.warn .v { color: var(--warn); }
 .lh-edge { display: flex; align-items: center; gap: calc(var(--u) * 8); padding: calc(var(--u) * 7) calc(var(--u) * 12); background: var(--lh-panel); border-radius: calc(var(--u) * 6); width: calc(var(--u) * 344); box-sizing: border-box; }
 .lh-edge-track { position: relative; flex: 1; height: calc(var(--u) * 9); background: rgba(255, 255, 255, .1); border-radius: calc(var(--u) * 4); overflow: hidden; }
 .lh-edge-track u { position: absolute; top: 0; bottom: 0; background: rgba(95, 224, 138, .32); border-left: calc(var(--u) * 1) solid rgba(95, 224, 138, .7); border-right: calc(var(--u) * 1) solid rgba(95, 224, 138, .7); box-sizing: border-box; }
@@ -242,3 +242,9 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 /* Reduce flashing (settings): the one switch for every DOM pulse or glow. The edge pulse is also gated in code
    (hud/hud.ts); a future Surge glow or chromatic pulse in the DOM only needs one of these classes to be covered. */
 :root[data-reduce-flashing='true'] :is(.edge-pulse, .surge-glow, .chromatic-pulse, .flash-pulse) { display: none !important; }
+
+/* Clean run (design §7.4): a reference-like HUD. The readouts that answer "how am I doing" go (stat strip, edge meter,
+   ghost-pace bar); the crosshair, ammo, health, timer and the reward counters stay. visibility keeps the layout still. */
+.hud-clean .lh [data-el="ghost"], .hud-clean .lh [data-el="edge"],
+.hud-clean .lh [data-el="acc"], .hud-clean .lh [data-el="hs"], .hud-clean .lh [data-el="rt"],
+.hud-clean .lh [data-el="ttk"], .hud-clean .lh [data-el="moving"] { visibility: hidden; }
