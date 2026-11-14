@@ -1,4 +1,6 @@
 import './styles.css';
+import './ui/kit/kit.css';
+import './ui/menu.css';
 import { Game } from './app/game';
 import { installDebugHook } from './debug/hook';
 
@@ -14,7 +16,7 @@ function boot(): void {
   } catch (err) {
     console.error(err);
     menu.classList.add('open');
-    menu.innerHTML = '<div class="panel"><h1>FLICKLINE</h1><p class="tag">Could not start: WebGL is required.</p></div>';
+    menu.innerHTML = '<div class="fl-panel"><h1>FLICKLINE</h1><p>Could not start: WebGL is required.</p></div>';
   }
 }
 

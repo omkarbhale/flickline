@@ -21,6 +21,7 @@ import type { HudClock } from '../hud/liveHud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
 import { ProfileStore } from '../settings/profile';
+import { PlayLog } from '../settings/playLog';
 import { SettingsStore, SETTINGS_KEY, type Settings } from '../settings/settings';
 import { createTickInput, type TickInput } from '../sim/types';
 import type { MapDef } from '../sim/mapTypes';
@@ -28,8 +29,11 @@ import { MAPS, rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
 import { nextSeed } from '../feedback/results';
 import { Menu } from '../ui/menu';
+import { buildCards, titleFromId, type CardModel } from '../ui/menuModel';
+import { tier } from '../adaptive/dial';
 import { FEATURES } from './features';
-import { ModeHost } from './modeHost';
+import { ModeHost, MODES } from './modeHost';
+import { registeredModes, SessionFlow } from './sessionFlow';
 
 /** Events the app shell emits. */
 export interface AppEvents {
@@ -70,6 +74,10 @@ export class Game {
   readonly tunables: Tunables = liveTunables;
   readonly settings: SettingsStore;
   readonly profile: ProfileStore;
+  /** Best scores, finished-run counts and the flagged skill behind the mode cards and Today's session. */
+  readonly playLog: PlayLog;
+  /** Today's session: which mode is next (the menu shows it, the game launches it). */
+  readonly todaysSession: SessionFlow;
   /** Range unless the URL says `?map=lane|elbow` (a dev/playtest switch until the modes choose their own map). */
   readonly map: MapDef = mapFromUrl();
   readonly world: World;
@@ -131,6 +139,8 @@ export class Game {
   private hasPlayed = false;
   /** The first-run hint is showing and waits for the first hit. */
   private hintActive = false;
+  /** `?seed=N` from the URL: every run uses it (shareable, replayable), else each run draws its own. */
+  private readonly urlSeed: number | null;
 
   constructor(canvas: HTMLCanvasElement, hudRoot: HTMLElement, menuRoot: HTMLElement, debugRoot: HTMLElement) {
     let storage: Storage | null = null;
@@ -146,11 +156,13 @@ export class Game {
       this.settings.set({ reduceFlashing: true });
     }
     this.profile = new ProfileStore(this.bus, storage);
+    this.playLog = new PlayLog(this.bus, storage);
     const s = this.settings.get();
     this.feedbackOptions = createFeedbackOptions(s);
 
     const seedParam = new URLSearchParams(window.location.search).get('seed');
-    const seed = seedParam !== null && Number.isFinite(Number(seedParam)) ? Number(seedParam) : 1;
+    this.urlSeed = seedParam !== null && Number.isFinite(Number(seedParam)) ? Number(seedParam) : null;
+    const seed = this.urlSeed ?? 1;
     this.world = new World({ level: this.map, tunables: this.tunables, seed });
 
     this.cues = new ShotCues(this.bus, this.tunables.feedback, this.feedbackOptions, this.world.targets, this.tunables.targets);
@@ -194,11 +206,31 @@ export class Game {
       () => performance.now(), () => this.viewYaw(),
     );
     this.tunables.player.flinch.strength = s.flinchStrength;
+    const modes = this.modes;
+    this.todaysSession = new SessionFlow(
+      this.bus,
+      { registry: MODES, skills: modes.skills, get modeId() { return modes.modeId; } },
+      this.playLog,
+      this.tunables.menu,
+      this.tunables.dial,
+    );
     this.menu = new Menu(menuRoot, this.settings, this.profile, this.tunables, {
-      onPlay: () => this.play(),
-      onRestart: () => {
-        this.resetWorld();
-        this.play();
+      play: () => this.play(),
+      resume: () => this.play(),
+      restart: () => this.restartCurrent(),
+      toMenu: () => this.toMenu(),
+      playSession: () => this.playSession(),
+      skipStep: () => this.skipStep(),
+      launchMode: (id) => {
+        this.todaysSession.abandon();
+        this.launchMode(id);
+      },
+      runPhase: () => (this.modes.phase !== 'idle' ? this.modes.phase : this.run.state),
+      cards: () => this.modeCards(),
+      session: () => this.todaysSession.view(),
+      runLabel: () => {
+        const id = this.modes.modeId ?? this.run.info?.mode ?? null;
+        return id === null ? null : (this.tunables.menu.modeCards[id]?.name ?? id);
       },
     });
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
@@ -229,6 +261,7 @@ export class Game {
       this.refreshChrome();
     });
     this.bus.on('rawInputChanged', ({ on }) => this.menu.setRawInput(on));
+    this.bus.on('playLogChanged', () => this.menu.refresh());
     this.bus.on('shotFired', () => this.timeline.mark('firstShot'));
     this.bus.on('targetHit', () => this.dismissHint());
 
@@ -301,6 +334,71 @@ export class Game {
     this.timeline.mark('playClicked');
     this.audio.resume();
     this.input.requestLock();
+  }
+
+  // --- Menu flow: what the menu's buttons and keys do (design section 2) -------------------------
+
+  /** A seed for a fresh run: the URL's `?seed=` when given (so a shared link replays), else random. */
+  private newSeed(): number {
+    return this.urlSeed ?? (Math.floor(Math.random() * 0x7fffffff) + 1);
+  }
+
+  /** Start `id` from a seed (a fresh one by default), reset the run state and take the pointer lock. */
+  launchMode(id: string, seed: number = this.newSeed()): void {
+    const t0 = performance.now();
+    if (!this.modes.start(id, { seed })) return;
+    this.dismissHint();
+    this.afterRunReset();
+    this.noteRestart(t0);
+    this.play();
+  }
+
+  /**
+   * Instant restart of whatever is running, from the same seed (design section 2: `Backspace`, from
+   * anywhere in a run): a mode run, a plain run, or free play. Also takes the pointer lock.
+   */
+  restartCurrent(): void {
+    const id = this.modes.modeId;
+    if (id !== null) {
+      this.launchMode(id, this.modes.runner.seed);
+      return;
+    }
+    if (!this.restartRun()) this.resetWorld();
+    this.play();
+  }
+
+  /** Leave the run for the main menu (the session, if any, can be continued from there). */
+  toMenu(): void {
+    this.resetWorld();
+    this.menu.setMode('main');
+  }
+
+  /** Play (today's session): its first step, or the one it is on. With no modes registered, free play. */
+  playSession(): void {
+    const id = this.todaysSession.start();
+    if (id === null) this.play();
+    else this.launchMode(id);
+  }
+
+  /** Skip the session's current step; past the last one the session is over and the menu shows. */
+  skipStep(): void {
+    const id = this.todaysSession.skip();
+    if (id === null) this.toMenu();
+    else this.launchMode(id);
+  }
+
+  /** The mode cards: the registry's modes with each one's skill, best score and matched tier. */
+  private modeCards(): CardModel[] {
+    const dial = this.tunables.dial;
+    const skills = this.modes.skills;
+    return buildCards(registeredModes(MODES, dial), this.tunables.menu, {
+      bestScore: (id) => this.playLog.best(id),
+      matchedDial: (id) => {
+        const d = dial.modes[id];
+        return d ? skills.targetDial(d.skill, d.targetSuccess) : null;
+      },
+      tierLabel: (value) => tier(value).label,
+    });
   }
 
   /**
@@ -477,11 +575,16 @@ export class Game {
     for (let i = 0; i < n; i++) {
       s.yaw = this.input.yaw;
       s.pitch = this.input.pitch;
-      if (this.run.step(s)) this.tickRun();
+      this.advance(s);
       s.jump = false;
       s.reload = false;
     }
     if (render) this.renderNow();
+  }
+
+  /** Run one sim tick with `input` exactly as the frame loop does (run state, mode runner, tick hooks), without drawing. */
+  advance(input: TickInput): void {
+    if (this.run.step(input)) this.tickRun();
   }
 
   /**
@@ -552,16 +655,24 @@ export class Game {
   playAgain(pressedAt: number = performance.now()): boolean {
     const info = this.run.info;
     if (!info || this.run.state !== 'result') return false;
-    const seed = nextSeed(info.seed, this.tunables.results);
+    // In Today's session the next run is the session's next step (it advanced when this run ended).
+    const next = this.run.isSelfDriven ? null : this.todaysSession.next();
+    const seed = next === null ? nextSeed(info.seed, this.tunables.results) : this.newSeed();
     if (this.run.isSelfDriven) {
       if (!this.run.restartRun(seed)) return false;
     } else {
-      if (!this.modes.start(info.mode, { seed })) return false;
+      if (!this.modes.start(next ?? info.mode, { seed })) return false;
     }
     this.afterRunReset();
     this.noteRestart(pressedAt);
     if (!this.input.locked) this.play();
     return true;
+  }
+
+  /** What the results card's primary button says: the session's next step, or null for plain "Play again". */
+  nextRunLabel(): string | null {
+    const next = this.run.isSelfDriven ? null : this.todaysSession.next();
+    return next === null ? null : `Next: ${this.tunables.menu.modeCards[next]?.name ?? titleFromId(next)}`;
   }
 
   /** Show the menu over whatever is on screen (the results card's `Esc` when the pointer is already free). */

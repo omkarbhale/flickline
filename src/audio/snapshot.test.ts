@@ -5,6 +5,7 @@ import { describe, it } from 'vitest';
 import { audio, CUE_IDS } from '../config/audio';
 import { dominantHz, energyAbove, peakDb, spectralCentroid, spectrogram } from './analysis';
 import { renderSoundSet } from './cues';
+import { renderTell } from './tell';
 
 /**
  * Docs snapshot generator, skipped in normal runs. `npm run audio:snapshot` writes one PNG per cue
@@ -100,9 +101,20 @@ describe.skipIf(!OUT)('audio docs snapshot', () => {
     const lines = ['| cue | bus | length | peak | centroid | dominant | energy > 1.5 kHz |', '|---|---|---|---|---|---|---|'];
     for (const id of CUE_IDS) {
       const v = set[id].variants[0]!;
-      writeFileSync(join(dir, `${id}.png`), image(v, 250, 500));
+      // 250 ms covers most cues; longer ones get a longer span (in 50 ms steps, to 1 s).
+      const span = Math.min(1000, Math.max(250, Math.ceil((v.length / SR) * 20) * 50));
+      writeFileSync(join(dir, `${id}.png`), image(v, span, 500));
       lines.push(`| \`${id}\`${set[id].variants.length > 1 ? ' (step 1)' : ''} | ${set[id].bus} | ${(v.length / SR * 1000).toFixed(0)} ms | ${peakDb(v).toFixed(1)} dBFS | ${spectralCentroid(v, SR).toFixed(0)} Hz | ${dominantHz(v, SR).toFixed(0)} Hz | ${(energyAbove(v, SR, 1500) * 100).toFixed(1)} % |`);
     }
+    // The enemy tell at the dial's two ends and the fairness floor: the sweep stretches with the tell.
+    for (const ms of [150, 300, 500]) {
+      const v = renderTell(ms, audio.enemyTell, SR);
+      writeFileSync(join(dir, `enemyTell_${ms}.png`), image(v, 500, 500));
+    }
+    // The chain layer ladder, like the kill ladder below.
+    const chainLadder = new Float32Array(Math.ceil(8 * 0.25 * SR));
+    set.chain.variants.forEach((v, i) => chainLadder.set(v, Math.round(i * 0.25 * SR)));
+    writeFileSync(join(dir, 'chainLadder.png'), image(chainLadder, 2000, 1000));
     // The ladder: steps 1..8 one after another, 250 ms apart.
     const ladder = new Float32Array(Math.ceil(8 * 0.25 * SR));
     set.kill.variants.forEach((v, i) => ladder.set(v, Math.round(i * 0.25 * SR)));
