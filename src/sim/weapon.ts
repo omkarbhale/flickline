@@ -20,6 +20,74 @@ import {
   stepYawSign,
 } from './weaponModel';
 
+/** Events the weapon simulation emits (part of `SimEvents`). */
+export interface WeaponEvents {
+  /** A bullet left the gun (design §14.3). `dir` already includes recoil and spread. */
+  shotFired: {
+    tick: number;
+    t: number;
+    shotId: number;
+    weapon: WeaponId;
+    origin: Vec3;
+    dir: Vec3;
+    /** Horizontal speed above the weapon's accuracy deadzone, or airborne (design §3). */
+    moving: boolean;
+    /** Horizontal speed, m/s. */
+    speed: number;
+    airborne: boolean;
+    crouching: boolean;
+    /** Total spread half-angle this shot was drawn from, degrees. */
+    spreadDeg: number;
+    /** 0-based bullet index in the spray (recoil pattern row). */
+    recoilIndex: number;
+    /** Recoil aim offset this bullet was fired with, degrees (pitch + = up, yaw + = right). */
+    recoilPitchDeg: number;
+    recoilYawDeg: number;
+    /** Rounds left in the magazine after this shot. */
+    ammo: number;
+    /** View angles at the tick (the crosshair, radians); `dir` adds recoil and spread. */
+    yaw: number;
+    pitch: number;
+    /** Nearest visible live target to the view ray (-1 none) and the angle to its head, radians. */
+    aimTargetId: number;
+    aimErr: number;
+    /** Head-centre angles minus view angles for that target, radians. */
+    aimDYaw: number;
+    aimDPitch: number;
+  };
+  /**
+   * Where a shot ended: emitted once per shot that hit a surface or a target, right after its
+   * `shotFired` (a shot into empty space past `weaponRules.rangeM` has no impact).
+   */
+  shotImpact: {
+    tick: number;
+    t: number;
+    shotId: number;
+    result: 'hit' | 'miss';
+    /** Target and zone struck, or -1 / null. */
+    targetId: number;
+    zone: HitZone | null;
+    /** Damage dealt (0 on a miss) and whether it killed. */
+    damage: number;
+    killed: boolean;
+    point: Vec3;
+    normal: Vec3;
+    onTarget: boolean;
+    distance: number;
+  };
+  /** A reload began (manual, or automatic on an empty magazine). */
+  reloadStarted: { tick: number; weapon: WeaponId; durationSec: number };
+  reloadCompleted: { tick: number; weapon: WeaponId; ammo: number; reserve: number };
+  /** A reload was cancelled by a weapon swap; the magazine keeps what it had. */
+  reloadCancelled: { tick: number; weapon: WeaponId };
+  /** A swap began; the weapon can fire after `equipSec`. */
+  weaponSwitched: { tick: number; weapon: WeaponId; slot: number; equipSec: number };
+}
+
+declare module './types' {
+  interface SimEvents extends WeaponEvents {}
+}
+
 /** Result of a hitscan trace. Reused between calls (no per-shot allocation). */
 export interface TraceResult {
   /** 0 = nothing within range, 1 = world, 2 = target. */

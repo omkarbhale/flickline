@@ -17,6 +17,10 @@ export interface ProfileEvents {
   profileChanged: { profile: Readonly<Profile>; changed: readonly (keyof Profile)[] };
 }
 
+declare module '../core/gameEvents' {
+  interface GameEvents extends ProfileEvents {}
+}
+
 /** Separate from the settings key; the progress save (design 14.5) absorbs it when it lands. */
 export const PROFILE_KEY = 'flickline.profile.v1';
 

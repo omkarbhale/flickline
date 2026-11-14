@@ -101,3 +101,10 @@ export const feedback: FeedbackTunables = {
   provisionalScore: { base: 100, headMultiplier: 1.5 },
   targetFlashSec: 0.06,
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { feedback };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}

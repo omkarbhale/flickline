@@ -32,3 +32,10 @@ export const run: RunTunables = {
   headHeightRefDistance: 10,
   logMaxEvents: 20000,
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { run };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}

@@ -575,13 +575,13 @@ chainUpdated { count }                    streakUpdated { streak, mult }   surge
 medalAwarded { id }                       skillTrial { skill, itemDifficulty, success, rtMs?, extra }
 ```
 
-Event naming follows the architecture issue: camelCase past-tense facts, plain-data read-only payloads valid only during the callback, no allocation on emit, added to `GameEvents` in `app/events.ts`.
+Event naming follows the architecture issue: camelCase past-tense facts, plain-data read-only payloads valid only during the callback, no allocation on emit. Each owner declares its event map next to its code and merges it into the open `GameEvents` interface (`core/gameEvents.ts`) with `declare module`; no shared list is edited.
 
 The stat tracker is a pure function of this log; the HUD and the results card render from it; nothing computes accuracy in the UI.
 
 ### 14.4 Tunables
 
-All numbers in this document that are marked tunable live in the typed `config/` files aggregated by `config/tunables.ts` (one file per area; new areas `scoring`, `dial`, `sweep`, `modes` are added the same way). Weapon, movement, view and damage numbers are a data change that applies `docs/mechanics-spec.md` §7 (archetype ids such as `rifle_spray`). A change in the table must never require a code change.
+All numbers in this document that are marked tunable live in the typed `config/` files composed by `config/tunables.ts` (one file per area; a new area such as `sweep` is a new `config/<area>.ts` that exports `tunableGroups` and merges its type into `Tunables`, with no edit to a shared file). Weapon, movement, view and damage numbers are a data change that applies `docs/mechanics-spec.md` §7 (archetype ids such as `rifle_spray`). A change in the table must never require a code change.
 
 ### 14.5 Persistence
 

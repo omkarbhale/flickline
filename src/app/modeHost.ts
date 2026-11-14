@@ -10,7 +10,7 @@ import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
 import type { MapDef } from '../sim/mapTypes';
 import type { World } from '../sim/world';
-import type { GameEvents } from './events';
+import type { GameEvents } from '../core/gameEvents';
 
 /** The registered modes. Individual modes (#23, #46, ...) add themselves here. */
 export const MODES: Readonly<Record<string, ModeDef<never>>> = { test: testMode as ModeDef<never> };
@@ -96,6 +96,20 @@ export class ModeHost {
   /** Call once after each `world.step`. Cheap when no mode runs. */
   tick(): void {
     if (this.active) this.runner.tick(this.world.tick);
+  }
+
+  /** The run clock for the HUD (cheap getters, no allocation). */
+  get phase(): 'idle' | 'ready' | 'live' | 'result' {
+    return this.active ? this.runner.phase : 'idle';
+  }
+  get modeId(): string | null {
+    return this.active?.id ?? null;
+  }
+  get timeSec(): number {
+    return this.runner.timeSec;
+  }
+  get remainingSec(): number {
+    return this.runner.remainingSec;
   }
 
   get running(): boolean {

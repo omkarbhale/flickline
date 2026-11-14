@@ -6,7 +6,7 @@ import { zoneCentre } from '../sim/hitZones';
 import { rangeMap } from '../sim/mapLoader';
 import { createTickInput } from '../sim/types';
 import { World } from '../sim/world';
-import type { GameEvents } from './events';
+import type { GameEvents } from '../core/gameEvents';
 import { ModeHost } from './modeHost';
 
 /** The framework on the real sim, real Range anchors and the real skill model, with a bot that aims at the head. */

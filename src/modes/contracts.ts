@@ -143,3 +143,7 @@ export interface ModeEvents extends StreakEvents {
 }
 
 export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit';
+
+declare module '../core/gameEvents' {
+  interface GameEvents extends ModeEvents {}
+}
