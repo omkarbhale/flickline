@@ -1,6 +1,7 @@
 import { movement as defaultMovement, type MovementTunables } from '../config/movement';
 import { vec3, type Vec3 } from '../core/vec3';
-import { hullBlocked, rayBox } from './collision';
+import { hullBlocked, hullOverlaps, restHeight, rayBox, supportBelow } from './collision';
+import { walkReach } from './mapReach';
 import type { Anchor, MapDef } from './mapTypes';
 import type { BoxDef } from './types';
 
@@ -10,8 +11,10 @@ import type { BoxDef } from './types';
  * every JSON file under `src/sim/levels/` and fails CI on any error.
  *
  * Checks: everything inside bounds, spawn/anchors/nav nodes not buried in geometry, nav graph
- * connected with walkable edges, checkpoints reachable, peek anchors see the checkpoint they
- * serve, box overlap tolerance, posts/lanes visible from the spawn (warnings), sightline report.
+ * connected with walkable edges (over stairs and ramps too), checkpoints reachable, peek anchors
+ * see the checkpoint they serve, ramps walkable (slope, both ends meet a floor), every raised
+ * (or sunken) hold reachable on foot from the spawn, box overlap tolerance, posts/lanes visible
+ * from the spawn (warnings), sightline report.
  */
 
 export type LintSeverity = 'error' | 'warning';
@@ -59,6 +62,8 @@ const CHECKPOINT_NAV_RADIUS = 4;
 const SIGHTLINE_RAYS = 36;
 const SIGHTLINE_CAP = 200;
 const EDGE_SAMPLE_STEP = 0.25;
+/** A hold counts as reached when a walkable floor lies within this many metres of its height (ramps put the hull a little above the surface under its centre). */
+const RAISED_TOLERANCE = 0.25;
 const BIN_EDGES = [5, 10, 20, 30, 40];
 
 const _n = vec3();
@@ -131,7 +136,18 @@ export function lintMap(map: MapDef, opts: LintOptions = {}): LintReport {
   const add = (severity: LintSeverity, check: string, where: string, message: string): void => {
     issues.push({ severity, check, where, message });
   };
-  const buried = (p: Vec3): boolean => hullBlocked(boxes, p.x, p.y + 0.001, p.z, hw, stand - 0.002);
+  // A point on a ramp is written at the surface under its centre, but a box hull rests on the
+  // slope by its uphill edge (up to hull half-width x slope higher): not buried, standing on it.
+  const rampSlack = hw * Math.tan((mv.maxWalkableSlopeDeg * Math.PI) / 180) + 0.01;
+  const buried = (p: Vec3): boolean => {
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i]!;
+      if (!hullOverlaps(p.x, p.y + 0.001, p.z, hw, stand - 0.002, b)) continue;
+      if (b.ramp !== undefined && restHeight(b, p.x, p.z, hw) - p.y <= rampSlack) continue;
+      return true;
+    }
+    return false;
+  };
 
   // --- bounds + buried-in-geometry -------------------------------------------------------------
   const checkPoint = (where: string, label: string, p: Vec3, solid: boolean): void => {
@@ -169,10 +185,22 @@ export function lintMap(map: MapDef, opts: LintOptions = {}): LintReport {
     const pa = map.nav.nodes[ia]!.pos, pb = map.nav.nodes[ib]!.pos;
     const len = Math.hypot(pb.x - pa.x, pb.z - pa.z);
     const steps = Math.max(1, Math.ceil(len / EDGE_SAMPLE_STEP));
-    for (let s = 0; s <= steps; s++) {
-      const t = s / steps;
-      if (hullBlocked(boxes, pa.x + (pb.x - pa.x) * t, pa.y + (pb.y - pa.y) * t + 0.001, pa.z + (pb.z - pa.z) * t, hw, stand - 0.002)) {
-        add('error', 'nav-edge', `nav ${a} - ${b}`, `edge is blocked by geometry about ${round(t * len)} m from ${a}`);
+    // Walk the edge the way a player would: stay on the floor under each sample, which may rise or
+    // fall by at most one step between samples (stairs and ramps are fine, a ledge or a pit is not).
+    let y = pa.y;
+    for (let st = 0; st <= steps; st++) {
+      const t = st / steps;
+      const px = pa.x + (pb.x - pa.x) * t;
+      const pz = pa.z + (pb.z - pa.z) * t;
+      const floor = supportBelow(boxes, px, pz, hw, y + mv.stepHeight);
+      const where = `about ${round(t * len)} m from ${a}`;
+      if (floor === -Infinity || floor < y - mv.stepHeight - EPS) {
+        add('error', 'nav-edge', `nav ${a} - ${b}`, floor === -Infinity ? `edge has no floor ${where}` : `edge drops ${round(y - floor)} m (more than a step) ${where}`);
+        break;
+      }
+      y = floor;
+      if (hullBlocked(boxes, px, y, pz, hw, stand - 0.002)) {
+        add('error', 'nav-edge', `nav ${a} - ${b}`, `edge is blocked by geometry ${where}`);
         break;
       }
     }
@@ -196,7 +224,7 @@ export function lintMap(map: MapDef, opts: LintOptions = {}): LintReport {
     let best = -1, bd = Infinity;
     for (let i = 0; i < map.nav.nodes.length; i++) {
       const q = map.nav.nodes[i]!.pos;
-      const d = Math.hypot(q.x - p.x, q.z - p.z);
+      const d = Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z);
       if (d < bd) { bd = d; best = i; }
     }
     return { index: best, dist: bd };
@@ -226,6 +254,60 @@ export function lintMap(map: MapDef, opts: LintOptions = {}): LintReport {
       const to = { x: c.pos.x, y: c.pos.y + eye, z: c.pos.z };
       if (!segmentClear(boxes, from, to)) {
         add('error', 'peek-los', `anchor ${a.id}`, `no line of sight from out ${fmt(a.out)} to checkpoint ${c.id} ${fmt(c.pos)}`);
+      }
+    }
+  }
+
+  // --- ramps: walkable slope, both ends meet a floor ---------------------------------------------
+  boxes.forEach((b, i) => {
+    const r = b.ramp;
+    if (r === undefined) return;
+    const where = `ramp ${boxName(b, i)}`;
+    const alongX = r.rise === '+x' || r.rise === '-x';
+    const length = alongX ? b.max.x - b.min.x : b.max.z - b.min.z;
+    const slopeDeg = (Math.atan2(b.max.y - r.lowY, length) * 180) / Math.PI;
+    if (slopeDeg > mv.maxWalkableSlopeDeg) {
+      add('error', 'ramp-slope', where, `slope ${round(slopeDeg)} deg is steeper than the walkable maximum ${mv.maxWalkableSlopeDeg} deg`);
+    }
+    // Where a hull standing just past each end would be (centre of the end face).
+    const cxm = (b.min.x + b.max.x) / 2;
+    const czm = (b.min.z + b.max.z) / 2;
+    const out = hw + 0.05;
+    const sign = r.rise === '+x' || r.rise === '+z' ? 1 : -1;
+    const low = alongX
+      ? { x: (sign > 0 ? b.min.x : b.max.x) - sign * out, z: czm }
+      : { x: cxm, z: (sign > 0 ? b.min.z : b.max.z) - sign * out };
+    const high = alongX
+      ? { x: (sign > 0 ? b.max.x : b.min.x) + sign * out, z: czm }
+      : { x: cxm, z: (sign > 0 ? b.max.z : b.min.z) + sign * out };
+    const lowFloor = supportBelow(boxes, low.x, low.z, hw, r.lowY + mv.stepHeight);
+    if (lowFloor === -Infinity || Math.abs(lowFloor - r.lowY) > mv.stepHeight + EPS) {
+      add('error', 'ramp-ends', where, `its low end (height ${round(r.lowY)} m) does not meet a floor within a step: nothing walkable at (${round(low.x)}, ${round(low.z)})`);
+    }
+    const highFloor = supportBelow(boxes, high.x, high.z, hw, b.max.y + mv.stepHeight);
+    if (highFloor === -Infinity || Math.abs(highFloor - b.max.y) > mv.stepHeight + EPS) {
+      add('warning', 'ramp-ends', where, `its high end (height ${round(b.max.y)} m) does not meet a floor within a step: nothing walkable at (${round(high.x)}, ${round(high.z)})`);
+    }
+  });
+
+  // --- raised (or sunken) holds must be reachable on foot from the spawn ---------------------------
+  const raisedLimit = 0.25;
+  const held: { where: string; label: string; pos: Vec3 }[] = [];
+  const consider = (where: string, label: string, p: Vec3): void => {
+    if (Math.abs(p.y - map.spawn.pos.y) > raisedLimit && inBounds(map, p)) held.push({ where, label, pos: p });
+  };
+  map.anchors.forEach((a) => anchorPoints(a).forEach((q) => q.solid && consider(`anchor ${a.id}`, q.label, q.pos)));
+  map.nav.nodes.forEach((n) => consider(`nav ${n.id}`, 'node', n.pos));
+  map.checkpoints.forEach((c) => consider(`checkpoint ${c.id}`, 'checkpoint', c.pos));
+  map.lanes.forEach((l) => {
+    consider(`lane ${l.id}`, 'start', l.start);
+    consider(`lane ${l.id}`, 'end', l.end);
+  });
+  if (held.length > 0) {
+    const reach = walkReach(boxes, map.bounds, map.spawn.pos, mv);
+    for (const h of held) {
+      if (!reach.reaches(h.pos.x, h.pos.y, h.pos.z, RAISED_TOLERANCE)) {
+        add('error', 'raised-reach', h.where, `${h.label} ${fmt(h.pos)} is ${h.pos.y > map.spawn.pos.y ? 'raised' : 'sunken'} and cannot be reached on foot from the spawn (a step is at most ${mv.stepHeight} m; add stairs or a ramp)`);
       }
     }
   }

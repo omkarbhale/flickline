@@ -186,11 +186,22 @@ export class World {
     stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, relay, this.weaponScratch);
     this.stepTargets(relay);
     relay.target = NULL_SINK;
-    stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events);
+    stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events, this.level);
   }
 
   /**
-   * The player takes `amount` HP of damage to `zone` from a shooter whose muzzle is at (`sx`, `sy`,
+   * Equip both sides with shields (spec §4.1; `config/economy.ts` says how much): the player now and
+   * on every later `reset()`, and every humanoid Echo spawned from now on (orbs never get one).
+   * 0 = none, the default and what drills use. Not cleared by `reset()`; the mode host sets it for
+   * the run and clears it when the run stops.
+   */
+  setShields(player: number, enemy: number): void {
+    this.healthSys.setShield(player);
+    this.targetField.enemyShield = Math.max(0, enemy);
+  }
+
+  /**
+   * The player takes `amount` of damage to `zone` from a shooter whose muzzle is at (`sx`, `sy`,
    * `sz`) (`sourceId` = the enemy id, or -1). Applies tagging, flinch and death and emits
    * `playerDamaged` / `playerSlowed` / `playerDied`. This is the one entry point enemy fire (#32,
    * #33) and the debug hook use. Returns whether the hit killed the player.
@@ -296,7 +307,7 @@ export class World {
     mix(p.grounded ? 1 : 0); mix(p.crouching ? 1 : 0); mix(p.eyeHeight);
     const w = this.weapon;
     const hp = this.health;
-    mix(hp.hp); mix(hp.alive ? 1 : 0); mix(Number.isFinite(hp.tagSince) ? hp.tagSince : -1);
+    mix(hp.hp); mix(hp.shield); mix(hp.alive ? 1 : 0); mix(Number.isFinite(hp.tagSince) ? hp.tagSince : -1);
     mix(hp.tagRise); mix(hp.flinchDeg);
     mix(w.shots); mix(w.active); mix(w.cooldown); mix(w.equipLeft); mix(w.reloadLeft);
     mix(w.sprayCount); mix(w.recoilIndex); mix(w.recoilPitch); mix(w.recoilYaw); mix(w.yawSign);

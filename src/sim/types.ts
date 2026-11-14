@@ -58,6 +58,9 @@ export interface PlayerState {
 export interface PlayerHealth {
   hp: number;
   maxHp: number;
+  /** Shield points left and the level this life started at (spec §4.1; 0/0 = unshielded). Kill-heal never restores it. */
+  shield: number;
+  maxShield: number;
   /** False after `playerDied`; the world no longer steps until it is reset. */
   alive: boolean;
   /** Seconds since the last tagging hit; Infinity = not tagged. */
@@ -68,9 +71,10 @@ export interface PlayerHealth {
   flinchDeg: number;
   /** Tick of the last damage taken, -1 = never. */
   lastDamageTick: number;
-  /** Total damage taken and healed this life (stats, "you lost 40 HP to ..."). */
+  /** Total damage taken as HP and healed this life (stats, "you lost 40 HP to ..."), and what the shield soaked. */
   damageTaken: number;
   healed: number;
+  shieldAbsorbed: number;
 }
 
 /** The three humanoid damage zones (design §5.1). Orbs are a single `head` zone. */
@@ -111,6 +115,9 @@ export interface TargetState {
   scale: number;
   hp: number;
   maxHp: number;
+  /** Shield points left and at spawn (spec §4.1). Humanoid Echoes only: 0/0 for orbs and unshielded fights. */
+  shield: number;
+  maxShield: number;
   alive: boolean;
   /** Tick of the last hit (for presentation flashes). -1 = never. */
   lastHitTick: number;
@@ -187,8 +194,24 @@ export interface WeaponState {
 }
 
 /** What a static collision box represents (renderer picks materials from this). */
-export const BOX_TAGS = ['floor', 'wall', 'crate', 'platform', 'cover', 'pillar', 'panel', 'ceiling'] as const;
+export const BOX_TAGS = ['floor', 'wall', 'crate', 'platform', 'cover', 'pillar', 'panel', 'ceiling', 'ramp'] as const;
 export type BoxTag = (typeof BOX_TAGS)[number];
+
+/** Which way a ramp climbs: the surface is lowest at the opposite face. */
+export const RAMP_RISES = ['+x', '-x', '+z', '-z'] as const;
+export type RampRise = (typeof RAMP_RISES)[number];
+
+/**
+ * Turns a box into a walkable ramp: the solid is the box cut by one sloped plane. The surface
+ * rises along `rise` from height `lowY` (world y, `min.y <= lowY < max.y`) at the low face to the
+ * box's `max.y` at the high face. Everything below the surface is solid, so a ramp is a wedge
+ * (a triangular prism when `lowY === min.y`, with a vertical riser of `lowY - min.y` at its low
+ * end otherwise). Collision and rays treat it as the AABB clipped by that plane.
+ */
+export interface RampDef {
+  rise: RampRise;
+  lowY: number;
+}
 
 export interface BoxDef {
   min: Vec3;
@@ -196,6 +219,8 @@ export interface BoxDef {
   tag: BoxTag;
   /** Optional stable name; map anchors (peek cover, spray panel) refer to boxes by id. */
   id?: string;
+  /** Present on `ramp` boxes only. */
+  ramp?: RampDef;
 }
 
 export interface TargetSpawn {
@@ -211,6 +236,12 @@ export interface LevelDef {
   boxes: BoxDef[];
   spawn: { pos: Vec3; yaw: number };
   targets: TargetSpawn[];
+  /**
+   * Feet positions where an enemy is expected to stand (posts, gates, peek holds and exits, lane
+   * ends), derived from a map's anchors. Head-height discipline is measured against the head
+   * height of the one the player is facing, so it stays right on raised floors.
+   */
+  enemyFeet?: readonly Vec3[];
 }
 
 /**
