@@ -3,13 +3,10 @@ import {
   DirectionalLight,
   Fog,
   HemisphereLight,
-  InstancedMesh,
-  Matrix4,
   Mesh,
   MeshLambertMaterial,
   PerspectiveCamera,
   BoxGeometry,
-  SphereGeometry,
   Scene,
   WebGLRenderer,
 } from 'three';
@@ -25,6 +22,7 @@ import { ShotEffects } from './effects';
 import { buildLevelMesh, type LevelMesh } from './levelMesh';
 import { PostPipeline, createVignetteEffect } from './post';
 import { WorldHint } from './worldHint';
+import { TargetsView } from './targetsView';
 
 export interface RenderStats {
   drawCalls: number;
@@ -32,9 +30,6 @@ export interface RenderStats {
   geometries: number;
   textures: number;
 }
-
-const BASE_TARGET_COLOR = 0xff6a3d;
-const FLASH_TICKS = 14;
 
 /**
  * Everything three.js. Reads sim state (never writes it), interpolates between the last two
@@ -53,12 +48,9 @@ export class GameRenderer {
 
   private quality: QualityLevel;
   private level: LevelMesh | null = null;
-  private targetMesh: InstancedMesh | null = null;
+  private targetsView: TargetsView | null = null;
   private readonly effects: ShotEffects;
   private readonly viewmodel: Mesh;
-  private readonly m4 = new Matrix4();
-  private readonly color = new Color();
-  private flashState: Uint8Array = new Uint8Array(0);
   private width = 1;
   private height = 1;
   private viewmodelBaseZ = -0.34;
@@ -144,19 +136,12 @@ export class GameRenderer {
     this.scene.add(this.level.root);
     this.applyQuality();
 
-    if (this.targetMesh) {
-      this.scene.remove(this.targetMesh);
-      this.targetMesh.geometry.dispose();
-      (this.targetMesh.material as MeshLambertMaterial).dispose();
-      this.targetMesh.dispose();
+    if (this.targetsView) {
+      this.scene.remove(this.targetsView.root);
+      this.targetsView.dispose();
     }
-    const n = Math.max(1, world.targets.length);
-    this.targetMesh = new InstancedMesh(new SphereGeometry(1, 24, 16), new MeshLambertMaterial({ color: 0xffffff }), n);
-    this.targetMesh.count = world.targets.length;
-    this.targetMesh.frustumCulled = false;
-    for (let i = 0; i < world.targets.length; i++) this.targetMesh.setColorAt(i, this.color.setHex(BASE_TARGET_COLOR));
-    this.flashState = new Uint8Array(n);
-    this.scene.add(this.targetMesh);
+    this.targetsView = new TargetsView(this.tunables, world.targets.length);
+    this.scene.add(this.targetsView.root);
     // Compile shaders now so the first shot / first frame does not hitch.
     this.renderer.compile(this.scene, this.camera);
   }
@@ -177,7 +162,7 @@ export class GameRenderer {
     this.effects.update(dt);
     this.viewmodel.position.z = this.viewmodelBaseZ + this.effects.kick * 0.04;
     this.viewmodel.rotation.x = this.effects.kick * 0.06;
-    this.updateTargets(world);
+    this.targetsView?.update(world, alpha);
 
     this.renderer.info.reset();
     this.post.render(this.renderer, this.scene, this.camera);
@@ -188,29 +173,9 @@ export class GameRenderer {
     this.stats.textures = info.memory.textures;
   }
 
-  private updateTargets(world: World): void {
-    const mesh = this.targetMesh;
-    if (!mesh) return;
-    let colorDirty = false;
-    for (let i = 0; i < world.targets.length; i++) {
-      const t = world.targets[i]!;
-      const s = t.alive ? t.radius : 0;
-      this.m4.makeScale(s, s, s).setPosition(t.pos.x, t.pos.y, t.pos.z);
-      mesh.setMatrixAt(i, this.m4);
-      const age = world.tick - t.lastHitTick;
-      const flashing = t.lastHitTick >= 0 && age < FLASH_TICKS ? 1 : 0;
-      if (flashing !== this.flashState[i]) {
-        this.flashState[i] = flashing;
-        mesh.setColorAt(i, this.color.setHex(flashing ? 0xffffff : BASE_TARGET_COLOR));
-        colorDirty = true;
-      }
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    if (colorDirty && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }
-
   dispose(): void {
     this.effects.dispose();
+    this.targetsView?.dispose();
     this.post.dispose();
     this.level?.dispose();
     this.renderer.dispose();

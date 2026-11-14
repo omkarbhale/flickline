@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EventBus } from '../core/eventBus';
-import { profile as cfg } from '../config/profile';
+import { dial as cfg } from '../config/dial';
 import { DEFAULT_PROFILE, PROFILE_KEY, ProfileStore, sanitizeProfile, skillPrior, type ProfileEvents } from './profile';
 import type { StorageLike } from './settings';
 

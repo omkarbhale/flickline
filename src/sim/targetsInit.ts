@@ -1,22 +1,13 @@
-import { vec3 } from '../core/vec3';
-import type { TargetTunables } from '../config/targets';
-import type { LevelDef, TargetState } from './types';
+import type { BehaviourContext } from './fsm';
+import type { TargetField } from './targets';
+import type { LevelDef } from './types';
 
-/** (Re)build the target list from a level's spawn points. Mutates `out` in place. */
-export function levelTargetsReset(out: TargetState[], level: LevelDef, tt: TargetTunables): void {
-  out.length = 0;
-  for (let i = 0; i < level.targets.length; i++) {
-    const s = level.targets[i]!;
-    out.push({
-      id: i,
-      home: vec3(s.pos.x, s.pos.y, s.pos.z),
-      pos: vec3(s.pos.x, s.pos.y, s.pos.z),
-      radius: tt.radius,
-      hp: tt.maxHp,
-      maxHp: tt.maxHp,
-      alive: true,
-      respawnTick: 0,
-      lastHitTick: -1,
-    });
-  }
+/**
+ * (Re)build the target field from a level's spawn points: empties the registry, then places each
+ * spawn point's target silently (reset / level load announces nothing; the run layer decides).
+ * Level-placed targets respawn after a kill.
+ */
+export function levelTargetsReset(field: TargetField, level: LevelDef, ctx: BehaviourContext): void {
+  field.clear();
+  field.placeLevel(level.targets, ctx);
 }

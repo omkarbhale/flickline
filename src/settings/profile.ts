@@ -1,5 +1,6 @@
 import type { EventSink } from '../core/eventBus';
-import { profile as profileTunables, SELF_REPORTS, type ProfileTunables, type SelfReport } from '../config/profile';
+import { dial as dialTunables, type DialTunables } from '../config/dial';
+import { SELF_REPORTS, type SelfReport } from '../config/profile';
 import type { StorageLike } from './settings';
 
 /** Who the player says they are, plus whether the first-run flow has been completed. */
@@ -30,15 +31,14 @@ export function sanitizeProfile(raw: unknown): Profile {
   return out;
 }
 
-/** The skill prior (mean and standard deviation on the 0..100 dial) a self-report sets for #17. */
+/** The skill prior (mean and standard deviation on the 0..100 dial) a self-report sets; numbers come from `config/dial.ts`. */
 export interface SkillPrior {
   mean: number;
   sd: number;
 }
 
-export function skillPrior(selfReport: SelfReport | null, cfg: ProfileTunables = profileTunables): SkillPrior {
-  const mean = selfReport === null ? cfg.priorSkipped : cfg.priorByReport[selfReport];
-  return { mean, sd: cfg.priorSd };
+export function skillPrior(selfReport: SelfReport | null, cfg: DialTunables = dialTunables): SkillPrior {
+  return { mean: cfg.priorMean[selfReport ?? 'skip'], sd: cfg.priorSd };
 }
 
 /** Tiny persisted profile store, same failure policy as SettingsStore. */
@@ -64,7 +64,7 @@ export class ProfileStore {
   }
 
   /** The prior implied by the current self-report. */
-  prior(cfg: ProfileTunables = profileTunables): SkillPrior {
+  prior(cfg: DialTunables = dialTunables): SkillPrior {
     return skillPrior(this.current.selfReport, cfg);
   }
 
