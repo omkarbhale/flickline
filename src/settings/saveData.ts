@@ -37,7 +37,7 @@ export type ParseResult = { ok: true; parts: SaveParts } | { ok: false; error: s
 /** The save object's own keys: a file carries progress when it has any of them. */
 const PROGRESS_KEYS = [
   'ratings', 'ranks', 'runBests', 'dailyBests', 'situations', 'drillBests', 'medals', 'history', 'plays', 'flaggedSkill',
-  'coldOpeners', 'coldOpenerLevels', 'checkins',
+  'coldOpeners', 'coldOpenerLevels', 'checkins', 'journal',
 ] as const;
 
 /**
