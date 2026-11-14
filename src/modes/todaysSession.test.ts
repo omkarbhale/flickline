@@ -22,9 +22,16 @@ const ids = (steps: { modeId: string }[]): string[] => steps.map((s) => s.modeId
 
 describe('planSession', () => {
   it('is three warm-ups then the finale', () => {
-    const plan = planSession(input());
+    const plan = planSession(input({ flaggedSkill: 'track' }));
     expect(plan.map((s) => s.role)).toEqual(['weakest', 'flagged', 'favourite', 'finale']);
     expect(plan[3]!.modeId).toBe('sweep');
+  });
+
+  it('names the second warm-up for what it is when nothing is flagged', () => {
+    expect(planSession(input()).map((s) => s.role)).toEqual(['weakest', 'nextWeakest', 'favourite', 'finale']);
+    // A flagged skill that is already the first pick is not flagged again.
+    const plan = planSession(input({ ratings: ratings({ track: 12 }), flaggedSkill: 'track' }));
+    expect(plan[1]!.role).toBe('nextWeakest');
   });
 
   it('opens with the lowest-rated skill', () => {
@@ -89,7 +96,7 @@ describe('planSession', () => {
 
   it('is only the warm-ups while the finale is not registered', () => {
     const plan = planSession(input({ finaleId: null }));
-    expect(plan.map((s) => s.role)).toEqual(['weakest', 'flagged', 'favourite']);
+    expect(plan.map((s) => s.role)).toEqual(['weakest', 'nextWeakest', 'favourite']);
   });
 
   it('is just the finale when no drill is registered, and empty with nothing at all', () => {

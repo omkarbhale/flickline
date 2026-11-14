@@ -1,31 +1,34 @@
 /**
  * The Flickline wordmark: original, drawn from the project's own geometry (a horizontal line that
  * ends in a dot), no font involved, so it renders identically everywhere and costs no request.
- * Each letter is a monoline path on a 24 x 40 cell; the line and dot sit underneath. Colour comes
- * from `currentColor` for the letters and `--trim` for the line and the dot.
+ * Each letter is a monoline path (36 units tall) in a cell of its own width; the line and dot sit
+ * underneath. Colour comes from `currentColor` for the letters and `--trim` for the line and the dot.
  */
-const CELL = 30;
-const LETTERS: Record<string, string> = {
-  F: 'M3 38V3h18M3 20h14',
-  L: 'M3 3v35h18',
-  I: 'M12 3v35',
-  C: 'M21 11c0-5-4-8-9-8S3 6 3 12v14c0 6 4 9 9 9s9-3 9-8',
-  K: 'M3 3v35M21 3 3 23M9 17l12 21',
-  N: 'M3 38V3l18 35V3',
-  E: 'M21 3H3v35h18M3 20.5h14',
+const GAP = 9;
+const LETTERS: Record<string, { w: number; d: string }> = {
+  F: { w: 20, d: 'M3 38V3h16M3 20h12' },
+  L: { w: 20, d: 'M3 3v35h16' },
+  I: { w: 6, d: 'M3 3v35' },
+  C: { w: 22, d: 'M20 11c0-5-4-8-9-8S2 6 2 12v14c0 6 4 9 9 9s9-3 9-8' },
+  K: { w: 22, d: 'M3 3v35M20 3 3 23M9 17l11 21' },
+  N: { w: 22, d: 'M3 38V3l16 35V3' },
+  E: { w: 20, d: 'M19 3H3v35h16M3 20.5h12' },
 };
 
 const WORD = 'FLICKLINE';
 
 /** Wordmark SVG markup at the given pixel height of the letters (the viewBox keeps the proportions). */
 export function wordmark(heightPx = 28): string {
-  const width = WORD.length * CELL;
+  let x = 0;
+  let paths = '';
+  for (const ch of WORD) {
+    const l = LETTERS[ch]!;
+    paths += `<path transform="translate(${x} 2)" d="${l.d}"/>`;
+    x += l.w + GAP;
+  }
+  const width = x - GAP + 6; // paths start 3 units into their cell, so the last one ends 3 short of the cell edge: close the line there
   const total = width + 14; // room for the dot
   const h = 58;
-  let paths = '';
-  for (let i = 0; i < WORD.length; i++) {
-    paths += `<path transform="translate(${i * CELL + 3} 2)" d="${LETTERS[WORD[i]!]!}"/>`;
-  }
   const w = Math.round((heightPx * total) / h);
   return (
     `<svg class="fl-wordmark" role="img" aria-label="Flickline" width="${w}" height="${heightPx}" viewBox="0 0 ${total} ${h}">` +

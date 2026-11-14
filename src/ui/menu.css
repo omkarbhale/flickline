@@ -18,8 +18,8 @@
 .screen-main { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
 .main-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 
-.session-panel .fl-panel-body { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
-.session-steps { flex: 1 1 520px; display: flex; align-items: stretch; flex-wrap: wrap; gap: 10px; min-width: 0; }
+.session-panel .fl-panel-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 24px; }
+.session-steps { display: flex; align-items: stretch; flex-wrap: wrap; gap: 10px; min-width: 0; }
 .session-step { display: flex; align-items: center; gap: 10px; padding: 9px 14px 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); min-width: 0; }
 .step-n { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font: 600 12px/1 var(--font-num); color: var(--dim); border: 1px solid var(--line); }
 .step-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -31,8 +31,9 @@
 .session-step.is-done .step-n { color: var(--ok); border-color: var(--ok); }
 .session-progress { align-self: center; font: 600 12px/1 var(--font-num); color: var(--dim); letter-spacing: .04em; }
 .session-empty { margin: 0; color: var(--dim); }
-.session-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.session-actions .fl-btn--primary { min-width: 280px; min-height: 52px; font-size: 18px; }
+.session-actions { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 300px; }
+.session-actions .fl-btn--primary { min-height: 52px; font-size: 18px; }
+.session-actions .fl-btn--ghost { justify-content: flex-start; min-height: 38px; }
 
 .modes-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
 .modes-head .fl-panel-title { margin: 0; }
@@ -85,7 +86,7 @@
 .grid small { font-size: 12px; opacity: .85; }
 #menu input[type='number'], #menu select, #menu input[type='text'] {
   font: 600 15px/1.2 var(--font-num); padding: 9px 10px; color: var(--fg); background: var(--ink);
-  border: 1px solid var(--line); border-radius: 6px; box-sizing: border-box; min-width: 0;
+  border: 1px solid var(--line); border-radius: 6px; box-sizing: border-box; min-width: 0; width: 100%;
 }
 #menu input[type='range'] { accent-color: var(--trim); }
 .set-select select { max-width: 220px; }
@@ -111,6 +112,7 @@
 /* Phones and narrow windows still work (the game itself is desktop-first). */
 @media (max-width: 720px) {
   .grid, .first-basics .grid { grid-template-columns: 1fr; }
-  .session-actions .fl-btn--primary { min-width: 0; width: 100%; }
+  .session-panel .fl-panel-body { grid-template-columns: 1fr; }
+  .session-actions { min-width: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .fl-card { transition: none; } }

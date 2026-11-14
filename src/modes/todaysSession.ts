@@ -28,15 +28,13 @@ export interface SessionInput {
   readonly plays: Readonly<Record<string, number>>;
 }
 
-export type SessionRole = 'weakest' | 'flagged' | 'favourite' | 'finale';
+/** Why a step is in the plan. `nextWeakest` is the second warm-up when nothing is flagged (or its drill is already in). */
+export type SessionRole = 'weakest' | 'flagged' | 'nextWeakest' | 'favourite' | 'finale';
 
 export interface SessionStep {
   readonly modeId: string;
   readonly role: SessionRole;
 }
-
-/** Warm-up roles in order; the session always has this many warm-up runs when any drill exists. */
-export const WARMUP_ROLES: readonly SessionRole[] = ['weakest', 'flagged', 'favourite'];
 
 function rating(input: SessionInput, skill: SkillId): number {
   const r = input.ratings[skill];
@@ -92,8 +90,9 @@ export function planSession(input: SessionInput): SessionStep[] {
         }
       }
     }
+    const flagged = second !== null;
     second ??= weakest(input, taken) ?? first;
-    steps.push({ modeId: second.id, role: 'flagged' });
+    steps.push({ modeId: second.id, role: flagged ? 'flagged' : 'nextWeakest' });
     taken.add(second.id);
 
     // 3. A favourite; when every drill is already in the plan, the most-played one again.
@@ -111,6 +110,8 @@ export function stepReason(role: SessionRole): string {
       return 'your lowest-rated skill';
     case 'flagged':
       return 'what your last results card flagged';
+    case 'nextWeakest':
+      return 'your next-weakest skill';
     case 'favourite':
       return 'a favourite';
     case 'finale':
