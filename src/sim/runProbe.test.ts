@@ -109,7 +109,7 @@ describe('targetVisible', () => {
     run(20);
     expect(of('targetVisible')).toHaveLength(1);
     const e = of('targetVisible')[0]!.data;
-    expect(e.id).toBe(0);
+    expect(e.targetId).toBe(0);
     // aim point is 0 m above the eye height: straight ahead, level => ~0
     expect(e.preAim as number).toBeCloseTo(0, 6);
   });
@@ -167,13 +167,13 @@ describe('aimOnTarget', () => {
     expect(of('aimOnTarget').map((e) => e.data.on)).toEqual([true, false, true]);
   });
 
-  it('is padded by 0.5 degrees beyond the sphere', () => {
-    // radius 0.28 m at 10 m = 1.6 deg; plus 0.5 deg pad => inside at 2.0 deg, outside at 2.3 deg
+  it('is padded by 0.5 degrees beyond the hit volume', () => {
+    // a Beacon (radius 0.14 m) at 10 m spans 0.8 deg: inside at 1.1 deg thanks to the pad, outside at 1.5 deg
     const a = setup();
-    a.run(4, { yaw: 2.0 * DEG2RAD });
+    a.run(4, { yaw: 1.1 * DEG2RAD });
     expect(a.of('aimOnTarget').some((e) => e.data.on)).toBe(true);
     const b = setup();
-    b.run(4, { yaw: 2.3 * DEG2RAD });
+    b.run(4, { yaw: 1.5 * DEG2RAD });
     expect(b.of('aimOnTarget').some((e) => e.data.on)).toBe(false);
   });
 });

@@ -1,4 +1,7 @@
-import type { Vec3 } from '../core/vec3';
+import { vec3, type Vec3 } from '../core/vec3';
+import type { TargetTunables } from '../config/targets';
+import { zoneCentre } from './hitZones';
+import type { TargetField } from './targets';
 import type { TargetState } from './types';
 
 /** Result of measuring the view ray against a target's aim point. Reused (no allocation). */
@@ -16,16 +19,9 @@ export function createAimInfo(): AimInfo {
   return { targetId: -1, err: 0, dYaw: 0, dPitch: 0 };
 }
 
-/**
- * The point a player is expected to aim at on a target. Scaffold targets are spheres, so this is
- * the centre; the enemy framework (humanoid hit zones) returns the head centre here, and
- * pre-aim / RT / flick all follow.
- */
-export function targetAimPoint(t: TargetState, out: Vec3): Vec3 {
-  out.x = t.pos.x;
-  out.y = t.pos.y;
-  out.z = t.pos.z;
-  return out;
+/** The point a player is expected to aim at on a target: its head centre (an orb's centre). */
+export function targetAimPoint(t: TargetState, tt: TargetTunables, out: Vec3): Vec3 {
+  return zoneCentre(out, t, tt.hit, tt.kinds[t.kind], 'head');
 }
 
 /** Yaw (radians) of a direction; yaw 0 = -Z, + = left. */
@@ -64,24 +60,26 @@ export function measureAim(
 }
 
 const scratch: AimInfo = createAimInfo();
-const scratchPoint: Vec3 = { x: 0, y: 0, z: 0 };
+const scratchPoint: Vec3 = vec3();
 
-/** Nearest (by angle) alive, visible target to the view ray. `out.targetId` = -1 if none. */
+/** Nearest (by angle to the head centre) alive, visible target to the view ray. `out.targetId` = -1 if none. */
 export function nearestAimTarget(
   ox: number, oy: number, oz: number,
   yaw: number, pitch: number,
   dx: number, dy: number, dz: number,
-  targets: readonly TargetState[],
+  field: TargetField,
+  tt: TargetTunables,
   out: AimInfo,
 ): AimInfo {
   out.targetId = -1;
   out.err = Infinity;
   out.dYaw = 0;
   out.dPitch = 0;
-  for (let i = 0; i < targets.length; i++) {
-    const t = targets[i]!;
-    if (!t.alive || !t.visible) continue;
-    const p = targetAimPoint(t, scratchPoint);
+  const slots = field.slots;
+  for (let i = 0; i < slots.length; i++) {
+    const t = slots[i]!;
+    if (!t.alive || t.visibleTick < 0) continue;
+    const p = targetAimPoint(t, tt, scratchPoint);
     measureAim(ox, oy, oz, yaw, pitch, dx, dy, dz, p.x, p.y, p.z, scratch);
     if (scratch.err < out.err) {
       out.targetId = t.id;

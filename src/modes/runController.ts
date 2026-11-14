@@ -1,6 +1,7 @@
 import type { EventSink, Subscribable } from '../core/eventBus';
 import { secondsToTicks, TICK_DT } from '../core/time';
 import type { RunTunables } from '../config/run';
+import type { TargetTunables } from '../config/targets';
 import { EventLog } from '../feedback/eventLog';
 import { StatTracker, type RunStats } from '../feedback/statTracker';
 import type { RunEndReason } from '../sim/runEvents';
@@ -59,10 +60,11 @@ export class RunController {
     private readonly world: World,
     private readonly bus: RunBus,
     private readonly rt: RunTunables,
+    tt: Pick<TargetTunables, 'shotAtDeg' | 'reactionAimDeg'>,
   ) {
     this.readyTicks = secondsToTicks(rt.readySec);
     this.log = new EventLog(rt.logMaxEvents);
-    this.tracker = new StatTracker(rt, bus);
+    this.tracker = new StatTracker(rt, tt, bus);
     this.log.attach(bus);
     this.tracker.attach(bus);
   }

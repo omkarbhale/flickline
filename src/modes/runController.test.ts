@@ -14,7 +14,7 @@ function setup(seed = 5) {
   const tunables = cloneTunables();
   const world = new World({ level: testRoom, tunables, seed });
   const bus = new EventBus<RunAndSimEvents>();
-  const ctl = new RunController(world, bus, tunables.run);
+  const ctl = new RunController(world, bus, tunables.run, tunables.targets);
   const order: string[] = [];
   for (const t of ['runReady', 'runStarted', 'runEnded', 'targetSpawned'] as const) bus.on(t, () => order.push(t));
   const input = createTickInput();
@@ -52,7 +52,7 @@ describe('run state machine', () => {
     expect(ctl.state).toBe('live');
     expect(ctl.liveStartTick).toBe(READY);
     // runStarted, then every living target is announced
-    expect(order).toEqual(['runReady', 'runStarted', ...world.targets.map(() => 'targetSpawned')]);
+    expect(order).toEqual(['runReady', 'runStarted', ...Array.from({ length: world.targetField.aliveCount }, () => 'targetSpawned')]);
     run(2 * TICK_RATE - 1);
     expect(ctl.state).toBe('live');
     run(1);
@@ -128,20 +128,24 @@ describe('run state machine', () => {
 });
 
 describe('target expiry', () => {
-  it('expireTarget fires targetExpired once, takes the target down, and the stats record the miss-by-timeout', () => {
+  it('despawnTarget fires targetExpired once, takes the target down, and the stats record the miss-by-timeout', () => {
     const { ctl, run, world, bus } = setup();
     ctl.startRun({ mode: 't', seed: 1, dial: 0 });
     run(READY + 4);
     const log: string[] = [];
-    bus.on('targetExpired', (e) => log.push(`expired${e.id}`));
-    run(1, { fire: true, yaw: 0, pitch: Math.atan2(1.5 - 1.62, 20) }); // a first bullet at target 0 (hit)
+    bus.on('targetExpired', (e) => log.push(`expired${e.targetId}`));
+    // A Post straight ahead: one body bullet (39 of 100 HP) leaves it alive, then its exposure runs out.
+    const id = world.spawnTarget('post', 0, 0, -8, bus);
+    run(2, { yaw: 0, pitch: Math.atan2(1.16 - 1.62, 8) });
+    run(1, { fire: true });
     run(1, { fire: false });
-    world.expireTarget(0, bus);
-    world.expireTarget(0, bus); // already down: no second event
-    expect(log).toEqual(['expired0']);
-    expect(world.targets[0]!.alive).toBe(false);
+    expect(world.targetField.byId(id)).not.toBeNull();
+    expect(world.despawnTarget(id, bus)).toBe(true);
+    expect(world.despawnTarget(id, bus)).toBe(false); // already gone: no second event
+    expect(log).toEqual([`expired${id}`]);
+    expect(world.targetField.byId(id)).toBeNull();
     ctl.endRun('complete');
-    const t = ctl.finalStats!.targets.find((x) => x.id === 0)!;
+    const t = ctl.finalStats!.targets.find((x) => x.id === id)!;
     expect(t.expired).toBe(true);
     expect(t.killed).toBe(false);
     expect(t.ttkMs).toBeNull();
@@ -225,8 +229,8 @@ function recordStream(ticks: number, seed: number): TickInput[] {
   let yaw = 0;
   let pitch = 0;
   for (let i = 0; i < ticks; i++) {
-    if (i >= READY && i < READY + 150) {
-      // Straight at the first target, standing still: guaranteed hits and a kill.
+    if (i < READY + 150) {
+      // Stand still, straight at the first target (it is hit in `live`): guaranteed hits and a kill.
       out.push({ moveX: 0, moveZ: 0, yaw: 0, pitch: Math.atan2(1.5 - 1.62, 20), jump: false, crouch: false, walk: false, fire: true });
       continue;
     }
@@ -287,6 +291,22 @@ describe('determinism', () => {
     for (const t of stream) s.ctl.step(t);
     expect(s.ctl.state).toBe('result');
     expect(JSON.stringify(s.ctl.log.events)).toBe(first);
+  });
+
+  it("the tracker's per-kill numbers agree with the sim's own kill bookkeeping (targetKilled)", () => {
+    const a = playBack(stream, 7);
+    const kills = a.ctl.log.events.filter((e) => e.type === 'targetKilled');
+    expect(kills.length).toBeGreaterThanOrEqual(1);
+    for (const k of kills) {
+      if (k.type !== 'targetKilled') continue;
+      const t = a.ctl.finalStats!.targets.find((x) => x.id === k.data.targetId)!;
+      expect(t.killed).toBe(true);
+      expect(t.ttkMs ?? 0).toBeCloseTo(k.data.ttkMs, 6);
+      expect(t.rtMs ?? 0).toBeCloseTo(k.data.rtMs, 6);
+      expect(t.bullets).toBe(k.data.bullets);
+      expect(t.firstBullet).toBe(k.data.firstBullet);
+      expect(t.clean).toBe(k.data.clean);
+    }
   });
 
   it('the live tracker and a replay of the log agree exactly', () => {

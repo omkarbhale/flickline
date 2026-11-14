@@ -1,5 +1,5 @@
 import type { Vec3 } from '../core/vec3';
-import type { HitZone, RunEvents, TargetKind } from './runEvents';
+import type { RunEvents } from './runEvents';
 
 /** Per-tick player command. The only way input reaches the simulation. Angles in radians. */
 export interface TickInput {
@@ -42,22 +42,68 @@ export interface PlayerState {
   stepAccum: number;
 }
 
+/** The three humanoid damage zones (design §5.1). Orbs are a single `head` zone. */
+export type HitZone = 'head' | 'body' | 'leg';
+
+/** Roster kinds (design §5.2). More arrive with #32/#33. */
+export type TargetKind = 'post' | 'beacon';
+
+/** Allocation-free finite-state-machine cursor (see `sim/fsm.ts`). */
+export interface FsmState {
+  /** Current state id (index into the behaviour's state table). */
+  state: number;
+  /** Tick the current state was entered. */
+  enteredTick: number;
+  /** Ticks left on the state timer; -1 = no timer running. */
+  timerTicks: number;
+}
+
+/**
+ * One slot of the target registry. Slots are preallocated and reused; `alive` says whether the
+ * slot currently holds a target. Humanoids: `pos` is the feet centre. Orbs: `pos` is the centre.
+ * Hit detection reads only this state (`sim/hitZones.ts`), never any render mesh.
+ */
 export interface TargetState {
+  /** Unique per spawn (monotonic within a world), stable across the target's life. */
   id: number;
+  kind: TargetKind;
+  /** Level spawn point this target belongs to (it comes back after a kill), or -1. */
+  spawner: number;
   home: Vec3;
   pos: Vec3;
+  /** Humanoid pose: hit zones follow it. */
+  crouched: boolean;
+  /** Bounding sphere around (`pos.x`, `pos.y + boundsY`, `pos.z`): a cheap early-out for hitscan. */
   radius: number;
+  boundsY: number;
   hp: number;
   maxHp: number;
   alive: boolean;
-  /** Tick at which a dead target respawns. */
-  respawnTick: number;
   /** Tick of the last hit (for presentation flashes). -1 = never. */
   lastHitTick: number;
-  /** Enemy/target kind id (design §5.2). Scaffold targets are 'post'. */
-  kind: TargetKind;
-  /** Set on the first tick the target is in view and unoccluded; cleared on kill/respawn. */
-  visible: boolean;
+  /** Tick the target was spawned. */
+  spawnTick: number;
+  /** Tick after which it expires (`targetExpired`), or -1 = never. */
+  expireTick: number;
+  /** Presentation-only idle sway offset (metres, +X) and last tick's value for interpolation. */
+  sway: number;
+  prevSway: number;
+  /** Where the sway is easing towards. */
+  swayTarget: number;
+  fsm: FsmState;
+  // --- bookkeeping for the kill event (design §3 stat definitions) ---
+  /** First tick the target was in view and unoccluded; -1 until `targetVisible` fired. */
+  visibleTick: number;
+  /** Tick of the first shot at it (hit, or landed within `shotAtDeg`); -1 = none yet. */
+  firstShotTick: number;
+  /** Tick of the first shot aimed within `reactionAimDeg` after it became visible; -1 = none. */
+  reactionShotTick: number;
+  /** Bullets fired at it (hits + near misses). */
+  bullets: number;
+  /** A shot at it missed. */
+  missedShot: boolean;
+  /** A shot at it was a moving shot. */
+  movingShot: boolean;
 }
 
 export interface WeaponState {
@@ -84,6 +130,9 @@ export interface BoxDef {
 
 export interface TargetSpawn {
   pos: Vec3;
+  /** Which roster entry to place; default `beacon`. Level-placed targets respawn after a kill. */
+  kind?: TargetKind;
+  crouched?: boolean;
 }
 
 /** Pure-data map. Later maps/level editors produce this shape. */
@@ -94,11 +143,7 @@ export interface LevelDef {
   targets: TargetSpawn[];
 }
 
-/**
- * Events the simulation emits. Payloads are read-only and valid only during the callback.
- * Angles in radians. Shot/target payloads extend the foundation's (nothing renamed); the run
- * vocabulary lives in `runEvents.ts`.
- */
+/** Events the simulation emits. Payloads are read-only and valid only during the callback. */
 export interface SimEvents {
   shotFired: {
     tick: number;
@@ -107,7 +152,7 @@ export interface SimEvents {
     weapon: string;
     origin: Vec3;
     dir: Vec3;
-    /** View angles at the tick (the crosshair); `dir` may differ later by spread/recoil. */
+    /** View angles at the tick (the crosshair, radians); `dir` may differ later by spread/recoil. */
     yaw: number;
     pitch: number;
     /** Flagged at fire time: airborne, or horizontal speed above the accuracy deadzone (spec §2.4). */
@@ -120,32 +165,82 @@ export interface SimEvents {
     recoilIndex: number;
     /** Rounds left in the magazine; -1 = infinite. */
     ammo: number;
-    /** Nearest visible live target to the view ray (-1 none) and the angle to it, radians. */
+    /** Nearest visible live target to the view ray (-1 none) and the angle to its head, radians. */
     aimTargetId: number;
     aimErr: number;
-    /** Aim point angles minus view angles for that target, radians. */
+    /** Head-centre angles minus view angles for that target, radians. */
     aimDYaw: number;
     aimDPitch: number;
   };
   /** Where a shot ended (world surface, target, or max range). */
   shotImpact: {
     tick: number;
+    /** The `shotId` of the `shotFired` this ends. */
     shotId: number;
     result: 'hit' | 'miss';
-    /** True when `result === 'hit'` (kept for the foundation's effects). */
-    onTarget: boolean;
-    /** -1 when the shot did not hit a target. */
-    targetId: number;
-    zone: HitZone | 'none';
-    damage: number;
-    killed: boolean;
     point: Vec3;
     normal: Vec3;
+    onTarget: boolean;
     distance: number;
+    /** Target and zone struck, or -1 / null. */
+    targetId: number;
+    zone: HitZone | null;
   };
-  targetHit: { tick: number; targetId: number; zone: HitZone; point: Vec3; damage: number; hpLeft: number; distance: number; killed: boolean };
-  targetKilled: { tick: number; targetId: number; kind: TargetKind; zone: HitZone; point: Vec3; distance: number };
+  /** A target was added to the field (spawn call, level placement or respawn). */
+  targetSpawned: { tick: number; t: number; targetId: number; kind: TargetKind; pos: Vec3; tags: readonly string[] };
+  /** First tick the target is in the view frustum and unoccluded from the eye. Once per spawn. */
+  targetVisible: {
+    tick: number;
+    t: number;
+    targetId: number;
+    /** Angle between the view ray and the target's head centre at that tick, radians (pre-aim error). */
+    preAim: number;
+    /** Head-centre angles minus view angles at that tick, radians: the flick vector. */
+    dYaw: number;
+    dPitch: number;
+  };
+  targetHit: {
+    tick: number;
+    t: number;
+    targetId: number;
+    kind: TargetKind;
+    zone: HitZone;
+    point: Vec3;
+    damage: number;
+    hpLeft: number;
+    distance: number;
+    killed: boolean;
+  };
+  targetKilled: {
+    tick: number;
+    t: number;
+    targetId: number;
+    kind: TargetKind;
+    zone: HitZone;
+    point: Vec3;
+    distance: number;
+    /** First shot at the target to its death, ms. 0 when the first bullet killed it. */
+    ttkMs: number;
+    /** From the target becoming visible to the first shot aimed within 5 degrees of it, ms. */
+    rtMs: number;
+    /** The very first bullet fired at it killed it. */
+    firstBullet: boolean;
+    /** Bullets fired at it, including the killing one. */
+    bullets: number;
+    /** No missed shot at it and no moving shot at it. */
+    clean: boolean;
+  };
+  /** A target left the field without being killed (lifetime ran out, or despawned by the mode). */
+  targetExpired: { tick: number; t: number; targetId: number; kind: TargetKind };
+  /** A level-placed target came back after a kill. Also announced by `targetSpawned`. */
   targetRespawned: { tick: number; targetId: number };
+
+  /** Aim ray entered (`on`) or left the padded hit volume of a visible target (edge events). */
+  aimOnTarget: { tick: number; on: boolean; id: number };
+  /** Vertical angle (radians) between the aim ray and head-centre height, sampled while moving with no enemy visible. */
+  headHeightSampled: { tick: number; err: number };
+  /** Horizontal speed first fell to the accuracy threshold after a stop or counter-strafe input. */
+  playerStopped: { tick: number; latencyMs: number };
   playerJumped: { tick: number };
   playerLanded: { tick: number; impactSpeed: number };
   footstep: { tick: number; crouching: boolean; walking: boolean };

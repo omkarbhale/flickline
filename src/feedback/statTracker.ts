@@ -2,9 +2,13 @@ import type { EventSink, Subscribable } from '../core/eventBus';
 import { DEG2RAD, RAD2DEG, mean, median } from '../core/math';
 import { TICK_DT } from '../core/time';
 import { run as defaultRunTunables, type RunTunables } from '../config/run';
+import { targets as defaultTargetTunables, type TargetTunables } from '../config/targets';
 import { wrapPi, yawOf } from '../sim/aim';
-import type { HitZone, RunEndReason, RunEvents, TargetKind } from '../sim/runEvents';
-import type { SimEvents } from '../sim/types';
+import type { RunEndReason, RunEvents } from '../sim/runEvents';
+import type { HitZone, SimEvents, TargetKind } from '../sim/types';
+
+/** A target kind, or 'unknown' when the log has no spawn event for it. */
+type StatKind = TargetKind | 'unknown';
 import type { LoggedEvent, RunLog } from './eventLog';
 
 type AllEvents = SimEvents & RunEvents;
@@ -12,7 +16,7 @@ type AllEvents = SimEvents & RunEvents;
 /** Per-target engagement summary (one per spawn): the timeline strip and per-kill numbers. */
 export interface TargetStat {
   id: number;
-  kind: TargetKind;
+  kind: StatKind;
   /** Tick it became visible (-1 never). */
   visibleTick: number;
   /** Visible -> first shot aimed within the RT cone, ms; null if never shot at. */
@@ -108,7 +112,7 @@ export interface RunStats {
 
 interface Engagement {
   id: number;
-  kind: TargetKind;
+  kind: StatKind;
   visibleTick: number;
   preAim: number;
   visDYaw: number;
@@ -128,7 +132,7 @@ interface Engagement {
   ttkMs: number | null;
 }
 
-function openEngagement(id: number, kind: TargetKind): Engagement {
+function openEngagement(id: number, kind: StatKind): Engagement {
   return {
     id, kind, visibleTick: -1, preAim: 0, visDYaw: 0, visDPitch: 0, rtTick: -1, firstEngageTick: -1,
     bullets: 0, hits: 0, misses: 0, moving: 0, flickError: null, killed: false, expired: false,
@@ -145,8 +149,8 @@ function openEngagement(id: number, kind: TargetKind): Engagement {
  * per frame. Events before `runStarted` and after `runEnded` are ignored.
  *
  * Attribution rules (documented because they are judgment calls on the design text):
- *  - A shot is "at" a target if it hit it, or its view ray passed within `engageConeDeg` of the
- *    target's aim point (nearest visible target only). RT uses `rtAimConeDeg` the same way.
+ *  - A shot is "at" a target if it hit it, or its view ray passed within `targets.shotAtDeg` of the
+ *    target's head centre (nearest visible target only). RT uses `targets.reactionAimDeg` the same way.
  *  - A clean streak breaks on a non-clean kill or on a target expiring; a miss at no target
  *    cannot be attributed and does not break it.
  */
@@ -192,7 +196,11 @@ export class StatTracker {
   private headHeightN = 0;
   private stopLatencies: number[] = [];
 
-  constructor(private readonly rt: RunTunables, private readonly sink: EventSink<RunEvents> | null = null) {}
+  constructor(
+    private readonly rt: RunTunables,
+    private readonly tt: Pick<TargetTunables, 'shotAtDeg' | 'reactionAimDeg'>,
+    private readonly sink: EventSink<RunEvents> | null = null,
+  ) {}
 
   get accuracy(): number | null {
     return this.shots === 0 ? null : this.hits / this.shots;
@@ -286,7 +294,7 @@ export class StatTracker {
     }
   }
 
-  private engagement(id: number, kind: TargetKind = 'unknown'): Engagement {
+  private engagement(id: number, kind: StatKind = 'unknown'): Engagement {
     let g = this.open.get(id);
     if (!g) {
       g = openEngagement(id, kind);
@@ -297,14 +305,14 @@ export class StatTracker {
 
   private onTargetSpawned(e: AllEvents['targetSpawned']): void {
     if (!this.live(e.tick)) return;
-    const prev = this.open.get(e.id);
+    const prev = this.open.get(e.targetId);
     if (prev && (prev.visibleTick >= 0 || prev.bullets > 0)) this.finished.push(prev);
-    this.open.set(e.id, openEngagement(e.id, e.kind));
+    this.open.set(e.targetId, openEngagement(e.targetId, e.kind));
   }
 
   private onTargetVisible(e: AllEvents['targetVisible']): void {
     if (!this.live(e.tick)) return;
-    const g = this.engagement(e.id);
+    const g = this.engagement(e.targetId);
     if (g.visibleTick >= 0) return;
     g.visibleTick = e.tick;
     g.preAim = e.preAim;
@@ -337,11 +345,11 @@ export class StatTracker {
     let aimedId = -1;
     if (e.aimTargetId >= 0) {
       const g = this.engagement(e.aimTargetId);
-      if (e.aimErr <= this.rt.rtAimConeDeg * DEG2RAD && g.visibleTick >= 0 && g.rtTick < 0) {
+      if (e.aimErr <= this.tt.reactionAimDeg * DEG2RAD && g.visibleTick >= 0 && g.rtTick < 0) {
         g.rtTick = e.tick;
         g.flickError = this.flickError(g, e);
       }
-      if (e.aimErr <= this.rt.engageConeDeg * DEG2RAD) {
+      if (e.aimErr <= this.tt.shotAtDeg * DEG2RAD) {
         aimedId = e.aimTargetId;
         g.bullets++;
         g.misses++; // provisional: a hit impact for this shot converts it
@@ -405,26 +413,15 @@ export class StatTracker {
     if (this.streak > this.maxStreak) this.maxStreak = this.streak;
     this.sink?.emit('streakUpdated', { tick: e.tick, streak: this.streak, mult: this.multiplier(this.streak) });
 
-    this.sink?.emit('killSummarised', {
-      tick: e.tick,
-      id: g.id,
-      kind: g.kind,
-      zone: e.zone,
-      ttkMs: g.ttkMs ?? -1,
-      rtMs: g.rtTick >= 0 && g.visibleTick >= 0 ? (g.rtTick - g.visibleTick) * TICK_DT * 1000 : -1,
-      firstBullet: g.firstBullet,
-      bullets: g.bullets,
-      clean: g.clean,
-    });
     this.finished.push(g);
     this.open.delete(e.targetId);
   }
 
   private onTargetExpired(e: AllEvents['targetExpired']): void {
     if (!this.live(e.tick)) return;
-    const g = this.engagement(e.id);
+    const g = this.engagement(e.targetId);
     g.expired = true;
-    this.open.delete(e.id);
+    this.open.delete(e.targetId);
     // A target the player never saw or shot at is not a miss (and leaves no record).
     if (g.visibleTick < 0 && g.bullets === 0) return;
     this.finished.push(g);
@@ -545,8 +542,12 @@ export class StatTracker {
  * Every stat of design §3 as a pure function of a run's event log. Replays the log through a
  * fresh `StatTracker` (the same code the live HUD reads), so it is exact by construction.
  */
-export function computeStats(log: RunLog, rt: RunTunables = defaultRunTunables): RunStats {
-  const t = new StatTracker(rt);
+export function computeStats(
+  log: RunLog,
+  rt: RunTunables = defaultRunTunables,
+  tt: Pick<TargetTunables, 'shotAtDeg' | 'reactionAimDeg'> = defaultTargetTunables,
+): RunStats {
+  const t = new StatTracker(rt, tt);
   t.reset(log.mode, log.seed, log.dial);
   for (let i = 0; i < log.events.length; i++) t.consume(log.events[i]!);
   return t.result();

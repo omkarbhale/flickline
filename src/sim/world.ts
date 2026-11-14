@@ -1,16 +1,17 @@
 import type { EventSink } from '../core/eventBus';
 import { Rng } from '../core/rng';
-import { secondsToTicks, TICK_DT } from '../core/time';
+import { TICK_DT } from '../core/time';
 import { copy, vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
+import type { BehaviourContext } from './fsm';
+import { TargetField, type SpawnOptions } from './targets';
 import { levelTargetsReset } from './targetsInit';
 import { createProbeState, resetProbe, stepRunProbe, type ProbeState } from './runProbe';
-import type { RunEvents } from './runEvents';
 import { createTraceResult, stepWeapon, type TraceResult } from './weapon';
 import { stepPlayer } from './movement';
-import type { LevelDef, PlayerState, SimEvents, TargetState, TickInput, WeaponState } from './types';
+import type { LevelDef, PlayerState, SimEvents, TargetKind, TargetState, TickInput, WeaponState } from './types';
 
-const NO_TAGS: readonly string[] = [];
+const NULL_SINK: EventSink<SimEvents> = { emit() {} };
 
 export interface WorldOptions {
   level: LevelDef;
@@ -30,21 +31,29 @@ export class World {
   seed: number;
   tick = 0;
   readonly player: PlayerState;
-  readonly targets: TargetState[] = [];
+  /** The target registry (see `sim/targets.ts`). */
+  readonly targetField: TargetField;
+  /** Registry slots: fixed capacity, a slot holds a target when `alive`. Same array as the field's. */
+  readonly targets: TargetState[];
   readonly weapon: WeaponState = { cooldown: 0, shots: 0, lastShotTick: -1, burstIndex: 0 };
   /**
    * Whether targets and the weapon are live. The run controller clears it during `ready` (movement
-   * only) and sets it when the run goes `live`; free-play (no run) keeps it true.
+   * only) and sets it when the run goes `live`; free play (no run) keeps it true.
    */
   live = true;
   readonly probe: ProbeState = createProbeState();
   private readonly trace: TraceResult = createTraceResult();
+  /** Reused every tick for target behaviours (`events` is swapped in per step). */
+  private readonly behaviourCtx: BehaviourContext;
 
   constructor(opts: WorldOptions) {
     this.level = opts.level;
     this.tunables = opts.tunables;
     this.seed = opts.seed ?? 1;
     this.rng = new Rng(this.seed);
+    this.targetField = new TargetField(opts.tunables);
+    this.targets = this.targetField.slots;
+    this.behaviourCtx = { tick: 0, rng: this.rng, tunables: opts.tunables, events: NULL_SINK };
     const m = opts.tunables.movement;
     this.player = {
       pos: vec3(),
@@ -85,69 +94,62 @@ export class World {
     this.weapon.burstIndex = 0;
     this.live = true;
     resetProbe(this.probe);
-    levelTargetsReset(this.targets, this.level, this.tunables.targets);
+    this.behaviourCtx.tick = 0;
+    this.behaviourCtx.events = NULL_SINK;
+    levelTargetsReset(this.targetField, this.level, this.behaviourCtx);
   }
 
   /** Advance exactly one tick (1/TICK_RATE s). */
-  step(input: TickInput, events: EventSink<SimEvents & RunEvents>): void {
+  step(input: TickInput, events: EventSink<SimEvents>): void {
     this.tick++;
     const t = this.tunables;
     stepPlayer(this.player, input, this.level.boxes, t.movement, TICK_DT, this.tick, events);
+    if (this.live) this.targetField.updateVisibility(this.player, this.level.boxes, this.tick, events);
     stepWeapon(
-      this.weapon, input.fire && this.live, this.player, this.level.boxes, this.targets,
+      this.weapon, input.fire && this.live, this.player, this.level.boxes, this.targetField,
       t.weapon, t.targets, t.movement, this.tick, events, this.trace,
     );
     if (!this.live) return;
     this.stepTargets(events);
-    stepRunProbe(
-      this.probe, this.player, this.targets, this.level.boxes, input,
-      t.movement, t.weapon, t.view, t.run, this.tick, events,
-    );
+    stepRunProbe(this.probe, this.player, this.targetField, input, t, this.tick, events);
   }
 
   /**
-   * Make targets and the weapon live (the run went `live`): announce every living target so the
-   * stat tracker opens its engagement, and start measuring from a clean probe state.
+   * The run went `live`: announce every living target (`targetSpawned`) so the stat tracker opens
+   * its engagements, forget earlier sightings, and start measuring from a clean probe state.
    */
-  beginLive(events: EventSink<RunEvents>): void {
+  beginLive(events: EventSink<SimEvents>): void {
     this.live = true;
     resetProbe(this.probe);
-    for (let i = 0; i < this.targets.length; i++) {
-      const tg = this.targets[i]!;
-      tg.visible = false;
-      if (tg.alive) this.announceSpawn(tg, events);
-    }
+    this.targetField.announceAll(this.tick, events);
   }
 
-  /** A target left without being killed (exposure ran out): it goes down and `targetExpired` fires. */
-  expireTarget(id: number, events: EventSink<RunEvents>): void {
-    const tg = this.targets[id];
-    if (!tg || !tg.alive) return;
-    tg.alive = false;
-    tg.visible = false;
-    tg.respawnTick = this.tick + secondsToTicks(this.tunables.targets.respawnSec);
-    events.emit('targetExpired', { tick: this.tick, id });
+  /** Advance target behaviours, lifetimes and level respawns. */
+  private stepTargets(events: EventSink<SimEvents>): void {
+    const c = this.behaviourCtx;
+    c.tick = this.tick;
+    c.events = events;
+    this.targetField.step(c);
   }
 
-  private announceSpawn(tg: TargetState, events: EventSink<RunEvents>): void {
-    events.emit('targetSpawned', { tick: this.tick, id: tg.id, kind: tg.kind, pos: tg.pos, tags: NO_TAGS });
+  /**
+   * Add a target (kind per the roster in `config/targets.ts`) at a position: feet centre for a
+   * humanoid (Post), centre for an orb (Beacon). Emits `targetSpawned`. Returns its id, or -1
+   * when the registry is full. A mode removes it again with `despawnTarget`, or it dies.
+   */
+  spawnTarget(
+    kind: TargetKind, x: number, y: number, z: number,
+    events: EventSink<SimEvents>, opts?: SpawnOptions,
+  ): number {
+    const c = this.behaviourCtx;
+    c.tick = this.tick;
+    c.events = events;
+    return this.targetField.spawn(kind, x, y, z, c, events, opts);
   }
 
-  private stepTargets(events: EventSink<SimEvents & RunEvents>): void {
-    const tt = this.tunables.targets;
-    for (let i = 0; i < this.targets.length; i++) {
-      const tg = this.targets[i]!;
-      if (!tg.alive && this.tick >= tg.respawnTick) {
-        tg.alive = true;
-        tg.hp = tg.maxHp;
-        tg.pos.x = tg.home.x + this.rng.range(-tt.respawnJitter, tt.respawnJitter);
-        tg.pos.y = tg.home.y + this.rng.range(-tt.respawnJitter, tt.respawnJitter) * 0.5;
-        tg.pos.z = tg.home.z;
-        tg.visible = false;
-        events.emit('targetRespawned', { tick: this.tick, targetId: tg.id });
-        this.announceSpawn(tg, events);
-      }
-    }
+  /** Remove a target without a kill; emits `targetExpired`. Returns whether it existed. */
+  despawnTarget(id: number, events: EventSink<SimEvents>): boolean {
+    return this.targetField.despawn(id, this.tick, events);
   }
 
   /** Simulation time in seconds. */
@@ -172,10 +174,7 @@ export class World {
     mix(p.yaw); mix(p.pitch);
     mix(p.grounded ? 1 : 0); mix(p.crouching ? 1 : 0); mix(p.eyeHeight);
     mix(this.weapon.shots);
-    for (let i = 0; i < this.targets.length; i++) {
-      const t = this.targets[i]!;
-      mix(t.hp); mix(t.alive ? 1 : 0); mix(t.pos.x); mix(t.pos.y);
-    }
+    this.targetField.hashInto(mix);
     mix(this.rng.getState());
     return h >>> 0;
   }

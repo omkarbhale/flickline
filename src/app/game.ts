@@ -13,12 +13,16 @@ import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
 import { SettingsStore } from '../settings/settings';
 import { RunController, type StartRunOptions } from '../modes/runController';
-import { createTickInput, type TickInput } from '../sim/types';
+import { createTickInput, type HitZone, type TargetKind, type TickInput } from '../sim/types';
+import { zoneCentre } from '../sim/hitZones';
+import type { SpawnOptions } from '../sim/targets';
 import type { MapDef } from '../sim/mapTypes';
 import { rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
 import { Menu } from '../ui/menu';
 import type { GameEvents } from './events';
+
+const AIM_SCRATCH = { x: 0, y: 0, z: 0 };
 
 export interface LoggedEvent {
   type: keyof GameEvents;
@@ -92,7 +96,7 @@ export class Game {
     this.audio.setVolume(s.volume);
     attachSfx(this.bus, this.audio);
     this.session.attach(this.bus);
-    this.run = new RunController(this.world, this.bus, this.tunables.run);
+    this.run = new RunController(this.world, this.bus, this.tunables.run, this.tunables.targets);
 
     this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair);
     this.menu = new Menu(menuRoot, this.settings, this.tunables, () => this.play());
@@ -219,6 +223,32 @@ export class Game {
     this.renderNow();
   }
 
+  /**
+   * Add a target (Post: pos = feet centre; Beacon: pos = orb centre). Debug hook and, later, the
+   * run/mode layer. Returns its id, or -1 when the registry is full.
+   */
+  spawnTarget(kind: TargetKind, x: number, y: number, z: number, opts?: SpawnOptions): number {
+    return this.world.spawnTarget(kind, x, y, z, this.bus, opts);
+  }
+
+  despawnTarget(id: number): boolean {
+    return this.world.despawnTarget(id, this.bus);
+  }
+
+  /** Point the view at a zone centre of a live target (debug/playtest aid). */
+  aimAtTarget(id: number, zone: HitZone = 'head'): boolean {
+    const w = this.world;
+    const t = w.targetField.byId(id);
+    if (!t) return false;
+    const tt = this.tunables.targets;
+    const c = zoneCentre(AIM_SCRATCH, t, tt.hit, tt.kinds[t.kind], zone);
+    const p = w.player;
+    const dx = c.x - p.pos.x, dy = c.y - (p.pos.y + p.eyeHeight), dz = c.z - p.pos.z;
+    this.input.setLook(Math.atan2(-dx, -dz), Math.asin(dy / Math.hypot(dx, dy, dz)));
+    this.renderNow();
+    return true;
+  }
+
   /** Abandon any run and reset the world (free play). */
   resetWorld(seed?: number): void {
     this.run.cancel(seed);
@@ -293,7 +323,12 @@ export class Game {
         eyeHeight: p.eyeHeight, height: p.height,
       },
       weapon: { ...w.weapon },
-      targets: w.targets.map((t) => ({ id: t.id, pos: { ...t.pos }, hp: t.hp, alive: t.alive, radius: t.radius })),
+      targets: w.targets
+        .filter((t) => t.alive)
+        .map((t) => ({
+          id: t.id, kind: t.kind, pos: { ...t.pos }, hp: t.hp, crouched: t.crouched, radius: t.radius,
+          visible: t.visibleTick >= 0, bullets: t.bullets,
+        })),
       session: { shots: this.session.shots, hits: this.session.hits, kills: this.session.kills },
       run: {
         state: this.run.state,

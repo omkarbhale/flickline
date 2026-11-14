@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { run as runTunables } from '../config/run';
+import { targets as targetTunables } from '../config/targets';
 import { EventBus } from '../core/eventBus';
 import { DEG2RAD } from '../core/math';
 import { TICK_DT } from '../core/time';
 import { directionFromAngles, vec3 } from '../core/vec3';
-import type { HitZone, RunEvents } from '../sim/runEvents';
-import type { SimEvents } from '../sim/types';
+import type { RunEvents } from '../sim/runEvents';
+import type { HitZone, SimEvents, TargetKind } from '../sim/types';
 import type { LoggedEvent, RunLog } from './eventLog';
 import { StatTracker, computeStats } from './statTracker';
 
@@ -18,12 +19,12 @@ class Log {
   constructor(readonly end = 1280) {
     this.events.push({ type: 'runStarted', data: { tick: 0 } });
   }
-  spawn(tick: number, id: number, kind = 'post'): this {
-    this.events.push({ type: 'targetSpawned', data: { tick, id, kind, pos: vec3(), tags: [] } });
+  spawn(tick: number, id: number, kind: TargetKind = 'post'): this {
+    this.events.push({ type: 'targetSpawned', data: { tick, t: 0, targetId: id, kind, pos: vec3(), tags: [] } });
     return this;
   }
   visible(tick: number, id: number, preAimDeg = 30, dYawDeg = 30, dPitchDeg = 0): this {
-    this.events.push({ type: 'targetVisible', data: { tick, id, preAim: preAimDeg * DEG2RAD, dYaw: dYawDeg * DEG2RAD, dPitch: dPitchDeg * DEG2RAD } });
+    this.events.push({ type: 'targetVisible', data: { tick, t: 0, targetId: id, preAim: preAimDeg * DEG2RAD, dYaw: dYawDeg * DEG2RAD, dPitch: dPitchDeg * DEG2RAD } });
     return this;
   }
   /** A shot. `at` = nearest visible target and the angle to it; `hit` adds the impact (+ kill). */
@@ -31,7 +32,7 @@ class Log {
     tick: number,
     o: {
       at?: number; errDeg?: number; moving?: boolean; recoil?: number; yaw?: number; pitch?: number;
-      dYawDeg?: number; dPitchDeg?: number; hit?: number; zone?: HitZone; kill?: boolean; kind?: string;
+      dYawDeg?: number; dPitchDeg?: number; hit?: number; zone?: HitZone; kill?: boolean; kind?: TargetKind;
       dirYawDeg?: number; dirPitchDeg?: number;
     } = {},
   ): this {
@@ -53,17 +54,23 @@ class Log {
       type: 'shotImpact',
       data: {
         tick, shotId: id, result: hit >= 0 ? 'hit' : 'miss', onTarget: hit >= 0, targetId: hit,
-        zone: hit >= 0 ? (o.zone ?? 'body') : 'none', damage: hit >= 0 ? 34 : 0, killed: !!o.kill,
-        point: vec3(), normal: vec3(), distance: 10,
+        zone: hit >= 0 ? (o.zone ?? 'body') : null, point: vec3(), normal: vec3(), distance: 10,
       },
     });
     if (o.kill && hit >= 0) {
-      this.events.push({ type: 'targetKilled', data: { tick, targetId: hit, kind: o.kind ?? 'post', zone: o.zone ?? 'body', point: vec3(), distance: 10 } });
+      // The sim's own derived fields are not used by the tracker (it derives them from the raw events).
+      this.events.push({
+        type: 'targetKilled',
+        data: {
+          tick, t: 0, targetId: hit, kind: o.kind ?? 'post', zone: o.zone ?? 'body', point: vec3(), distance: 10,
+          ttkMs: 0, rtMs: 0, firstBullet: false, bullets: 0, clean: false,
+        },
+      });
     }
     return this;
   }
   expire(tick: number, id: number): this {
-    this.events.push({ type: 'targetExpired', data: { tick, id } });
+    this.events.push({ type: 'targetExpired', data: { tick, t: 0, targetId: id, kind: 'post' } });
     return this;
   }
   aim(tick: number, on: boolean, id = 0): this {
@@ -84,7 +91,7 @@ class Log {
   }
 }
 
-const stats = (l: Log) => computeStats(l.finish(), runTunables);
+const stats = (l: Log) => computeStats(l.finish(), runTunables, targetTunables);
 
 describe('computeStats: counters and rates', () => {
   it('an empty run has no data, not fake zeros', () => {
@@ -135,7 +142,7 @@ describe('computeStats: counters and rates', () => {
     const l = new Log();
     l.events.unshift(...stray(5));
     const done = l.finish();
-    const s = computeStats({ ...done, events: [...done.events, ...stray(1300)] }, runTunables);
+    const s = computeStats({ ...done, events: [...done.events, ...stray(1300)] }, runTunables, targetTunables);
     expect(s.shots).toBe(0);
     expect(s.hits).toBe(0);
     expect(s.movingShots).toBe(0);
@@ -265,7 +272,7 @@ describe('computeStats: clean kill, chain and streak', () => {
     l = k(l, 440, 2); // +190 ticks (1.48 s): chain 3
     l = k(l, 640, 3); // +200 ticks (1.56 s): chain breaks, 1
     expect(stats(l).maxChain).toBe(3);
-    const tr = new StatTracker(runTunables);
+    const tr = new StatTracker(runTunables, targetTunables);
     tr.reset();
     for (const e of l.finish().events) tr.consume(e);
     expect(tr.chain).toBe(1);
@@ -360,13 +367,12 @@ describe('computeStats: spray trace', () => {
 });
 
 describe('StatTracker live use', () => {
-  it('emits chain, streak and kill-summary events and matches a replay of the same events', () => {
+  it('emits chain and streak events and matches a replay of the same events', () => {
     const bus = new EventBus<SimEvents & RunEvents>();
     const derived: string[] = [];
     bus.on('chainUpdated', (e) => derived.push(`chain${e.count}`));
     bus.on('streakUpdated', (e) => derived.push(`streak${e.streak}x${e.mult.toFixed(1)}`));
-    bus.on('killSummarised', (e) => derived.push(`kill${e.id}:${e.firstBullet ? 'fb' : 'nb'}:${e.clean ? 'c' : 'd'}:${e.bullets}`));
-    const live = new StatTracker(runTunables, bus);
+    const live = new StatTracker(runTunables, targetTunables, bus);
     live.reset('m', 1, 2);
     live.attach(bus);
 
@@ -375,8 +381,8 @@ describe('StatTracker live use', () => {
     const log = l.finish();
     for (const e of log.events) bus.emit(e.type, e.data as never);
 
-    expect(derived).toEqual(['chain1', 'streak0x1.0', 'kill0:nb:d:2', 'chain2', 'streak1x1.1', 'kill1:fb:c:1']);
-    const replay = computeStats({ ...log, mode: 'm', seed: 1, dial: 2 }, runTunables);
+    expect(derived).toEqual(['chain1', 'streak0x1.0', 'chain2', 'streak1x1.1']);
+    const replay = computeStats({ ...log, mode: 'm', seed: 1, dial: 2 }, runTunables, targetTunables);
     expect(live.result()).toEqual(replay);
     expect(live.accuracy).toBeCloseTo(2 / 3, 9);
   });

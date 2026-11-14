@@ -8,7 +8,7 @@ import { lintErrors, lintMap } from './mapLint';
 import { loadMap, MapError, rangeMap } from './mapLoader';
 import { anchorsOfKind, anchorsWithTag, distanceFromSpawn, postsInBand } from './mapQuery';
 import { parseMap, type MapIssue } from './mapSchema';
-import { createTickInput, type RunAndSimEvents } from './types';
+import { createTickInput, type SimEvents } from './types';
 import { vec3 } from '../core/vec3';
 import { World } from './world';
 
@@ -266,7 +266,7 @@ describe('Range', () => {
 
   it('is a valid LevelDef the simulation can run', () => {
     const world = new World({ level: rangeMap, tunables: cloneTunables(), seed: 1 });
-    const bus = new EventBus<RunAndSimEvents>();
+    const bus = new EventBus<SimEvents>();
     const input = createTickInput();
     for (let i = 0; i < 256; i++) world.step(input, bus);
     expect(world.player.grounded).toBe(true);
@@ -348,7 +348,7 @@ describe('Range', () => {
   describe('collision matches visuals', () => {
     function walk(x: number, z: number, yawRad: number, input: Partial<ReturnType<typeof createTickInput>>, ticks: number) {
       const world = new World({ level: rangeMap, tunables: cloneTunables(), seed: 1 });
-      const bus = new EventBus<RunAndSimEvents>();
+      const bus = new EventBus<SimEvents>();
       const p = world.player;
       p.pos.x = p.prevPos.x = x;
       p.pos.z = p.prevPos.z = z;
@@ -384,7 +384,7 @@ describe('Range', () => {
 
     it('cannot jump out through the ceiling', () => {
       const world = new World({ level: rangeMap, tunables: cloneTunables(), seed: 1 });
-      const bus = new EventBus<RunAndSimEvents>();
+      const bus = new EventBus<SimEvents>();
       const inp = createTickInput();
       for (let i = 0; i < 400; i++) {
         inp.jump = i % 20 === 0;

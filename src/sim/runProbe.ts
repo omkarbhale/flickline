@@ -3,20 +3,18 @@ import { DEG2RAD } from '../core/math';
 import { secondsToTicks, TICK_DT } from '../core/time';
 import { directionFromAngles, vec3 } from '../core/vec3';
 import type { MovementTunables } from '../config/movement';
-import type { RunTunables } from '../config/run';
-import type { ViewTunables } from '../config/view';
+import type { Tunables } from '../config/tunables';
 import type { WeaponTunables } from '../config/weapon';
-import { createAimInfo, measureAim, targetAimPoint } from './aim';
-import { rayBox } from './collision';
-import type { RunEvents } from './runEvents';
-import type { BoxDef, PlayerState, TargetState, TickInput } from './types';
+import { createZoneHit } from './hitZones';
+import type { TargetField } from './targets';
+import type { PlayerState, SimEvents, TickInput } from './types';
 
 /**
- * Measurement facts the stat definitions need that no other system produces: when a target first
- * becomes visible (and how well the player was pre-aimed), when the aim ray enters/leaves a
- * target, head-height crosshair samples while moving, and how long a stop takes. All of it is
- * deterministic sim state emitted as events; the stat tracker turns them into numbers.
- * Runs once per tick while a run is `live`; allocates nothing (scratch objects, reused payloads).
+ * Measurement facts the stat definitions need that no other system produces: when the aim ray
+ * enters/leaves a target, head-height crosshair samples while moving, and how long a stop takes.
+ * (Target sightings, pre-aim and kill bookkeeping live in `TargetField`.) All of it is
+ * deterministic sim state emitted as events; the stat tracker turns it into numbers. Runs once
+ * per tick while a run is `live`; allocates nothing (scratch objects, reused payloads).
  */
 export interface ProbeState {
   aimOn: boolean;
@@ -55,88 +53,57 @@ export function isMovingShot(p: PlayerState, wt: WeaponTunables, mt: MovementTun
   return Math.hypot(p.vel.x, p.vel.z) > accuracyThreshold(wt, mt);
 }
 
-const aimPoint = vec3();
 const dir = vec3();
-const aim = createAimInfo();
-const scratchNormal = vec3();
-
-const visiblePayload = { tick: 0, id: 0, preAim: 0, dYaw: 0, dPitch: 0 };
+const probeDir = vec3();
+const zone = createZoneHit();
 const aimPayload = { tick: 0, on: false, id: -1 };
 const headPayload = { tick: 0, err: 0 };
 const stopPayload = { tick: 0, latencyMs: 0 };
 
-function occluded(boxes: readonly BoxDef[], ox: number, oy: number, oz: number, px: number, py: number, pz: number): boolean {
-  const dx = px - ox, dy = py - oy, dz = pz - oz;
-  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-  if (dist < 1e-6) return false;
-  const ix = dx / dist, iy = dy / dist, iz = dz / dist;
-  for (let i = 0; i < boxes.length; i++) {
-    const t = rayBox(ox, oy, oz, ix, iy, iz, boxes[i]!, dist - 1e-3, scratchNormal);
-    if (t >= 0) return true;
+/**
+ * Id of the visible target the padded aim ray touches (-1 none). The "hit volume padded by 0.5
+ * degrees" is tested with the exact zone shapes by casting the view ray plus four rays offset by
+ * the pad angle (left/right/up/down).
+ */
+function aimedTarget(
+  field: TargetField, ox: number, oy: number, oz: number, yaw: number, pitch: number, padRad: number,
+): number {
+  for (let k = 0; k < 5; k++) {
+    const dy = k === 1 ? padRad : k === 2 ? -padRad : 0;
+    const dx = k === 3 ? padRad : k === 4 ? -padRad : 0;
+    const d = directionFromAngles(probeDir, yaw + dx, pitch + dy);
+    const slot = field.traceNearest(ox, oy, oz, d.x, d.y, d.z, 1e9, zone);
+    if (slot >= 0) {
+      const t = field.slots[slot]!;
+      if (t.visibleTick >= 0) return t.id;
+    }
   }
-  return false;
+  return -1;
 }
 
 export function stepRunProbe(
   s: ProbeState,
   p: PlayerState,
-  targets: readonly TargetState[],
-  boxes: readonly BoxDef[],
+  field: TargetField,
   input: TickInput,
-  mt: MovementTunables,
-  wt: WeaponTunables,
-  view: ViewTunables,
-  rt: RunTunables,
+  t: Tunables,
   tick: number,
-  events: EventSink<RunEvents>,
+  events: EventSink<SimEvents>,
 ): void {
   const ox = p.pos.x, oy = p.pos.y + p.eyeHeight, oz = p.pos.z;
-  const d = directionFromAngles(dir, p.yaw, p.pitch);
+  directionFromAngles(dir, p.yaw, p.pitch);
   const speed = Math.hypot(p.vel.x, p.vel.z);
-  const thr = accuracyThreshold(wt, mt);
-
-  // Basis for the frustum test: forward = d, right = (cos yaw, 0, -sin yaw), up = right x forward.
-  const rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
-  const ux = -rz * d.y, uy = rz * d.x - rx * d.z, uz = rx * d.y;
-  const tanH = Math.tan((view.hfovDeg * DEG2RAD) / 2);
-  const tanV = tanH / rt.visibilityAspect;
-  const padTan = Math.tan(rt.timeOnTargetPadDeg * DEG2RAD);
+  const thr = accuracyThreshold(t.weapon, t.movement);
 
   let anyVisible = false;
-  let onId = -1;
-  for (let i = 0; i < targets.length; i++) {
-    const t = targets[i]!;
-    if (!t.alive) continue;
-    const a = targetAimPoint(t, aimPoint);
-    const vx = a.x - ox, vy = a.y - oy, vz = a.z - oz;
-
-    if (!t.visible) {
-      const cz = vx * d.x + vy * d.y + vz * d.z;
-      const cx = vx * rx + vz * rz;
-      const cy = vx * ux + vy * uy + vz * uz;
-      if (cz > 0 && Math.abs(cx) <= tanH * cz && Math.abs(cy) <= tanV * cz && !occluded(boxes, ox, oy, oz, a.x, a.y, a.z)) {
-        t.visible = true;
-        measureAim(ox, oy, oz, p.yaw, p.pitch, d.x, d.y, d.z, a.x, a.y, a.z, aim);
-        visiblePayload.tick = tick;
-        visiblePayload.id = t.id;
-        visiblePayload.preAim = aim.err;
-        visiblePayload.dYaw = aim.dYaw;
-        visiblePayload.dPitch = aim.dPitch;
-        events.emit('targetVisible', visiblePayload);
-      }
-    }
-    if (!t.visible) continue;
-    anyVisible = true;
-
-    // Aim ray vs the target sphere padded by an angle (so the pad grows with distance).
-    const along = vx * d.x + vy * d.y + vz * d.z;
-    if (along > 0 && onId < 0) {
-      const perp2 = vx * vx + vy * vy + vz * vz - along * along;
-      const r = t.radius + along * padTan;
-      if (perp2 <= r * r) onId = t.id;
-    }
+  const slots = field.slots;
+  for (let i = 0; i < slots.length; i++) {
+    const tg = slots[i]!;
+    if (tg.alive && tg.visibleTick >= 0) { anyVisible = true; break; }
   }
 
+  // Time on target: edges as the aim ray enters / leaves a padded hit volume.
+  const onId = anyVisible ? aimedTarget(field, ox, oy, oz, p.yaw, p.pitch, t.run.timeOnTargetPadDeg * DEG2RAD) : -1;
   if ((onId >= 0) !== s.aimOn || (onId >= 0 && onId !== s.aimOnId)) {
     s.aimOn = onId >= 0;
     s.aimOnId = onId;
@@ -148,9 +115,9 @@ export function stepRunProbe(
 
   // Head-height discipline: sampled while moving fast with nobody in view.
   if (tick >= s.nextHeadSampleTick) {
-    s.nextHeadSampleTick = tick + secondsToTicks(rt.headHeightSampleSec);
+    s.nextHeadSampleTick = tick + secondsToTicks(t.run.headHeightSampleSec);
     if (!anyVisible && speed > thr) {
-      const ideal = Math.atan2(rt.headCentreHeight - oy, rt.headHeightRefDistance);
+      const ideal = Math.atan2(t.targets.hit.headCentreStand - oy, t.run.headHeightRefDistance);
       headPayload.tick = tick;
       headPayload.err = Math.abs(p.pitch - ideal);
       events.emit('headHeightSampled', headPayload);
@@ -159,6 +126,7 @@ export function stepRunProbe(
 
   // Stop latency: from the stop/counter-strafe input to speed first at or below the threshold.
   const mag = Math.hypot(input.moveX, input.moveZ);
+  const rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
   const wx = rx * input.moveX + -Math.sin(p.yaw) * input.moveZ;
   const wz = rz * input.moveX + -Math.cos(p.yaw) * input.moveZ;
   const wishDot = mag > 0 ? wx * p.vel.x + wz * p.vel.z : 0;
