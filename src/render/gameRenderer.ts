@@ -25,6 +25,7 @@ import { applyEnvQuality, createEnvUniforms, horizonColor, type EnvUniforms } fr
 import { buildLevelMesh, type LevelMesh } from './levelMesh';
 import { Sky } from './sky';
 import { PostPipeline, createVignetteEffect } from './post';
+import { WorldHint } from './worldHint';
 import { TargetsView } from './targetsView';
 
 export interface RenderStats {
@@ -45,6 +46,8 @@ export class GameRenderer {
   readonly scene = new Scene();
   readonly camera: PerspectiveCamera;
   readonly post = new PostPipeline();
+  /** The single first-run hint floating over a target; hidden unless shown. */
+  readonly hint: WorldHint;
   readonly stats: RenderStats = { drawCalls: 0, triangles: 0, geometries: 0, textures: 0 };
 
   private quality: QualityLevel;
@@ -100,6 +103,7 @@ export class GameRenderer {
     this.scene.add(sun);
 
     this.effects = new ShotEffects(this.scene, this.camera, cues, tunables.feedback);
+    this.hint = new WorldHint(this.scene, 'Click the orb');
 
     // Placeholder first-person weapon model, parented to the camera.
     this.viewmodel = new Mesh(new BoxGeometry(0.05, 0.07, 0.36), new MeshLambertMaterial({ color: palette.steel }));

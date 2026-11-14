@@ -7,6 +7,7 @@ import { AudioEngine } from '../audio/audioEngine';
 import { attachSfx } from '../audio/sfx';
 import { attachUiSounds } from '../audio/uiSounds';
 import { DebugOverlay } from '../debug/overlay';
+import { Timeline } from '../debug/timeline';
 import { PerfStats } from '../debug/perfStats';
 import { SessionStats } from '../feedback/sessionStats';
 import { applySettingsToOptions, createFeedbackOptions } from '../feedback/options';
@@ -15,6 +16,7 @@ import type { ModeEvents } from '../modes/contracts';
 import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
+import { ProfileStore } from '../settings/profile';
 import { SettingsStore, SETTINGS_KEY, type Settings } from '../settings/settings';
 import { createTickInput, SIM_EVENT_TYPES, type HitZone, type SimEvents, type TargetKind, type TickInput } from '../sim/types';
 import { zoneCentre } from '../sim/hitZones';
@@ -46,6 +48,7 @@ export class Game {
   readonly bus = new EventBus<GameEvents>();
   readonly tunables: Tunables = liveTunables;
   readonly settings: SettingsStore;
+  readonly profile: ProfileStore;
   readonly map: MapDef = rangeMap;
   readonly world: World;
   readonly renderer: GameRenderer;
@@ -60,6 +63,7 @@ export class Game {
   readonly cues: ShotCues;
   /** Feedback-related settings, shared (live) with the cue model and the HUD. */
   readonly feedbackOptions: ReturnType<typeof createFeedbackOptions>;
+  readonly timeline = new Timeline();
   readonly modes: ModeHost;
   readonly stepper = new FixedStepper(TICK_DT, 8);
 
@@ -78,6 +82,10 @@ export class Game {
   private readonly scriptInput = createTickInput();
   private lastTs = 0;
   private running = false;
+  /** Has the pointer been locked at least once this page load (pause panel vs landing menu). */
+  private hasPlayed = false;
+  /** The first-run hint is showing and waits for the first hit. */
+  private hintActive = false;
 
   constructor(canvas: HTMLCanvasElement, hudRoot: HTMLElement, menuRoot: HTMLElement, debugRoot: HTMLElement) {
     let storage: Storage | null = null;
@@ -92,6 +100,7 @@ export class Game {
     if (firstRun && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
       this.settings.set({ reduceFlashing: true });
     }
+    this.profile = new ProfileStore(this.bus, storage);
     const s = this.settings.get();
     this.feedbackOptions = createFeedbackOptions(s);
 
@@ -123,7 +132,13 @@ export class Game {
       cfg: this.tunables.feedback,
       project: (x, y, z, out) => this.renderer.projectToScreen(x, y, z, out),
     });
-    this.menu = new Menu(menuRoot, this.settings, this.tunables, () => this.play());
+    this.menu = new Menu(menuRoot, this.settings, this.profile, this.tunables, {
+      onPlay: () => this.play(),
+      onRestart: () => {
+        this.resetWorld();
+        this.play();
+      },
+    });
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
 
@@ -141,11 +156,18 @@ export class Game {
       applySettingsToOptions(this.feedbackOptions, settings);
       this.menu.sync();
     });
-    this.bus.on('pointerLockChanged', () => this.refreshChrome());
+    this.bus.on('pointerLockChanged', ({ locked }) => {
+      if (locked) this.onLockAcquired();
+      this.refreshChrome();
+    });
+    this.bus.on('rawInputChanged', ({ on }) => this.menu.setRawInput(on));
+    this.bus.on('shotFired', () => this.timeline.mark('firstShot'));
+    this.bus.on('targetHit', () => this.dismissHint());
 
     window.addEventListener('resize', this.onResize);
     this.onResize();
     this.refreshChrome();
+    this.timeline.mark(this.profile.get().firstRunDone ? 'mainMenuShown' : 'firstRunPanelShown');
   }
 
   private applyAudioSettings(s: Readonly<Settings>): void {
@@ -162,12 +184,59 @@ export class Game {
 
   /** Start playing: needs a user gesture (browser rule for pointer lock + audio). */
   play(): void {
+    this.timeline.mark('playClicked');
     this.audio.resume();
     this.input.requestLock();
   }
 
+  /**
+   * First lock of a first-run player: they are in. Remember it (so the next visit lands on the
+   * main menu), start the Placement run with the self-report prior, and point at the first orb.
+   */
+  private onLockAcquired(): void {
+    this.timeline.mark('lockAcquired');
+    this.hasPlayed = true;
+    if (this.profile.get().firstRunDone) return;
+    this.profile.set({ firstRunDone: true });
+    const prior = this.profile.prior(this.tunables.dial);
+    this.bus.emit('placementRunRequested', { priorMean: prior.mean, priorSd: prior.sd });
+    this.showHint();
+  }
+
+  /** Float the single "Click the orb" hint over the target nearest to where the player looks. */
+  private showHint(): void {
+    const targets = this.world.targets;
+    let best = -1;
+    let bestDot = -2;
+    const fx = -Math.sin(this.input.yaw);
+    const fz = -Math.cos(this.input.yaw);
+    const p = this.world.player.pos;
+    for (let i = 0; i < targets.length; i++) {
+      const t = targets[i]!;
+      if (!t.alive) continue;
+      const dx = t.pos.x - p.x;
+      const dz = t.pos.z - p.z;
+      const dot = (dx * fx + dz * fz) / (Math.hypot(dx, dz) || 1);
+      if (dot > bestDot) {
+        bestDot = dot;
+        best = i;
+      }
+    }
+    if (best < 0) return;
+    const t = targets[best]!;
+    this.renderer.hint.show(t.pos.x, t.pos.y + t.radius + 0.9, t.pos.z);
+    this.hintActive = true;
+  }
+
+  private dismissHint(): void {
+    if (!this.hintActive) return;
+    this.hintActive = false;
+    this.renderer.hint.hide();
+  }
+
   refreshChrome(): void {
     const live = this.input.locked;
+    this.menu.setMode(!this.profile.get().firstRunDone ? 'firstRun' : this.hasPlayed ? 'pause' : 'main');
     this.menu.setVisible(!live && !this.menuHidden);
     this.hud.setVisible(live || this.menuHidden);
     if (live) this.stepper.reset();

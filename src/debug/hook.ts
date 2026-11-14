@@ -86,6 +86,8 @@ export interface FlicklineDebug {
   setCrosshairCode(code: string): { ok: boolean; error?: string };
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
+  /** Named timestamps (ms since page load): panel shown, play clicked, lock, first shot. */
+  timeline(): Record<string, number>;
   /**
    * Fire one shot of `weaponId` (a loadout id, e.g. 'kestrel' or 'pace') at the current look, with
    * deterministic stepping: swaps, equips, reloads and waits for the fire interval as the sim
@@ -275,6 +277,7 @@ export function installDebugHook(game: Game): FlicklineDebug {
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);
     },
+    timeline: () => game.timeline.toObject(),
     fire(weaponId) {
       return game.fireOnce(weaponId as WeaponId);
     },
