@@ -16,6 +16,7 @@ import type { WeaponId } from '../config/weapon';
 import {
   createWeaponScratch,
   createWeaponState,
+  PlayerShots,
   resetWeaponState,
   selectWeapon,
   stepWeapon,
@@ -23,7 +24,7 @@ import {
   type WeaponWorld,
 } from './weapon';
 import { validateLoadout, type LoadoutRequest, type LoadoutResult } from './loadout';
-import { stepPlayer } from './movement';
+import { stepBody } from './movement';
 import {
   createTickInput,
   type BoxDef, type HitZone, type LevelDef, type PlayerHealth, type PlayerState, type SimEvents, type TargetKind, type TargetState, type TickInput, type WeaponState,
@@ -140,7 +141,7 @@ export class World implements EnemyWorld {
     this.relay = new KillHealRelay(this.healthSys);
     this.weaponWorld = {
       boxes: this.level.boxes,
-      field: this.targetField,
+      shots: new PlayerShots(this.targetField),
       table: opts.tunables.weapon,
       rules: opts.tunables.weaponRules,
       move: opts.tunables.movement,
@@ -227,7 +228,7 @@ export class World implements EnemyWorld {
       l.pitch = input.pitch;
       moveInput = l;
     }
-    stepPlayer(this.player, moveInput, this.level.boxes, t.movement, t.weapon[this.weapon.slots[this.weapon.active]!.id], TICK_DT, this.tick, events);
+    stepBody(this.player, moveInput, this.level.boxes, t.movement, t.weapon[this.weapon.slots[this.weapon.active]!.id], TICK_DT, this.tick, events);
     if (!this.live) {
       relay.target = NULL_SINK;
       return;

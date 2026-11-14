@@ -125,6 +125,13 @@ about 3; the target is 0) so a new per-tick closure, array, object literal, or d
 function V8 does not inline fails the build the day it lands. What is left is the run's event log
 (`feedback/eventLog.ts`, which copies each event once, by design) and per-event handlers.
 
+**Echoes on the shared body** (#87): `enemyAllocAudit.test.ts` runs `auditEnemyBodies`, eight
+Echo bodies driven by commands (strafe legs and stops, crouches, jumps, bursts of fire: movement,
+the gun model and an Echo's bullet trace) beside a strafing, spraying player, under the same 8 B/tick
+ceiling. It warms up for 100 000 ticks: an Echo's `fire` reaches V8's top tier later than the
+player's, and until it does its random draws box. Strafers are left out until their cold per-leg
+draws stop boxing (#264).
+
 Why "double passed to a function V8 does not inline" is a leak: V8 passes arguments to such a
 function as boxed heap numbers, so every call with a freshly computed or loaded `number` allocates
 16 bytes per number; so does a number returned from one, stored in a module-level `let`, or written
