@@ -1,15 +1,24 @@
-import type { EventSink, Subscribable } from '../core/eventBus';
+import type { Subscribable } from '../core/eventBus';
 import { DEG2RAD, RAD2DEG, mean, median } from '../core/math';
 import { TICK_DT } from '../core/time';
-import { run as defaultRunTunables, type RunTunables } from '../config/run';
-import { targets as defaultTargetTunables, type TargetTunables } from '../config/targets';
+import { run as defaultRun, type RunTunables } from '../config/run';
+import { scoring as defaultScoring, type ScoringTunables } from '../config/scoring';
+import { targets as defaultTargets, type TargetTunables } from '../config/targets';
 import { wrapPi, yawOf } from '../sim/aim';
 import type { RunEndReason, RunEvents } from '../sim/runEvents';
 import type { HitZone, SimEvents, TargetKind } from '../sim/types';
 
 /** A target kind, or 'unknown' when the log has no spawn event for it. */
 type StatKind = TargetKind | 'unknown';
-import type { FeedbackEvents } from './events';
+
+/** The tunables the stat definitions read (`Tunables` satisfies it). */
+export interface StatConfig {
+  run: RunTunables;
+  targets: Pick<TargetTunables, 'shotAtDeg' | 'reactionAimDeg'>;
+  scoring: Pick<ScoringTunables, 'chainWindowSec'>;
+}
+
+export const defaultStatConfig: StatConfig = { run: defaultRun, targets: defaultTargets, scoring: defaultScoring };
 import type { LoggedEvent, RunLog } from './eventLog';
 
 type AllEvents = SimEvents & RunEvents;
@@ -146,6 +155,9 @@ function openEngagement(id: number, kind: StatKind): Engagement {
  * reads live numbers from it during a run, and `computeStats(log)` replays a recorded log into a
  * fresh one, so the live and the end-of-run numbers cannot disagree. Pure: no DOM, no clock.
  *
+ * Chain and clean streak are tracked here for the stats; the live counters that drive the score
+ * multiplier and their events belong to `feedback/streaks.ts` (mode framework).
+ *
  * Allocation: per shot / kill / spawn (small objects, bounded by the run), never per tick or
  * per frame. Events before `runStarted` and after `runEnded` are ignored.
  *
@@ -197,11 +209,7 @@ export class StatTracker {
   private headHeightN = 0;
   private stopLatencies: number[] = [];
 
-  constructor(
-    private readonly rt: RunTunables,
-    private readonly tt: Pick<TargetTunables, 'shotAtDeg' | 'reactionAimDeg'>,
-    private readonly sink: EventSink<RunEvents & FeedbackEvents> | null = null,
-  ) {}
+  constructor(private readonly cfg: StatConfig = defaultStatConfig) {}
 
   get accuracy(): number | null {
     return this.shots === 0 ? null : this.hits / this.shots;
@@ -346,11 +354,11 @@ export class StatTracker {
     let aimedId = -1;
     if (e.aimTargetId >= 0) {
       const g = this.engagement(e.aimTargetId);
-      if (e.aimErr <= this.tt.reactionAimDeg * DEG2RAD && g.visibleTick >= 0 && g.rtTick < 0) {
+      if (e.aimErr <= this.cfg.targets.reactionAimDeg * DEG2RAD && g.visibleTick >= 0 && g.rtTick < 0) {
         g.rtTick = e.tick;
         g.flickError = this.flickError(g, e);
       }
-      if (e.aimErr <= this.tt.shotAtDeg * DEG2RAD) {
+      if (e.aimErr <= this.cfg.targets.shotAtDeg * DEG2RAD) {
         aimedId = e.aimTargetId;
         g.bullets++;
         g.misses++; // provisional: a hit impact for this shot converts it
@@ -363,7 +371,7 @@ export class StatTracker {
 
   private flickError(g: Engagement, e: AllEvents['shotFired']): number | null {
     const len = Math.hypot(g.visDYaw, g.visDPitch);
-    if (len < this.rt.flickMinDeg * DEG2RAD) return null;
+    if (len < this.cfg.run.flickMinDeg * DEG2RAD) return null;
     // aim - target = -(aimD*); project on the flick axis (the direction the crosshair had to travel).
     const along = (-e.aimDYaw * g.visDYaw - e.aimDPitch * g.visDPitch) / len;
     return along * RAD2DEG;
@@ -404,15 +412,13 @@ export class StatTracker {
     this.kills++;
     if (g.clean) this.cleanKills++;
 
-    const chainTicks = this.rt.chainWindowSec / TICK_DT;
+    const chainTicks = this.cfg.scoring.chainWindowSec / TICK_DT;
     this.chain = this.lastKillTick >= 0 && e.tick - this.lastKillTick <= chainTicks ? this.chain + 1 : 1;
     this.lastKillTick = e.tick;
     if (this.chain > this.maxChain) this.maxChain = this.chain;
-    this.sink?.emit('chainUpdated', { tick: e.tick, count: this.chain });
 
     this.streak = g.clean ? this.streak + 1 : 0;
     if (this.streak > this.maxStreak) this.maxStreak = this.streak;
-    this.sink?.emit('streakUpdated', { streak: this.streak, mult: this.multiplier(this.streak) });
 
     this.finished.push(g);
     this.open.delete(e.targetId);
@@ -428,12 +434,7 @@ export class StatTracker {
     this.finished.push(g);
     if (this.streak > 0) {
       this.streak = 0;
-      this.sink?.emit('streakUpdated', { streak: 0, mult: this.multiplier(0) });
-    }
-  }
-
-  private multiplier(streak: number): number {
-    return 1 + this.rt.streakMultPerKill * Math.min(streak, this.rt.streakMultCap);
+      }
   }
 
   private onAimOnTarget(e: AllEvents['aimOnTarget']): void {
@@ -543,12 +544,8 @@ export class StatTracker {
  * Every stat of design §3 as a pure function of a run's event log. Replays the log through a
  * fresh `StatTracker` (the same code the live HUD reads), so it is exact by construction.
  */
-export function computeStats(
-  log: RunLog,
-  rt: RunTunables = defaultRunTunables,
-  tt: Pick<TargetTunables, 'shotAtDeg' | 'reactionAimDeg'> = defaultTargetTunables,
-): RunStats {
-  const t = new StatTracker(rt, tt);
+export function computeStats(log: RunLog, cfg: StatConfig = defaultStatConfig): RunStats {
+  const t = new StatTracker(cfg);
   t.reset(log.mode, log.seed, log.dial);
   for (let i = 0; i < log.events.length; i++) t.consume(log.events[i]!);
   return t.result();

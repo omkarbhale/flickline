@@ -42,7 +42,7 @@ describe('pure layers stay pure', () => {
     });
   }
 
-  it('core, sim and config do not import presentation or app layers', () => {
+  it('core, sim, config and modes do not import presentation or app layers', () => {
     const bad = /from\s+['"]\.\.\/(render|input|audio|hud|ui|debug|app)\//;
     for (const dir of ['core', 'sim', 'config', 'modes']) {
       for (const f of files(join(root, dir))) expect(bad.test(code(f)), f).toBe(false);

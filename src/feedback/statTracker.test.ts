@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { run as runTunables } from '../config/run';
-import { targets as targetTunables } from '../config/targets';
 import { EventBus } from '../core/eventBus';
 import { DEG2RAD } from '../core/math';
 import { TICK_DT } from '../core/time';
 import { directionFromAngles, vec3 } from '../core/vec3';
 import type { RunEvents } from '../sim/runEvents';
-import type { FeedbackEvents } from './events';
 import type { HitZone, SimEvents, TargetKind } from '../sim/types';
 import type { LoggedEvent, RunLog } from './eventLog';
 import { StatTracker, computeStats } from './statTracker';
@@ -87,12 +84,12 @@ class Log {
     return this;
   }
   finish(reason: 'timer' | 'quit' = 'timer'): RunLog {
-    this.events.push({ type: 'runEnded', data: { tick: this.end, reason } });
+    this.events.push({ type: 'runEnded', data: { tick: this.end, t: this.end / 128, reason } });
     return { mode: 'test', seed: 7, dial: 40, events: this.events, truncated: false };
   }
 }
 
-const stats = (l: Log) => computeStats(l.finish(), runTunables, targetTunables);
+const stats = (l: Log) => computeStats(l.finish());
 
 describe('computeStats: counters and rates', () => {
   it('an empty run has no data, not fake zeros', () => {
@@ -143,7 +140,7 @@ describe('computeStats: counters and rates', () => {
     const l = new Log();
     l.events.unshift(...stray(5));
     const done = l.finish();
-    const s = computeStats({ ...done, events: [...done.events, ...stray(1300)] }, runTunables, targetTunables);
+    const s = computeStats({ ...done, events: [...done.events, ...stray(1300)] });
     expect(s.shots).toBe(0);
     expect(s.hits).toBe(0);
     expect(s.movingShots).toBe(0);
@@ -273,7 +270,7 @@ describe('computeStats: clean kill, chain and streak', () => {
     l = k(l, 440, 2); // +190 ticks (1.48 s): chain 3
     l = k(l, 640, 3); // +200 ticks (1.56 s): chain breaks, 1
     expect(stats(l).maxChain).toBe(3);
-    const tr = new StatTracker(runTunables, targetTunables);
+    const tr = new StatTracker();
     tr.reset();
     for (const e of l.finish().events) tr.consume(e);
     expect(tr.chain).toBe(1);
@@ -368,12 +365,9 @@ describe('computeStats: spray trace', () => {
 });
 
 describe('StatTracker live use', () => {
-  it('emits chain and streak events and matches a replay of the same events', () => {
-    const bus = new EventBus<SimEvents & RunEvents & FeedbackEvents>();
-    const derived: string[] = [];
-    bus.on('chainUpdated', (e) => derived.push(`chain${e.count}`));
-    bus.on('streakUpdated', (e) => derived.push(`streak${e.streak}x${e.mult.toFixed(1)}`));
-    const live = new StatTracker(runTunables, targetTunables, bus);
+  it('follows the bus live and ends up exactly where a replay of the same events does', () => {
+    const bus = new EventBus<SimEvents & RunEvents>();
+    const live = new StatTracker();
     live.reset('m', 1, 2);
     live.attach(bus);
 
@@ -382,9 +376,11 @@ describe('StatTracker live use', () => {
     const log = l.finish();
     for (const e of log.events) bus.emit(e.type, e.data as never);
 
-    expect(derived).toEqual(['chain1', 'streak0x1.0', 'chain2', 'streak1x1.1']);
-    const replay = computeStats({ ...log, mode: 'm', seed: 1, dial: 2 }, runTunables, targetTunables);
-    expect(live.result()).toEqual(replay);
     expect(live.accuracy).toBeCloseTo(2 / 3, 9);
+    expect(live.kills).toBe(2);
+    expect(live.chain).toBe(2);
+    expect(live.streak).toBe(1);
+    const replay = computeStats({ ...log, mode: 'm', seed: 1, dial: 2 });
+    expect(live.result()).toEqual(replay);
   });
 });

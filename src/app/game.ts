@@ -7,14 +7,14 @@ import { attachSfx } from '../audio/sfx';
 import { attachUiSounds } from '../audio/uiSounds';
 import { DebugOverlay } from '../debug/overlay';
 import { PerfStats } from '../debug/perfStats';
-import { LOGGED_EVENT_TYPES } from '../feedback/eventLog';
 import { SessionStats } from '../feedback/sessionStats';
+import type { ModeEvents, RunEndReason } from '../modes/contracts';
+import { RunController, type StartRunOptions } from '../modes/runController';
 import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
 import { SettingsStore, type Settings } from '../settings/settings';
-import { RunController, type StartRunOptions } from '../modes/runController';
-import { createTickInput, type HitZone, type TargetKind, type TickInput } from '../sim/types';
+import { createTickInput, type HitZone, type SimEvents, type TargetKind, type TickInput } from '../sim/types';
 import { zoneCentre } from '../sim/hitZones';
 import type { SpawnOptions } from '../sim/targets';
 import type { MapDef } from '../sim/mapTypes';
@@ -22,11 +22,21 @@ import { rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
 import { Menu } from '../ui/menu';
 import type { GameEvents } from './events';
+import { ModeHost } from './modeHost';
+
+const SIM_EVENT_TYPES: (keyof SimEvents)[] = [
+  'shotFired', 'shotImpact', 'targetSpawned', 'targetVisible', 'targetHit', 'targetKilled',
+  'targetExpired', 'targetRespawned', 'playerJumped', 'playerLanded', 'footstep',
+];
+
+const MODE_EVENT_TYPES: (keyof ModeEvents)[] = [
+  'runReady', 'runStarted', 'runEnded', 'beatStarted', 'skillTrial', 'scoreAwarded', 'chainUpdated', 'streakUpdated',
+];
 
 const AIM_SCRATCH = { x: 0, y: 0, z: 0 };
 
 export interface LoggedEvent {
-  type: keyof GameEvents;
+  type: keyof SimEvents | keyof ModeEvents;
   data: unknown;
 }
 
@@ -49,7 +59,9 @@ export class Game {
   readonly overlay: DebugOverlay;
   readonly perf = new PerfStats();
   readonly session = new SessionStats();
+  /** Run lifecycle, event log and stats (follows the mode runner's runs too). */
   readonly run: RunController;
+  readonly modes: ModeHost;
   readonly stepper = new FixedStepper(TICK_DT, 8);
 
   /** Debug: never auto-tick (deterministic stepping only via step()). */
@@ -97,9 +109,9 @@ export class Game {
     this.applyAudioSettings(s);
     // Feedback producers (stats, later streaks) subscribe before presentation (attachSfx), so the kill chime reads the updated streak.
     this.session.attach(this.bus);
-    // The run controller's stat tracker must be subscribed before the sound map: it emits
-    // `streakUpdated` ahead of the presentation handling the kill that caused it.
-    this.run = new RunController(this.world, this.bus, this.tunables.run, this.tunables.targets);
+    // The mode runner is a feedback producer too: it emits `streakUpdated` before the kill chime reads it.
+    this.modes = new ModeHost(this.world, this.bus, this.map, this.tunables);
+    this.run = new RunController(this.world, this.bus, this.tunables);
     attachSfx(this.bus, this.audio, this.tunables.audio);
     attachUiSounds(document, this.audio);
 
@@ -108,7 +120,7 @@ export class Game {
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
 
-    for (const type of LOGGED_EVENT_TYPES) {
+    for (const type of [...SIM_EVENT_TYPES, ...MODE_EVENT_TYPES]) {
       this.bus.on(type, (e) => {
         this.eventLog.push({ type, data: JSON.parse(JSON.stringify(e)) });
         if (this.eventLog.length > 256) this.eventLog.shift();
@@ -182,7 +194,7 @@ export class Game {
       ticks = this.stepper.advance(dt);
       for (let i = 0; i < ticks; i++) {
         const t0 = performance.now();
-        this.run.step(inp);
+        if (this.run.step(inp)) this.modes.tick();
         this.perf.recordTick(performance.now() - t0);
         // One-shot inputs apply to the first tick of the frame only.
         inp.jump = false;
@@ -232,7 +244,7 @@ export class Game {
     for (let i = 0; i < n; i++) {
       s.yaw = this.input.yaw;
       s.pitch = this.input.pitch;
-      this.run.step(s);
+      if (this.run.step(s)) this.modes.tick();
       s.jump = false;
     }
     this.renderNow();
@@ -266,25 +278,33 @@ export class Game {
 
   /** Abandon any run and reset the world (free play). */
   resetWorld(seed?: number): void {
+    this.modes.stop();
     this.run.cancel(seed);
     this.afterRunReset();
   }
 
-  /** Begin a run (seeded reset -> ready). */
+  /** Begin a plain run (seeded reset -> ready); replaces a mode run in progress. */
   startRun(opts: StartRunOptions): void {
     const t0 = performance.now();
+    this.modes.stop();
     this.run.startRun(opts);
     this.afterRunReset();
     this.noteRestart(t0);
   }
 
-  /** Instant restart of the current run from its seed (or a new one). Returns false if no run. */
+  /** Instant restart of the current plain run from its seed (or a new one). False if there is none. */
   restartRun(seed?: number): boolean {
     const t0 = performance.now();
     if (!this.run.restartRun(seed)) return false;
     this.afterRunReset();
     this.noteRestart(t0);
     return true;
+  }
+
+  /** End the current run, whoever times it. */
+  endRun(reason: RunEndReason): void {
+    if (this.run.isSelfDriven) this.run.endRun(reason);
+    else this.modes.stop();
   }
 
   private afterRunReset(): void {
@@ -308,18 +328,29 @@ export class Game {
       `pos ${f(p.pos.x)} ${f(p.pos.y)} ${f(p.pos.z)}  speed ${f(speed)} m/s\n` +
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
-      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}\n` +
-      this.runLine()
+      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}` +
+      this.runLine() +
+      this.modeLine()
     );
   }
 
   private runLine(): string {
     const r = this.run;
+    if (r.state === 'idle') return '';
     const tr = r.tracker;
     const acc = tr.accuracy === null ? '--' : `${(tr.accuracy * 100).toFixed(0)}%`;
-    const t = r.info ? `${r.elapsedSec.toFixed(1)}/${r.info.durationSec}s` : '';
+    const dur = r.info?.durationSec != null ? `/${r.info.durationSec}s` : '';
     const rs = this.lastRestartMs >= 0 ? `  restart ${this.lastRestartMs.toFixed(1)} ms` : '';
-    return `run ${r.state} ${t}  acc ${acc} (${tr.hits}/${tr.shots})  kills ${tr.kills}  chain ${tr.chain}  streak ${tr.streak}${rs}`;
+    return `\nrun ${r.state} ${r.elapsedSec.toFixed(1)}${dur}  acc ${acc} (${tr.hits}/${tr.shots})${rs}`;
+  }
+
+  private modeLine(): string {
+    const m = this.modes.status();
+    if (m.mode === null) return '';
+    return (
+      `\nmode ${m.mode} ${m.phase}  beat ${m.beat} dial ${m.dial.toFixed(0)}  ${m.timeSec.toFixed(1)}s\n` +
+      `score ${m.score}  kills ${m.kills}  trials ${m.trialsWon}/${m.trials}  streak ${m.streak}  chain ${m.chain}`
+    );
   }
 
   /** Test hook: a plain-data snapshot of gameplay state. */

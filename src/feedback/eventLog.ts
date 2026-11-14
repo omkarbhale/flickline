@@ -8,9 +8,8 @@ type AllEvents = SimEvents & RunEvents;
 export type LoggedEvent = { [K in keyof AllEvents]: { type: K; data: AllEvents[K] } }[keyof AllEvents];
 
 /**
- * What goes in the log: every sim fact and run event. The stat tracker's derived events
- * (`chainUpdated`, `streakUpdated`, `killSummarised`) are pure functions of these and are not
- * logged. Footsteps/jumps are logged too: the log is the determinism fingerprint of a run.
+ * What goes in the log: every sim fact and run event. The mode framework's derived events (chain, streak, score, trials) are pure functions of
+ * these and are not logged. Footsteps/jumps are logged too: the log is the determinism fingerprint of a run.
  */
 export const LOGGED_EVENT_TYPES: readonly (keyof AllEvents)[] = [
   'runReady', 'runStarted', 'runEnded',
@@ -18,7 +17,7 @@ export const LOGGED_EVENT_TYPES: readonly (keyof AllEvents)[] = [
   'playerJumped', 'playerLanded', 'footstep',
   'targetSpawned', 'targetVisible', 'targetExpired', 'targetShielded',
   'enemyTell', 'enemyFired', 'playerDamaged', 'playerSlowed', 'playerDied',
-  'surgeStarted', 'surgeEnded', 'medalAwarded', 'skillTrial',
+  'surgeStarted', 'surgeEnded', 'medalAwarded',
   'aimOnTarget', 'headHeightSampled', 'playerStopped',
 ];
 

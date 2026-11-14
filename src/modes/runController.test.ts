@@ -15,7 +15,7 @@ function setup(seed = 5) {
   const tunables = cloneTunables();
   const world = new World({ level: testRoom, tunables, seed });
   const bus = new EventBus<RunAndSimEvents & FeedbackEvents>();
-  const ctl = new RunController(world, bus, tunables.run, tunables.targets);
+  const ctl = new RunController(world, bus, tunables);
   const order: string[] = [];
   for (const t of ['runReady', 'runStarted', 'runEnded', 'targetSpawned'] as const) bus.on(t, () => order.push(t));
   const input = createTickInput();
@@ -128,16 +128,33 @@ describe('run state machine', () => {
   });
 });
 
-describe('event order for presentation', () => {
-  it('streakUpdated is emitted before later subscribers see the targetKilled that caused it', () => {
-    const { ctl, bus, run } = setup();
-    const seen: string[] = [];
-    bus.on('streakUpdated', (e) => seen.push(`streak${e.streak}`));
-    bus.on('targetKilled', () => seen.push('killed')); // like the sound map, subscribed after the controller
-    ctl.startRun({ mode: 't', seed: 1, dial: 0 });
-    run(READY + 2);
+describe('runs timed by the mode runner (mirrored)', () => {
+  it('follows runReady/runStarted/runEnded from any emitter: log, stats, freeze, no own timer', () => {
+    const { ctl, bus, run, world } = setup();
+    bus.emit('runReady', { tick: 0, mode: 'orbit', seed: 3, dial: 40 });
+    expect(ctl.state).toBe('ready');
+    expect(ctl.isSelfDriven).toBe(false);
+    expect(ctl.info).toEqual({ mode: 'orbit', seed: 3, dial: 40, durationSec: null });
+    expect(ctl.restartRun()).toBe(false); // the mode host restarts mode runs
+    run(READY + 500); // the controller must not time it: still `ready` until the runner says so
+    expect(ctl.state).toBe('ready');
+    bus.emit('runStarted', { tick: world.tick });
+    expect(ctl.state).toBe('live');
+    expect(ctl.liveStartTick).toBe(world.tick);
     run(1, { yaw: 0, pitch: Math.atan2(1.5 - 1.62, 20), fire: true });
-    expect(seen).toEqual(['streak1', 'killed']);
+    expect(ctl.tracker.shots).toBe(1);
+    ctl.endRun('quit'); // not ours to end
+    expect(ctl.state).toBe('live');
+    bus.emit('runEnded', { tick: world.tick, t: 1, reason: 'complete' });
+    expect(ctl.state).toBe('result');
+    expect(ctl.finalStats?.endReason).toBe('complete');
+    expect(ctl.finalStats?.shots).toBe(1);
+    expect(ctl.log.events.map((e) => e.type)).toContain('runEnded');
+    expect(run(10)).toBe(0); // frozen
+    bus.emit('runReady', { tick: world.tick, mode: 'orbit', seed: 3, dial: 40 }); // the runner restarts
+    expect(ctl.state).toBe('ready');
+    expect(ctl.log.events.map((e) => e.type)).toEqual(['runReady']);
+    expect(run(1)).toBe(1);
   });
 });
 

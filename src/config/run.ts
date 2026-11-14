@@ -14,11 +14,6 @@ export interface RunTunables {
   flickMinDeg: number;
   /** Time on target: the hit volume is padded by this angle (design §3). */
   timeOnTargetPadDeg: number;
-  /** Chain: a kill within this many seconds of the previous kill extends the chain. */
-  chainWindowSec: number;
-  /** Streak multiplier = 1 + streakMultPerKill * min(cleanStreak, streakMultCap) (design §8.1). */
-  streakMultPerKill: number;
-  streakMultCap: number;
   /** Head-height discipline: sample period while moving with no enemy visible. */
   headHeightSampleSec: number;
   /** Distance at which the head-centre height is turned into a pitch angle. */
@@ -33,9 +28,6 @@ export const run: RunTunables = {
   restartBudgetMs: 250,
   timeOnTargetPadDeg: 0.5,
   flickMinDeg: 1,
-  chainWindowSec: 1.5,
-  streakMultPerKill: 0.1,
-  streakMultCap: 20,
   headHeightSampleSec: 0.125,
   headHeightRefDistance: 10,
   logMaxEvents: 20000,
