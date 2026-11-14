@@ -61,7 +61,8 @@ export class OrbitTrial implements TrialEngine {
     this.prevDir.z = t.z;
     this.hasPrev = true;
     const eye = ctx.scheduler.eyePosition();
-    this.distance = Math.hypot(this.centre.x - eye.x, this.centre.y - eye.y, this.centre.z - eye.z);
+    const dx = this.centre.x - eye.x, dy = this.centre.y - eye.y, dz = this.centre.z - eye.z;
+    this.distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
     const exposure = Math.max(axes.orbitExposureSec ?? 1, ctx.tunables.dial.floors.exposureSec);
     this.expireAt = ctx.liveTick + secondsToTicks(exposure);
     return true;

@@ -138,15 +138,18 @@ export class PlayerHealthSystem {
   step(p: PlayerState, dt: number = TICK_DT): void {
     const h = this.state;
     const tag = this.cfg.tag;
-    if (h.tagSince < tagTotalSec(tag)) {
+    // `tagTotalSec` and the untagged case of `tagSpeedScale` inline: this runs every tick, and V8
+    // boxes a double returned from or passed to a function it does not inline (architecture §7).
+    const total = tag.rampInSec + tag.releaseSec;
+    if (h.tagSince < total) {
       h.tagSince += dt;
       h.tagRise = Math.min(1, h.tagRise + dt / tag.rampInSec);
-      if (h.tagSince >= tagTotalSec(tag)) {
+      if (h.tagSince >= total) {
         h.tagSince = Infinity;
         h.tagRise = 0;
       }
     }
-    p.tagScale = tagSpeedScale(tag, h.tagSince, h.tagRise);
+    p.tagScale = h.tagSince < total ? tagSpeedScale(tag, h.tagSince, h.tagRise) : 1;
 
     if (h.flinchDeg > 0) {
       h.flinchDeg = Math.max(0, h.flinchDeg - (this.cfg.flinch.pitchHeadDeg / this.cfg.flinch.recoverySec) * dt);

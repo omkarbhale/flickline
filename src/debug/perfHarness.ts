@@ -1,4 +1,6 @@
 import type { Game } from '../app/game';
+import { median } from '../core/math';
+import { TICK_DT } from '../core/time';
 
 /**
  * The frame-time perf harness: a scripted 20 s scene run through the game's real frame loop in a
@@ -18,8 +20,22 @@ import type { Game } from '../app/game';
 export interface PerfOptions {
   /** Measured seconds (default 20). */
   seconds?: number;
-  /** Unmeasured warm-up before that (shader compile, JIT, first pools), seconds (default 2). */
+  /**
+   * Unmeasured warm-up before that (shader compile, JIT, first pools), seconds (default 14). It is
+   * drawn on a tiny canvas (`WARM_PX`) so that even a software renderer runs the frame loop
+   * hundreds of times: V8 only compiles the frame code (three.js, the HUD, the effects) after
+   * that many calls, and until then it runs in the interpreter, which boxes every double. The
+   * canvas is restored to the window's size when the measurement begins.
+   */
   warmupSec?: number;
+  /**
+   * Sim ticks of the scene to run, unmeasured and undrawn, before the scene starts (default
+   * 30 000, about 4 minutes of play). A software-rendered page ticks only a few dozen times a
+   * second, so without this the sim is still in V8's interpreter, which boxes every double, for the
+   * whole run, and the report would measure the interpreter's allocation instead of the game's. On a GPU
+   * machine the first second of play does the same.
+   */
+  jitWarmTicks?: number;
 }
 
 export interface SmokeThresholds {
@@ -78,6 +94,12 @@ export interface PerfReport {
      */
     allocBytesPerSec: number;
     allocBytesPerFrame: number;
+    /**
+     * The same per second, from the median heap sample interval that did not see a collection, not
+     * the sum: the sum also counts the spikes of V8 compiling code and of the browser's own work,
+     * which are not the game's steady allocation and swing a short run a lot.
+     */
+    typicalAllocBytesPerSec: number;
     /** Heap falls larger than 32 KiB (collections seen). */
     collections: number;
   };
@@ -103,6 +125,11 @@ const STRAFE_PERIOD = 3;
 const JUMP_PERIOD = 2.5;
 const HURT_PERIOD = 2;
 const HURT_HP = 6;
+const JIT_WARM_TICKS = 30_000;
+/** Frames at full size after the warm-up that are drawn but not measured. */
+const SETTLE_FRAMES = 3;
+/** Canvas size of the warm-up phase, px (width x height). */
+const WARM_PX = { w: 64, h: 36 };
 
 /** Average fps over the slowest `share` of frames (`sorted` ascending, ms): the usual "1 % low". */
 export function lowFps(sorted: readonly number[], share: number): number {
@@ -156,7 +183,9 @@ export class PerfHarness {
   private nextHeapAt = 0;
   private nextHurtAt = 0;
   private nextJumpAt = 0;
-  private warmupSec = 2;
+  private warmupSec = 14;
+  private shrunk = false;
+  private settleFrames = 0;
   private seconds = 20;
   private ticksAtStart = 0;
   private saved: { hold: boolean; forceRun: boolean; override: Game['override']; menuHidden: boolean; inf: boolean } | null = null;
@@ -175,10 +204,11 @@ export class PerfHarness {
     if (this.state === 'running') return;
     const g = this.game;
     this.seconds = opts.seconds ?? 20;
-    this.warmupSec = opts.warmupSec ?? 2;
+    this.warmupSec = opts.warmupSec ?? 14;
     this.state = 'running';
     this.report = null;
     this.frames = 0;
+    this.settleFrames = 0;
     this.heapCount = 0;
     this.lastTs = this.startTs = this.measureTs = 0;
     this.saved = { hold: g.hold, forceRun: g.forceRun, override: g.override, menuHidden: g.menuHidden, inf: g.world.weapon.infiniteMagazine };
@@ -190,8 +220,26 @@ export class PerfHarness {
     g.hold = false;
     g.forceRun = true;
     g.override = this.sceneInput;
+    this.jitWarm(opts.jitWarmTicks ?? JIT_WARM_TICKS);
+    if (this.warmupSec > 0) {
+      g.renderer.resize(WARM_PX.w, WARM_PX.h);
+      this.shrunk = true;
+    }
+    g.resetWorld(1);
+    g.world.weapon.infiniteMagazine = true;
     this.ticksAtStart = g.world.tick;
     requestAnimationFrame(this.frame);
+  }
+
+  /** Run the scene's input through the sim for `ticks` ticks without drawing, so V8 has compiled the tick before anything is measured. */
+  private jitWarm(ticks: number): void {
+    const g = this.game;
+    this.nextHurtAt = HURT_PERIOD;
+    this.nextJumpAt = JUMP_PERIOD;
+    for (let i = 0; i < ticks; i++) {
+      this.driveScene(i * TICK_DT);
+      g.step(1, this.sceneInput, false);
+    }
   }
 
   private readonly frame = (ts: number): void => {
@@ -206,7 +254,11 @@ export class PerfHarness {
     this.driveScene(t);
 
     if (t >= this.warmupSec) {
-      if (this.measureTs === 0) {
+      this.restoreCanvas();
+      // The first frames at full size reallocate render targets and re-lay-out the page: let them pass unmeasured.
+      if (this.settleFrames < SETTLE_FRAMES) {
+        this.settleFrames++;
+      } else if (this.measureTs === 0) {
         this.measureTs = ts;
         this.nextHeapAt = t;
         this.ticksAtStart = g.world.tick;
@@ -222,7 +274,7 @@ export class PerfHarness {
       }
     }
     this.lastTs = ts;
-    if (t >= this.warmupSec + this.seconds) {
+    if (this.measureTs !== 0 && (ts - this.measureTs) / 1000 >= this.seconds) {
       this.finish();
       return;
     }
@@ -252,7 +304,15 @@ export class PerfHarness {
     }
   }
 
+  /** End the tiny-canvas warm-up: the game's own resize handler reads the window and puts the canvas back. */
+  private restoreCanvas(): void {
+    if (!this.shrunk) return;
+    this.shrunk = false;
+    window.dispatchEvent(new Event('resize'));
+  }
+
   private finish(): void {
+    this.restoreCanvas();
     const g = this.game;
     const saved = this.saved;
     if (saved) {
@@ -284,11 +344,14 @@ export class PerfHarness {
     const growth = heapFloorGrowth(hs, per);
     let rises = 0;
     let collections = 0;
+    const steps: number[] = [];
     for (let i = 1; i < hs.length; i++) {
       const d = hs[i]! - hs[i - 1]!;
       if (d > 0) rises += d;
       else if (d < -32 * 1024) collections++;
+      if (d >= 0) steps.push(d);
     }
+    const typicalStep = median(steps) ?? 0;
 
     const th = this.thresholds;
     const failures: string[] = [];
@@ -332,6 +395,7 @@ export class PerfHarness {
         growthBytes: growth,
         allocBytesPerSec: seconds ? rises / seconds : 0,
         allocBytesPerFrame: n ? rises / n : 0,
+        typicalAllocBytesPerSec: seconds ? (typicalStep * hs.length) / seconds : 0,
         collections,
       },
       failures,

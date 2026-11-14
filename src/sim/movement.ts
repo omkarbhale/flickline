@@ -1,7 +1,7 @@
-import { clamp, moveTowards, DEG2RAD } from '../core/math';
+import { DEG2RAD } from '../core/math';
 import type { EventSink } from '../core/eventBus';
 import type { MovementTunables } from '../config/movement';
-import { hullBlocked, moveAxis, moveAxisStep, snapDown } from './collision';
+import { moveAxis, moveAxisStep, snapDown, standBlocked } from './collision';
 import type { BoxDef, PlayerState, SimEvents, TickInput } from './types';
 
 /** Events the player movement emits (part of `SimEvents`). */
@@ -14,6 +14,11 @@ export interface PlayerEvents {
 declare module './types' {
   interface SimEvents extends PlayerEvents {}
 }
+
+// Reused event payloads (valid only during the callback, by the event convention): no allocation per event.
+const jumpedPayload = { tick: 0 };
+const landedPayload = { tick: 0, impactSpeed: 0 };
+const stepPayload = { tick: 0, crouching: false, walking: false };
 
 /**
  * Placeholder player movement: wish-velocity acceleration on the ground and in the air, gravity,
@@ -39,9 +44,10 @@ export function stepPlayer(
   const maxPitch = m.maxPitchDeg * DEG2RAD;
   p.yaw = input.yaw;
   // The aim punch from being hit (spec §4.4) is added to the view pitch the sim shoots with.
-  p.pitch = clamp(input.pitch + p.aimPunch, -maxPitch, maxPitch);
+  // `clamp` and `moveTowards` below are written out: V8 boxes a double returned from a function it does not inline (architecture §7).
+  const pitch = input.pitch + p.aimPunch;
+  p.pitch = pitch < -maxPitch ? -maxPitch : pitch > maxPitch ? maxPitch : pitch;
 
-  const hw = m.hullHalfWidth;
 
   // Crouch state. Standing up needs headroom.
   if (input.crouch) {
@@ -49,12 +55,14 @@ export function stepPlayer(
       p.crouching = true;
       p.height = m.crouchHeight;
     }
-  } else if (p.crouching && !hullBlocked(boxes, p.pos.x, p.pos.y, p.pos.z, hw, m.standHeight)) {
+  } else if (p.crouching && !standBlocked(boxes, p, m)) {
     p.crouching = false;
     p.height = m.standHeight;
   }
   const targetEye = p.crouching ? m.crouchEyeHeight : m.standEyeHeight;
-  p.eyeHeight = moveTowards(p.eyeHeight, targetEye, m.eyeHeightSpeed * dt);
+  const eyeDelta = targetEye - p.eyeHeight;
+  const eyeStep = m.eyeHeightSpeed * dt;
+  p.eyeHeight = Math.abs(eyeDelta) <= eyeStep ? targetEye : p.eyeHeight + Math.sign(eyeDelta) * eyeStep;
 
   // Wish velocity from input, in world space.
   let mx = input.moveX;
@@ -97,7 +105,8 @@ export function stepPlayer(
   if (input.jump && p.grounded) {
     p.vel.y = m.jumpSpeed;
     p.grounded = false;
-    events.emit('playerJumped', { tick });
+    jumpedPayload.tick = tick;
+    events.emit('playerJumped', jumpedPayload);
   }
   p.vel.y -= m.gravity * dt;
 
@@ -108,25 +117,24 @@ export function stepPlayer(
   const x0 = p.pos.x;
   const z0 = p.pos.z;
   if (wasGrounded) {
-    if (moveAxisStep(boxes, p.pos, 'x', p.vel.x * dt, hw, p.height, m.stepHeight)) p.vel.x = 0;
-    if (moveAxisStep(boxes, p.pos, 'z', p.vel.z * dt, hw, p.height, m.stepHeight)) p.vel.z = 0;
+    if (moveAxisStep(boxes, p, 'x', dt, m)) p.vel.x = 0;
+    if (moveAxisStep(boxes, p, 'z', dt, m)) p.vel.z = 0;
     // Stay on the ground when it falls away by no more than a step (stairs, ramps down).
-    if (snapDown(boxes, p.pos, hw, p.height, m.stepHeight)) {
+    if (snapDown(boxes, p, m)) {
       p.grounded = true;
       p.vel.y = 0;
     } else {
       p.grounded = false;
     }
   } else {
-    if (moveAxis(boxes, p.pos, 'x', p.vel.x * dt, hw, p.height)) p.vel.x = 0;
-    if (moveAxis(boxes, p.pos, 'z', p.vel.z * dt, hw, p.height)) p.vel.z = 0;
+    if (moveAxis(boxes, p, 'x', dt, m)) p.vel.x = 0;
+    if (moveAxis(boxes, p, 'z', dt, m)) p.vel.z = 0;
   }
 
   if (!p.grounded) {
-    const dy = p.vel.y * dt;
-    const blockedY = moveAxis(boxes, p.pos, 'y', dy, hw, p.height);
+    const blockedY = moveAxis(boxes, p, 'y', dt, m);
     if (blockedY) {
-      p.grounded = dy < 0;
+      p.grounded = p.vel.y < 0;
       p.vel.y = 0;
     } else {
       p.grounded = false;
@@ -134,7 +142,9 @@ export function stepPlayer(
   }
 
   if (p.grounded && !wasGrounded && preLandVy < -2) {
-    events.emit('playerLanded', { tick, impactSpeed: -preLandVy });
+    landedPayload.tick = tick;
+    landedPayload.impactSpeed = -preLandVy;
+    events.emit('playerLanded', landedPayload);
   }
 
   // Footsteps: distance-based, only while grounded.
@@ -144,7 +154,10 @@ export function stepPlayer(
     p.stepAccum += Math.sqrt(dx * dx + dz * dz);
     if (p.stepAccum >= m.footstepStride) {
       p.stepAccum -= m.footstepStride;
-      events.emit('footstep', { tick, crouching: p.crouching, walking: input.walk });
+      stepPayload.tick = tick;
+      stepPayload.crouching = p.crouching;
+      stepPayload.walking = input.walk;
+      events.emit('footstep', stepPayload);
     }
   } else {
     p.stepAccum = 0;
