@@ -2,6 +2,16 @@ import { results as defaultResults, type ResultsTunables } from '../config/resul
 import { DASH, type CardModel } from '../feedback/results';
 import './resultsCard.css';
 
+/**
+ * When the user pressed: the event's own timestamp (it includes time queued before our handler ran),
+ * unless that is not on the `performance.now()` clock or is implausibly old (synthetic input), then now.
+ */
+function pressTime(e: Event): number {
+  const now = performance.now();
+  const age = now - e.timeStamp;
+  return age >= 0 && age < 1000 ? e.timeStamp : now;
+}
+
 export interface ResultsCardHandlers {
   /** `Enter` / the Play again button. `pressedAt` is the key event's timestamp (performance.now() base). */
   onPlayAgain(pressedAt: number): void;
@@ -90,7 +100,7 @@ export class ResultsCard {
     this.medalsList = this.q('medals');
     this.play = this.q('play') as HTMLButtonElement;
     this.menuBtn = this.q('menu') as HTMLButtonElement;
-    this.play.addEventListener('click', (e) => handlers.onPlayAgain(e.timeStamp));
+    this.play.addEventListener('click', (e) => handlers.onPlayAgain(pressTime(e)));
     this.menuBtn.addEventListener('click', () => handlers.onMenu());
     window.addEventListener('keydown', this.onKey);
     window.addEventListener('resize', this.fit);
@@ -114,7 +124,7 @@ export class ResultsCard {
     if (e.code === 'Enter' || e.code === 'NumpadEnter') {
       if (onButton && e.target === this.menuBtn) return; // Enter on Menu activates Menu
       e.preventDefault();
-      this.handlers.onPlayAgain(e.timeStamp);
+      this.handlers.onPlayAgain(pressTime(e));
     } else if (e.code === 'Escape') {
       this.handlers.onMenu();
     }

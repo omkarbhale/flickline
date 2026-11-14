@@ -548,8 +548,6 @@ export class Game {
     if (this.run.isSelfDriven) {
       if (!this.run.restartRun(seed)) return false;
     } else {
-      // A mode run does not reset the world itself: do it here (health, weapon, position), then ready the mode.
-      this.world.reset(seed);
       if (!this.modes.start(info.mode, { seed })) return false;
     }
     this.afterRunReset();

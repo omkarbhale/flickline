@@ -18,7 +18,7 @@ function target(p: Partial<TargetStat> = {}): TargetStat {
 
 function stats(p: Partial<RunStats> = {}): RunStats {
   return {
-    mode: 'cold-start', seed: 7, dial: 50, endReason: 'timer', liveTicks: 7680, durationSec: 60,
+    mode: 'coldStart', seed: 7, dial: 50, endReason: 'timer', liveTicks: 7680, durationSec: 60,
     shots: 50, hits: 30, misses: 20, headHits: 12, bodyHits: 16, legHits: 2, kills: 10, cleanKills: 6, movingShots: 2,
     accuracy: 0.6, headshotRate: 0.4, medianRtMs: 620, medianTtkMs: 410, timeOnTarget: 0.31,
     medianStopLatencyMs: null, stopCount: 0, preAimErrorDeg: 6.24, headHeightDisciplineDeg: null, headHeightSamples: 0,
@@ -234,7 +234,7 @@ describe('ResultsRecorder', () => {
     const s = stats();
     const rec = new ResultsRecorder({
       bus,
-      run: { log: { mode: 'cold-start', seed: 7, dial: 50, events: [], truncated: false }, liveStats: () => s },
+      run: { log: { mode: 'coldStart', seed: 7, dial: 50, events: [], truncated: false }, liveStats: () => s },
       ratings: { rating: () => rating },
       skillOf: () => skill,
       pb: { best: () => 10000 },
@@ -246,7 +246,7 @@ describe('ResultsRecorder', () => {
 
   it('builds one card at runEnded from the score, medals and the rating before and after', () => {
     const { bus, rec, cards, setRating, newRuns } = setup('precision');
-    bus.emit('runReady', { tick: 0, mode: 'cold-start', seed: 7, dial: 50 });
+    bus.emit('runReady', { tick: 0, mode: 'coldStart', seed: 7, dial: 50 });
     expect(newRuns()).toBe(1);
     bus.emit('scoreAwarded', { total: 100 });
     bus.emit('scoreAwarded', { total: 250 });
