@@ -248,8 +248,8 @@ describe('Elbow', () => {
     expect(counts.long).toBeGreaterThanOrEqual(3);
   });
 
-  it('has six peek anchors and every peek pattern appears', () => {
-    expect(peeks).toHaveLength(6);
+  it('has eight peek anchors (six on the checkpoints, two for hold sectors, #204) and every peek pattern appears', () => {
+    expect(peeks).toHaveLength(8);
     expect(new Set(peeks.map((p) => p.pattern))).toEqual(new Set(['shoulder', 'wide', 'jiggle', 'hop']));
   });
 

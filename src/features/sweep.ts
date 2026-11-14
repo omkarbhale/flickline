@@ -30,6 +30,8 @@ declare module '../debug/hook' {
       state(): unknown;
       plan(seed?: number): unknown;
       toExit(): boolean;
+      /** Shoot every live Echo dead with a headshot (a stand-in for a perfect player); returns how many fell. A hold sector's exit opens when the last is gone. */
+      killAll(): number;
       walk(maxTicks?: number, stopAtM?: number): { ticks: number; seen: number };
       /**
        * Measure a map switch on its own (the cost a move between sectors on different maps adds): load
@@ -82,11 +84,15 @@ export const feature = defineFeature({
       fade.style.opacity = '1';
       pending = { from: e.sectorId, to: '', mapChanged: false, setupMs: 0, firstFrameMs: 0 };
     });
+    /** The label's words: the sector's place in the run and what it asks (a hold's exit is shut until its Echoes are dead). */
+    const sectorLabel = (index: number, of: number, role: string, open: boolean): string =>
+      `Sector ${index + 1} / ${of}` + (index === of - 1 ? ' \u00b7 Finale' : '') + ` \u00b7 ${role === 'hold' ? (open ? 'Hold \u00b7 exit open' : 'Hold') : 'Take'}`;
     game.bus.on('sectorEntered', (e) => {
       const st = state();
       const sp = st?.plan.sectors[e.index];
-      if (sp) marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
-      label.textContent = `Sector ${e.index + 1} / ${e.of}`;
+      // A take's exit is open from the first tick; a hold's opens when its Echoes are dead (`sectorExitOpened`).
+      if (sp && e.role === 'take') marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
+      label.textContent = sectorLabel(e.index, e.of, e.role, false);
       label.style.opacity = '0.9';
       if (pending) {
         pending.to = e.sectorId;
@@ -96,6 +102,12 @@ export const feature = defineFeature({
       }
       lastSector = e.sectorId;
       lastMap = e.mapId;
+    });
+    game.bus.on('sectorExitOpened', (e) => {
+      const sp = state()?.plan.sectors[e.index];
+      if (sp) marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
+      const st = state();
+      label.textContent = sectorLabel(e.index, st?.plan.sectors.length ?? e.index + 1, 'hold', true);
     });
     game.onFrameEnd(() => {
       if (!awaitFrame || !pending) return;
@@ -142,13 +154,15 @@ export const feature = defineFeature({
           return {
             seed: st.plan.seed,
             sector: st.sector,
+            role: st.role,
+            exitOpen: st.exitOpen,
             of: st.plan.sectors.length,
             sectorId: st.plan.sectors[st.sector]?.sectorId,
             mapId: game.modes.currentMap.id,
             won: st.won,
             lost: st.lost,
-            contacts: st.contacts.map((c) => ({ card: c.plan.card, open: c.open, alive: c.alive, echoes: c.echoIds.slice(), engaged: c.engaged })),
-            route: st.plan.sectors.map((s) => `${s.mapId}/${s.sectorId}: ${s.contacts.map((c) => c.card).join(', ')}`),
+            contacts: st.contacts.map((c) => ({ card: c.plan.card, open: c.open, alive: c.alive, pending: c.pending, echoes: c.echoIds.slice(), engaged: c.engaged })),
+            route: st.plan.sectors.map((s) => `${s.role} ${s.mapId}/${s.sectorId}: ${s.contacts.map((c) => c.card).join(', ')}`),
             switches: switches.slice(),
             hp: game.world.health.hp,
             shield: game.world.health.shield,
@@ -162,6 +176,18 @@ export const feature = defineFeature({
           game.world.placePlayer(sp.exit.x, sp.exit.y, sp.exit.z, game.world.player.yaw);
           game.step(1);
           return true;
+        },
+        killAll() {
+          if (!state()) return 0;
+          const field = game.world.targetField;
+          let n = 0;
+          for (let slot = 0; slot < field.slots.length; slot++) {
+            const t = field.slots[slot]!;
+            if (!t.alive) continue;
+            field.applyHit(slot, 'head', t.pos, 10, 1e6, game.world.tick, game.bus);
+            n++;
+          }
+          return n;
         },
         timeMapSwitch(mapId) {
           const before = game.modes.currentMap.id;

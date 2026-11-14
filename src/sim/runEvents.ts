@@ -84,6 +84,13 @@ export interface SectorEvents {
     contacts: number;
     echoes: number;
   };
+  /** A hold sector's exit opened: every Echo of the sector is dead (design §4.2). A take sector's exit is always open and never announces it. */
+  sectorExitOpened: {
+    tick: number;
+    t: number;
+    sectorId: string;
+    index: number;
+  };
   sectorEnded: {
     tick: number;
     t: number;

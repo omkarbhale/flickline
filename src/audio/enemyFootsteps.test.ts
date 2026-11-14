@@ -58,7 +58,17 @@ describe('EnemyFootsteps', () => {
     s.pos.x = -3;
     steps.tick([s], 0, 0);
     expect(plays).toEqual([]);
-    walk(steps, s, 2.2, 1.2); // a bit over one stride from the new position: one step
+    walk(steps, s, 4.4, 0.6); // a bit over one stride from the new position: one step
     expect(plays).toHaveLength(1);
+  });
+
+  it('is silent while an enemy walks (at or under the silent speed) and plays steps when it runs', () => {
+    const { plays, steps } = setup();
+    const s = slot(1, 5, -5);
+    steps.tick([s], 0, 0);
+    walk(steps, s, audio.enemy.silentMps, 4); // 11 m at the walking pace: not a sound
+    expect(plays).toEqual([]);
+    walk(steps, s, audio.enemy.silentMps + 1, 2); // 7.6 m at a run: three strides
+    expect(plays).toHaveLength(3);
   });
 });

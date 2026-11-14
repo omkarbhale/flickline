@@ -1,6 +1,7 @@
 import { Rng } from '../core/rng';
 import type { Vec3 } from '../core/vec3';
-import type { SweepCard, SweepTunables } from '../config/sweep';
+import type { HoldCard, SweepCard, SweepRole, SweepTunables, TakeCard } from '../config/sweep';
+import { MAX_ROUTE } from '../sim/enemyAi';
 import type { PeekPattern } from '../sim/mapTypes';
 import type { Expectation } from '../sim/enemyTiming';
 
@@ -15,6 +16,12 @@ import type { Expectation } from '../sim/enemyTiming';
  * hold anchors. A placement is accepted only if the Echo's body, all of its strafe lane and all of
  * its peek path are hidden from the entry eye, so no line of sight is open when the player arrives
  * and none opens unless the player moves.
+ *
+ * Hold sectors (#204): the player enters with no Echo in the sector. Each contact **arrives** along one
+ * of the sector's approach lanes at a seeded time (`ArrivePlan`: a route out of the sector, a speed,
+ * the second it leaves), as a Peeker that walks to a peek anchor and peeks it, or as a Strafer that
+ * walks in and fights. The run's roles come first (`planRoles`): the Opener is a take, the Finale a
+ * hold, the four sectors between are drawn.
  */
 
 /** One hold anchor of a sector, as the director needs it (built from the map by `sweepCatalog.ts`). */
@@ -34,6 +41,8 @@ export interface SectorSource {
   readonly mapId: string;
   readonly id: string;
   readonly roles: readonly string[];
+  /** The sector's approach lanes (arrivals walk them in; followers come by them), each with its width. */
+  readonly approaches: readonly ApproachLane[];
   /** Feet position the player is placed at, and the yaw the player faces. */
   readonly entry: Vec3;
   readonly entryYaw: number;
@@ -43,6 +52,16 @@ export interface SectorSource {
   visible(eye: Vec3, feet: Vec3, crouched: boolean): boolean;
   /** Whether an Echo can walk the straight line between two feet positions (nothing solid in between). */
   walkable(a: Vec3, b: Vec3): boolean;
+  /** The walk between two feet positions: straight when it is clear, else through the map's nav graph; the points after `from`, ending at `to`. */
+  route(from: Vec3, to: Vec3): Vec3[];
+}
+
+/** An approach lane of a sector (a map `lane` the sector names): enemies walk it from outside the sector to its end inside. */
+export interface ApproachLane {
+  readonly id: string;
+  readonly start: Vec3;
+  readonly end: Vec3;
+  readonly width: number;
 }
 
 export type EchoKind = 'strafer' | 'peeker';
@@ -61,6 +80,24 @@ export interface EchoPlan {
   readonly laneB?: Vec3;
   /** Peeker: its path and pattern. */
   readonly peek?: { readonly hold: Vec3; readonly out: Vec3; readonly pattern: PeekPattern };
+  /** Hold sectors and followers: it walks in along a lane instead of standing placed. */
+  readonly arrive?: ArrivePlan;
+}
+
+/** How an Echo arrives (hold sectors and followers, `sim/arrival.ts`): spawn at `route[0]`, out of the sector, and walk it in. */
+export interface ArrivePlan {
+  readonly lane: string;
+  readonly route: readonly Vec3[];
+  /** Metres per second; `running` is a run (audible steps), else a walk (silent). */
+  readonly speed: number;
+  readonly running: boolean;
+  /** A Strafer fights once it sees the player this close, metres. */
+  readonly engageM: number;
+  /**
+   * Seconds after the sector starts that it spawns (a flank: seconds after the contact it follows is won;
+   * a trade's second Echo: after the first spawns), see `ContactPlan.after`.
+   */
+  readonly atSec: number;
 }
 
 export interface ContactPlan {
@@ -70,10 +107,20 @@ export interface ContactPlan {
   /** The anchors the card puts in play (a `clear` has two, one of them empty). */
   readonly spots: readonly string[];
   readonly echoes: readonly EchoPlan[];
+  /**
+   * A flank only comes after a contact the player won (design §4.4, `engagement-information.md` §4.5): the
+   * index, among the sector's contacts, of the one that must be cleared first. Its Echo's `atSec` counts
+   * from that win. Absent: the contact's Echoes arrive on the sector's clock (or stand placed, in a take).
+   */
+  readonly after?: number;
 }
 
 export interface SectorPlan {
   readonly index: number;
+  /** The role it plays this run (take or hold; a meet is played as a take until #212). */
+  readonly role: SweepRole;
+  /** The Finale: the run's last sector (always a hold). */
+  readonly finale: boolean;
   readonly mapId: string;
   readonly sectorId: string;
   readonly entry: Vec3;
@@ -105,33 +152,6 @@ export function planSeed(seed: number): number {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-/** The order the run visits take sectors in: a shuffled deck, reshuffled when spent, never the same sector twice in a row. */
-export function pickSectors(rng: Rng, takes: readonly SectorSource[], count: number): SectorSource[] {
-  const out: SectorSource[] = [];
-  if (takes.length === 0) return out;
-  let deck: SectorSource[] = [];
-  while (out.length < count) {
-    if (deck.length === 0) {
-      deck = takes.slice();
-      for (let i = deck.length - 1; i > 0; i--) {
-        const j = rng.int(i + 1);
-        const t = deck[i]!;
-        deck[i] = deck[j]!;
-        deck[j] = t;
-      }
-      // A fresh deck never opens with the sector just played.
-      const last = out[out.length - 1];
-      if (last && deck.length > 1 && deck[deck.length - 1] === last) {
-        const t = deck[0]!;
-        deck[0] = deck[deck.length - 1]!;
-        deck[deck.length - 1] = t;
-      }
-    }
-    out.push(deck.pop()!);
-  }
-  return out;
-}
-
 /** How many anchors a card needs. */
 export function cardSpots(card: SweepCard): number {
   return card === 'clear' || card === 'crossfire' ? 2 : 1;
@@ -142,7 +162,7 @@ export function cardSpots(card: SweepCard): number {
  * `crossfireFromSector`, enough anchors left, and never `maxCardRun + 1` of the same card in a row).
  * Returns null when no card fits.
  */
-export function drawCard(rng: Rng, cfg: SweepTunables, sectorIndex: number, spotsLeft: number, recent: readonly SweepCard[]): SweepCard | null {
+export function drawCard(rng: Rng, cfg: SweepTunables, sectorIndex: number, spotsLeft: number, recent: readonly SweepCard[]): TakeCard | null {
   const run = cfg.maxCardRun;
   let streakCard: SweepCard | null = null;
   if (recent.length >= run) {
@@ -163,14 +183,14 @@ export function drawCard(rng: Rng, cfg: SweepTunables, sectorIndex: number, spot
   for (let i = cards.length - 1; i >= 0; i--) if (allowed(cards[i]!)) return cards[i]!;
   return null;
 
-  function allowed(c: SweepCard): boolean {
+  function allowed(c: TakeCard): boolean {
     if (c === streakCard) return false;
-    if (c === 'crossfire' && sectorIndex < cfg.crossfireFromSector) return false;
+    if (c === 'crossfire' && (sectorIndex < cfg.crossfireFromSector || cfg.noCrossfireSectors.includes(sectorIndex))) return false;
     return cardSpots(c) <= spotsLeft && cfg.cardWeight[c] > 0;
   }
 }
 
-const CARD_ORDER: readonly SweepCard[] = ['take-unaware', 'take-expected', 'clear', 'crossfire'];
+const CARD_ORDER: readonly TakeCard[] = ['take-unaware', 'take-expected', 'clear', 'crossfire'];
 
 /** A point `t` metres from `a` towards `dir` (a unit horizontal direction). */
 function along(a: Vec3, dx: number, dz: number, t: number): Vec3 {
@@ -229,7 +249,7 @@ export function hiddenSpots(s: SectorSource, body: PlanBody): SectorSpot[] {
  * Place one Echo on `spot` for `card`: its kind, stance, lane or peek path and expectation. Every
  * position it can reach on its own is hidden from the entry eye.
  */
-export function placeEcho(rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody, spot: SectorSpot, card: SweepCard): EchoPlan {
+export function placeEcho(rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody, spot: SectorSpot, card: TakeCard): EchoPlan {
   const p = cfg.place;
   const eye = entryEye(s, body);
   // One draw per Echo for its kind and one for its lane, always, so the stream does not depend on the map.
@@ -286,46 +306,317 @@ export function placeEcho(rng: Rng, cfg: SweepTunables, s: SectorSource, body: P
   return { spot: spot.id, kind: 'strafer', feet, crouched: spot.crouched, expectation, laneA, laneB };
 }
 
+// ---------------------------------------------------------------------------------------------
+// The run: roles, sectors, contacts
+// ---------------------------------------------------------------------------------------------
+
+/** What a sector plays in a run (a drawn meet is a take until #212). */
+export type PlayedRole = 'take' | 'hold';
+
+/** Draws of the role sequence before the fixed fallback (the rules accept about three in five). */
+const ROLE_TRIES = 64;
+
 /**
- * The whole run's plan: `cfg.sectors` take sectors drawn from `catalog`, each with its contacts,
- * cards and Echo placements. Throws if the catalog has no take sector with a hidden hold anchor.
+ * The roles of a run's sectors, in order (design §4.2): the Opener is a take, the Finale a hold, and
+ * sectors 2 to 5 are drawn by `roleWeight` such that the run has at least one take and one hold among
+ * them and no role runs `maxRoleRun + 1` times in a row. A drawn meet is played as a take until #212,
+ * and the rules count the role played.
+ */
+export function planRoles(rng: Rng, cfg: SweepTunables): PlayedRole[] {
+  const n = cfg.sectors;
+  const w = cfg.roleWeight;
+  const total = w.take + w.hold + w.meet;
+  for (let attempt = 0; attempt < ROLE_TRIES; attempt++) {
+    const roles: PlayedRole[] = ['take'];
+    for (let i = 1; i < n - 1; i++) {
+      const u = rng.next() * total;
+      roles.push(u >= w.take && u < w.take + w.hold ? 'hold' : 'take');
+    }
+    roles.push('hold');
+    if (rolesValid(roles, cfg.maxRoleRun)) return roles;
+  }
+  // Alternate: the rules hold by construction.
+  const roles: PlayedRole[] = ['take'];
+  for (let i = 1; i < n - 1; i++) roles.push(i % 2 === 1 ? 'take' : 'hold');
+  roles.push('hold');
+  return roles;
+}
+
+/** The middle of the run has a take and a hold, and nothing repeats more than `maxRun` times in a row. */
+export function rolesValid(roles: readonly PlayedRole[], maxRun: number): boolean {
+  const mid = roles.slice(1, -1);
+  if (mid.length > 1 && (!mid.includes('take') || !mid.includes('hold'))) return false;
+  let run = 1;
+  for (let i = 1; i < roles.length; i++) {
+    run = roles[i] === roles[i - 1] ? run + 1 : 1;
+    if (run > maxRun) return false;
+  }
+  return true;
+}
+
+/** One sector from the pool: not the one just played, and one the run has not used when there is one. */
+function pickSector(rng: Rng, pool: readonly SectorSource[], used: ReadonlySet<SectorSource>, prev: SectorSource | null): SectorSource {
+  let c = pool.filter((s) => !used.has(s) && s !== prev);
+  if (c.length === 0) c = pool.filter((s) => s !== prev);
+  if (c.length === 0) c = pool.slice();
+  return c[rng.int(c.length)]!;
+}
+
+/** Fisher-Yates with the run's stream. */
+function shuffled<T>(rng: Rng, list: readonly T[]): T[] {
+  const out = list.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = rng.int(i + 1);
+    const t = out[i]!;
+    out[i] = out[j]!;
+    out[j] = t;
+  }
+  return out;
+}
+
+const HOLD_CARD_ORDER: readonly HoldCard[] = ['hold', 'trade', 'flank'];
+
+/**
+ * Draw a hold-sector contact's card: weighted by `hold.cardWeight`, never `maxCardRun + 1` of one card
+ * in a row, and a flank only when `canFlank` (a contact before it in the sector to be won, that was not
+ * itself a flank, and a second lane to come by; design §4.4).
+ */
+export function drawHoldCard(rng: Rng, cfg: SweepTunables, canFlank: boolean, recent: readonly SweepCard[]): HoldCard {
+  const run = cfg.maxCardRun;
+  let streakCard: SweepCard | null = null;
+  if (recent.length >= run) {
+    streakCard = recent[recent.length - 1]!;
+    for (let i = recent.length - run; i < recent.length; i++) if (recent[i] !== streakCard) streakCard = null;
+  }
+  const w = cfg.hold.cardWeight;
+  const ok = (c: HoldCard): boolean => c !== streakCard && w[c] > 0 && (c !== 'flank' || canFlank);
+  let total = 0;
+  for (const c of HOLD_CARD_ORDER) if (ok(c)) total += w[c];
+  if (total <= 0) return 'hold';
+  let u = rng.next() * total;
+  for (const c of HOLD_CARD_ORDER) {
+    if (!ok(c)) continue;
+    u -= w[c];
+    if (u < 0) return c;
+  }
+  return 'hold';
+}
+
+/** Cut a route to the walker's capacity: the first points and the destination. */
+function capRoute(route: Vec3[]): Vec3[] {
+  if (route.length <= MAX_ROUTE) return route;
+  return [...route.slice(0, MAX_ROUTE - 1), route[route.length - 1]!];
+}
+
+/** A point `off` metres to the side of `p` (square to the unit direction (`dx`, `dz`)). */
+function sideways(p: Vec3, dx: number, dz: number, off: number): Vec3 {
+  return { x: p.x - dz * off, y: p.y, z: p.z + dx * off };
+}
+
+interface ArrivalSpec {
+  readonly lane: ApproachLane;
+  /** The peek anchor a Peeker walks to; absent: a Strafer. */
+  readonly spot?: SectorSpot;
+  readonly forceRun: boolean;
+  readonly atSec: number;
+}
+
+/**
+ * One arriving Echo: its route from the lane's start (a little off the centre line, so Echoes that
+ * come together do not walk in single file) to the lane's end, or on to a Peeker's cover; whether it
+ * runs; and how close a Strafer lets the player get before it stops and fights. Always draws the same
+ * numbers, so a plan does not depend on the map. Null for a Peeker whose walk to its cover would pass
+ * within `hold.minRouteFromEntryM` of the sector's entry: it would meet the player's fairness floor on the
+ * way and stop in the open (`sim/arrival.ts`).
+ */
+function planArrival(rng: Rng, cfg: SweepTunables, s: SectorSource, a: ArrivalSpec): EchoPlan | null {
+  const h = cfg.hold;
+  const lane = a.lane;
+  const lx = lane.end.x - lane.start.x, lz = lane.end.z - lane.start.z;
+  const ll = Math.hypot(lx, lz) || 1;
+  const dx = lx / ll, dz = lz / ll;
+  const off = (rng.next() * 2 - 1) * (lane.width / 2) * h.laneSpreadShare;
+  const run = rng.next() < h.runShare;
+  const engageM = h.engageM[0] + rng.next() * (h.engageM[1] - h.engageM[0]);
+  const to0 = a.spot ? a.spot.peek!.hold : lane.end;
+  // The offset stays only where the walk is clear of walls along the way.
+  let from = sideways(lane.start, dx, dz, off);
+  let to = a.spot ? to0 : sideways(to0, dx, dz, off);
+  if (!s.walkable(from, to) && s.walkable(lane.start, to0)) {
+    from = lane.start;
+    to = to0;
+  }
+  const route = capRoute([from, ...s.route(from, to)]);
+  if (a.spot && !routeKeepsAway(route, s.entry, h.minRouteFromEntryM)) return null;
+  const running = a.forceRun || run;
+  const arrive: ArrivePlan = { lane: lane.id, route, speed: running ? h.runMps : h.walkMps, running, engageM, atSec: a.atSec };
+  if (a.spot?.peek) {
+    return {
+      spot: a.spot.id, kind: 'peeker', feet: { ...route[0]! }, crouched: a.spot.crouched, expectation: 'attending',
+      peek: { hold: { ...a.spot.peek.hold }, out: { ...a.spot.peek.out }, pattern: 'wide' }, arrive,
+    };
+  }
+  const feet = { ...route[0]! };
+  return { spot: lane.id, kind: 'strafer', feet, crouched: false, expectation: 'attending', laneA: { ...feet }, laneB: { ...feet }, arrive };
+}
+
+/** Whether every point of a walk (sampled every half metre) stays at least `minM` metres from `p` on the floor plan. */
+function routeKeepsAway(route: readonly Vec3[], p: Vec3, minM: number): boolean {
+  for (let i = 0; i < route.length; i++) {
+    const a = route[i]!;
+    const b = route[Math.min(i + 1, route.length - 1)]!;
+    const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
+    for (let k = 0; k <= n; k++) {
+      const u = k / n;
+      if (Math.hypot(a.x + (b.x - a.x) * u - p.x, a.z + (b.z - a.z) * u - p.z) < minM) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Peek anchors a Peeker may walk to in a hold sector: far enough from the entry that the fairness floor does
+ * not stop it, and with a full step out that shows from the entry (else it and the player could sit for ever
+ * on either side of a wall, neither seeing the other).
+ */
+function peekSpotsFor(s: SectorSource, cfg: SweepTunables, body: PlanBody): SectorSpot[] {
+  const eye = entryEye(s, body);
+  return s.spots.filter(
+    (p) => p.peek && Math.hypot(p.feet.x - s.entry.x, p.feet.z - s.entry.z) >= cfg.hold.minPeekFromEntryM && s.visible(eye, p.peek.out, false),
+  );
+}
+
+/** The contacts of a hold sector: arrivals on seeded times along its approach lanes (design §4.2). */
+function planHold(rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody, index: number, finale: boolean, recent: SweepCard[], firstIndex: number): ContactPlan[] {
+  const h = cfg.hold;
+  const lo = perSector(h.contactsMin, index);
+  const hi = Math.max(lo, perSector(h.contactsMax, index));
+  const n = lo + rng.int(hi - lo + 1);
+  const t0 = h.firstArrivalSec[0] + rng.next() * (h.firstArrivalSec[1] - h.firstArrivalSec[0]);
+  const win = finale ? h.finaleWindowSec : h.windowSec;
+  const span = Math.max(t0 + 1, win[0] + rng.next() * (win[1] - win[0]));
+  const free = shuffled(rng, peekSpotsFor(s, cfg, body));
+  const lanes = s.approaches;
+  const contacts: ContactPlan[] = [];
+  for (let k = 0; k < n; k++) {
+    // The first contact arrives early (the sector is not left waiting); the rest are spread over the window in order,
+    // none exactly on a beat: stratified draws, not a clock.
+    const at = k === 0 ? t0 : t0 + ((span - t0) * (k - 1 + 0.15 + 0.85 * rng.next())) / Math.max(1, n - 1);
+    const prev = contacts[k - 1];
+    const card = drawHoldCard(rng, cfg, prev !== undefined && prev.card !== 'flank' && lanes.length >= 2, recent);
+    recent.push(card);
+    // A flank comes from another side than the contact before it (the lane of its first Echo).
+    const prevLane = prev?.echoes[0]?.arrive?.lane;
+    let pool = lanes;
+    if (card === 'flank') {
+      const others = lanes.filter((l) => l.id !== prevLane);
+      if (others.length > 0) pool = others;
+    }
+    const laneIdx = rng.int(pool.length);
+    const count = card === 'trade' ? 2 : 1;
+    const echoes: EchoPlan[] = [];
+    const spots: string[] = [];
+    for (let e = 0; e < count; e++) {
+      // A trade's second Echo hears the first fight and comes a moment later.
+      const gap = e === 0 ? 0 : h.tradeGapSec[0] + rng.next() * (h.tradeGapSec[1] - h.tradeGapSec[0]);
+      const atSec = card === 'flank' ? h.flankDelaySec[0] + rng.next() * (h.flankDelaySec[1] - h.flankDelaySec[0]) : at + gap;
+      const forceRun = card === 'flank';
+      let echo: EchoPlan | null = null;
+      if (rng.next() < h.peekerShare && free.length > 0) {
+        // A Peeker walks to a free peek anchor along the first lane (this one, then the others) that keeps it clear of the entry.
+        const spot = free[free.length - 1]!;
+        for (let l = 0; l < pool.length && !echo; l++) {
+          echo = planArrival(rng, cfg, s, { lane: pool[(laneIdx + l) % pool.length]!, spot, forceRun, atSec });
+        }
+        if (echo) {
+          free.pop();
+          spots.push(spot.id);
+        }
+      }
+      echoes.push(echo ?? planArrival(rng, cfg, s, { lane: pool[laneIdx]!, forceRun, atSec })!);
+    }
+    contacts.push({ index: firstIndex + k, card, spots, echoes, ...(card === 'flank' ? { after: k - 1 } : {}) });
+  }
+  return contacts;
+}
+
+/** The contacts of a take sector: Echoes placed out of the entry's sight on its hold anchors (#201). */
+function planTake(rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody, index: number, recent: SweepCard[], firstIndex: number): ContactPlan[] {
+  const free = hiddenSpots(s, body);
+  const lo = perSector(cfg.contactsMin, index);
+  const hi = Math.max(lo, perSector(cfg.contactsMax, index));
+  const want = Math.min(free.length, lo + rng.int(hi - lo + 1));
+  const contacts: ContactPlan[] = [];
+  for (let c = 0; c < want && free.length > 0; c++) {
+    // Leave one anchor for each contact still to come.
+    const spare = free.length - (want - c - 1);
+    const card = drawCard(rng, cfg, index, Math.max(1, spare), recent);
+    if (!card) break;
+    recent.push(card);
+    const spots: SectorSpot[] = [];
+    for (let k = 0; k < cardSpots(card); k++) spots.push(free.splice(rng.int(free.length), 1)[0]!);
+    const echoes: EchoPlan[] = [];
+    if (card === 'clear') {
+      // Two possible spots, one of them occupied (design §4.4).
+      const occupied = spots[rng.int(2)]!;
+      echoes.push(placeEcho(rng, cfg, s, body, occupied, card));
+    } else {
+      for (const spot of spots) echoes.push(placeEcho(rng, cfg, s, body, spot, card));
+    }
+    contacts.push({ index: firstIndex + c, card, spots: spots.map((p) => p.id), echoes });
+  }
+  return contacts;
+}
+
+/**
+ * Survivors of the sector just left follow the player (design §4.2): `count` Echoes arrive along one of
+ * `s`'s approach lanes, a few seconds after it begins, as a `flank` when the player won a contact in the
+ * sector they came from and as a `trade` otherwise (a flank is only ever dealt after a won contact).
+ * Followers are Strafers: they hunt the player in the open. Null when the sector has no approach lane.
+ */
+export function planFollowers(seed: number, cfg: SweepTunables, s: SectorSource, count: number, wonBefore: boolean, sectorIndex: number, contactIndex: number): ContactPlan | null {
+  if (count <= 0 || s.approaches.length === 0) return null;
+  const rng = new Rng(planSeed(seed ^ Math.imul(sectorIndex + 1, 0x9e3779b1)));
+  const h = cfg.hold;
+  const card: HoldCard = wonBefore ? 'flank' : 'trade';
+  const lane = s.approaches[rng.int(s.approaches.length)]!;
+  const n = Math.min(count, cfg.follow.max);
+  const base = cfg.follow.delaySec[0] + rng.next() * (cfg.follow.delaySec[1] - cfg.follow.delaySec[0]);
+  const echoes: EchoPlan[] = [];
+  for (let e = 0; e < n; e++) {
+    const gap = e === 0 ? 0 : h.tradeGapSec[0] + rng.next() * (h.tradeGapSec[1] - h.tradeGapSec[0]);
+    echoes.push(planArrival(rng, cfg, s, { lane, forceRun: card === 'flank', atSec: base + gap })!);
+  }
+  return { index: contactIndex, card, spots: [], echoes };
+}
+
+/**
+ * The whole run's plan: `cfg.sectors` sectors drawn from `catalog`, the Opener a take and the Finale a
+ * hold, each with its contacts, cards and Echo placements or arrivals. Throws if the catalog has no take
+ * sector with a hidden hold anchor or no hold sector with an approach lane.
  */
 export function planRun(seed: number, catalog: readonly SectorSource[], cfg: SweepTunables, body: PlanBody): RunPlan {
   const rng = new Rng(planSeed(seed));
-  const takes = catalog
-    .filter((s) => s.roles.includes('take') && hiddenSpots(s, body).length > 0)
-    .sort((a, b) => (a.mapId + '/' + a.id < b.mapId + '/' + b.id ? -1 : 1));
+  const byKey = (a: SectorSource, b: SectorSource): number => (a.mapId + '/' + a.id < b.mapId + '/' + b.id ? -1 : 1);
+  const takes = catalog.filter((s) => s.roles.includes('take') && hiddenSpots(s, body).length > 0).sort(byKey);
+  const holds = catalog.filter((s) => s.roles.includes('hold') && s.approaches.length > 0).sort(byKey);
   if (takes.length === 0) throw new Error('sweep: no take sector with a hidden hold anchor');
-  const chain = pickSectors(rng, takes, cfg.sectors);
+  if (holds.length === 0) throw new Error('sweep: no hold sector with an approach lane');
+  const roles = planRoles(rng, cfg);
   const recent: SweepCard[] = [];
   const sectors: SectorPlan[] = [];
+  const used = new Set<SectorSource>();
+  let prev: SectorSource | null = null;
   let contactIndex = 0;
-  for (let i = 0; i < chain.length; i++) {
-    const s = chain[i]!;
-    const free = hiddenSpots(s, body);
-    const lo = perSector(cfg.contactsMin, i);
-    const hi = Math.max(lo, perSector(cfg.contactsMax, i));
-    const want = Math.min(free.length, lo + rng.int(hi - lo + 1));
-    const contacts: ContactPlan[] = [];
-    for (let c = 0; c < want && free.length > 0; c++) {
-      // Leave one anchor for each contact still to come.
-      const spare = free.length - (want - c - 1);
-      const card = drawCard(rng, cfg, i, Math.max(1, spare), recent);
-      if (!card) break;
-      recent.push(card);
-      const spots: SectorSpot[] = [];
-      for (let k = 0; k < cardSpots(card); k++) spots.push(free.splice(rng.int(free.length), 1)[0]!);
-      const echoes: EchoPlan[] = [];
-      if (card === 'clear') {
-        // Two possible spots, one of them occupied (design §4.4).
-        const occupied = spots[rng.int(2)]!;
-        echoes.push(placeEcho(rng, cfg, s, body, occupied, card));
-      } else {
-        for (const spot of spots) echoes.push(placeEcho(rng, cfg, s, body, spot, card));
-      }
-      contacts.push({ index: contactIndex++, card, spots: spots.map((p) => p.id), echoes });
-    }
-    sectors.push({ index: i, mapId: s.mapId, sectorId: s.id, entry: { ...s.entry }, entryYaw: s.entryYaw, exit: { ...s.exit }, contacts });
+  for (let i = 0; i < roles.length; i++) {
+    const role = roles[i]!;
+    const s = pickSector(rng, role === 'hold' ? holds : takes, used, prev);
+    used.add(s);
+    prev = s;
+    const finale = i === roles.length - 1;
+    const contacts = role === 'hold' ? planHold(rng, cfg, s, body, i, finale, recent, contactIndex) : planTake(rng, cfg, s, body, i, recent, contactIndex);
+    contactIndex += contacts.length;
+    sectors.push({ index: i, role, finale, mapId: s.mapId, sectorId: s.id, entry: { ...s.entry }, entryYaw: s.entryYaw, exit: { ...s.exit }, contacts });
   }
   return { seed, sectors };
 }

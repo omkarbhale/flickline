@@ -4,7 +4,7 @@ import { bodyTop, lineClear } from '../sim/exposure';
 import type { BoxDef } from '../sim/types';
 import { holdAnchorsOf, holdStance, holdStandPos } from '../sim/mapQuery';
 import type { MapDef } from '../sim/mapTypes';
-import type { SectorSource, SectorSpot } from './sweepDirector';
+import type { ApproachLane, SectorSource, SectorSpot } from './sweepDirector';
 
 /**
  * The sector catalog of the Sweep run director (#201): every sector of the shipped maps (#200), with
@@ -57,11 +57,17 @@ export function sectorSources(map: MapDef, tunables: Tunables): SectorSource[] {
       if (a.kind === 'peek') spots.push({ id: a.id, feet: { ...feet }, crouched, peek: { hold: { ...a.hold }, out: { ...a.out }, pattern: a.pattern } });
       else if (a.kind === 'hold') spots.push({ id: a.id, feet: { ...feet }, crouched, yaw: a.yaw });
     }
+    const approaches: ApproachLane[] = [];
+    for (const id of sector.approaches) {
+      const lane = map.lanes.find((l) => l.id === id);
+      if (lane) approaches.push({ id: lane.id, start: { ...lane.start }, end: { ...lane.end }, width: lane.width });
+    }
     const seen = new Map<string, boolean>();
     const source: SectorSource = {
       mapId: map.id,
       id: sector.id,
       roles: sector.role,
+      approaches,
       entry: { ...sector.entry },
       // Face the way in: the first leg of the walk from the entry to the exit (straight at the exit can be a wall).
       entryYaw: yawTowards(sector.entry, navRoute(map, sector.entry, sector.exit)[0] ?? sector.exit),
@@ -76,6 +82,7 @@ export function sectorSources(map: MapDef, tunables: Tunables): SectorSource[] {
         }
         return v;
       },
+      route: (from, to) => navRoute(map, from, to),
       walkable(a, b) {
         // The centre line and both shoulders of the body, at shin, waist and chest height.
         let lx = -(b.z - a.z), lz = b.x - a.x;

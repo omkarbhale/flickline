@@ -5,7 +5,7 @@ import type { Tunables } from '../config/tunables';
 import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import type {
-  AxisId, AxisValues, FireSpawn, ModeEvents, ModeId, ModeRef, MotionView, PeekSpawn, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra,
+  ArriveSpawn, AxisId, AxisValues, FireSpawn, ModeEvents, ModeId, ModeRef, MotionView, PeekSpawn, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra,
   TrialSource, VitalsView, WaveCurve, WeaponSourceEvents,
 } from './contracts';
 import type { SpawnScheduler } from './scheduler';
@@ -117,6 +117,8 @@ export interface SpawnOptions {
   fire?: FireSpawn;
   /** Crouched humanoid pose. */
   crouched?: boolean;
+  /** The Echo arrives: it spawns at the route's first point (the `pos` given is replaced) and walks it in (Sweep's hold sectors). */
+  arrive?: ArriveSpawn;
   /** Scenario card of the contact the target belongs to: carried on its `skillTrial` (Sweep). */
   card?: string;
   /**
