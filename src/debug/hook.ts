@@ -1,4 +1,5 @@
 import type { Game } from '../app/game';
+import { MODES } from '../app/modeHost';
 import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
 import type { CueId } from '../config/audio';
 import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
@@ -71,6 +72,16 @@ export interface FlicklineDebug {
   overlay(visible?: boolean): void;
   /** Live tunables object (mutate for experiments; not persisted). */
   readonly tunables: unknown;
+  /** Mode framework: start/stop a mode run and read its state (`step()` advances it like any tick). */
+  readonly mode: {
+    /** Ready a run (ready phase 0.8 s, then live). `pinDial` fixes the dial. Returns false for an unknown id. */
+    start(id?: string, opts?: { seed?: number; pinDial?: number }): boolean;
+    stop(): void;
+    /** Phase, beat, dial, axes, score, streak, chain, trials, timing. */
+    status(): unknown;
+    /** Ids of the registered modes. */
+    list(): string[];
+  };
 }
 
 export type Vec3Like = { x: number; y: number; z: number } | readonly [number, number, number];
@@ -189,6 +200,12 @@ export function installDebugHook(game: Game): FlicklineDebug {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);
     },
     tunables: game.tunables,
+    mode: {
+      start: (id = 'test', opts = {}) => game.modes.start(id, opts),
+      stop: () => game.modes.stop(),
+      status: () => game.modes.status(),
+      list: () => Object.keys(MODES),
+    },
   };
   window.__flickline = hook;
   return hook;
