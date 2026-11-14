@@ -20,7 +20,7 @@ export const LOGGED_EVENT_TYPES: readonly (keyof AllEvents)[] = [
   'surgeStarted', 'surgeEnded', 'medalAwarded', 'contactSettled',
   'aimOnTarget', 'leadSampled', 'headHeightSampled', 'playerStopped',
   'sprayStarted', 'sprayEnded',
-  'sectorEntered', 'sectorExitOpened', 'sectorEnded',
+  'sectorEntered', 'sectorExitOpened', 'sectorEnded', 'gateChosen',
 ];
 
 /** The immutable-by-convention record of a run that `computeStats` consumes. */

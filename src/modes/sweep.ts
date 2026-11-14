@@ -10,21 +10,26 @@ import { MAPS } from '../sim/mapLoader';
 import type { RunEvents, SectorEvents } from '../sim/runEvents';
 import type { ModeContext, ModeDef, ModeEvent } from './modeDef';
 import { sectorCatalog } from './sweepCatalog';
-import { perSector, planFollowers, planRun, type ContactPlan, type EchoPlan, type RunPlan, type SectorSource } from './sweepDirector';
+import { perSector, planFollowers, planRun, type ContactPlan, type EchoPlan, type GatePlan, type RunPlan, type SectorPlan, type SectorSource } from './sweepDirector';
+import { commitGate, planGate, type GateEnv } from './sweepGate';
 
 /**
- * Sweep, the run (design §4; v0 is #201, hold sectors and the Finale #204): a seeded chain of six
- * sectors across the sector maps, each a take or a hold (`sweepDirector.ts`).
+ * Sweep, the run (design §4; v0 is #201, hold sectors and the Finale #204): six sectors across the sector
+ * maps, each a take, a hold or a meet (`sweepDirector.ts`).
  * - **Take**: Echoes are placed on the sector's hold anchors the moment the player is put at its entry,
  *   out of the player's sight. Walking into the exit ends the sector; survivors of fights follow.
  * - **Hold**: the sector starts empty and its contacts **arrive** along its approach lanes at the
  *   planned times (`ArrivePlan`); the exit opens when every Echo of the sector is dead. A flank is
  *   armed only when the contact before it was won.
- * Every fight is a **contact** dealt from a scenario card, tracked from the first information either
- * side has to its end and settled once (design §2.3, §8.1). Health and shield carry from sector to
- * sector (the world is never reset inside a run; kills heal, the sim does that). The next sector's map is
- * loaded in place when it differs and the player is put at its entry. The run ends at 0 HP (`death`) or
- * at the last sector's exit (`left`).
+ * Every fight is a **contact** dealt from a scenario card, tracked
+ * from the first information either side has to its end and settled once (design §2.3, §8.1).
+ * Health and shield carry from sector to sector (the world is never reset inside a run; kills heal,
+ * the sim does that). Walking into a sector's exit ends it and puts the player in a **gate** (#205,
+ * design §4.5): a small room with two doors, each showing three facts about the sector behind it and
+ * a stake (`sweepGate.ts`). Walking through a door commits: its sector's map is loaded in place when
+ * it differs, the player is put at its entry and the stake is applied (Shield refills the shield,
+ * Arms swaps the primary, Hot adds a contact and multiplies the sector's points). The run ends at 0 HP
+ * (`death`) or at the last sector's exit (`left`; no gate after it).
  */
 
 /** One contact while the run plays. */
@@ -59,6 +64,14 @@ interface ContactRt {
   stopFirst: StopFirst;
 }
 
+/** The gate the player stands in. */
+export interface GateRt {
+  plan: GatePlan;
+  /** The door walked through (-1: none yet) and the sim tick it was. */
+  door: -1 | 0 | 1;
+  chosenTick: number;
+}
+
 /** Who first dropped to counter-strafe speed in a meet contact (design §4.2). */
 type StopFirst = 'none' | 'player' | 'echo' | 'both';
 
@@ -67,7 +80,6 @@ const NOT_YET = -2;
 
 export interface SweepState {
   plan: RunPlan;
-  sector: number;
   /** The role the current sector plays. */
   role: SectorRole;
   /** Sim tick the current sector began on. */
@@ -78,16 +90,23 @@ export interface SweepState {
   exitFallbackTick: number;
   /** Contacts won in the current sector (a flank follows only a won contact). */
   wonSector: number;
-  /** Survivors that follow the player into the next sector, set when a take sector is left. */
+  /** Survivors that follow the player into the next sector, set when a sector is left. */
   carry: { count: number; won: boolean } | null;
+  /** Index the next contact planned at run time (a follower's) takes, after the plan's own. */
+  nextPlanIndex: number;
+  /** The gate drawn for the sector after this one (drawn when this one is entered, under the fade), or null after the last. */
+  nextGate: GatePlan | null;
+  /** In a gate: its doors and the choice. Null while a sector plays. */
+  gate: GateRt | null;
+  /** Multiplier on every point of the current sector: depth x the Hot stake. */
+  mult: number;
+  sector: number;
   contacts: ContactRt[];
   /** Health+shield at the current sector's entry. */
   entryEhp: number;
   /** Score when the current sector was entered. */
   entryScore: number;
   nextContactId: number;
-  /** Index the next contact planned at run time (a follower's) takes, after the plan's own. */
-  nextPlanIndex: number;
   /** Contacts settled in the run, by outcome (the results card's won/lost). */
   won: number;
   lost: number;
@@ -101,11 +120,13 @@ const body = vec3();
 const exitOpenedEv: SectorEvents['sectorExitOpened'] = { tick: 0, t: 0, sectorId: '', index: 0 };
 const probe = vec3();
 const enteredEv: SectorEvents['sectorEntered'] = {
-  tick: 0, t: 0, sectorId: '', mapId: '', index: 0, of: 0, role: 'take', condition: 'full', stake: 'plain', dial: 0, depth: 1, contacts: 0, echoes: 0,
+  tick: 0, t: 0, sectorId: '', mapId: '', index: 0, of: 0, role: 'take', condition: 'full', stake: 'plain', arms: '', dial: 0, depth: 1, contacts: 0, echoes: 0,
 };
 const endedEv: SectorEvents['sectorEnded'] = {
   tick: 0, t: 0, sectorId: '', index: 0, cleared: false, keptSector: 0, tempo: false, points: 0, clearPoints: 0, reason: 'exit',
 };
+const gateEnteredEv: SectorEvents['gateEntered'] = { tick: 0, t: 0, index: 0 };
+const gateChosenEv: SectorEvents['gateChosen'] = { tick: 0, t: 0, index: 0, door: 0, stake: 'plain', role: 'take', heard: 'quiet' };
 const settledEv: RunEvents['contactSettled'] = { tick: 0, t: 0, contactId: 0, outcome: 'avoided', kept: 1, enemies: 0, points: 0, card: '' };
 
 /** The shipped maps' sectors, built once per tunables object (the visibility answers are memoised inside). */
@@ -120,7 +141,14 @@ function sourceOf(tunables: Tunables, mapId: string, sectorId: string): SectorSo
   return sweepCatalog(tunables).find((x) => x.mapId === mapId && x.id === sectorId);
 }
 
-/** The plan a seed gives (what `setup` plays): for tests, the bot report and the debug hook. */
+/** What the gate planner reads: the catalog, the tunables, how far Echoes are heard (the fights' radius) and the starting primary. */
+export function sweepEnv(tunables: Tunables): GateEnv {
+  return {
+    catalog: sweepCatalog(tunables), cfg: tunables.sweep, body: tunables.movement, hearM: tunables.audio.enemy.maxAudibleM, startPrimary: sweep.weapon,
+  };
+}
+
+/** The plan a seed starts with (what `setup` plays: the opener; the gates are drawn as the run reaches them): for tests, the bot report and the debug hook. */
 export function sweepPlan(seed: number, tunables: Tunables): RunPlan {
   return planRun(seed, sweepCatalog(tunables), tunables.sweep, tunables.movement);
 }
@@ -161,12 +189,17 @@ function newContact(cp: ContactPlan): ContactRt {
   };
 }
 
-/** Put the player at sector `i`'s entry and place its Echoes (a take: out of the player's sight) or set its arrivals (a hold). */
-function enterSector(ctx: ModeContext<SweepState>, i: number): void {
+/**
+ * Put the player at the entry of `sp` (the plan of the sector entered: the opener, or the sector
+ * behind the door walked through), apply its door's stake and place its Echoes (they are out of the
+ * player's sight there).
+ */
+function enterSector(ctx: ModeContext<SweepState>, sp: SectorPlan): void {
   const st = ctx.state;
-  const sp = st.plan.sectors[i]!;
   const cfg = ctx.tunables.sweep;
+  const i = sp.index;
   st.sector = i;
+  st.gate = null;
   st.role = sp.role;
   st.exitOpen = sp.role !== 'hold';
   st.exitFallbackTick = Infinity;
@@ -176,10 +209,14 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
   ctx.placePlayer(sp.entry.x, sp.entry.y, sp.entry.z, sp.entryYaw);
   // One beat per sector: the dial is read from the posterior here, with the sector's offset (design §4.1, §9.3).
   if (i > 0) ctx.advanceBeat();
+  // The stake (design §4.5): what the door promised, applied on entry.
+  if (sp.stake === 'shield') ctx.refillShield(cfg.gate.shieldRefillTo);
+  else if (sp.stake === 'arms' && sp.arms) ctx.setPrimary(sp.arms);
   // The sector's economy (design §4.6) before anyone is placed: the Echoes spawn with its shield and weapon.
   ctx.setEconomy(sp.condition);
   const depth = perSector(cfg.depthMultiplier, i);
-  ctx.setPointsMultiplier(depth);
+  st.mult = depth * (sp.stake === 'hot' ? cfg.gate.hotMultiplier : 1);
+  ctx.setPointsMultiplier(st.mult);
   st.contacts.length = 0;
   // Survivors that followed the player here arrive as one more contact (design §4.2).
   const plans: ContactPlan[] = sp.contacts.slice();
@@ -223,6 +260,8 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
   if (sp.role === 'hold') st.exitFallbackTick = ctx.simTick + secondsToTicks(lastDueSec + cfg.hold.exitFallbackSec);
   st.entryEhp = ehp(ctx);
   st.entryScore = ctx.stats.score;
+  // The gate after this sector is drawn now, while the screen is cut (it costs a few ms the first time a sector is placed).
+  st.nextGate = i + 1 < cfg.sectors ? planGate(st.plan, sweepEnv(ctx.tunables)) : null;
   const ev = enteredEv;
   ev.tick = ctx.simTick;
   ev.t = ctx.timeSec;
@@ -231,7 +270,9 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
   ev.condition = sp.condition;
   ev.role = sp.role;
   ev.index = i;
-  ev.of = st.plan.sectors.length;
+  ev.of = cfg.sectors;
+  ev.stake = sp.stake;
+  ev.arms = sp.arms ?? '';
   ev.dial = ctx.dial;
   ev.depth = depth;
   ev.contacts = plans.length;
@@ -291,6 +332,57 @@ function allDone(st: SweepState): boolean {
     if (c.pending > 0 || c.alive > 0) return false;
   }
   return true;
+}
+
+/** The sector is left through its exit: the player is put in the gate before the next one. */
+function enterGate(ctx: ModeContext<SweepState>): void {
+  const st = ctx.state;
+  const g = ctx.tunables.sweep.gate;
+  const gate = st.nextGate!;
+  st.nextGate = null;
+  st.gate = { plan: gate, door: -1, chosenTick: 0 };
+  ctx.loadMap(g.mapId);
+  ctx.placePlayer(g.entry.x, g.entry.y, g.entry.z, g.entry.yaw);
+  const e = gateEnteredEv;
+  e.tick = ctx.simTick;
+  e.t = ctx.timeSec;
+  e.index = gate.index;
+  ctx.events.emit('gateEntered', e);
+}
+
+/** The door the player's feet are through (past its plane by `commitDepthM`, between its jambs), or -1. */
+function doorThrough(ctx: ModeContext<SweepState>): -1 | 0 | 1 {
+  const g = ctx.tunables.sweep.gate;
+  const p = ctx.player.pos;
+  for (let d = 0; d < 2; d++) {
+    const door = g.doors[d]!;
+    if (Math.abs(p.x - door.x) <= g.doorHalfWidthM && p.z <= door.z - g.commitDepthM) return d as 0 | 1;
+  }
+  return -1;
+}
+
+/** In a gate: wait for a door; once one is walked through, close the other and, after `commitSec`, enter its sector. */
+function gateTick(ctx: ModeContext<SweepState>): void {
+  const gate = ctx.state.gate!;
+  if (gate.door === -1) {
+    const d = doorThrough(ctx);
+    if (d === -1) return;
+    gate.door = d;
+    gate.chosenTick = ctx.simTick;
+    const door = gate.plan.doors[d];
+    const e = gateChosenEv;
+    e.tick = ctx.simTick;
+    e.t = ctx.timeSec;
+    e.index = gate.plan.index;
+    e.door = d;
+    e.stake = door.facts.stake;
+    e.role = door.facts.role;
+    e.heard = door.facts.heard;
+    ctx.events.emit('gateChosen', e);
+    return;
+  }
+  if (ctx.simTick - gate.chosenTick < secondsToTicks(ctx.tunables.sweep.gate.commitSec)) return;
+  enterSector(ctx, commitGate(ctx.state.plan, gate.plan, gate.door));
 }
 
 function contactOf(st: SweepState, targetId: number): ContactRt | null {
@@ -365,11 +457,12 @@ function settleOpen(ctx: ModeContext<SweepState>, c: ContactRt, died: boolean): 
   facts.allDead = c.alive === 0;
   facts.died = died;
   settleContact(settle, facts, ctx.tunables.scoring);
-  const points = ctx.awardPoints(settle.total * perSector(ctx.tunables.sweep.depthMultiplier, st.sector));
+  const points = ctx.awardPoints(settle.total * st.mult);
   if (settle.outcome === 'cleared') {
     st.won++;
     st.wonSector++;
-  } else if (settle.outcome === 'died' || settle.outcome === 'disengaged') st.lost++;
+  }
+  else if (settle.outcome === 'died' || settle.outcome === 'disengaged') st.lost++;
   const e = settledEv;
   e.tick = ctx.simTick;
   e.t = ctx.timeSec;
@@ -425,7 +518,7 @@ function endSector(ctx: ModeContext<SweepState>, reason: 'exit' | 'death' | 'qui
   let clearPoints = 0;
   if (cleared) {
     const kill = (base / kinds) * difficultyMultiplier(ctx.dial, ctx.tunables.scoring);
-    clearPoints = ctx.awardPoints(cfg.clearKills * kill * kept * perSector(cfg.depthMultiplier, st.sector));
+    clearPoints = ctx.awardPoints(cfg.clearKills * kill * kept * st.mult);
   }
   const e = endedEv;
   e.tick = ctx.simTick;
@@ -473,17 +566,20 @@ export const sweep: ModeDef<SweepState> = {
 
   setup(ctx) {
     ctx.state = {
-      plan: sweepPlan(ctx.seed, ctx.tunables), sector: 0, role: 'take', sectorTick0: 0, exitOpen: true, exitFallbackTick: Infinity, wonSector: 0,
-      carry: null, contacts: [], entryEhp: 0, entryScore: 0, nextContactId: 0, nextPlanIndex: 0, won: 0, lost: 0, done: false,
+      plan: sweepPlan(ctx.seed, ctx.tunables), nextGate: null, gate: null, mult: 1, role: 'take', sectorTick0: 0, exitOpen: true, exitFallbackTick: Infinity,
+      wonSector: 0, carry: null, nextPlanIndex: 1000, sector: 0, contacts: [], entryEhp: 0, entryScore: 0, nextContactId: 0, won: 0, lost: 0, done: false,
     };
-    ctx.state.nextPlanIndex = ctx.state.plan.sectors.reduce((n, x) => n + x.contacts.length, 0);
-    enterSector(ctx, 0);
+    enterSector(ctx, ctx.state.plan.sectors[0]!);
     return ctx.state;
   },
 
   tick(ctx) {
     const st = ctx.state;
     if (st.done) return;
+    if (st.gate) {
+      gateTick(ctx);
+      return;
+    }
     spawnDue(ctx);
     const holdTicks = secondsToTicks(ctx.tunables.scoring.contact.disengageSec);
     for (let i = 0; i < st.contacts.length; i++) {
@@ -510,12 +606,12 @@ export const sweep: ModeDef<SweepState> = {
     }
     if (!atExit(ctx)) return;
     endSector(ctx, 'exit');
-    if (st.sector + 1 >= st.plan.sectors.length) {
+    if (st.sector + 1 >= ctx.tunables.sweep.sectors) {
       st.done = true;
       ctx.end('left');
       return;
     }
-    enterSector(ctx, st.sector + 1);
+    enterGate(ctx);
   },
 
   onEvent(ctx, ev: ModeEvent) {
@@ -568,6 +664,8 @@ export const sweep: ModeDef<SweepState> = {
     const st = ctx.state;
     if (st.done) return;
     st.done = true;
+    // Stopped in a gate: the sector before it already ended on the way out.
+    if (st.gate) return;
     endSector(ctx, reason === 'death' ? 'death' : 'quit');
   },
 };

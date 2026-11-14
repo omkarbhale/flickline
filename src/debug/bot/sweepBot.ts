@@ -4,12 +4,13 @@ import { vec3, type Vec3 } from '../../core/vec3';
 import { lineClear } from '../../sim/exposure';
 import { targetAimPoint, wrapPi, yawOf } from '../../sim/aim';
 import { Rng } from '../../core/rng';
-import { sweepCatalog, type SweepState } from '../../modes/sweep';
+import { sweepCatalog, type GateRt, type SweepState } from '../../modes/sweep';
 import { navRoute } from '../../modes/sweepCatalog';
 import type { TickInput } from '../../sim/types';
 import type { World } from '../../sim/world';
 import type { Bot, BotStats } from './bot';
 import type { BotGame } from './headless';
+import { leftDoor, type GatePolicy } from './gatePolicy';
 
 /** A waypoint counts as reached within this horizontal distance, metres. */
 const REACH_M = 0.6;
@@ -26,6 +27,8 @@ const STUCK_SEC = 3;
  * Echo it has seen, it counter-strafes to a stop and lets the aimer fire only while the Echo is in
  * plain sight. It never looks through walls (`Bot.visibleOnly`) and never writes sim state.
  *
+ * At a gate it chooses a door with its `GatePolicy` (default: the left door), walks to it and through.
+ *
  * What it does not do (so its numbers are a floor, not a ceiling): clear angles one at a time,
  * pre-aim, use cover, crouch, reposition or back off a fight it is losing. #53 tunes against it.
  */
@@ -40,6 +43,9 @@ export class SweepBot {
   private bestDist = Infinity;
   private bestAt = 0;
   private readonly aim = vec3();
+  /** The gate it is walking through and the door it chose. */
+  private gate: GateRt | null = null;
+  private door: 0 | 1 = 0;
   /** Tick the current fight began (the bot stopped being idle), -1 while idle, and how long it keeps running into it. */
   private engagedAt = -1;
   private holdOffTicks = 0;
@@ -56,6 +62,7 @@ export class SweepBot {
     private readonly game: BotGame,
     private readonly stopDelayMaxSec = 0,
     seed = 1,
+    private readonly policy: GatePolicy = leftDoor,
   ) {
     this.rng = new Rng((seed ^ 0x2545f491) >>> 0 || 1);
     bot.visibleOnly = true;
@@ -75,6 +82,8 @@ export class SweepBot {
     if (!world.health.alive || !world.live) return out;
     const st = this.game.modes.runner.state as SweepState | undefined;
     if (!st?.plan) return out;
+    if (st.gate) return this.throughGate(st.gate, world, out);
+    this.gate = null;
     if (st.sector !== this.sector) {
       this.plan(st, true);
       this.exitOpen = st.exitOpen;
@@ -178,6 +187,30 @@ export class SweepBot {
     const right = ux * Math.cos(out.yaw) - uz * Math.sin(out.yaw);
     out.moveZ = Math.abs(fwd) > 0.3 ? Math.sign(fwd) : 0;
     out.moveX = Math.abs(right) > 0.3 ? Math.sign(right) : 0;
+  }
+
+  /** In a gate: choose the door once, then walk straight to it and through (nothing shoots at the player there). */
+  private throughGate(gate: GateRt, world: World, out: TickInput): TickInput {
+    if (this.gate !== gate) {
+      this.gate = gate;
+      this.door = this.policy(gate.plan, { hp: world.health.hp, shield: world.health.shield });
+    }
+    const g = this.game.tunables.sweep.gate;
+    const door = g.doors[this.door];
+    // Aim past the commit line, down the door's alcove.
+    const tx = door.x, tz = door.z - g.commitDepthM - 0.6;
+    const p = world.player;
+    const dx = tx - p.pos.x, dz = tz - p.pos.z;
+    this.bot.yaw = yawOf(dx, dz);
+    this.bot.pitch = 0;
+    out.yaw = this.bot.yaw;
+    out.pitch = 0;
+    out.moveX = 0;
+    out.moveZ = 1;
+    out.fire = false;
+    this.fought = false;
+    this.sector = -1;
+    return out;
   }
 
   /** The yaw towards the middle of the sector's approach lanes' starts: where the bot knows the map's arrivals come from. */

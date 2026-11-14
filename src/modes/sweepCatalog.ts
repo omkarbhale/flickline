@@ -3,7 +3,7 @@ import type { Tunables } from '../config/tunables';
 import { bodyTop, lineClear } from '../sim/exposure';
 import type { BoxDef } from '../sim/types';
 import { holdAnchorsOf, holdStance, holdStandPos } from '../sim/mapQuery';
-import type { MapDef } from '../sim/mapTypes';
+import type { MapDef, SectorDef } from '../sim/mapTypes';
 import type { ApproachLane, SectorSource, SectorSpot } from './sweepDirector';
 
 /**
@@ -39,6 +39,31 @@ export function bodyShows(boxes: readonly BoxDef[], halfWidth: number, top: numb
   return false;
 }
 
+/** Rays of the entry sightline fan, and the step along each, metres. */
+const SIGHTLINE_RAYS = 72;
+const SIGHTLINE_STEP_M = 0.5;
+
+/**
+ * The longest unobstructed horizontal line at standing eye height from a sector's entry, staying inside
+ * its region (metres): what the gate calls the sector's sightline (design §4.5: long or close).
+ */
+export function entrySightline(map: MapDef, sector: SectorDef, eyeHeight: number): number {
+  const e = sector.entry, r = sector.region;
+  const eyeY = e.y + eyeHeight;
+  let best = 0;
+  for (let k = 0; k < SIGHTLINE_RAYS; k++) {
+    const a = (k / SIGHTLINE_RAYS) * Math.PI * 2;
+    const dx = Math.sin(a), dz = Math.cos(a);
+    for (let t = SIGHTLINE_STEP_M; t <= 200; t += SIGHTLINE_STEP_M) {
+      const x = e.x + dx * t, z = e.z + dz * t;
+      if (x < r.min.x || x > r.max.x || z < r.min.z || z > r.max.z) break;
+      if (!lineClear(map.boxes, e.x, eyeY, e.z, x, eyeY, z)) break;
+      if (t > best) best = t;
+    }
+  }
+  return best;
+}
+
 /** The yaw that faces from `a` towards `b` (architecture §6: forward = (-sin yaw, 0, -cos yaw)). */
 export function yawTowards(a: Vec3, b: Vec3): number {
   return Math.atan2(-(b.x - a.x), -(b.z - a.z));
@@ -72,6 +97,7 @@ export function sectorSources(map: MapDef, tunables: Tunables): SectorSource[] {
       // Face the way in: the first leg of the walk from the entry to the exit (straight at the exit can be a wall).
       entryYaw: yawTowards(sector.entry, navRoute(map, sector.entry, sector.exit)[0] ?? sector.exit),
       exit: { ...sector.exit },
+      sightlineM: entrySightline(map, sector, tunables.movement.standEyeHeight),
       spots,
       // A meet group crosses on the first straight leg of the walk from the exit to the entry.
       meetRoute: sector.role.includes('meet')

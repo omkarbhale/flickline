@@ -3,9 +3,11 @@ import { MAPS } from '../sim/mapLoader';
 import { SWEEP_MODE, sweepPlan, type SweepState } from '../modes/sweep';
 import { navRoute } from '../modes/sweepCatalog';
 import { ExitMarker } from '../render/exitMarker';
+import { GateView } from '../render/gateView';
 import { yawOf } from '../sim/aim';
+import { TICK_RATE } from '../core/time';
 
-/** One move between sectors, measured: ms from the exit to the next sector set up, and to its first drawn frame. */
+/** One move between sectors (a sector's exit to its gate, or a door to the sector behind it), measured: ms from the move to the next room set up, and to its first drawn frame. */
 export interface SectorSwitch {
   from: string;
   to: string;
@@ -20,8 +22,11 @@ declare module '../debug/hook' {
   interface FlicklineDebug {
     /**
      * Sweep, the run (#201). `state()`: the sector, its contacts and Echoes, the run's cards and every
-     * measured sector switch. `plan(seed)`: the plan a seed gives. `toExit()`: stand the player on the
-     * current sector's exit and step one tick (the next sector loads). `walk(maxTicks, stopAtM)`: walk
+     * measured sector switch, and the gate the player stands in (its two doors' facts). `plan(seed)`: the
+     * plan a seed starts with (its opener; the gates are drawn as the run reaches them). `toExit()`: stand the
+     * player on the current sector's exit and step one tick (the gate loads). `gate()`: the doors' facts while in a
+     * gate. `choose(door)`: in a gate, walk through door 0 (left) or 1 (right) and let the sector behind it load;
+     * returns the facts of the door taken. `walk(maxTicks, stopAtM)`: walk
      * the sector's route towards its exit, looking where it goes, until an Echo comes into sight, the
      * player is within `stopAtM` metres of the exit (default 0: walk out), or the ticks run out;
      * returns the ticks walked and the id of the Echo seen (-1: none).
@@ -32,6 +37,8 @@ declare module '../debug/hook' {
       toExit(): boolean;
       /** Shoot every live Echo dead with a headshot (a stand-in for a perfect player); returns how many fell. A hold sector's exit opens when the last is gone. */
       killAll(): number;
+      gate(): unknown;
+      choose(door: 0 | 1, ticks?: number): unknown;
       walk(maxTicks?: number, stopAtM?: number): { ticks: number; seen: number };
       /**
        * Measure a map switch on its own (the cost a move between sectors on different maps adds): load
@@ -54,6 +61,8 @@ export const feature = defineFeature({
     const cfg = game.tunables.sweep;
     const marker = new ExitMarker(game.renderer.scene, cfg.exitRadiusM);
     game.renderer.addLayer(marker);
+    const gateView = new GateView(game.renderer.scene, cfg.gate, { light: cfg.conditionCopy.light.title, eco: cfg.conditionCopy.eco.title });
+    game.renderer.addLayer(gateView);
 
     const fade = document.createElement('div');
     fade.className = 'sweep-fade';
@@ -87,17 +96,55 @@ export const feature = defineFeature({
     let lastSector = '';
     let lastMap = '';
     let awaitFrame = false;
+    let armed = false;
 
+    const gateState = (st: SweepState): unknown => ({
+      index: st.gate!.plan.index,
+      chosen: st.gate!.door,
+      doors: st.gate!.plan.doors.map((d) => ({ ...d.facts, map: d.sector.mapId, sector: d.sector.sectorId, contacts: d.sector.contacts.length, echoes: d.sector.contacts.reduce((n, c) => n + c.echoes.length, 0) })),
+    });
     const state = (): SweepState | null => (game.modes.modeId === SWEEP_MODE ? (game.modes.runner.state as SweepState) : null);
 
-    game.bus.on('sectorEnded', (e) => {
-      marker.hide();
-      if (e.reason !== 'exit') return;
-      // The cut to black is instant; the next sector fades in once it is drawn.
+    /** A move between rooms starts: the cut to black is instant; the next room fades in once it is drawn. */
+    const startSwitch = (from: string): void => {
       exitAt = performance.now();
       fade.style.transition = 'none';
       fade.style.opacity = '1';
-      pending = { from: e.sectorId, to: '', mapChanged: false, setupMs: 0, firstFrameMs: 0 };
+      pending = { from, to: '', mapChanged: false, setupMs: 0, firstFrameMs: 0 };
+    };
+    game.bus.on('sectorEnded', (e) => {
+      marker.hide();
+      if (e.reason !== 'exit') return;
+      startSwitch(e.sectorId);
+    });
+    game.bus.on('gateEntered', (e) => {
+      const gate = state()?.gate;
+      if (gate) {
+        gateView.show([gate.plan.doors[0].facts, gate.plan.doors[1].facts]);
+        label.textContent = `Gate · next: sector ${e.index + 1} / ${cfg.sectors}`;
+        label.style.opacity = '0.9';
+      }
+      if (pending) {
+        pending.to = 'gate';
+        pending.mapChanged = true;
+        pending.setupMs = performance.now() - exitAt;
+        awaitFrame = true;
+      }
+      lastMap = cfg.gate.mapId;
+    });
+    game.bus.on('gateChosen', (e) => {
+      // The other door closes and the screen goes dark over the beat before the sector loads (the sim waits `commitSec`).
+      gateView.choose(e.door);
+      fade.style.transition = `opacity ${cfg.gate.commitSec * 0.85}s ease-in`;
+      fade.style.opacity = '1';
+      pending = { from: 'gate', to: '', mapChanged: true, setupMs: 0, firstFrameMs: 0 };
+      armed = true;
+    });
+    // The sector behind the chosen door is being set up: the clock of its switch starts here, not at the choice.
+    game.bus.on('mapLoaded', () => {
+      if (!armed) return;
+      armed = false;
+      exitAt = performance.now();
     });
     /** The label's words: the sector's place in the run, its role and condition (a hold's exit is shut until its Echoes are dead). */
     const sectorLabel = (index: number, of: number, role: string, condition: string, open: boolean): string => {
@@ -107,7 +154,8 @@ export const feature = defineFeature({
     game.bus.on('sectorEntered', (e) => {
       const st = state();
       const sp = st?.plan.sectors[e.index];
-      // A take's exit is open from the first tick; a hold's opens when its Echoes are dead (`sectorExitOpened`).
+      gateView.hide();
+      // A take's or meet's exit is open from the first tick; a hold's opens when its Echoes are dead (`sectorExitOpened`).
       if (sp && e.role !== 'hold') marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
       label.textContent = sectorLabel(e.index, e.of, e.role, e.condition, false);
       label.style.opacity = '0.9';
@@ -130,10 +178,11 @@ export const feature = defineFeature({
       lastMap = e.mapId;
     });
     game.bus.on('sectorExitOpened', (e) => {
-      const sp = state()?.plan.sectors[e.index];
-      if (sp) marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
       const st = state();
-      if (st) label.textContent = sectorLabel(e.index, st.plan.sectors.length, 'hold', st.plan.sectors[e.index]!.condition, true);
+      const sp = st?.plan.sectors[e.index];
+      if (!st || !sp) return;
+      marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
+      label.textContent = sectorLabel(e.index, game.tunables.sweep.sectors, 'hold', sp.condition, true);
     });
     game.onFrameEnd(() => {
       if (!awaitFrame || !pending) return;
@@ -148,6 +197,8 @@ export const feature = defineFeature({
     const clear = (): void => {
       hideBanner();
       marker.hide();
+      gateView.hide();
+      armed = false;
       label.style.opacity = '0';
       fade.style.transition = 'none';
       fade.style.opacity = '0';
@@ -160,6 +211,7 @@ export const feature = defineFeature({
     game.bus.on('runEnded', () => {
       hideBanner();
       marker.hide();
+      gateView.hide();
       fade.style.transition = 'none';
       fade.style.opacity = '0';
     });
@@ -171,7 +223,7 @@ export const feature = defineFeature({
       const st = state();
       if (!st) return '';
       const last = switches[switches.length - 1];
-      return `sweep sector ${st.sector + 1}/${st.plan.sectors.length} ${lastSector}` + (last ? ` | switch ${last.setupMs.toFixed(1)} ms, frame ${last.firstFrameMs.toFixed(1)} ms` : '');
+      return `sweep ${st.gate ? 'gate before ' : ''}sector ${st.gate ? st.gate.plan.index + 1 : st.sector + 1}/${cfg.sectors} ${lastSector}` + (last ? ` | switch ${last.setupMs.toFixed(1)} ms, frame ${last.firstFrameMs.toFixed(1)} ms` : '');
     });
 
     game.addDebug({
@@ -182,15 +234,17 @@ export const feature = defineFeature({
           return {
             seed: st.plan.seed,
             sector: st.sector,
-            exitOpen: st.exitOpen,
-            of: st.plan.sectors.length,
+            of: cfg.sectors,
+            gate: st.gate ? gateState(st) : null,
+            doors: st.plan.doors.slice(),
+            stakes: st.plan.sectors.map((x) => x.stake),
             sectorId: st.plan.sectors[st.sector]?.sectorId,
             role: st.plan.sectors[st.sector]?.role,
             mapId: game.modes.currentMap.id,
             won: st.won,
             lost: st.lost,
             contacts: st.contacts.map((c) => ({ card: c.plan.card, open: c.open, alive: c.alive, pending: c.pending, echoes: c.echoIds.slice(), engaged: c.engaged })),
-            route: st.plan.sectors.map((s) => `${s.mapId}/${s.sectorId} (${s.role}): ${s.contacts.map((c) => c.card).join(', ')}`),
+            route: st.plan.sectors.map((s) => `${s.mapId}/${s.sectorId} [${s.stake}${s.arms ? ' ' + s.arms : ''}]: ${s.contacts.map((c) => c.card).join(', ')}`),
             switches: switches.slice(),
             hp: game.world.health.hp,
             shield: game.world.health.shield,
@@ -204,6 +258,19 @@ export const feature = defineFeature({
           };
         },
         plan: (seed) => sweepPlan(seed ?? game.world.seed, game.tunables),
+        gate() {
+          const st = state();
+          return st?.gate ? gateState(st) : null;
+        },
+        choose(door, ticks) {
+          const st = state();
+          if (!st?.gate || st.gate.door !== -1) return null;
+          const g = cfg.gate;
+          const facts = st.gate.plan.doors[door].facts;
+          game.world.placePlayer(g.doors[door].x, 0, g.doors[door].z - g.commitDepthM - 0.1, 0);
+          game.step(ticks ?? Math.ceil(g.commitSec * TICK_RATE) + 3, undefined, ticks === undefined ? false : true);
+          return facts;
+        },
         toExit() {
           const st = state();
           if (!st) return false;
