@@ -214,6 +214,7 @@ export const strafeTrack: ModeDef<State> = {
       }
       return;
     }
+    if (ev.type !== 'targetKilled' && ev.type !== 'targetExpired') return;
     const id = ev.payload.targetId;
     for (let i = 0; i < s.slots.length; i++) {
       const slot = s.slots[i]!;

@@ -19,6 +19,7 @@ export interface ModeTunables {
   orbit: OrbitTunables;
   placement: PlacementTunables;
   strafeTrack: StrafeTrackTunables;
+  stopAndPop: StopAndPopTunables;
 }
 
 /** Cold Start (design §4.1): one Post at a time, 5-25 degrees from the crosshair, the first bullet decides. */
@@ -76,6 +77,42 @@ export interface StrafeTrackTunables {
   laneRetries: number;
 }
 
+/**
+ * Stop & Pop (design §4.4): the Lane arms while the player strafes, then a Post appears at the far
+ * end with a stance ring; the first bullet must kill it from that stance below the accuracy
+ * deadzone. The exposure and distance come from the dial's axes (§9.4), the stance mix from the
+ * dial value itself (below).
+ */
+export interface StopAndPopTunables {
+  /** The lane arms while the speed along the view's right axis is at least this fraction of the equipped run speed (§4.4: 80%). */
+  armedFraction: number;
+  /** Seeded gap between a trial ending and the lane arming a new one (the player must also be moving sideways again). */
+  gapMinSec: number;
+  gapMaxSec: number;
+  /** A target leaves this long after the first bullet fired at it (spraying is pointless by design). */
+  leaveAfterFirstBulletSec: number;
+  /** The Lane's far-end Post anchors lie 16-28.5 m from the start: the dial's distance axis is clamped to this band before use, so low dials get the near posts. */
+  distanceMinM: number;
+  distanceMaxM: number;
+  /** Distance band around that value (multipliers); the picker widens it if nothing fits. */
+  distanceLoMult: number;
+  distanceHiMult: number;
+  /** A target appears within this many degrees of where the player looks (the view cone is +-51.5 degrees); the picker widens it if nothing fits. */
+  maxAngleDeg: number;
+  /** Stance mix by dial (§4.4): below this only "stand" rings; from it, crouch rings join. */
+  crouchFromDial: number;
+  /** Above this dial: a chance of a double (two targets) and the stop must come from a direction reversal (a true counter-strafe tap). */
+  advancedAboveDial: number;
+  /** Share of crouch rings once they are in the mix. */
+  crouchShare: number;
+  /** Chance of a double above `advancedAboveDial` (§4.4: 20%). */
+  doubleChance: number;
+  /** Both targets of a double share the exposure plus this, for the swing between them. */
+  doubleExtraSec: number;
+  /** The two targets of a double are at least this far apart (metres). */
+  doubleMinSeparationM: number;
+}
+
 export const modes: ModeTunables = {
   readySec: 0.8,
   drillSec: 60,
@@ -110,6 +147,23 @@ export const modes: ModeTunables = {
     replaceDelaySec: 0.4,
     openingStaggerSec: 0.25,
     laneRetries: 4,
+  },
+  stopAndPop: {
+    armedFraction: 0.8, // design §4.4
+    gapMinSec: 0.35,
+    gapMaxSec: 0.7,
+    leaveAfterFirstBulletSec: 0.25,
+    distanceMinM: 16,
+    distanceMaxM: 28,
+    distanceLoMult: 0.7,
+    distanceHiMult: 1.4,
+    maxAngleDeg: 40,
+    crouchFromDial: 30, // design §4.4: dial < 30 stand only
+    advancedAboveDial: 60, // design §4.4: > 60 doubles and counter-strafe stops
+    crouchShare: 0.5,
+    doubleChance: 0.2, // design §4.4
+    doubleExtraSec: 0.4,
+    doubleMinSeparationM: 1.2,
   },
 };
 

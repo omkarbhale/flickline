@@ -1,8 +1,11 @@
 import { TICK_DT, secondsToTicks } from '../../core/time';
 import { MODES } from '../../app/modeHost';
 import type { RunStats } from '../../feedback/statTracker';
+import type { MapDef } from '../../sim/mapTypes';
+import { MAPS, rangeMap } from '../../sim/mapLoader';
 import { createTickInput } from '../../sim/types';
 import { Bot, type BotStats } from './bot';
+import { FootworkBot } from './footwork';
 import type { BotGame } from './headless';
 import { clampSkill, resolveParams, type BotParams } from './skill';
 
@@ -87,6 +90,13 @@ export function resolveMode(id: string): string | null {
   return listModes().find((m) => norm(m) === n) ?? null;
 }
 
+/** The map a mode is designed for (`ModeDef.map`): Range for the drills and free play, Lane for Stop & Pop. */
+export function mapForMode(mode: string): MapDef {
+  const id = resolveMode(mode);
+  const named = id ? MODES[id]?.map : undefined;
+  return (named ? MAPS[named] : undefined) ?? rangeMap;
+}
+
 function compact(s: RunStats): BotRunStats {
   return {
     endReason: s.endReason,
@@ -132,7 +142,9 @@ export function playMode(game: BotGame, opts: BotRunOptions): BotReport {
     throw new Error(`mode '${id}' could not start`);
   }
 
-  const bot = new Bot(params, botSeed, game.tunables);
+  const aimer = new Bot(params, botSeed, game.tunables);
+  // Stop & Pop needs feet: the footwork bot strafes, counter-strafes, takes the ring's stance, then lets the aimer fire.
+  const bot = id === 'stopAndPop' ? new FootworkBot(aimer, game, botSeed) : aimer;
   const input = createTickInput();
   const maxTicks = secondsToTicks(opts.maxSeconds ?? MAX_SIM_SEC);
   const startTick = game.world.tick;

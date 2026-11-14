@@ -1,5 +1,5 @@
 import { HeadlessGame } from './headless';
-import { listModes, playMode, type BotReport, type BotRunOptions } from './play';
+import { listModes, mapForMode, playMode, type BotReport, type BotRunOptions } from './play';
 import { BOT_PARAM_KEYS, type BotParams } from './skill';
 import { runSuite } from './suite';
 import { auditAllocations, formatAudit } from './allocAudit';
@@ -116,7 +116,7 @@ export function main(argv: string[], log: (s: string) => void = console.log): nu
     const reports: BotReport[] = [];
     for (let i = 0; i < runs; i++) {
       const o = { ...opts, seed: seed + i, botSeed: opts.botSeed === undefined ? undefined : opts.botSeed + i };
-      reports.push(playMode(new HeadlessGame({ seed: o.seed }), o));
+      reports.push(playMode(new HeadlessGame({ seed: o.seed, map: mapForMode(o.mode) }), o));
     }
     if (args.json) log(JSON.stringify(runs === 1 ? reports[0] : reports, null, 2));
     else {

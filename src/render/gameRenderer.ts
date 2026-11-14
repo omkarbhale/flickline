@@ -12,7 +12,9 @@ import { lerp } from '../core/math';
 import { REFERENCE_ASPECT, verticalFovDeg } from '../core/view';
 import { env, palette } from '../config/palette';
 import type { EchoPresetId } from '../config/palette';
-import { QUALITY_LEVELS, type QualityLevel } from '../config/render';
+import { QUALITY_LEVELS, type QualityLevel, type QualityPreset } from '../config/render';
+import { effectivePixelRatio, resolveQuality } from '../settings/graphics';
+import type { Override } from '../settings/settings';
 import type { Tunables } from '../config/tunables';
 import type { MapDef } from '../sim/mapTypes';
 import type { World } from '../sim/world';
@@ -20,7 +22,7 @@ import { BlobShadows } from './blobShadows';
 import { applyEnvQuality, createEnvUniforms, horizonColor, type EnvUniforms } from './envShaders';
 import { buildLevelMesh, type LevelMesh } from './levelMesh';
 import { Sky } from './sky';
-import { PostPipeline, createVignetteEffect, type Overlay } from './post';
+import { PostPipeline, type Overlay } from './post';
 import { WorldHint } from './worldHint';
 import { TargetsView } from './targetsView';
 
@@ -66,7 +68,7 @@ export class GameRenderer {
   readonly renderer: WebGLRenderer;
   readonly scene = new Scene();
   readonly camera: PerspectiveCamera;
-  readonly post = new PostPipeline();
+  readonly post: PostPipeline;
   /**
    * The first-person overlay pass: drawn after the world with the depth buffer cleared, by its own
    * camera (own FOV; the world FOV is locked). The viewmodel layer owns its contents and sets the
@@ -78,6 +80,11 @@ export class GameRenderer {
   readonly stats: RenderStats = { drawCalls: 0, triangles: 0, geometries: 0, textures: 0 };
 
   private quality: QualityLevel;
+  /** The player's own graphics switches laid over the preset (settings: post effects, outline, render scale). */
+  private postOverride: Override = 'auto';
+  private outlineOverride: Override = 'auto';
+  private renderScale = 1;
+  private resolved: QualityPreset;
   private level: LevelMesh | null = null;
   private laneArmed = false;
   private readonly envUniforms: EnvUniforms;
@@ -98,6 +105,8 @@ export class GameRenderer {
     initialQuality: QualityLevel,
   ) {
     this.quality = initialQuality;
+    this.post = new PostPipeline(tunables.post);
+    this.resolved = tunables.render.quality[initialQuality];
     const preset = tunables.render.quality[initialQuality];
     this.renderer = new WebGLRenderer({
       canvas,
@@ -131,7 +140,6 @@ export class GameRenderer {
 
     this.hint = new WorldHint(this.scene, 'Click the orb');
 
-    this.post.effects.push(createVignetteEffect());
     this.applyQuality();
   }
 
@@ -166,12 +174,44 @@ export class GameRenderer {
     if (!QUALITY_LEVELS.includes(q)) return;
     this.quality = q;
     this.applyQuality();
+    this.post.precompile(this.renderer);
+  }
+
+  /**
+   * The player's graphics settings in one call: the preset, the post-effects and outline switches
+   * (each follows the preset or is forced), and the render scale. Applies once, live.
+   */
+  setGraphics(g: { quality: QualityLevel; postEffects: Override; enemyOutline: Override; renderScale: number }): void {
+    if (!QUALITY_LEVELS.includes(g.quality)) return;
+    this.quality = g.quality;
+    this.postOverride = g.postEffects;
+    this.outlineOverride = g.enemyOutline;
+    this.renderScale = g.renderScale;
+    this.applyQuality();
+  }
+
+  /** Reduce flashing (settings): effects that flash (the chromatic kill pulse, Surge glow) are skipped. */
+  setReduceFlashing(on: boolean): void {
+    this.post.reduceFlashing = on;
+  }
+
+  /** The preset in force: the chosen one with the post-effects and outline switches applied. */
+  get activeQuality(): Readonly<QualityPreset> {
+    return this.resolved;
+  }
+
+  /** The drawing buffer's pixel ratio right now (device ratio capped by the preset, times the render scale). */
+  get pixelRatio(): number {
+    return this.renderer.getPixelRatio();
   }
 
   private applyQuality(): void {
-    const p = this.tunables.render.quality[this.quality];
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, p.pixelRatioCap));
-    this.post.enabled = p.postProcessing;
+    const p = (this.resolved = resolveQuality(this.tunables.render.quality[this.quality], {
+      postEffects: this.postOverride,
+      enemyOutline: this.outlineOverride,
+    }));
+    this.renderer.setPixelRatio(effectivePixelRatio(window.devicePixelRatio || 1, p, this.renderScale));
+    this.post.configure(p.post);
     this.targetsView?.setQuality(p);
     applyEnvQuality(this.envUniforms, p);
     horizonColor(this.envUniforms, this.fog.color); // fog fades to the sky's horizon colour
@@ -187,7 +227,7 @@ export class GameRenderer {
     this.overlay.camera.aspect = this.camera.aspect;
     this.overlay.camera.updateProjectionMatrix();
     const pr = this.renderer.getPixelRatio();
-    const p = this.tunables.render.quality[this.quality];
+    const p = this.resolved;
     for (let i = 0; i < this.layers.length; i++) this.layers[i]!.resize?.(this.width, this.height, pr);
     this.post.setSize(Math.floor(this.width * pr), Math.floor(this.height * pr), p.antialias ? 4 : 0);
     this.targetsView?.setViewport(this.width * pr, this.height * pr);
@@ -215,7 +255,7 @@ export class GameRenderer {
       this.scene.remove(this.targetsView.root);
       this.targetsView.dispose();
     }
-    this.targetsView = new TargetsView(this.tunables, world.targets.length, this.tunables.render.quality[this.quality]);
+    this.targetsView = new TargetsView(this.tunables, world.targets.length, this.resolved);
     this.targetsView.setPreset(this.preset);
     const pr = this.renderer.getPixelRatio();
     this.targetsView.setViewport(this.width * pr, this.height * pr);
@@ -223,6 +263,7 @@ export class GameRenderer {
     // Compile shaders now so the first shot / first frame does not hitch.
     this.renderer.compile(this.scene, this.camera);
     this.renderer.compile(this.overlay.scene, this.overlay.camera);
+    this.post.precompile(this.renderer);
   }
 
   /** Light or dim the loaded map's armed floor stripe (Lane). Survives a level reload. */

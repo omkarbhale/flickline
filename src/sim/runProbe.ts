@@ -23,8 +23,11 @@ export interface ProbeEvents {
   leadSampled: { tick: number; id: number; err: number };
   /** Vertical angle (radians) between the aim ray and head-centre height, sampled while moving with no enemy visible. */
   headHeightSampled: { tick: number; err: number };
-  /** Horizontal speed first fell to the accuracy threshold after a stop or counter-strafe input. */
-  playerStopped: { tick: number; latencyMs: number };
+  /**
+   * Horizontal speed first fell to the accuracy threshold after a stop or counter-strafe input.
+   * `counterStrafe`: the stop began with a direction reversal (the opposite key pressed), not a release.
+   */
+  playerStopped: { tick: number; latencyMs: number; counterStrafe: boolean };
 }
 
 declare module './types' {
@@ -48,12 +51,17 @@ export interface ProbeState {
   lastOnTick: number;
   /** Tick the current stop began (-1 = not stopping). */
   stopTick: number;
+  /** The current stop began with a direction reversal (the opposite key pressed) rather than a release. */
+  stopCounter: boolean;
   prevInputMag: number;
   prevWishDot: number;
 }
 
 export function createProbeState(): ProbeState {
-  return { aimOn: false, aimOnId: -1, nextHeadSampleTick: 0, nextLeadSampleTick: 0, lastOnId: -1, lastOnTick: -1, stopTick: -1, prevInputMag: 0, prevWishDot: 0 };
+  return {
+    aimOn: false, aimOnId: -1, nextHeadSampleTick: 0, nextLeadSampleTick: 0, lastOnId: -1, lastOnTick: -1, stopTick: -1,
+    stopCounter: false, prevInputMag: 0, prevWishDot: 0,
+  };
 }
 
 export function resetProbe(p: ProbeState): void {
@@ -64,6 +72,7 @@ export function resetProbe(p: ProbeState): void {
   p.lastOnId = -1;
   p.lastOnTick = -1;
   p.stopTick = -1;
+  p.stopCounter = false;
   p.prevInputMag = 0;
   p.prevWishDot = 0;
 }
@@ -84,7 +93,7 @@ const zone = createZoneHit();
 const aimPayload = { tick: 0, on: false, id: -1 };
 const leadPayload = { tick: 0, id: -1, err: 0 };
 const headPayload = { tick: 0, err: 0 };
-const stopPayload = { tick: 0, latencyMs: 0 };
+const stopPayload = { tick: 0, latencyMs: 0, counterStrafe: false };
 const head = createExpectedHead();
 
 /**
@@ -201,10 +210,12 @@ export function stepRunProbe(
   if (s.stopTick < 0) {
     if (speed > thr && ((mag === 0 && s.prevInputMag > 0) || (mag > 0 && wishDot < 0 && s.prevWishDot >= 0))) {
       s.stopTick = tick;
+      s.stopCounter = mag > 0; // the opposite key was pressed (a release has no input magnitude)
     }
   } else if (speed <= thr) {
     stopPayload.tick = tick;
     stopPayload.latencyMs = (tick - s.stopTick) * TICK_DT * 1000;
+    stopPayload.counterStrafe = s.stopCounter;
     s.stopTick = -1;
     events.emit('playerStopped', stopPayload);
   } else if (mag > 0 && wishDot > 0) {

@@ -75,7 +75,6 @@
 
 /* ---- Settings ---- */
 .screen-settings { display: grid; place-items: start center; }
-.settings-panel { width: min(780px, 100%); }
 .settings-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .settings-title { margin: 0; font: 700 28px/1 var(--font-ui); letter-spacing: .12em; text-transform: uppercase; }
 .set-section { display: flex; flex-direction: column; gap: 14px; }
@@ -95,6 +94,48 @@
 .raw[data-state='on'] { color: var(--ok); }
 .raw[data-state='off'] { color: var(--warn); }
 
+/* Settings rows (ui/settingsFields.ts): a label, a native control, an optional hint. */
+.settings-panel { width: min(840px, 100%); }
+.set-row { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(220px, 1.5fr); align-items: center; gap: 4px 18px; padding: 7px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 45%, transparent); }
+.set-row--toggle { grid-template-columns: 1fr; }
+.set-label { font: 600 15px/1.2 var(--font-ui); color: var(--fg); }
+.set-hint { grid-column: 1 / -1; margin: 0; font: 500 12.5px/1.35 var(--font-ui); color: var(--dim); }
+.set-row select { width: 100%; max-width: 340px; justify-self: start; }
+.set-slider { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.set-slider input[type='range'] { flex: 1; min-width: 80px; }
+.set-value { flex: none; min-width: 44px; text-align: right; font: 600 13px/1 var(--font-num); color: var(--dim); }
+.set-pin .fl-toggle { min-width: 0; }
+.set-pin .set-value { min-width: 150px; text-align: left; }
+.set-group { margin: 14px 0 0; font: 700 12px/1 var(--font-ui); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
+.set-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.set-status { min-height: 1.3em; margin: 0; font: 600 13px/1.3 var(--font-ui); color: var(--ok); }
+.set-status[data-tone='warn'] { color: var(--warn); }
+.set-warning { flex: 1 1 100%; margin: 0; font: 600 14px/1.35 var(--font-ui); color: var(--warn); }
+.set-confirm { padding: 12px 14px; border: 1px solid var(--warn); border-radius: 8px; background: color-mix(in srgb, var(--warn) 8%, transparent); }
+#menu textarea { width: 100%; box-sizing: border-box; font: 500 12px/1.4 var(--font-num); padding: 9px 10px; color: var(--fg); background: var(--ink); border: 1px solid var(--line); border-radius: 6px; resize: vertical; }
+#menu input[type='file'] { font: 500 13px var(--font-ui); color: var(--dim); max-width: 100%; }
+
+/* Field of view: read-only (design 13.3). Looks like a value, not a control. */
+.set-fov { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface-2); }
+.set-fov-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.fov-value { font: 600 15px/1.2 var(--font-num); color: var(--fg); }
+.set-lock { margin-left: auto; padding: 3px 8px; font: 700 11px/1 var(--font-ui); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; }
+
+/* Keys */
+.keys-table { display: flex; flex-direction: column; }
+.keys-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 45%, transparent); }
+.keys-name { font: 600 15px/1.2 var(--font-ui); }
+.keys-slots { display: flex; align-items: center; gap: 12px; }
+.keys-cell { display: inline-flex; align-items: center; gap: 2px; }
+.keys-slot { min-width: 124px; min-height: 36px; padding: 0 12px; font: 600 14px/1 var(--font-num); color: var(--fg); background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.keys-slot:hover { border-color: var(--line-strong); }
+.keys-slot.is-empty { color: var(--dim); }
+.keys-slot.is-capturing { color: var(--ink); background: var(--trim); border-color: var(--trim); }
+.keys-clear { width: 28px; height: 28px; padding: 0; font: 600 16px/1 var(--font-ui); color: var(--dim); background: none; border: 0; border-radius: 6px; cursor: pointer; }
+.keys-clear:hover { color: var(--alert); }
+.keys-row--fixed .set-hint { grid-column: auto; }
+.keys-row--fixed .fl-kbd { margin-left: 0; }
+
 /* ---- First run (design 13.4): a compact panel over the live Range ---- */
 #menu[data-screen='firstRun'] { background: none; backdrop-filter: none; pointer-events: none; }
 .screen-first { display: grid; place-items: end center; padding-bottom: 7vh; }
@@ -112,6 +153,7 @@
 /* Phones and narrow windows still work (the game itself is desktop-first). */
 @media (max-width: 720px) {
   .grid, .first-basics .grid { grid-template-columns: 1fr; }
+  .set-row { grid-template-columns: 1fr; }
   .session-panel .fl-panel-body { grid-template-columns: 1fr; }
   .session-actions { min-width: 0; }
 }

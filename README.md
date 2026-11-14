@@ -14,7 +14,7 @@ npm test
 npm run build       # production build in dist/
 ```
 
-Controls: WASD move, Space jump, Ctrl/C crouch, Shift walk, left mouse shoot, Esc menu/settings, backtick debug overlay.
+Controls: WASD move, Space jump, Ctrl/C crouch, Shift walk, 1-3 weapons, R reload, left mouse shoot, Backspace restart, Esc menu/settings, backtick debug overlay. Every key can be rebound in Settings > Keys.
 
 ## Contributing
 

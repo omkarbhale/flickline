@@ -11,6 +11,7 @@ import type { ModeDef } from '../modes/modeDef';
 import { orbit } from '../modes/orbit';
 import { placement, type PlacementState } from '../modes/placement';
 import { strafeTrack } from '../modes/strafeTrack';
+import { stopAndPop } from '../modes/stopAndPop';
 import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
 import { economyShield } from '../sim/damage';
@@ -26,6 +27,7 @@ export const MODES: Readonly<Record<string, ModeDef<never>>> = {
   orbit: orbit as ModeDef<never>,
   placement: placement as ModeDef<never>,
   strafeTrack: strafeTrack as ModeDef<never>,
+  stopAndPop: stopAndPop as ModeDef<never>,
 };
 
 /** The sim's target registry as the framework's spawner (#15). Only the kinds the sim has yet (Rusher, Bulwark and Gnat: #33). */
@@ -93,6 +95,8 @@ export class ModeHost {
   /** Result of the last finished Placement run, or null. */
   placementOutcome: PlacementOutcome | null = null;
   private active: ModeDef<never> | null = null;
+  /** The player's difficulty pin for a mode (setting `difficultyPin`), or undefined for matched difficulty. */
+  pinFor: (modeId: string) => number | undefined = () => undefined;
   private readonly anchors: AnchorSource;
   private priorInfiniteMagazine = false;
   private readonly ray = vec3();
@@ -126,7 +130,7 @@ export class ModeHost {
     this.clearField();
     this.applyPlayerSetup(mode);
     this.active = mode;
-    this.runner.begin(mode, { seed, pinDial: opts.pinDial, anchors: opts.anchors ?? this.anchors });
+    this.runner.begin(mode, { seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors });
     return true;
   }
 

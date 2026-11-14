@@ -1,6 +1,7 @@
 import type { EventSink } from '../core/eventBus';
 import type { Rng } from '../core/rng';
 import { secondsToTicks } from '../core/time';
+import type { EnemySoundKind } from '../config/attribution';
 import type { WeaponId } from '../config/weapon';
 import type { BoxDef, FsmState, HitZone, PlayerState, SimEvents, TargetState } from './types';
 import type { Tunables } from '../config/tunables';
@@ -33,6 +34,8 @@ export interface EnemyWorld {
   readonly enemyWeapon: WeaponId;
   /** The player is above the accuracy deadzone of the equipped weapon, or airborne (design §5.3: x0.5). */
   playerMoving(): boolean;
+  /** Whether a sound of this kind made at (`x`, `z`) reaches the player: the `audibleToPlayer` an enemy sound event carries (fight-attribution F1). */
+  soundAudible(kind: EnemySoundKind, x: number, z: number): boolean;
   /** A bullet of `weapon` hits the player in `zone` from (`sx`, `sy`, `sz`). */
   hitPlayer(
     weapon: WeaponId, zone: HitZone, sx: number, sy: number, sz: number, sourceId: number,

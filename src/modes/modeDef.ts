@@ -1,10 +1,11 @@
+import type { EventSink } from '../core/eventBus';
 import type { Rng } from '../core/rng';
 import type { Vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
 import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import type {
-  AxisId, AxisValues, ModeId, ModeRef, PlayerView, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra, WaveCurve,
+  AxisId, AxisValues, ModeEvents, ModeId, ModeRef, MotionView, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra, WaveCurve,
 } from './contracts';
 import type { SpawnScheduler } from './scheduler';
 
@@ -102,12 +103,19 @@ export interface ModeContext<S = unknown> {
   /** The run's seeded stream: use it for every random choice, never `Math.random`. */
   readonly rng: Rng;
   readonly tunables: Tunables;
-  readonly player: PlayerView;
+  readonly player: MotionView;
+  /**
+   * Where a mode announces facts about its own state for presentation to draw (the Lane's armed
+   * stripe, a stance ring). Payloads are read-only and valid only during the call.
+   */
+  readonly events: EventSink<ModeEvents>;
   /** Anchor picker bound to the run's rng and the player. */
   readonly scheduler: SpawnScheduler;
   state: S;
 
   readonly phase: RunPhase;
+  /** The sim tick of the call in progress: the `tick` of the events a mode emits. */
+  readonly simTick: number;
   /** Live ticks completed before this one (0 on the first live tick). */
   readonly liveTick: number;
   /** Seconds since the run went live. */

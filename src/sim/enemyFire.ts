@@ -93,7 +93,7 @@ export function rollShot(rng: Rng, pHit: number, cfg: EnemyFireTunables, out: Sh
 
 const shotRoll = createShotRoll();
 const tellEv: RunEvents['enemyTell'] = { tick: 0, id: 0, durationMs: 0 };
-const firedEv: RunEvents['enemyFired'] = { tick: 0, id: 0, hit: false, dir: vec3() };
+const firedEv: RunEvents['enemyFired'] = { tick: 0, id: 0, hit: false, dir: vec3(), audibleToPlayer: false };
 const timing = createShotTiming();
 const reactionScratch: ReactionDist = { muSec: 0, sigmaSec: 0, tauSec: 0 };
 
@@ -203,6 +203,7 @@ function shoot(t: TargetState, ctx: BehaviourContext): void {
   firedEv.tick = ctx.tick;
   firedEv.id = t.id;
   firedEv.hit = hit;
+  firedEv.audibleToPlayer = w.soundAudible('shot', mx, mz);
   firedEv.dir.x = dx; firedEv.dir.y = dy; firedEv.dir.z = dz;
   ctx.events.emit('enemyFired', firedEv);
   a.lastShotTick = ctx.tick;

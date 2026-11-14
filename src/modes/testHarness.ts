@@ -15,7 +15,7 @@ export interface Harness {
   targets: Map<number, { kind: string; pos: Vec3; scale: number; strafe?: StrafeSpawn }>;
   dialCalls: number[];
   simTick: number;
-  player: { pos: Vec3; yaw: number; pitch: number; eyeHeight: number };
+  player: { pos: Vec3; yaw: number; pitch: number; eyeHeight: number; vel: Vec3; crouching: boolean; grounded: boolean };
   step(n: number): void;
   kill(id: number, o?: Partial<SourceEvents['targetKilled']>): void;
   miss(): void;
@@ -66,7 +66,7 @@ export function makeHarness(
     },
     axes: (d) => (axesFor ? axesFor(d) : inner.axes(d)),
   };
-  const player = { pos: vec3(0, 0, 0), yaw: 0, pitch: 0, eyeHeight: 1.62 };
+  const player = { pos: vec3(0, 0, 0), yaw: 0, pitch: 0, eyeHeight: 1.62, vel: vec3(0, 0, 0), crouching: false, grounded: true };
   const runner = new ModeRunner({ events: bus, tunables, dial, spawner, player });
   runner.attach(bus);
   for (const type of EVENT_TYPES) bus.on(type, (e) => log.push({ type, data: JSON.parse(JSON.stringify(e)) as Record<string, unknown> }));
