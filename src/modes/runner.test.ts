@@ -468,3 +468,21 @@ describe('run-shaped modes (Sweep, #201)', () => {
     expect(types).toEqual(['targetVisible', 'enemySawPlayer', 'enemyFired', 'playerDamaged']);
   });
 });
+
+describe('mind skill (#88)', () => {
+  it('defaults to the dial in force; a mode may pin it or map it; always 0-100', () => {
+    const h = makeHarness();
+    h.runner.begin(bareMode(), { seed: 1, pinDial: 63 });
+    h.step(READY + 1);
+    expect(h.runner.mindSkill).toBe(63);
+    h.runner.begin(bareMode({ mindSkill: 20 }), { seed: 1, pinDial: 63 });
+    h.step(READY + 1);
+    expect(h.runner.mindSkill).toBe(20);
+    h.runner.begin(bareMode({ mindSkill: (d) => d + 50 }), { seed: 1, pinDial: 63 });
+    h.step(READY + 1);
+    expect(h.runner.mindSkill).toBe(100);
+    h.runner.begin(bareMode({ mindSkill: (d) => d - 80 }), { seed: 1, pinDial: 63 });
+    h.step(READY + 1);
+    expect(h.runner.mindSkill).toBe(0);
+  });
+});
