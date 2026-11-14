@@ -2,7 +2,7 @@ import { HeadlessGame } from './headless';
 import { listModes, mapForMode, playMode, type BotReport, type BotRunOptions } from './play';
 import { BOT_PARAM_KEYS, type BotParams } from './skill';
 import { runSuite } from './suite';
-import { formatGatePolicyReport, formatSweepReport, gatePolicyReport, sweepReport } from './sweepReport';
+import { formatGatePolicyReport, formatMeetReport, formatSweepReport, gatePolicyReport, meetReport, sweepReport } from './sweepReport';
 import { auditAllocations, formatAudit } from './allocAudit';
 
 /** Command line of `npm run bot` (loaded by `scripts/bot.mjs`). Returns the process exit code. */
@@ -20,6 +20,7 @@ const HELP = `npm run bot -- [options]
   --suite            run the regression suite (every mode, skill ordering, determinism, parameters)
   --alloc            audit the sim tick for allocations (see README, "Allocation audit")
   --gate-report      Gate policy table (#205): policies --policies hot,read,facts,left (default) at skills 30/50/70 over --runs seeds (default 200)
+  --meet-report      Meet sectors (#212): win rate by who stopped first, skills 30/50/70 (or --skills) over --runs forced meet runs (default 100), --stop-delay S (default 2.5)
   --sweep-report     Sweep balance table (#201): skills 30/50/70 (or --skills a,b,c) over --runs seeds (default 50)
   --list             list the modes
 `;
@@ -30,7 +31,7 @@ function parseArgs(argv: string[]): Record<string, string | boolean | string[]> 
     const a = argv[i]!;
     if (!a.startsWith('--')) throw new Error(`unexpected argument '${a}'`);
     const key = a.slice(2);
-    if (['json', 'suite', 'alloc', 'list', 'help', 'sweep-report', 'gate-report'].includes(key)) {
+    if (['json', 'suite', 'alloc', 'list', 'help', 'sweep-report', 'meet-report', 'gate-report'].includes(key)) {
       out[key] = true;
       continue;
     }
@@ -104,6 +105,21 @@ export function main(argv: string[], log: (s: string) => void = console.log): nu
     else {
       for (const line of formatGatePolicyReport(rows)) log(line);
       log(`${rows.length * runs} runs, ${(performance.now() - t0).toFixed(0)} ms`);
+    }
+    return 0;
+  }
+
+  if (args['meet-report']) {
+    const skills = typeof args.skills === 'string' ? args.skills.split(',').map(Number) : [30, 50, 70];
+    const runs = args.runs !== undefined ? Math.max(1, Math.floor(Number(args.runs))) : 100;
+    const seed = args.seed !== undefined ? Number(args.seed) : 1;
+    const delay = args['stop-delay'] !== undefined ? Number(args['stop-delay']) : 2.5;
+    const t0 = performance.now();
+    const r = meetReport(skills, runs, seed, delay);
+    if (args.json) log(JSON.stringify(r.rows, null, 2));
+    else {
+      for (const line of formatMeetReport(r.rows)) log(line);
+      log(`${r.contacts.length} meet contacts, ${(performance.now() - t0).toFixed(0)} ms`);
     }
     return 0;
   }

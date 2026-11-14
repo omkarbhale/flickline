@@ -5,7 +5,7 @@ import { MAPS } from '../sim/mapLoader';
 import { createTickInput } from '../sim/types';
 import { sweepEnv, type SweepState } from './sweep';
 import { perSector, planRun, type DoorPlan, type GatePlan, type RunPlan, type SectorSource } from './sweepDirector';
-import { doorFacts, heardBucket, heardCount, pickCandidates, planGate, planRoute } from './sweepGate';
+import { doorFacts, heardBucket, heardCount, pickSector, planGate, planRoute } from './sweepGate';
 import { Rng } from '../core/rng';
 
 const tunables = cloneTunables();
@@ -15,6 +15,8 @@ const env = sweepEnv(tunables);
 /** A mix of both doors, by seed and depth. */
 const mixed = (seed: number) => (_g: GatePlan, plan: RunPlan): 0 | 1 => ((seed + plan.sectors.length) & 1) as 0 | 1;
 const echoesOf = (d: DoorPlan): number => d.sector.contacts.reduce((n, c) => n + c.echoes.length, 0);
+/** Echoes the door can claim to hear: every one but a meet group that walks (walking is silent, design 4.4). */
+const audibleOf = (d: DoorPlan): number => d.sector.contacts.reduce((n, c) => n + c.echoes.filter((e) => e.gait !== 'walk').length, 0);
 /** The bucket by the design's words (§4.5), written out here so the test does not lean on the code it checks. */
 const bucketOf = (n: number): 'quiet' | 'few' | 'several' => (n === 0 ? 'quiet' : n <= 2 ? 'few' : 'several');
 
@@ -22,20 +24,24 @@ describe('gate doors (#205)', () => {
   it('door facts are true: over 500 seeds the heard bucket matches the sector\'s Echo count, the role the sector, the stake the sector\'s', () => {
     let doors = 0;
     const buckets = new Set<string>();
+    const roles = new Set<string>();
     for (let seed = 1; seed <= 500; seed++) {
       const plan = planRoute(seed, env, mixed(seed));
       expect(plan.gates).toHaveLength(cfg.sectors - 1);
       for (const gate of plan.gates) {
         for (const d of gate.doors) {
           doors++;
-          const n = echoesOf(d);
-          expect(d.facts.heard, `seed ${seed} gate ${gate.index} door ${d.door}: ${n} Echoes`).toBe(bucketOf(n));
+          const n = audibleOf(d);
+          expect(d.facts.heard, `seed ${seed} gate ${gate.index} door ${d.door}: ${n} audible Echoes`).toBe(bucketOf(n));
+          // A take sector holds no walkers: its bucket is its Echo count.
+          if (d.sector.role === 'take') expect(n).toBe(echoesOf(d));
           expect(d.facts.role).toBe(d.sector.role);
           expect(d.facts.stake).toBe(d.sector.stake);
           expect(d.facts.arms).toBe(d.sector.arms);
           expect(d.facts.sightline).toBe(d.sector.sightlineM >= cfg.gate.longSightlineM ? 'long' : 'close');
           // "From the same audio radii the fights use": every Echo of the sector is inside the footstep radius of its entry.
           expect(heardCount(d.sector, tunables.audio.enemy.maxAudibleM)).toBe(n);
+          roles.add(d.sector.role);
           buckets.add(d.facts.heard);
         }
       }
@@ -44,7 +50,8 @@ describe('gate doors (#205)', () => {
     }
     expect(doors).toBe(500 * 2 * (cfg.sectors - 1));
     // Every bucket the design names is seen: the facts are not a constant.
-    expect([...buckets].sort()).toEqual(['few', 'several']);
+    expect([...buckets].sort()).toEqual(['few', 'quiet', 'several']);
+    expect([...roles].sort()).toEqual(['meet', 'take']);
   });
 
   it('in the sim, over 60 seeds: the sector a door leads to is entered as shown (role, stake, Echoes placed in the world, heard bucket)', () => {
@@ -80,7 +87,7 @@ describe('gate doors (#205)', () => {
         expect(e.arms).toBe(shown.facts.arms ?? '');
         expect(e.echoes).toBe(echoesOf(shown));
         expect(g.world.targets.filter((t) => t.alive)).toHaveLength(e.echoes);
-        expect(heardBucket(e.echoes, cfg)).toBe(shown.facts.heard);
+        expect(heardBucket(audibleOf(shown), cfg)).toBe(shown.facts.heard);
         expect(g.modes.currentMap.id).toBe(shown.sector.mapId);
       }
     }
@@ -128,26 +135,30 @@ describe('gate doors (#205)', () => {
     for (const k of Object.keys(seen)) expect(seen[k], k).toBeGreaterThan(100);
   });
 
-  it('candidates: never the sector just played, differing in map or role when the catalog has two such, else in sightline', () => {
+  it('candidates: never the sector just played nor the other door\'s, on another map when the pool has one, else with the other sightline', () => {
     const src = (mapId: string, id: string, role: string, sightlineM: number): SectorSource =>
       ({ mapId, id, roles: [role], entry: { x: 0, y: 0, z: 0 }, entryYaw: 0, exit: { x: 1, y: 0, z: 0 }, sightlineM, spots: [], visible: () => false, walkable: () => true });
-    const a = src('m1', 'a', 'take', 10), b = src('m1', 'b', 'take', 25), c = src('m2', 'c', 'take', 12), d = src('m1', 'd', 'hold', 12);
+    const a = src('m1', 'a', 'take', 10), b = src('m1', 'b', 'take', 25), c = src('m2', 'c', 'take', 12), d = src('m1', 'd', 'take', 12);
     const cur = { mapId: 'm1', sectorId: 'a' } as RunPlan['sectors'][number];
     const rng = new Rng(1);
     for (let k = 0; k < 100; k++) {
-      const [x, y] = pickCandidates(rng, [a, b, c, d], cur, cfg);
-      expect(x.id).not.toBe('a');
-      expect(y.id).not.toBe('a');
-      expect(x).not.toBe(y);
-      // Of b, c, d one pair differs in map or role: the pair never is (b with another sector of its own map and role).
-      expect(x.mapId !== y.mapId || x.roles[0] !== y.roles[0]).toBe(true);
+      const x = pickSector(rng, [a, b, c, d], [], cur, cfg);
+      expect(x).not.toBe(a);
+      const y = pickSector(rng, [a, b, c, d], [x], cur, cfg);
+      expect(y).not.toBe(a);
+      expect(y).not.toBe(x);
+      // Another map when there is one: m2 is in the pool, so one door of the pair is on it.
+      expect([x, y].some((z) => z === c)).toBe(true);
     }
-    // One map and one role only: they differ in sightline when they can.
+    // One map only: the other door has the other sightline class when it can.
     for (let k = 0; k < 50; k++) {
-      const [x, y] = pickCandidates(rng, [a, b, src('m1', 'e', 'take', 11)], { mapId: 'm9', sectorId: 'z' } as RunPlan['sectors'][number], cfg);
-      expect(x).not.toBe(y);
+      const x = pickSector(rng, [a, b, d], [], { mapId: 'm9', sectorId: 'z' } as RunPlan['sectors'][number], cfg);
+      const y = pickSector(rng, [a, b, d], [x], { mapId: 'm9', sectorId: 'z' } as RunPlan['sectors'][number], cfg);
+      expect(y).not.toBe(x);
       expect((x.sightlineM >= cfg.gate.longSightlineM) !== (y.sightlineM >= cfg.gate.longSightlineM)).toBe(true);
     }
+    // A pool of one gives it back.
+    expect(pickSector(rng, [a], [], cur, cfg)).toBe(a);
   });
 
   it('heard buckets: quiet, one or two, several', () => {

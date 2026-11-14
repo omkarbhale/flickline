@@ -1,16 +1,22 @@
 import { Rng } from '../core/rng';
 import type { Vec3 } from '../core/vec3';
-import type { GateStake, HeardBucket, SweepCard, SweepTunables } from '../config/sweep';
-import type { SweepSectorRole } from '../sim/runEvents';
+import type { GateStake, HeardBucket, SectorRole, SweepCard, SweepTunables } from '../config/sweep';
 import type { PeekPattern } from '../sim/mapTypes';
 import type { Expectation } from '../sim/enemyTiming';
 
 /**
- * The Sweep run director (design §4, #201): from the run's seed, the opener, then at each gate (#205,
- * `sweepGate.ts`) the two sectors the doors lead to, the scenario card of each contact and where each Echo stands. Pure and deterministic: it reads only
+ * The Sweep run director (design §4, #201): from the run's seed, which sectors the run visits, the
+ * scenario card of each contact and where each Echo stands. Pure and deterministic: it reads only
  * the seed, the sector catalog and the tunables, and draws from its own seeded stream, so the same
  * seed gives the same plan whatever happens in the fights. What depends on the fights (the dial
  * the Echoes are spawned at) is applied by the mode when a sector is entered (`modes/sweep.ts`).
+ *
+ * Sector roles (design §4.2): the Opener is a take; every later sector draws its role from the mix
+ * (`cfg.roleMix`). Take sectors are as below; a **meet** sector (#212) deals one contact, `meet`: an
+ * Echo group of one or two that starts on the far side of the corridor and runs or walks to the
+ * player's end of it. Nothing is hidden there by design: both sides are moving into each other, the
+ * Echoes start 15 m or more away, and what the player gets is information, not a surprise (a run is
+ * heard, a walk is silent; both are in view down the corridor).
  *
  * Take sectors (design §4.2): every Echo is placed before the player can see it, on the sector's
  * hold anchors. A placement is accepted only if the Echo's body, all of its strafe lane and all of
@@ -39,9 +45,14 @@ export interface SectorSource {
   readonly entry: Vec3;
   readonly entryYaw: number;
   readonly exit: Vec3;
-  /** The longest unobstructed horizontal line at eye height from the entry, inside the sector's region, metres (the gate's "sightline" fact). */
+  /** The longest unobstructed horizontal line at eye height from the entry, inside the sector's region, metres (the gate's "sightline" fact, #205). */
   readonly sightlineM: number;
   readonly spots: readonly SectorSpot[];
+  /**
+   * Meet sectors: the straight walk from the exit towards the entry that an Echo group crosses on (the first
+   * straight leg of the nav route from the exit to the entry). Absent for a sector without a meet role.
+   */
+  readonly meetRoute?: { readonly from: Vec3; readonly to: Vec3 };
   /** Whether any part of an Echo standing at `feet` is visible from the eye position `eye`. */
   visible(eye: Vec3, feet: Vec3, crouched: boolean): boolean;
   /** Whether an Echo can walk the straight line between two feet positions (nothing solid in between). */
@@ -64,6 +75,8 @@ export interface EchoPlan {
   readonly laneB?: Vec3;
   /** Peeker: its path and pattern. */
   readonly peek?: { readonly hold: Vec3; readonly out: Vec3; readonly pattern: PeekPattern };
+  /** Meet: it travels from `laneA` to `laneB` at this gait before its first stop (`StrafeParams.travel`). */
+  readonly gait?: 'run' | 'walk';
 }
 
 export interface ContactPlan {
@@ -79,11 +92,13 @@ export interface SectorPlan {
   readonly index: number;
   readonly mapId: string;
   readonly sectorId: string;
-  readonly role: SweepSectorRole;
   readonly entry: Vec3;
   readonly entryYaw: number;
   readonly exit: Vec3;
-  /** The door stake this sector was entered by (design §4.5): the opener's is `plain`. */
+  readonly role: SectorRole;
+  /** The role as drawn, before any fallback (a drawn hold plays as a take until #204): what the "never three alike" rule counts. */
+  readonly drawn: SectorRole;
+  /** The door stake this sector was entered by (design §4.5, #205): the opener's is `plain`. */
   readonly stake: GateStake;
   /** Arms stake: the primary the door names. */
   readonly arms?: string;
@@ -94,7 +109,7 @@ export interface SectorPlan {
 
 /** The three facts and the stake a door shows (design §4.5). All of them are computed from the sector plan behind it, never drawn on their own. */
 export interface DoorFacts {
-  readonly role: SweepSectorRole;
+  readonly role: SectorRole;
   readonly sightline: 'long' | 'close';
   readonly heard: HeardBucket;
   readonly stake: GateStake;
@@ -117,7 +132,7 @@ export interface GatePlan {
 /**
  * A run's plan so far: the route played (`sectors[0]` is the opener) and the gate before each later
  * sector (`gates[i - 1]` led to `sectors[i]`, through door `doors[i - 1]`). It grows by one at
- * every gate (`modes/sweep.ts`); `planGate` reads it to draw the next two doors.
+ * every gate (`modes/sweep.ts`); `planGate` (`sweepGate.ts`) reads it to draw the next two doors.
  */
 export interface RunPlan {
   readonly seed: number;
@@ -143,6 +158,75 @@ export function planSeed(seed: number): number {
   h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
   return (h ^ (h >>> 16)) >>> 0;
 }
+
+/**
+ * A shuffled deck of sectors, reshuffled when spent, never dealing the sector just played twice in a
+ * row (null when the deck has only that sector).
+ */
+export class SectorDeck {
+  private deck: SectorSource[] = [];
+
+  constructor(private readonly rng: Rng, private readonly sectors: readonly SectorSource[]) {}
+
+  draw(last: SectorSource | undefined): SectorSource | null {
+    const n = this.sectors.length;
+    if (n === 0) return null;
+    if (n === 1) return this.sectors[0] === last ? null : this.sectors[0]!;
+    let at = this.pick(last);
+    if (at < 0) {
+      // What is left is only the sector just played: a fresh deck.
+      this.deck = this.sectors.slice();
+      const d = this.deck;
+      for (let i = d.length - 1; i > 0; i--) {
+        const j = this.rng.int(i + 1);
+        const t = d[i]!;
+        d[i] = d[j]!;
+        d[j] = t;
+      }
+      at = this.pick(last);
+    }
+    return this.deck.splice(at, 1)[0]!;
+  }
+
+  /** Index of the card nearest the top that is not `last`, or -1. */
+  private pick(last: SectorSource | undefined): number {
+    for (let i = this.deck.length - 1; i >= 0; i--) if (this.deck[i] !== last) return i;
+    return -1;
+  }
+}
+
+/**
+ * The role of sector `index` (design §4.2): the Opener is a take; the rest draw from `cfg.roleMix`, never a role
+ * that `drawn` already holds twice at its end (never three in a row). `drawn` is the roles as drawn, before any fallback
+ * (a role the run cannot play yet plays as a take, but counts as itself). One draw per call, always.
+ */
+export function drawRole(rng: Rng, cfg: SweepTunables, index: number, drawn: readonly SectorRole[]): SectorRole {
+  const u = rng.next();
+  if (index === 0) return 'take';
+  const run = ROLE_RUN_MAX;
+  let barred: SectorRole | null = null;
+  if (drawn.length >= run) {
+    barred = drawn[drawn.length - 1]!;
+    for (let i = drawn.length - run; i < drawn.length; i++) if (drawn[i] !== barred) barred = null;
+  }
+  let total = 0;
+  for (const r of ROLE_ORDER) if (r !== barred) total += cfg.roleMix[r];
+  let x = u * total;
+  let last: SectorRole = 'take';
+  for (const r of ROLE_ORDER) {
+    if (r === barred || cfg.roleMix[r] <= 0) continue;
+    last = r;
+    x -= cfg.roleMix[r];
+    if (x < 0) return r;
+  }
+  return last;
+}
+
+/** Roles in the order the draw walks them, and how many of one role may follow each other (design §4.2: never three). */
+const ROLE_ORDER: readonly SectorRole[] = ['take', 'hold', 'meet'];
+const ROLE_RUN_MAX = 2;
+/** The roles a run plays today. Holds arrive with #204: a drawn hold plays as a take until then. */
+const PLAYABLE: readonly SectorRole[] = ['take', 'meet'];
 
 /** How many anchors a card needs. */
 export function cardSpots(card: SweepCard): number {
@@ -298,29 +382,85 @@ export function placeEcho(rng: Rng, cfg: SweepTunables, s: SectorSource, body: P
   return { spot: spot.id, kind: 'strafer', feet, crouched: spot.crouched, expectation, laneA, laneB };
 }
 
+/**
+ * A meet group's Echoes (design §4.2, #212): one or two on straight routes from the far side of the
+ * sector's corridor to the player's end of it, at a gait (a walk is silent, a run is heard), with the
+ * second one behind and to the side of the first. Starts are drawn so that nothing depends on the map:
+ * five draws per group, always.
+ */
+export function placeMeet(rng: Rng, cfg: SweepTunables, s: SectorSource, sectorIndex: number): EchoPlan[] {
+  const m = cfg.meet;
+  const route = s.meetRoute;
+  if (!route) return [];
+  const sizeU = rng.next(), gaitU = rng.next(), backU = rng.next(), gapU = rng.next(), sideU = rng.next();
+  const size = sizeU < perSector(m.groupTwoShare, sectorIndex) ? 2 : 1;
+  const gait: 'run' | 'walk' = gaitU < m.runShare ? 'run' : 'walk';
+  const len = Math.hypot(route.to.x - route.from.x, route.to.z - route.from.z);
+  if (len < 1e-6) return [];
+  const dx = (route.to.x - route.from.x) / len, dz = (route.to.z - route.from.z) / len;
+  // Behind the exit as far as the lead wants, as far as it can walk.
+  const wantBack = m.startBackMinM + (m.startBackMaxM - m.startBackMinM) * backU;
+  let back = 0;
+  for (let t = 0.5; t <= wantBack + 1e-9; t += 0.5) {
+    if (!s.walkable(route.from, along(route.from, dx, dz, -t))) break;
+    back = t;
+  }
+  const gap = m.gapMinM + (m.gapMaxM - m.gapMinM) * gapU;
+  const side = sideU < 0.5 ? -1 : 1;
+  const px = -dz, pz = dx;
+  const end = along(route.to, dx, dz, -Math.min(m.endShortM, len / 2));
+  const out: EchoPlan[] = [];
+  for (let k = 0; k < size; k++) {
+    // The second Echo is further back (as far as the corridor goes behind the first) and to one side where that is walkable.
+    let behind = back + k * gap;
+    let off = k === 0 ? 0 : side * m.lateralM;
+    let a = { x: route.from.x - dx * behind + px * off, y: route.from.y, z: route.from.z - dz * behind + pz * off };
+    let b = { x: end.x + px * off, y: end.y, z: end.z + pz * off };
+    if (k > 0 && !(s.walkable(a, b) && s.walkable(route.from, a))) {
+      off = 0;
+      a = { x: route.from.x - dx * behind, y: route.from.y, z: route.from.z - dz * behind };
+      b = { x: end.x, y: end.y, z: end.z };
+      if (!s.walkable(route.from, a)) {
+        // No room behind: it trails as far as the corridor allows.
+        behind = back;
+        a = { x: route.from.x - dx * behind, y: route.from.y, z: route.from.z - dz * behind };
+      }
+    }
+    out.push({ spot: 'route', kind: 'strafer', feet: { ...a }, crouched: false, expectation: 'attending', laneA: a, laneB: b, gait });
+  }
+  return out;
+}
 
 /** A sector's key in the catalog (map, then id). */
 export function sectorKey(s: { mapId: string; id: string }): string {
   return s.mapId + '/' + s.id;
 }
 
-/** The sectors the director can place a take in: a take sector with at least one hold anchor hidden from its entry, in a fixed order. */
-export function drawableSectors(catalog: readonly SectorSource[], body: PlanBody): SectorSource[] {
-  return catalog
-    .filter((s) => s.roles.includes('take') && hiddenSpots(s, body).length > 0)
-    .sort((a, b) => (sectorKey(a) < sectorKey(b) ? -1 : 1));
+/**
+ * The sectors the director can play in `role`, in a fixed order: a take needs a hold anchor hidden from
+ * its entry, a meet a corridor route. A hold is not playable yet (#204): it plays as a take.
+ */
+export function drawableSectors(catalog: readonly SectorSource[], body: PlanBody, role: SectorRole): SectorSource[] {
+  const r = role === 'meet' ? 'meet' : 'take';
+  const ok = (s: SectorSource): boolean => (r === 'meet' ? s.roles.includes('meet') && s.meetRoute !== undefined : s.roles.includes('take') && hiddenSpots(s, body).length > 0);
+  return catalog.filter(ok).sort((a, b) => (sectorKey(a) < sectorKey(b) ? -1 : 1));
+}
+
+/** The role a sector plays as: holds play as takes until #204. */
+export function playedRole(wanted: SectorRole): SectorRole {
+  return PLAYABLE.includes(wanted) ? wanted : 'take';
 }
 
 /**
- * The seeded stream the sector at `index` is drawn from (its contacts, cards and placements, and for
- * a later sector the door choices before it): one stream per index, so what the player did in the
+ * The seeded stream the sector at `index` is drawn from (its role, contacts, cards and placements, and
+ * for a later sector the door choices before it): one stream per index, so what the player did in the
  * sectors before never shifts the draws of this one.
  */
 export function sectorStream(seed: number, index: number): Rng {
   return new Rng(planSeed(((seed >>> 0) + Math.imul(index, 0x9e3779b1)) >>> 0));
 }
 
-/** Contacts a sector at `index` would hold with no Hot stake: drawn from the per-sector range, capped by its hidden anchors (one draw). */
+/** Contacts a take sector at `index` would hold with no Hot stake: drawn from the per-sector range, capped by its hidden anchors (one draw). */
 export function baseContacts(rng: Rng, cfg: SweepTunables, index: number, spotCount: number): number {
   const lo = perSector(cfg.contactsMin, index);
   const hi = Math.max(lo, perSector(cfg.contactsMax, index));
@@ -334,36 +474,41 @@ export interface DoorStake {
 }
 
 /**
- * One take sector's plan: `want` contacts drawn card by card (`recent` is the route's cards so far and
- * is extended as they are dealt, so pass a copy), each placed on hidden hold anchors. `firstContact`
- * is the run-wide index of its first contact.
+ * One sector's plan. A take: `want` contacts drawn card by card (`recent` is the route's cards so far and
+ * is extended as they are dealt, so pass a copy), each placed on hidden hold anchors. A meet: one `meet`
+ * contact, the Echo group crossing the corridor. `firstContact` is the run-wide index of its first contact.
  */
 export function buildSector(
-  rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody, index: number, recent: SweepCard[], want: number, door: DoorStake, firstContact: number,
+  rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody, index: number, role: SectorRole, drawn: SectorRole, recent: SweepCard[], want: number, door: DoorStake, firstContact: number,
 ): SectorPlan {
-  const free = hiddenSpots(s, body);
   const contacts: ContactPlan[] = [];
   let contactIndex = firstContact;
-  for (let c = 0; c < want && free.length > 0; c++) {
-    // Leave one anchor for each contact still to come.
-    const spare = free.length - (want - c - 1);
-    const card = drawCard(rng, cfg, index, Math.max(1, spare), recent);
-    if (!card) break;
-    recent.push(card);
-    const spots: SectorSpot[] = [];
-    for (let k = 0; k < cardSpots(card); k++) spots.push(free.splice(rng.int(free.length), 1)[0]!);
-    const echoes: EchoPlan[] = [];
-    if (card === 'clear') {
-      // Two possible spots, one of them occupied (design §4.4).
-      const occupied = spots[rng.int(2)]!;
-      echoes.push(placeEcho(rng, cfg, s, body, occupied, card));
-    } else {
-      for (const spot of spots) echoes.push(placeEcho(rng, cfg, s, body, spot, card));
+  if (role === 'meet') {
+    recent.push('meet');
+    contacts.push({ index: contactIndex++, card: 'meet', spots: [], echoes: placeMeet(rng, cfg, s, index) });
+  } else {
+    const free = hiddenSpots(s, body);
+    for (let c = 0; c < want && free.length > 0; c++) {
+      // Leave one anchor for each contact still to come.
+      const spare = free.length - (want - c - 1);
+      const card = drawCard(rng, cfg, index, Math.max(1, spare), recent);
+      if (!card) break;
+      recent.push(card);
+      const spots: SectorSpot[] = [];
+      for (let k = 0; k < cardSpots(card); k++) spots.push(free.splice(rng.int(free.length), 1)[0]!);
+      const echoes: EchoPlan[] = [];
+      if (card === 'clear') {
+        // Two possible spots, one of them occupied (design §4.4).
+        const occupied = spots[rng.int(2)]!;
+        echoes.push(placeEcho(rng, cfg, s, body, occupied, card));
+      } else {
+        for (const spot of spots) echoes.push(placeEcho(rng, cfg, s, body, spot, card));
+      }
+      contacts.push({ index: contactIndex++, card, spots: spots.map((p) => p.id), echoes });
     }
-    contacts.push({ index: contactIndex++, card, spots: spots.map((p) => p.id), echoes });
   }
   return {
-    index, mapId: s.mapId, sectorId: s.id, role: 'take', entry: { ...s.entry }, entryYaw: s.entryYaw, exit: { ...s.exit },
+    index, mapId: s.mapId, sectorId: s.id, entry: { ...s.entry }, entryYaw: s.entryYaw, exit: { ...s.exit }, role, drawn,
     stake: door.stake, arms: door.arms, sightlineM: s.sightlineM, contacts,
   };
 }
@@ -377,11 +522,11 @@ export function routeCards(sectors: readonly SectorPlan[]): SweepCard[] {
 
 /** The run's opener: a take sector drawn from the seed (design §4.1: always a take), no stake. The rest of the route is drawn gate by gate (`sweepGate.ts`). */
 export function planRun(seed: number, catalog: readonly SectorSource[], cfg: SweepTunables, body: PlanBody): RunPlan {
-  const takes = drawableSectors(catalog, body);
+  const takes = drawableSectors(catalog, body, 'take');
   if (takes.length === 0) throw new Error('sweep: no take sector with a hidden hold anchor');
   const rng = sectorStream(seed, 0);
   const s = takes[rng.int(takes.length)]!;
   const base = baseContacts(rng, cfg, 0, hiddenSpots(s, body).length);
-  const opener = buildSector(rng, cfg, s, body, 0, [], base, { stake: 'plain' }, 0);
+  const opener = buildSector(rng, cfg, s, body, 0, 'take', 'take', [], base, { stake: 'plain' }, 0);
   return { seed, sectors: [opener], gates: [], doors: [] };
 }

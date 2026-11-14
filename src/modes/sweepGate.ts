@@ -1,8 +1,8 @@
 import type { Rng } from '../core/rng';
-import type { GateStake, HeardBucket, SweepCard, SweepTunables } from '../config/sweep';
+import type { GateStake, HeardBucket, SectorRole, SweepCard, SweepTunables } from '../config/sweep';
 import { GATE_STAKES } from '../config/sweep';
 import {
-  baseContacts, buildSector, drawableSectors, hiddenSpots, planRun, routeCards, sectorKey, sectorStream,
+  baseContacts, buildSector, drawableSectors, drawRole, hiddenSpots, planRun, playedRole, routeCards, sectorKey, sectorStream,
   type DoorFacts, type DoorPlan, type DoorStake, type GatePlan, type PlanBody, type RunPlan, type SectorPlan, type SectorSource,
 } from './sweepDirector';
 
@@ -34,11 +34,16 @@ export interface GateEnv {
   readonly startPrimary: string;
 }
 
-/** Echoes of a sector plan the player would hear from its entry: placed within `hearM` of it (horizontal distance, like the footstep model). */
+/**
+ * Echoes of a sector plan the player would hear from its entry: placed within `hearM` of it (horizontal
+ * distance, like the footstep model), except a meet group that **walks**: walking is silent (design §4.4),
+ * so a door does not claim to hear it. Every other Echo counts, so for a take sector the bucket is its Echo count.
+ */
 export function heardCount(sp: SectorPlan, hearM: number): number {
   let n = 0;
   for (const c of sp.contacts) {
     for (const e of c.echoes) {
+      if (e.gait === 'walk') continue;
       const dx = e.feet.x - sp.entry.x, dz = e.feet.z - sp.entry.z;
       if (dx * dx + dz * dz <= hearM * hearM) n++;
     }
@@ -108,26 +113,27 @@ function drawStake(rng: Rng, cfg: SweepTunables, allowed: readonly GateStake[]):
 }
 
 /**
- * The two sectors the doors lead to: never the one just played, differing in map or role when the
- * catalog has two such, else in sightline class, else any two (a catalog of one sector gets it twice).
+ * A sector for a door: of `pool`, never the one just played, never one in `taken` (the other door's) when
+ * another exists, preferring one on another map than the other door's, then one with the other sightline class.
+ * A pool of one sector gives it back.
  */
-export function pickCandidates(rng: Rng, pool: readonly SectorSource[], current: SectorPlan, cfg: SweepTunables): [SectorSource, SectorSource] {
-  let cands = pool.filter((s) => sectorKey(s) !== current.mapId + '/' + current.sectorId);
+export function pickSector(rng: Rng, pool: readonly SectorSource[], taken: readonly SectorSource[], current: SectorPlan, cfg: SweepTunables): SectorSource {
+  let cands = pool.filter((s) => sectorKey(s) !== current.mapId + '/' + current.sectorId && !taken.includes(s));
+  if (cands.length === 0) cands = pool.filter((s) => !taken.includes(s));
   if (cands.length === 0) cands = pool.slice();
   shuffle(rng, cands);
-  const a = cands[0]!;
-  let best = a, bestScore = -1;
-  for (let i = 1; i < cands.length; i++) {
-    const b = cands[i]!;
-    const score =
-      (b.mapId !== a.mapId || b.roles[0] !== a.roles[0] ? 2 : 0) +
-      ((b.sightlineM >= cfg.gate.longSightlineM) !== (a.sightlineM >= cfg.gate.longSightlineM) ? 1 : 0);
+  const other = taken[0];
+  if (!other) return cands[0]!;
+  const long = (x: SectorSource): boolean => x.sightlineM >= cfg.gate.longSightlineM;
+  let best = cands[0]!, bestScore = -1;
+  for (const c of cands) {
+    const score = (c.mapId !== other.mapId ? 2 : 0) + (long(c) !== long(other) ? 1 : 0);
     if (score > bestScore) {
       bestScore = score;
-      best = b;
+      best = c;
     }
   }
-  return [a, best];
+  return best;
 }
 
 /**
@@ -142,19 +148,38 @@ export function planGate(plan: RunPlan, env: GateEnv): GatePlan {
   const index = plan.sectors.length;
   const cur = plan.sectors[index - 1]!;
   const rng = sectorStream(plan.seed, index);
-  const pool = drawableSectors(env.catalog, body);
   const view = routeView(plan, env.startPrimary);
-  const [a, b] = pickCandidates(rng, pool, cur, cfg);
+
+  // The two sectors: each door draws its role from the run's mix (design §4.2, never three alike in a row, holds play as
+  // takes until #204), then a sector of that role, the second on another map or with another sightline where it can.
+  const drawnSoFar = plan.sectors.map((x) => x.drawn);
+  const roles: SectorRole[] = [];
+  const wanted: SectorRole[] = [];
+  const sources: SectorSource[] = [];
+  for (let d = 0; d < 2; d++) {
+    const want = drawRole(rng, cfg, index, drawnSoFar);
+    // Both doors are drawn against the route so far; what the other door drew does not count.
+    let role = playedRole(want);
+    let pool = drawableSectors(env.catalog, body, role).filter((x) => sectorKey(x) !== cur.mapId + '/' + cur.sectorId);
+    // A role with no sector but the one just played (one meet sector today) plays as a take: never the same sector twice in a row.
+    if (pool.length === 0) {
+      role = 'take';
+      pool = drawableSectors(env.catalog, body, 'take');
+    }
+    roles.push(role);
+    wanted.push(want);
+    sources.push(pickSector(rng, pool, sources, cur, cfg));
+  }
 
   const shieldOk = index - view.lastShieldAt >= g.shieldEverySectors;
   const armsPool = g.armsPool.filter((w) => w !== view.primary);
   const drawn: DoorStake[] = [];
-  const sources = [a, b];
   const bases: number[] = [];
   const frees: number[] = [];
-  for (const s of sources) {
-    frees.push(hiddenSpots(s, body).length);
-    bases.push(baseContacts(rng, cfg, index, frees[frees.length - 1]!));
+  for (let d = 0; d < 2; d++) {
+    const free = roles[d] === 'take' ? hiddenSpots(sources[d]!, body).length : 0;
+    frees.push(free);
+    bases.push(roles[d] === 'take' ? baseContacts(rng, cfg, index, free) : 1);
   }
   let taken: GateStake | null = null;
   for (let d = 0; d < 2; d++) {
@@ -163,7 +188,8 @@ export function planGate(plan: RunPlan, env: GateEnv): GatePlan {
       if (k === taken) continue;
       if (k === 'shield' && !shieldOk) continue;
       if (k === 'arms' && armsPool.length === 0) continue;
-      if (k === 'hot' && bases[d]! + g.hotExtraContacts > frees[d]!) continue;
+      // Hot adds a contact: a take sector needs a free hidden anchor for it; a meet sector is one crossing, it has no second contact.
+      if (k === 'hot' && (roles[d] !== 'take' || bases[d]! + g.hotExtraContacts > frees[d]!)) continue;
       allowed.push(k);
     }
     const stake = drawStake(rng, cfg, allowed);
@@ -175,7 +201,7 @@ export function planGate(plan: RunPlan, env: GateEnv): GatePlan {
   for (let d = 0; d < 2; d++) {
     const stake = drawn[d]!;
     const want = bases[d]! + (stake.stake === 'hot' ? g.hotExtraContacts : 0);
-    const sector = buildSector(rng, cfg, sources[d]!, body, index, view.recent.slice(), want, stake, view.contacts);
+    const sector = buildSector(rng, cfg, sources[d]!, body, index, roles[d]!, wanted[d]!, view.recent.slice(), want, stake, view.contacts);
     doors.push({ door: d as 0 | 1, facts: doorFacts(sector, cfg, env.hearM), sector });
   }
   return { index, doors: [doors[0]!, doors[1]!] };

@@ -65,15 +65,32 @@ describe('Sweep run director (#201)', () => {
     expect(shapes.size).toBeGreaterThan(20);
   });
 
-  it('a plan is four take sectors, none twice in a row, with the card rules of design §4.4', () => {
+  it('the catalog has Lane\'s meet sector with a straight route from its exit to its entry', () => {
+    const meets = sweepCatalog(tunables).filter((s) => s.roles.includes('meet'));
+    expect(meets.map((s) => `${s.mapId}/${s.id}`)).toEqual(['lane/lane-meet-near']);
+    const r = meets[0]!.meetRoute!;
+    expect(r.from).toEqual(meets[0]!.exit);
+    expect(Math.hypot(r.to.x - r.from.x, r.to.z - r.from.z)).toBeGreaterThan(10);
+    expect(meets[0]!.walkable(r.from, r.to)).toBe(true);
+    expect(sweepCatalog(tunables).filter((s) => !s.roles.includes('meet')).every((s) => s.meetRoute === undefined)).toBe(true);
+  });
+
+  it('a plan is four sectors, the Opener a take, none twice in a row, with the card rules of design §4.4', () => {
     const counts: Record<string, number> = {};
     for (let seed = 1; seed <= 300; seed++) {
       const plan = sweepPlan(seed);
       expect(plan.sectors).toHaveLength(cfg.sectors);
+      expect(plan.sectors[0]!.role).toBe('take');
       for (let i = 0; i < plan.sectors.length; i++) {
         const s = plan.sectors[i]!;
-        if (i > 0) expect(s.sectorId).not.toBe(plan.sectors[i - 1]!.sectorId);
+        if (i > 0) expect(`${s.mapId}/${s.sectorId}`).not.toBe(`${plan.sectors[i - 1]!.mapId}/${plan.sectors[i - 1]!.sectorId}`);
         expect(s.contacts.length).toBeGreaterThanOrEqual(1);
+        if (s.role === 'meet') {
+          expect(s.contacts).toHaveLength(1);
+          expect(s.contacts[0]!.card).toBe('meet');
+          counts.meet = (counts.meet ?? 0) + 1;
+          continue;
+        }
         expect(s.contacts.length).toBeLessThanOrEqual(perSector(cfg.contactsMax, i) + (s.stake === 'hot' ? cfg.gate.hotExtraContacts : 0));
         const used = new Set<string>();
         for (const c of s.contacts) {
@@ -94,7 +111,7 @@ describe('Sweep run director (#201)', () => {
       for (let k = 2; k < cards.length; k++) expect(cards[k] === cards[k - 1] && cards[k] === cards[k - 2]).toBe(false);
     }
     // Every card is dealt.
-    for (const c of ['take-unaware', 'take-expected', 'clear', 'crossfire']) expect(counts[c] ?? 0).toBeGreaterThan(20);
+    for (const c of ['take-unaware', 'take-expected', 'clear', 'crossfire', 'meet']) expect(counts[c] ?? 0).toBeGreaterThan(20);
   });
 
   it('drawCard never deals a third card in a row, a crossfire before sector 3, or a card without room', () => {
@@ -115,6 +132,8 @@ describe('Sweep run director (#201)', () => {
       // Both doors of every gate are checked, not only the one the route took: the other sector is planned just as well.
       const sectors = [plan.sectors[0]!, ...plan.gates.flatMap((g) => [g.doors[0].sector, g.doors[1].sector])];
       for (const s of sectors) {
+        // A meet sector hides nothing by design (its Echoes start 15 m or more away, in view, and are heard when they run).
+        if (s.role === 'meet') continue;
         const eye = { x: s.entry.x, y: s.entry.y + eyeH, z: s.entry.z };
         for (const c of s.contacts) {
           for (const e of c.echoes) {
@@ -173,6 +192,13 @@ describe('Sweep mode (#201)', () => {
         const sp = state().plan.sectors[i]!;
         expect(state().sector).toBe(i);
         expect(g.modes.currentMap.id).toBe(sp.mapId);
+        if (sp.role === 'meet') {
+          // A meet sector is the other kind: nothing hides, but no Echo starts closer than the fairness floor.
+          const p = g.world.player.pos;
+          for (const t of g.world.targets) if (t.alive) expect(Math.hypot(t.pos.x - p.x, t.pos.z - p.z)).toBeGreaterThan(15);
+          next((seed & 1) as 0 | 1);
+          continue;
+        }
         // Stand still at the entry (1 s for the first 50 seeds, else the arrival tick): no Echo shows, by the fine
         // grid and by the sim's own sight event.
         const from = log.length;

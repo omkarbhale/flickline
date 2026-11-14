@@ -58,7 +58,19 @@ describe('EnemyFootsteps', () => {
     s.pos.x = -3;
     steps.tick([s], 0, 0);
     expect(plays).toEqual([]);
-    walk(steps, s, 2.2, 1.2); // a bit over one stride from the new position: one step
+    walk(steps, s, 4.4, 0.6); // a bit over one stride from the new position: one step
     expect(plays).toHaveLength(1);
+  });
+
+  it('a walking enemy is silent and a running one is heard (honest audio, design §4.4)', () => {
+    const { plays, steps } = setup();
+    const walker = slot(1, 5, -5);
+    steps.tick([walker], 0, 0);
+    walk(steps, walker, audio.enemy.silentBelowMps - 0.3, 4); // ~2.7 m/s, a rifle walk
+    expect(plays).toEqual([]);
+    const runner = slot(2, 5, -5);
+    steps.tick([runner], 0, 0);
+    walk(steps, runner, 5.4, 2); // a rifle run: 10.8 m = 4 strides
+    expect(plays.length).toBeGreaterThanOrEqual(4);
   });
 });

@@ -1,4 +1,5 @@
 import { GATE_POLICIES, type GatePolicy } from './gatePolicy';
+import { cloneTunables } from '../../config/tunables';
 import { HeadlessGame } from './headless';
 import { playMode } from './play';
 
@@ -187,6 +188,88 @@ export function formatGatePolicyReport(rows: readonly GatePolicyRow[]): string[]
     out.push(
       `| ${r.skill} | ${r.policy} | ${r.runs} | ${r.meanScore.toFixed(0)} | ${r.meanDepth.toFixed(2)} | ${(r.finishedShare * 100).toFixed(0)} % | ${r.deltaScore >= 0 ? '+' : ''}${r.deltaScore.toFixed(0)} (± ${r.deltaScoreSe.toFixed(0)}) | ${r.deltaDepth >= 0 ? '+' : ''}${r.deltaDepth.toFixed(2)} | ${share} |`,
     );
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Meet contacts (#212): who stops first wins more often.
+// ---------------------------------------------------------------------------------------------
+
+/** One meet contact the bot fought: who dropped to counter-strafe speed first and how it ended. */
+export interface MeetFacts {
+  seed: number;
+  stopFirst: 'player' | 'echo' | 'both' | 'neither';
+  outcome: 'cleared' | 'disengaged' | 'avoided' | 'died';
+  /** Echoes in the group (1 or 2). */
+  echoes: number;
+}
+
+export interface MeetRow {
+  skill: number;
+  runs: number;
+  /** Meet contacts fought (the bot reached a meet sector alive and the contact opened). */
+  contacts: number;
+  /** By who stopped first: contacts, and how many the player won (every Echo dead, player alive). */
+  byStop: Record<MeetFacts['stopFirst'], { n: number; won: number }>;
+}
+
+/** Tunables of a run that is the Opener and then one meet sector (a forced role mix; the Opener is always a take). */
+function meetTunables() {
+  const t = cloneTunables();
+  t.sweep.sectors = 2;
+  t.sweep.roleMix = { take: 0, hold: 0, meet: 1 };
+  // The bot takes the left door: make it Plain, so the gate before the meet changes nothing about the fight measured (#205).
+  t.sweep.gate.stakeWeight = { shield: 0, arms: 0, hot: 0, plain: 1 };
+  return t;
+}
+
+/** One forced run (Opener, then a meet sector) at one skill; the meet contacts the player met. */
+export function meetRun(skill: number, seed: number, stopDelaySec: number): MeetFacts[] {
+  const g = new HeadlessGame({ seed, tunables: meetTunables() });
+  const out: MeetFacts[] = [];
+  let echoes = 0;
+  g.bus.on('sectorEntered', (e) => {
+    echoes = e.role === 'meet' ? e.echoes : 0;
+  });
+  g.bus.on('contactSettled', (e) => {
+    if (e.card === 'meet' && e.stopFirst) out.push({ seed, stopFirst: e.stopFirst, outcome: e.outcome, echoes });
+  });
+  playMode(g, { mode: 'sweep', skill, seed, sweepStopDelaySec: stopDelaySec });
+  return out;
+}
+
+/** The meet report: bot skills × forced meet runs; `stopDelaySec` is how long the bot may keep running into a fight it has seen. */
+export function meetReport(skills: readonly number[], runs: number, firstSeed = 1, stopDelaySec = 2.5): { rows: MeetRow[]; contacts: MeetFacts[] } {
+  const rows: MeetRow[] = [];
+  const all: MeetFacts[] = [];
+  for (const skill of skills) {
+    const row: MeetRow = {
+      skill, runs, contacts: 0,
+      byStop: { player: { n: 0, won: 0 }, echo: { n: 0, won: 0 }, both: { n: 0, won: 0 }, neither: { n: 0, won: 0 } },
+    };
+    for (let i = 0; i < runs; i++) {
+      for (const f of meetRun(skill, firstSeed + i, stopDelaySec)) {
+        all.push(f);
+        row.contacts++;
+        row.byStop[f.stopFirst].n++;
+        if (f.outcome === 'cleared') row.byStop[f.stopFirst].won++;
+      }
+    }
+    rows.push(row);
+  }
+  return { rows, contacts: all };
+}
+
+/** The meet report as a Markdown table (posted on the issue). */
+export function formatMeetReport(rows: readonly MeetRow[]): string[] {
+  const pct = (c: { n: number; won: number }): string => (c.n ? `${((c.won / c.n) * 100).toFixed(0)} % (${c.won}/${c.n})` : '—');
+  const out = [
+    '| Bot skill | Runs | Meet contacts | Won when the player stopped first | Won when an Echo stopped first | Both in the same tick | Neither stopped |',
+    '|---|---|---|---|---|---|---|',
+  ];
+  for (const r of rows) {
+    out.push(`| ${r.skill} | ${r.runs} | ${r.contacts} | ${pct(r.byStop.player)} | ${pct(r.byStop.echo)} | ${pct(r.byStop.both)} | ${pct(r.byStop.neither)} |`);
   }
   return out;
 }

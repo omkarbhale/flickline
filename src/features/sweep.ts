@@ -134,7 +134,7 @@ export const feature = defineFeature({
       const sp = st?.plan.sectors[e.index];
       gateView.hide();
       if (sp) marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
-      label.textContent = `Sector ${e.index + 1} / ${e.of}`;
+      label.textContent = `Sector ${e.index + 1} / ${e.of} · ${e.role}`;
       label.style.opacity = '0.9';
       if (pending) {
         pending.to = e.sectorId;
@@ -198,6 +198,7 @@ export const feature = defineFeature({
             doors: st.plan.doors.slice(),
             stakes: st.plan.sectors.map((x) => x.stake),
             sectorId: st.plan.sectors[st.sector]?.sectorId,
+            role: st.plan.sectors[st.sector]?.role,
             mapId: game.modes.currentMap.id,
             won: st.won,
             lost: st.lost,
