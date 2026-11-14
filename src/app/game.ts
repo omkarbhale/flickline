@@ -660,7 +660,7 @@ export class Game {
   /** What the results card's primary button says: the session's next step, or null for plain "Play again". */
   nextRunLabel(): string | null {
     const next = this.run.isSelfDriven ? null : this.todaysSession.next();
-    return next === null ? null : (this.tunables.menu.modeCards[next]?.name ?? titleFromId(next));
+    return next === null ? null : `Next: ${this.tunables.menu.modeCards[next]?.name ?? titleFromId(next)}`;
   }
 
   /** Show the menu over whatever is on screen (the results card's `Esc` when the pointer is already free). */

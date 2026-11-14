@@ -14,7 +14,6 @@ import {
   ShaderMaterial,
   Vector3,
   type Object3D,
-  type PerspectiveCamera,
   type Scene,
 } from 'three';
 import type { FeedbackTunables } from '../config/feedback';
@@ -29,8 +28,9 @@ import {
 /*
  * Per-shot world effects (design §7.1 "See", §11 "Effects"). All state lives in the pure cue model
  * (feedback/shotCues.ts); this file turns the active cues into GPU instance buffers once per
- * frame. Everything is preallocated: typed arrays, scratch vectors, five instanced draws
- * (tracer strips, billboard sparks and ghost ring, decals, shard triangles, muzzle flash).
+ * frame. Everything is preallocated: typed arrays, scratch vectors, four instanced draws
+ * (tracer strips, billboard sparks and ghost ring, decals, shard triangles). The muzzle flash is
+ * drawn on the viewmodel (render/viewmodel.ts), not here.
  * Nothing is created per shot, and an idle effect hides its mesh so it costs no draw call.
  */
 
@@ -201,25 +201,6 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
-const FLASH_VERT = /* glsl */ `
-varying vec2 vP;
-void main() {
-  vP = position.xy * 2.0;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}`;
-
-const FLASH_FRAG = /* glsl */ `
-uniform vec3 uColor;
-uniform float uAlpha;
-varying vec2 vP;
-void main() {
-  float r = length(vP);
-  float glow = exp(-r * r * 5.0);
-  float star = exp(-abs(vP.x) * 6.0 - abs(vP.y) * 30.0) + exp(-abs(vP.y) * 6.0 - abs(vP.x) * 30.0);
-  gl_FragColor = vec4(uColor, clamp(glow + star, 0.0, 1.0) * uAlpha);
-  #include <colorspace_fragment>
-}`;
-
 function strip(): InstancedBufferGeometry {
   const plane = new PlaneGeometry(1, 1);
   const g = new InstancedBufferGeometry();
@@ -297,10 +278,6 @@ export class ShotEffects {
   private readonly shardAttrs: InstancedBufferAttribute[] = [];
   private shardsActive = false;
 
-  // Muzzle flash (child of the camera, viewmodel-local).
-  private readonly flashMesh: Mesh;
-  private readonly flashMat: ShaderMaterial;
-
   private clock = 0;
 
   // Scratch (no per-frame allocation).
@@ -315,7 +292,6 @@ export class ShotEffects {
 
   constructor(
     scene: Scene,
-    camera: PerspectiveCamera,
     private readonly cues: ShotCues,
     cfg: FeedbackTunables,
   ) {
@@ -400,23 +376,6 @@ export class ShotEffects {
     this.shardMat.side = DoubleSide; // shards tumble
     this.shardMesh = new Mesh(this.shardGeo, this.shardMat);
     frustumOff(this.shardMesh);
-
-    // --- muzzle flash, parented to the camera at the placeholder viewmodel's muzzle
-    const flashGeo = new PlaneGeometry(1, 1);
-    this.flashMat = fxMaterial(
-      FLASH_VERT,
-      FLASH_FRAG,
-      { uColor: { value: new Color(cfg.muzzleFlash.color) }, uAlpha: { value: 0 } },
-      true,
-    );
-    this.flashMat.depthTest = false;
-    this.flashMesh = new Mesh(flashGeo, this.flashMat);
-    this.flashMesh.position.set(0.15, -0.14, -0.56);
-    this.flashMesh.scale.setScalar(cfg.muzzleFlash.size);
-    this.flashMesh.frustumCulled = false;
-    this.flashMesh.visible = false;
-    this.flashMesh.renderOrder = 20;
-    camera.add(this.flashMesh);
   }
 
   /** Drawing-buffer height in pixels (keeps tracers at least `tracer.minPx` thick). */
@@ -433,7 +392,6 @@ export class ShotEffects {
     this.syncSprites();
     this.syncDecals();
     this.syncShards();
-    this.syncFlash();
   }
 
   private syncTracers(): void {
@@ -565,19 +523,6 @@ export class ShotEffects {
     this.shardsActive = any;
   }
 
-  private syncFlash(): void {
-    const f = this.cues.flash;
-    if (!f.active) {
-      this.flashMesh.visible = false;
-      return;
-    }
-    const t = Math.min(1, f.age / f.life);
-    this.flashMesh.visible = true;
-    this.flashMat.uniforms.uAlpha!.value = 1 - t * t;
-    this.flashMesh.rotation.z = this.cues.frame * 1.7;
-    this.flashMesh.scale.setScalar(this.cfg.muzzleFlash.size * (0.8 + 0.4 * (1 - t)));
-  }
-
   /** Show the mesh while active (plus one frame to clear) and flag its instance buffers for upload. */
   private finish(mesh: Mesh, attrs: InstancedBufferAttribute[], any: boolean, was: boolean): void {
     mesh.visible = any || was;
@@ -602,8 +547,5 @@ export class ShotEffects {
       (m.material as ShaderMaterial).dispose();
       m.removeFromParent();
     }
-    this.flashMesh.geometry.dispose();
-    this.flashMat.dispose();
-    this.flashMesh.removeFromParent();
   }
 }

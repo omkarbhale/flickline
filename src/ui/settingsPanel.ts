@@ -1,5 +1,6 @@
 import { cmPer360, sensitivityFromCmPer360 } from '../core/sensitivity';
 import { QUALITY_LEVELS } from '../config/render';
+import type { ViewmodelMode } from '../config/viewmodel';
 import type { Tunables } from '../config/tunables';
 import type { Settings, SettingsStore } from '../settings/settings';
 import { CrosshairEditor } from './crosshairEditor';
@@ -28,6 +29,7 @@ export class SettingsPanel {
   private readonly vol: HTMLInputElement;
   private readonly quality: HTMLSelectElement;
   private readonly flinch: HTMLSelectElement;
+  private readonly viewmodel: HTMLSelectElement;
   private readonly toggles: [keyof Settings, HTMLInputElement][] = [];
   private readonly raw: HTMLElement;
   private readonly crosshair: CrosshairEditor;
@@ -76,9 +78,14 @@ export class SettingsPanel {
       `Hit flinch<select data-k="flinch" name="flinch" id="set-flinch"><option value="0">off</option><option value="0.5">half</option><option value="1">normal</option><option value="2">strong</option></select>`,
     );
     this.flinch = q(flinch, 'flinch');
+    const viewmodel = field(
+      'set-select',
+      `Weapon<select data-k="viewmodel" name="viewmodel" id="set-viewmodel"><option value="right">right hand</option><option value="left">left hand</option><option value="hidden">hidden</option></select>`,
+    );
+    this.viewmodel = q(viewmodel, 'viewmodel');
     const chDetails = h('details', { class: 'ch-editor' }, [h('summary', { text: 'Crosshair' }), h('div', { attrs: { 'data-k': 'crosshair' } })]);
     const hudDetails = h('details', { class: 'ch-editor' }, [h('summary', { text: 'HUD' }), h('div', { attrs: { 'data-k': 'hud' } })]);
-    gameplay.append(toggleGrid, flinch, chDetails, hudDetails);
+    gameplay.append(toggleGrid, viewmodel, flinch, chDetails, hudDetails);
     this.crosshair = new CrosshairEditor(q(chDetails, 'crosshair'), store);
     this.hudPanel = new HudSettingsPanel(q(hudDetails, 'hud'), store);
 
@@ -137,6 +144,7 @@ export class SettingsPanel {
       this.store.set({ quality: this.quality.value as 'low' | 'medium' | 'high' });
     });
     this.flinch.addEventListener('change', () => this.store.set({ flinchStrength: parseFloat(this.flinch.value) }));
+    this.viewmodel.addEventListener('change', () => this.store.set({ viewmodel: this.viewmodel.value as ViewmodelMode }));
     this.setRawInput(null);
     this.sync();
   }
@@ -154,6 +162,7 @@ export class SettingsPanel {
     this.vol.value = String(s.volume);
     this.quality.value = s.quality;
     this.flinch.value = String(s.flinchStrength);
+    this.viewmodel.value = s.viewmodel;
     for (const [key, el] of this.toggles) el.checked = s[key] as boolean;
     this.crosshair.sync();
     this.hudPanel.sync();

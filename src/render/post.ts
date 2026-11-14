@@ -59,6 +59,21 @@ export function createVignetteEffect(): PostEffect {
   return { name: 'vignette', enabled: true, material };
 }
 
+/** A second scene drawn over the world with its own camera (the viewmodel pass). */
+export interface Overlay {
+  scene: Scene;
+  camera: PerspectiveCamera;
+}
+
+function drawOverlay(renderer: WebGLRenderer, overlay: Overlay | null | undefined): void {
+  if (!overlay) return;
+  const autoClear = renderer.autoClear;
+  renderer.autoClear = false;
+  renderer.clearDepth();
+  renderer.render(overlay.scene, overlay.camera);
+  renderer.autoClear = autoClear;
+}
+
 export class PostPipeline {
   readonly effects: PostEffect[] = [];
   /** Master switch (driven by the quality preset). */
@@ -104,10 +119,15 @@ export class PostPipeline {
     this.rtB = new WebGLRenderTarget(this.width, this.height, { type: HalfFloatType, depthBuffer: false });
   }
 
-  render(renderer: WebGLRenderer, scene: Scene, camera: PerspectiveCamera): void {
+  /**
+   * Draw `scene`, then (if given) `overlay` on top with the depth buffer cleared (the first-person
+   * weapon: its own camera and FOV, never clipped by the world), then run the effects over both.
+   */
+  render(renderer: WebGLRenderer, scene: Scene, camera: PerspectiveCamera, overlay?: Overlay | null): void {
     if (!this.active) {
       renderer.setRenderTarget(null);
       renderer.render(scene, camera);
+      drawOverlay(renderer, overlay);
       return;
     }
     this.ensureTargets();
@@ -115,6 +135,7 @@ export class PostPipeline {
     let write = this.rtB!;
     renderer.setRenderTarget(read);
     renderer.render(scene, camera);
+    drawOverlay(renderer, overlay);
 
     let remaining = 0;
     for (let i = 0; i < this.effects.length; i++) if (this.effects[i]!.enabled) remaining++;
