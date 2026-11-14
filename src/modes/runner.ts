@@ -4,6 +4,7 @@ import { Rng } from '../core/rng';
 import { secondsToTicks, TICK_DT } from '../core/time';
 import type { Vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
+import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import { createScoreBreakdown, scoreKill, type ScoreBreakdown } from '../feedback/scoring';
 import { StreakTracker } from '../feedback/streaks';
@@ -27,6 +28,8 @@ export interface RunnerDeps {
   vitals?: VitalsView;
   /** Load another map mid-run, returning the anchors of the new one (null: unknown map). Absent: `loadMap` fails. */
   loadMap?: (id: string) => AnchorSource | null;
+  /** Equip both sides as an economy does (`ModeContext.setEconomy`). Absent: nothing changes. */
+  setEconomy?: (economy: Economy) => void;
 }
 
 const FULL_VITALS: VitalsView = { hp: 100, maxHp: 100, shield: 0, maxShield: 0, alive: true };
@@ -221,7 +224,7 @@ export class ModeRunner implements ModeContext<unknown> {
     this.durationTicks = Number.isFinite(mode.durationSec) ? secondsToTicks(mode.durationSec) : Infinity;
     this.manualBeats = mode.beatSec === null;
     this.beatTicks = this.manualBeats ? Infinity : secondsToTicks(mode.beatSec ?? this.tunables.dial.beat.drillSec);
-    this.readyTicksLeft = secondsToTicks(m.readySec);
+    this.readyTicksLeft = secondsToTicks(mode.readySec ?? m.readySec);
     this.phase = 'ready';
     this.applyBeat(0);
     const r = this.readyEv;
@@ -231,6 +234,20 @@ export class ModeRunner implements ModeContext<unknown> {
     r.dial = this.dial;
     this.deps.events.emit('runReady', r);
     this.state = (mode as ModeDef<unknown>).setup(this);
+  }
+
+  /** Seconds of the `ready` phase left (0 outside it). */
+  get readyLeftSec(): number {
+    return this.phase === 'ready' ? this.readyTicksLeft * TICK_DT : 0;
+  }
+
+  /** End the `ready` phase at the next tick (the primary pick starts the run at once, design §4.1). */
+  skipReady(): void {
+    if (this.phase === 'ready') this.readyTicksLeft = 1;
+  }
+
+  setEconomy(economy: Economy): void {
+    this.deps.setEconomy?.(economy);
   }
 
   /** Advance one sim tick; call right after `world.step`. */

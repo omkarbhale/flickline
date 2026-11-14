@@ -149,7 +149,16 @@ export interface RunEvents extends SprayEvents, SectorEvents {
     trials?: number;
     /** The contact's item difficulty (its placement dial + its card's offset, design §9.1): a decided contact feeds the fight track at it (#203). */
     difficulty?: number;
+    /**
+     * Meet contacts (#212, design §4.2): which side first dropped to counter-strafe speed or below (the accuracy
+     * deadzone, `sweep.meet.stopSpeedMps`) once the contact opened: the player, an Echo, both in the same tick, or
+     * neither before it settled. Absent on every other card.
+     */
+    stopFirst?: 'player' | 'echo' | 'both' | 'neither';
   };
+
+  /** A Leave gate banked the run (design §4.7, §14.3; Overtime and its gates arrive with #204, so nothing emits this yet): `points` includes the Overtime points that were at risk (design §4.7). */
+  runBanked: { tick: number; t: number; points: number; overtimeSectors: number };
 }
 
 declare module '../core/gameEvents' {

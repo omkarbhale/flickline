@@ -5,6 +5,7 @@ import { SkillState } from '../adaptive/skillModel';
 import type { StorageLike } from '../settings/settings';
 import { summariseRun } from './bests';
 import { defaultProgress, MIGRATIONS, readProgress, SAVE_VERSION, toSave, type RunSummary } from './save';
+import type { RunRecord } from './runRecords';
 import { ProgressStore, type ProgressEvents } from './store';
 import { computeStats } from '../feedback/statTracker';
 
@@ -20,40 +21,114 @@ function run(mode: string, score: number, o: Partial<RunSummary> = {}): RunSumma
   return { ...summariseRun({ ...stats, endReason: 'timer' }, score, o.date ?? '2026-01-01T00:00:00.000Z', []), ...o };
 }
 
-const curve = [0, 100, 250];
+/** A finished run's record: `sectors` sectors cleared (the last entered one too), each worth `score / sectors`. */
+function record(score: number, o: Partial<RunRecord> & { sectors?: number } = {}): RunRecord {
+  const sectors = o.sectors ?? 3;
+  const strip = Array.from({ length: sectors }, (_, i) => ({
+    index: i + 1, role: 'take', condition: 'full', stake: 'plain', won: 1, lost: 0, hpIn: 100, hpOut: 90, cleared: true, flawless: false,
+  }));
+  const pace = Array.from({ length: sectors }, (_, i) => Math.round((score * (i + 1)) / sectors));
+  return { seed: 1, dial: 50, score, depth: sectors, cleared: sectors, finaleCleared: false, strip, pace, contacts: [], ...o };
+}
+
+describe('the last primary pick (#207, design §4.1)', () => {
+  const key = cfg.storageKey;
+
+  it('is empty before the first pick, kept across a reload, and an older save without it reads as empty', () => {
+    const storage = memoryStorage();
+    const a = new ProgressStore(null, storage);
+    expect(a.lastPrimary).toBe('');
+    a.setLastPrimary('rill');
+    expect(a.lastPrimary).toBe('rill');
+    expect(new ProgressStore(null, storage).lastPrimary).toBe('rill');
+    const old = { ...toSave(defaultProgress()) } as Record<string, unknown>;
+    delete old.lastPrimary;
+    expect(new ProgressStore(null, memoryStorage({ [key]: JSON.stringify(old) })).lastPrimary).toBe('');
+  });
+
+  it('a hand-edited value that is not a plain id is dropped', () => {
+    const bad = { ...toSave(defaultProgress()), lastPrimary: '<script>' };
+    expect(new ProgressStore(null, memoryStorage({ [key]: JSON.stringify(bad) })).lastPrimary).toBe('');
+  });
+});
 
 describe('progress store: bests, plays and history', () => {
   it('starts empty and answers the menu\'s three reads', () => {
     const s = new ProgressStore(null, memoryStorage());
-    expect(s.best('orbit')).toBeNull();
-    expect(s.plays('orbit')).toBe(0);
+    expect(s.best('sweep')).toBeNull();
+    expect(s.plays('sweep')).toBe(0);
     expect(s.flaggedSkill).toBeNull();
     expect(s.snapshot.ratings).toBeNull();
   });
 
-  it('keeps one best per (mode, band) with seed, date, score, stats and curve', () => {
+  it('keeps one best run per dial band with seed, date, score, route and pace', () => {
     const s = new ProgressStore(null, memoryStorage());
-    expect(s.recordRun(run('orbit', 1200, { dial: 30, seed: 7 }), curve)).toEqual({ newBest: true, previousBest: null });
-    expect(s.recordRun(run('orbit', 900, { dial: 30 }), curve)).toEqual({ newBest: false, previousBest: 1200 });
+    const first = s.recordRun(run('sweep', 1200, { dial: 30, seed: 7 }), record(1200, { dial: 30, seed: 7 }));
+    expect(first).toMatchObject({ newBest: true, previousBest: null, newDeepest: true, finaleCleared: false });
+    expect(s.recordRun(run('sweep', 900, { dial: 30 }), record(900, { dial: 30 }))).toMatchObject({ newBest: false, previousBest: 1200 });
     // a lower score at a harder band is its own best
-    expect(s.recordRun(run('orbit', 500, { dial: 80, seed: 8, date: '2026-02-02T00:00:00.000Z' }), curve).newBest).toBe(true);
-    const easy = s.bestAt('orbit', 30)!;
-    expect(easy).toMatchObject({ score: 1200, seed: 7, dial: 30, curve });
-    expect(easy.stats).toMatchObject({ shots: 0, accuracy: null });
+    expect(s.recordRun(run('sweep', 500, { dial: 80, seed: 8, date: '2026-02-02T00:00:00.000Z' }), record(500, { dial: 80, seed: 8 })).newBest).toBe(true);
+    const easy = s.bestRun(30)!;
+    expect(easy).toMatchObject({ score: 1200, seed: 7, dial: 30, depth: 3, cleared: 3, pace: [400, 800, 1200] });
+    expect(easy.strip).toHaveLength(3);
     expect(easy.date).toBe('2026-01-01T00:00:00.000Z');
-    expect(s.bestAt('orbit', 80)).toMatchObject({ score: 500, seed: 8, date: '2026-02-02T00:00:00.000Z' });
-    expect(s.bestAt('orbit', 60)).toBeNull(); // Neon: nothing yet
-    expect(s.best('orbit')).toBe(1200);
-    expect(s.plays('orbit')).toBe(3);
+    expect(s.bestRun(80)).toMatchObject({ score: 500, seed: 8, date: '2026-02-02T00:00:00.000Z' });
+    expect(s.bestRun(60)).toBeNull(); // Neon: nothing yet
+    expect(s.best('sweep')).toBe(1200);
+    expect(s.plays('sweep')).toBe(3);
   });
 
-  it('a zero score is a play, never a best; the placement run keeps no best', () => {
+  it('keeps the deepest run and the Finales cleared per band, apart from the best score', () => {
     const s = new ProgressStore(null, memoryStorage());
-    expect(s.recordRun(run('orbit', 0), null).newBest).toBe(false);
-    expect(s.recordRun(run('placement', 900), null).newBest).toBe(false);
-    expect(s.best('orbit')).toBeNull();
-    expect(s.best('placement')).toBeNull();
-    expect(s.plays('placement')).toBe(1);
+    s.recordRun(run('sweep', 3000), record(3000, { sectors: 3 }));
+    const deep = s.recordRun(run('sweep', 1000), record(1000, { sectors: 7, finaleCleared: true }));
+    expect(deep).toMatchObject({ newBest: false, newDeepest: true, finaleCleared: true });
+    const r = s.bandRecords(50)!;
+    expect(r.best!.score).toBe(3000);
+    expect(r.deepest).toMatchObject({ score: 1000, depth: 7 }); // Overtime 1
+    expect(r.finalesCleared).toBe(1);
+    // the same depth with fewer sectors cleared, or a lower score, is not deeper
+    expect(s.recordRun(run('sweep', 900), record(900, { sectors: 7, cleared: 6 })).newDeepest).toBe(false);
+    expect(s.recordRun(run('sweep', 1100), record(1100, { sectors: 7, finaleCleared: true })).newDeepest).toBe(true);
+    expect(s.bandRecords(50)!.finalesCleared).toBe(2);
+  });
+
+  it('keeps the Daily Route best per date and only the newest dates', () => {
+    const s = new ProgressStore(null, memoryStorage());
+    expect(s.recordRun(run('sweep', 500), record(500), '2026-03-01').newDailyBest).toBe(true);
+    expect(s.recordRun(run('sweep', 400), record(400), '2026-03-01').newDailyBest).toBe(false);
+    expect(s.recordRun(run('sweep', 600), record(600), '2026-03-01').newDailyBest).toBe(true);
+    expect(s.dailyBest('2026-03-01')!.score).toBe(600);
+    expect(s.dailyBest('2026-03-02')).toBeNull();
+    const small = new ProgressStore(null, memoryStorage(), { ...cfg, maxDailyBests: 2 });
+    for (const d of ['2026-03-01', '2026-03-03', '2026-03-02']) small.recordRun(run('sweep', 100), record(100), d);
+    expect(Object.keys(small.snapshot.dailyBests).sort()).toEqual(['2026-03-02', '2026-03-03']);
+  });
+
+  it('a zero score is a play, never a best; a drill keeps no best, a quit keeps only its contacts', () => {
+    const s = new ProgressStore(null, memoryStorage());
+    expect(s.recordRun(run('sweep', 0), record(0)).newBest).toBe(false);
+    expect(s.recordRun(run('orbit', 900), null)).toMatchObject({ newBest: false, newDeepest: false });
+    expect(s.best('sweep')).toBeNull();
+    expect(s.best('orbit')).toBeNull(); // drill bests are read-only history now: nothing writes them
+    expect(s.plays('orbit')).toBe(1);
+    s.recordContactsOnly(record(300, { contacts: [{ card: 'clear', won: true, kept: 0.5 }] }));
+    expect(s.situation('clear')).toMatchObject({ contacts: 1, wins: 1 });
+    expect(s.plays('sweep')).toBe(1);
+  });
+
+  it('records the situations of a run: the last 50 contacts per card', () => {
+    const s = new ProgressStore(null, memoryStorage());
+    const contacts = Array.from({ length: 60 }, (_, i) => ({ card: 'take-expected', won: i % 2 === 0, kept: i < 55 ? 0.5 : 1 }));
+    s.recordRun(run('sweep', 100), record(100, { contacts }));
+    const st = s.situation('take-expected');
+    expect(st.contacts).toBe(50);
+    expect(st.wins).toBe(25);
+    expect(st.winRate).toBe(0.5);
+    expect(st.keptMean).toBeCloseTo((45 * 0.5 + 5 * 1) / 50, 5);
+    expect(s.situation('take-expected', 20).contacts).toBe(20);
+    expect(s.situation('nothing')).toEqual({ contacts: 0, wins: 0, winRate: null, keptMean: null });
+    expect(s.situationCards).toEqual(['take-expected']);
   });
 
   it('keeps the last 200 runs, newest last, summaries only', () => {
@@ -104,7 +179,7 @@ describe('progress store: persistence', () => {
     skills.observe('flick', { itemDifficulty: 50, success: true });
     s.batch(() => {
       s.setRatings(skills.serialize());
-      s.recordRun(run('orbit', 1200), curve);
+      s.recordRun(run('sweep', 1200), record(1200));
       s.updateRanks([{ key: 'flick', sub: 7 }]);
     });
     expect(cfg.storageKey).toBe('flickline.save.v1');
@@ -119,7 +194,7 @@ describe('progress store: persistence', () => {
     for (const storage of [null, blocked]) {
       const s = new ProgressStore(null, storage);
       expect(() => s.recordRun(run('orbit', 5), null)).not.toThrow();
-      expect(s.best('orbit')).toBe(5);
+      expect(s.plays('orbit')).toBe(1);
       expect(['memory', 'failed']).toContain(s.persistence);
     }
     expect(new ProgressStore(null, null).persistence).toBe('memory');
@@ -133,7 +208,7 @@ describe('progress store: persistence', () => {
     const full: StorageLike = { getItem: (k) => st.getItem(k), setItem: () => { throw new DOMException('full', 'QuotaExceededError'); } };
     const s = new ProgressStore(null, full);
     s.recordRun(run('orbit', 7), null);
-    expect(s.best('orbit')).toBe(7);
+    expect(s.plays('orbit')).toBe(1);
     expect(s.persistence).toBe('failed');
   });
 
@@ -153,7 +228,7 @@ describe('progress store: persistence', () => {
     const s = new ProgressStore(null, st);
     expect(s.persistence).toBe('newer');
     s.recordRun(run('orbit', 5), null);
-    expect(s.best('orbit')).toBe(5); // it still plays
+    expect(s.plays('orbit')).toBe(1); // it still plays
     expect(st.data[cfg.storageKey]).toBe(newer);
   });
 
@@ -206,7 +281,7 @@ describe('save versions', () => {
 
   it('a populated save round-trips through JSON unchanged', () => {
     const s = new ProgressStore(null, null);
-    s.recordRun(run('orbit', 1200, { dial: 61 }), curve);
+    s.recordRun(run('sweep', 1200, { dial: 61 }), record(1200, { dial: 61, contacts: [{ card: 'clear', won: true, kept: 0.8 }] }));
     s.addMedal('hairline', 'd');
     s.updateRanks([{ key: 'line', sub: 4 }]);
     const r = readProgress(JSON.stringify(toSave(s.snapshot as never)));
@@ -218,7 +293,7 @@ describe('save versions', () => {
 describe('no time-played XP', () => {
   it('appears nowhere in a populated save', () => {
     const s = new ProgressStore(null, null);
-    for (let i = 0; i < 3; i++) s.recordRun(run('orbit', 100 + i, { dial: 61 }), curve);
+    for (let i = 0; i < 3; i++) s.recordRun(run('sweep', 100 + i, { dial: 61 }), record(100 + i, { dial: 61 }));
     s.addMedal('flawless', 'd');
     s.updateRanks([{ key: 'flick', sub: 3 }]);
     s.setRatings(new SkillState('some').serialize());

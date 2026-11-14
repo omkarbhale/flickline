@@ -59,6 +59,8 @@ export interface StrafeSpawn {
   /** The strafe line's ends (feet height). */
   laneA: Vec3;
   laneB: Vec3;
+  /** A route from `laneA` to `laneB` before the first stop (Sweep's meet sectors): see `StrafeParams.travel`. */
+  travel?: boolean;
 }
 
 /** What a Peeker needs at spawn (a map's `peek` anchor, design §10.2): its hidden and full-out feet positions and pattern. */

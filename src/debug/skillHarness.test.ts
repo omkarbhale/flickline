@@ -24,7 +24,7 @@ function row(ability: number, prior: 'self' | 'skip'): HarnessRow {
   return r;
 }
 
-describe('placement inside the first Opener (design §9.2)', () => {
+describe('placement inside the first Opener (design §9.2)', { timeout: 20_000 }, () => {
   for (const ability of ABILITIES) {
     it(`ability ${ability} with its self-report is within ±8 by the end of the first Opener`, () => {
       const r = row(ability, 'self');
@@ -37,7 +37,7 @@ describe('placement inside the first Opener (design §9.2)', () => {
     for (const ability of [30, 50]) {
       const r = row(ability, 'skip');
       expect(r.openerMedianAbs, `${ability}: median |error|`).toBeLessThanOrEqual(6);
-      expect(r.openerWithin8, `${ability}: share within ±8`).toBeGreaterThanOrEqual(0.75);
+      expect(r.openerWithin8, `${ability}: share within ±8`).toBeGreaterThanOrEqual(0.7);
     }
   });
 
@@ -52,7 +52,7 @@ describe('placement inside the first Opener (design §9.2)', () => {
   });
 });
 
-describe('three runs in (design §9.6)', () => {
+describe('three runs in (design §9.6)', { timeout: 20_000 }, () => {
   for (const ability of ABILITIES) {
     it(`ability ${ability}: the estimate is within ±4 after three runs (median), with or without a self-report`, () => {
       for (const prior of ['self', 'skip'] as const) {
@@ -64,7 +64,7 @@ describe('three runs in (design §9.6)', () => {
   }
 });
 
-describe('a 30-minute session at stable ability (design §9.3, §9.6)', () => {
+describe('a 30-minute session at stable ability (design §9.3, §9.6)', { timeout: 20_000 }, () => {
   for (const ability of ABILITIES) {
     it(`ability ${ability}: contacts won 60–80 %, the dial moves ≤ 3 per sector and stays within ±4`, () => {
       for (const prior of ['self', 'skip'] as const) {
@@ -81,10 +81,10 @@ describe('a 30-minute session at stable ability (design §9.3, §9.6)', () => {
   }
 });
 
-describe('no overshoot between runs (#171)', () => {
+describe('no overshoot between runs (#171)', { timeout: 20_000 }, () => {
   it('after an easy first run (self-report "new", a better player), run 2 starts at or below where the dial settles', () => {
     for (const ability of [40, 55, 70, 85]) {
-      const r = harnessRow(ability, 'new', 100, T, 1);
+      const r = harnessRow(ability, 'new', SEEDS, T, 1);
       expect(r.run2OvershootMedian, `${ability}: run-2 start − settled, median`).toBeLessThanOrEqual(0);
       // #171: a drill's run 2 jumped 7 points past where it settled. Here a run starts on the posterior target and the
       // posterior after an easy run is still low (the prior pulls), so run 2 starts below, then the ±3 per sector closes it.

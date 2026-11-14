@@ -4,7 +4,7 @@ import { hud } from '../config/hud';
 import type { ModeEvents } from '../modes/contracts';
 import type { SimEvents } from '../sim/types';
 import { EdgeMeter } from './edgeMeter';
-import { NO_PERSONAL_BEST, paceFraction } from './ghostPace';
+import { NO_PACE, paceFraction } from './ghostPace';
 import { TrackerHudStats } from './hudStats';
 import type { RunStats } from './statTracker';
 
@@ -117,17 +117,17 @@ describe('EdgeMeter (rolling success over the last 20 trials)', () => {
 
 describe('ghost pace', () => {
   it('the stub provider has no personal best, so the pace is NaN (bar hidden)', () => {
-    expect(NO_PERSONAL_BEST.scoreAt('test', 10)).toBeNull();
-    expect(paceFraction(500, NO_PERSONAL_BEST.scoreAt('test', 10), hud)).toBeNaN();
+    expect(NO_PACE.pace()?.reference ?? null).toBeNull();
+    expect(paceFraction(500, NO_PACE.pace()?.reference ?? null, hud)).toBeNaN();
   });
-  it('is signed and clamped to ±1 at the full-scale fraction of the PB', () => {
+  it('is signed and clamped to ±1 at the full-scale fraction of the best run', () => {
     expect(paceFraction(1000, 1000, hud)).toBe(0);
     expect(paceFraction(1125, 1000, hud)).toBeCloseTo(0.5);
     expect(paceFraction(875, 1000, hud)).toBeCloseTo(-0.5);
     expect(paceFraction(5000, 1000, hud)).toBe(1);
     expect(paceFraction(0, 1000, hud)).toBe(-1);
   });
-  it('a PB too small to compare against is treated as none', () => {
+  it('a reference too small to compare against is treated as none', () => {
     expect(paceFraction(100, hud.ghostMinPbScore - 1, hud)).toBeNaN();
     expect(paceFraction(100, 0, hud)).toBeNaN();
   });

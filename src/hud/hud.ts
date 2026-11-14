@@ -5,6 +5,7 @@ import type { FeedbackTunables } from '../config/feedback';
 import { colorToHex, type CrosshairParams } from '../settings/crosshair';
 import type { SettingsEvents } from '../settings/settings';
 import type { ModeEvents } from '../modes/contracts';
+import type { EconomyEvents } from '../sim/economyEvents';
 import type { HitZone, SimEvents } from '../sim/types';
 import { CrosshairView } from './crosshairView';
 import { LiveHud, type LiveHudDeps } from './liveHud';
@@ -65,7 +66,7 @@ export class Hud {
 
   constructor(
     root: HTMLElement,
-    bus: Subscribable<SimEvents & SettingsEvents & ModeEvents>,
+    bus: Subscribable<SimEvents & SettingsEvents & ModeEvents & EconomyEvents>,
     crosshair: Readonly<CrosshairParams>,
     liveDeps: LiveHudDeps,
     private readonly fx: HudFeedbackDeps,

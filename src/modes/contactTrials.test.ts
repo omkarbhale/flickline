@@ -191,18 +191,20 @@ describe('angles: crosshair placement at a take contact’s first sight', () => 
     expect(s.of('angles').map((t) => [t.contact, t.success])).toEqual([[0, true], [1, false], [2, false]]);
   });
 
-  it('a take contact settled without the player ever seeing an Echo fails it; a non-take contact has none', () => {
+  it('a contact settled without the player ever seeing an Echo fails it; a non-take contact the player saw has none', () => {
     const s = sector([
       { card: 'take-expected', difficulty: 40, echoes: [{ id: 1 }] },
-      { card: 'take-expected', difficulty: 40, take: false, echoes: [{ id: 2 }] },
+      { card: 'meet', difficulty: 40, take: false, echoes: [{ id: 2 }] },
+      { card: 'meet', difficulty: 40, take: false, echoes: [{ id: 3 }] },
     ]);
     s.play([
       { at: 0.5, type: 'settle', contact: 0, lost: true },
       { at: 0.6, type: 'sighted', id: 2, preAimDeg: 1 },
       { at: 0.7, type: 'settle', contact: 1, lost: false },
+      { at: 0.8, type: 'settle', contact: 2, lost: true },
     ]);
     const a = s.of('angles');
-    expect(a.map((t) => [t.contact, t.success, t.extra.seen])).toEqual([[0, false, 0]]);
+    expect(a.map((t) => [t.contact, t.success, t.extra.seen])).toEqual([[0, false, 0], [2, false, 0]]);
   });
 
   it('every take contact that settles has produced at least one trial', () => {

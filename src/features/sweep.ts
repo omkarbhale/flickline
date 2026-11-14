@@ -64,6 +64,21 @@ export const feature = defineFeature({
       'color:#38e8ff;text-shadow:0 0 8px rgba(56,232,255,.45);opacity:0;transition:opacity .25s;pointer-events:none;text-transform:uppercase;';
     game.hud.root.appendChild(label);
 
+    // The announcement of a light or eco sector (design §4.6): shown on entry until the door shows it too (#205).
+    const banner = document.createElement('div');
+    banner.className = 'sweep-condition';
+    banner.hidden = true;
+    const bannerTitle = document.createElement('b');
+    const bannerLine = document.createElement('span');
+    banner.append(bannerTitle, bannerLine);
+    game.hud.root.appendChild(banner);
+    banner.style.setProperty('--banner-sec', `${cfg.conditionBannerSec}s`);
+    let bannerTimer = 0;
+    const hideBanner = (): void => {
+      window.clearTimeout(bannerTimer);
+      banner.hidden = true;
+    };
+
     const switches: SectorSwitch[] = [];
     let pending: SectorSwitch | null = null;
     let exitAt = 0;
@@ -86,8 +101,18 @@ export const feature = defineFeature({
       const st = state();
       const sp = st?.plan.sectors[e.index];
       if (sp) marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
-      label.textContent = `Sector ${e.sector + 1} / ${e.of}`;
+      const word = game.tunables.results.conditionLabels[e.condition] ?? '';
+      label.textContent = `Sector ${e.sector + 1} / ${e.of} · ${e.role}` + (word ? ` · ${word}` : '');
       label.style.opacity = '0.9';
+      hideBanner();
+      const copy = cfg.conditionCopy[e.condition as 'full' | 'light' | 'eco'];
+      if (copy && copy.title) {
+        bannerTitle.textContent = copy.title;
+        bannerLine.textContent = copy.line;
+        banner.dataset.condition = e.condition;
+        banner.hidden = false;
+        bannerTimer = window.setTimeout(hideBanner, cfg.conditionBannerSec * 1000);
+      }
       if (pending) {
         pending.to = e.sectorId;
         pending.mapChanged = e.mapId !== lastMap;
@@ -108,6 +133,7 @@ export const feature = defineFeature({
       fade.style.opacity = '0';
     });
     const clear = (): void => {
+      hideBanner();
       marker.hide();
       label.style.opacity = '0';
       fade.style.transition = 'none';
@@ -119,6 +145,7 @@ export const feature = defineFeature({
       if (e.mode !== SWEEP_MODE) clear();
     });
     game.bus.on('runEnded', () => {
+      hideBanner();
       marker.hide();
       fade.style.transition = 'none';
       fade.style.opacity = '0';
@@ -145,6 +172,7 @@ export const feature = defineFeature({
             sector: st.sector,
             of: st.plan.sectors.length,
             sectorId: st.plan.sectors[st.sector]?.sectorId,
+            role: st.plan.sectors[st.sector]?.role,
             mapId: game.modes.currentMap.id,
             won: st.won,
             lost: st.lost,
@@ -154,15 +182,23 @@ export const feature = defineFeature({
               sector: st.dial.dial, matched: st.dial.matched, placing: st.dial.placing, openerFought: st.openerFought,
               staircase: st.dial.staircase ? { dial: st.dial.staircase.dial, step: st.dial.staircase.step, reversals: st.dial.staircase.reversals } : null,
               target: game.modes.skills.targetDial('line', game.tunables.dial.modes.sweep!.targetSuccess),
+              fight: game.modes.skills.fightRating(),
               line: game.modes.skills.rating('line'),
               match: game.modes.skills.matchRating(),
             },
             depth: st.plan.sectors[st.sector]?.depth,
             opener: st.plan.sectors[st.sector]?.opener,
-            route: st.plan.sectors.map((s) => `${s.mapId}/${s.sectorId}: ${s.contacts.map((c) => c.card).join(', ')}`),
+            route: st.plan.sectors.map((s) => `${s.mapId}/${s.sectorId} (${s.role}): ${s.contacts.map((c) => c.card).join(', ')}`),
             switches: switches.slice(),
             hp: game.world.health.hp,
             shield: game.world.health.shield,
+            maxShield: game.world.health.maxShield,
+            /** Per sector: the condition the plan dealt it (the doors of #205 show these). */
+            conditions: st.plan.sectors.map((s) => s.condition),
+            weapon: game.world.loadout[game.world.weapon.active],
+            swapLocked: game.world.swapLocked,
+            enemyWeapon: game.world.enemyWeapon,
+            enemyShield: game.world.targetField.enemyShield,
           };
         },
         plan: (seed) => sweepPlan(seed ?? game.world.seed, game.tunables),

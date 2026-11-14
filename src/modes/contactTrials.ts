@@ -20,8 +20,8 @@ import type { SkillId } from './contracts';
  *
  * Bars marked "the dial's" move with the item's difficulty (`config/trials.ts` explains why).
  *
- * A take contact the player never saw into (an Echo had them first and they never saw it) is a
- * failed `angles` item, so every contact that opens yields at least one trial. A sighted Echo the
+ * A contact the player never saw into (an Echo had them first and they never saw it) is a failed
+ * `angles` item, in any sector, so every contact that opens yields at least one trial. A sighted Echo the
  * player never shot at is a failed `precision`/`flick` item only if the contact was lost.
  *
  * Every trial's difficulty is its contact's: the dial its Echoes were placed at plus the card's
@@ -271,7 +271,9 @@ export class ContactTrials {
     if (this.pending) this.resolveShot();
     const c = this.contacts[index]!;
     if (c.switchFrom >= 0) this.endSwitch(c, false, barAt(this.cfg.switch.maxSec, c.difficulty), true);
-    if (c.take && !c.anglesDone) {
+    // Caught from an angle the player never saw into: a failed `angles` item, in a take sector or not (a meet's Echo seen
+    // only after it shot is the same miss). In a take sector a sighting already decided the item.
+    if (!c.anglesDone && !this.seenIn(index)) {
       c.anglesDone = true;
       const x = this.x.angles;
       x.preAimDeg = x.headErrDeg = -1;
@@ -298,6 +300,14 @@ export class ContactTrials {
   }
 
   // --- internals ---------------------------------------------------------------------------
+
+  private seenIn(contact: number): boolean {
+    for (let i = 0; i < this.nEchoes; i++) {
+      const e = this.echoes[i]!;
+      if (e.contact === contact && e.sightTick >= 0) return true;
+    }
+    return false;
+  }
 
   private echo(id: number): EchoSlot | null {
     if (id < 0) return null;
