@@ -14,7 +14,8 @@ import {
   type PeekPattern,
   type Stance,
 } from './mapTypes';
-import { BOX_TAGS, type BoxDef, type BoxTag, type TargetSpawn } from './types';
+import { enemyFeetOf } from './mapQuery';
+import { BOX_TAGS, RAMP_RISES, type BoxDef, type BoxTag, type RampDef, type TargetSpawn } from './types';
 
 /**
  * Hand-written validator for map JSON (no schema dependency). `parseMap` never throws: it returns
@@ -172,12 +173,18 @@ export function parseMap(raw: unknown): ParseResult {
       const p = `$.boxes[${i}]`;
       const o = r.obj(raw, p);
       if (!o) return;
-      r.keys(o, ['id', 'tag', 'min', 'max'], p);
+      r.keys(o, ['id', 'tag', 'min', 'max', 'ramp'], p);
       const tag: BoxTag = r.oneOf(o.tag, BOX_TAGS, `${p}.tag`, 'wall');
       const min = r.vec(o.min, `${p}.min`);
       const max = r.vec(o.max, `${p}.max`);
       requireOrdered(r, min, max, p);
       const box: BoxDef = { tag, min, max };
+      if (tag === 'ramp' && o.ramp === undefined) r.err(`${p}.ramp`, 'a ramp box needs "ramp": {"rise": "+x" | "-x" | "+z" | "-z", "lowY": number}');
+      if (o.ramp !== undefined) {
+        if (tag !== 'ramp') r.err(`${p}.ramp`, 'only boxes tagged "ramp" may have a ramp property');
+        const ramp = parseRamp(r, o.ramp, `${p}.ramp`, min.y, max.y);
+        if (ramp) box.ramp = ramp;
+      }
       if (o.id !== undefined) {
         box.id = r.str(o.id, `${p}.id`);
         boxIds.add(box.id, `${p}.id`);
@@ -328,8 +335,20 @@ export function parseMap(raw: unknown): ParseResult {
     ok: true,
     map: {
       schema: MAP_SCHEMA_VERSION, id, name, bounds, spawn, boxes, targets, anchors, nav, lanes, checkpoints, marks, look, lint,
+      enemyFeet: enemyFeetOf(anchors),
     },
   };
+}
+
+/** `ramp: {rise, lowY}` on a box spanning `minY..maxY`: the surface climbs from `lowY` to `maxY`. */
+function parseRamp(r: Reader, raw: unknown, path: string, minY: number, maxY: number): RampDef | null {
+  const o = r.obj(raw, path);
+  if (!o) return null;
+  r.keys(o, ['rise', 'lowY'], path);
+  const rise = r.oneOf(o.rise, RAMP_RISES, `${path}.rise`, '+x');
+  const lowY = r.num(o.lowY, `${path}.lowY`);
+  if (lowY < minY || lowY >= maxY) r.err(`${path}.lowY`, `must satisfy min.y (${minY}) <= lowY < max.y (${maxY}), got ${lowY}`);
+  return { rise, lowY };
 }
 
 function requireOrdered(r: Reader, min: Vec3, max: Vec3, path: string): void {
