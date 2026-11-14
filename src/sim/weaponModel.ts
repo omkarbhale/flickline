@@ -1,5 +1,6 @@
 import type { Rng } from '../core/rng';
-import type { DamageBand, WeaponDef, WeaponRules } from '../config/weapon';
+import type { WeaponDef, WeaponRules } from '../config/weapon';
+import { zoneDamage } from './damage';
 import type { HitZone } from './types';
 
 /**
@@ -52,15 +53,7 @@ export function isMovingShot(def: WeaponDef, speed: number, airborne: boolean): 
 
 /** Spec §3.2: damage for a hit in `zone` at `distanceM` (stepwise bands; past the last, the last). */
 export function damageFor(def: WeaponDef, zone: HitZone, distanceM: number): number {
-  const bands = def.damageBands;
-  let band: DamageBand = bands[bands.length - 1]!;
-  for (let i = 0; i < bands.length; i++) {
-    if (distanceM <= bands[i]!.upToM) {
-      band = bands[i]!;
-      break;
-    }
-  }
-  return zone === 'head' ? band.head : zone === 'leg' ? band.leg : band.body;
+  return zoneDamage(def.damageBands, zone, distanceM);
 }
 
 /** Recoil pattern lookup: entry `i`, or the last entry past the end (0 for an empty table). */

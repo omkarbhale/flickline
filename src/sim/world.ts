@@ -3,6 +3,8 @@ import { Rng } from '../core/rng';
 import { TICK_DT } from '../core/time';
 import { copy, vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
+import type { BehaviourContext } from './fsm';
+import { TargetField, type SpawnOptions } from './targets';
 import { levelTargetsReset } from './targetsInit';
 import type { WeaponId } from '../config/weapon';
 import {
@@ -14,7 +16,9 @@ import {
   type WeaponWorld,
 } from './weapon';
 import { stepPlayer } from './movement';
-import type { LevelDef, PlayerState, SimEvents, TargetState, TickInput, WeaponState } from './types';
+import type { LevelDef, PlayerState, SimEvents, TargetKind, TargetState, TickInput, WeaponState } from './types';
+
+const NULL_SINK: EventSink<SimEvents> = { emit() {} };
 
 export interface WorldOptions {
   level: LevelDef;
@@ -36,25 +40,32 @@ export class World {
   seed: number;
   tick = 0;
   readonly player: PlayerState;
-  readonly targets: TargetState[] = [];
+  /** The target registry (see `sim/targets.ts`). */
+  readonly targetField: TargetField;
+  /** Registry slots: fixed capacity, a slot holds a target when `alive`. Same array as the field's. */
+  readonly targets: TargetState[];
   readonly loadout: readonly WeaponId[];
   readonly weapon: WeaponState;
   private readonly weaponWorld: WeaponWorld;
   private readonly weaponScratch: WeaponScratch = createWeaponScratch();
+  /** Reused every tick for target behaviours (`events` is swapped in per step). */
+  private readonly behaviourCtx: BehaviourContext;
 
   constructor(opts: WorldOptions) {
     this.level = opts.level;
     this.tunables = opts.tunables;
     this.seed = opts.seed ?? 1;
     this.rng = new Rng(this.seed);
+    this.targetField = new TargetField(opts.tunables);
+    this.targets = this.targetField.slots;
+    this.behaviourCtx = { tick: 0, rng: this.rng, tunables: opts.tunables, events: NULL_SINK };
     this.loadout = [...(opts.loadout ?? opts.tunables.weaponRules.defaultLoadout)];
     this.weapon = createWeaponState(this.loadout, opts.tunables.weapon);
     this.weaponWorld = {
       boxes: this.level.boxes,
-      targets: this.targets,
+      field: this.targetField,
       table: opts.tunables.weapon,
       rules: opts.tunables.weaponRules,
-      targetTunables: opts.tunables.targets,
       rng: this.rng,
     };
     const m = opts.tunables.movement;
@@ -92,7 +103,9 @@ export class World {
     p.eyeHeight = p.prevEyeHeight = m.standEyeHeight;
     p.stepAccum = 0;
     resetWeaponState(this.weapon, this.loadout, this.tunables.weapon);
-    levelTargetsReset(this.targets, this.level, this.tunables.targets);
+    this.behaviourCtx.tick = 0;
+    this.behaviourCtx.events = NULL_SINK;
+    levelTargetsReset(this.targetField, this.level, this.behaviourCtx);
   }
 
   /** Advance exactly one tick (1/TICK_RATE s). */
@@ -100,23 +113,37 @@ export class World {
     this.tick++;
     const t = this.tunables;
     stepPlayer(this.player, input, this.level.boxes, t.movement, TICK_DT, this.tick, events);
+    this.targetField.updateVisibility(this.player, this.level.boxes, this.tick, events);
     stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, events, this.weaponScratch);
     this.stepTargets(events);
   }
 
+  /** Advance target behaviours, lifetimes and level respawns. */
   private stepTargets(events: EventSink<SimEvents>): void {
-    const tt = this.tunables.targets;
-    for (let i = 0; i < this.targets.length; i++) {
-      const tg = this.targets[i]!;
-      if (!tg.alive && this.tick >= tg.respawnTick) {
-        tg.alive = true;
-        tg.hp = tg.maxHp;
-        tg.pos.x = tg.home.x + this.rng.range(-tt.respawnJitter, tt.respawnJitter);
-        tg.pos.y = tg.home.y + this.rng.range(-tt.respawnJitter, tt.respawnJitter) * 0.5;
-        tg.pos.z = tg.home.z;
-        events.emit('targetRespawned', { tick: this.tick, targetId: tg.id });
-      }
-    }
+    const c = this.behaviourCtx;
+    c.tick = this.tick;
+    c.events = events;
+    this.targetField.step(c);
+  }
+
+  /**
+   * Add a target (kind per the roster in `config/targets.ts`) at a position: feet centre for a
+   * humanoid (Post), centre for an orb (Beacon). Emits `targetSpawned`. Returns its id, or -1
+   * when the registry is full. A mode removes it again with `despawnTarget`, or it dies.
+   */
+  spawnTarget(
+    kind: TargetKind, x: number, y: number, z: number,
+    events: EventSink<SimEvents>, opts?: SpawnOptions,
+  ): number {
+    const c = this.behaviourCtx;
+    c.tick = this.tick;
+    c.events = events;
+    return this.targetField.spawn(kind, x, y, z, c, events, opts);
+  }
+
+  /** Remove a target without a kill; emits `targetExpired`. Returns whether it existed. */
+  despawnTarget(id: number, events: EventSink<SimEvents>): boolean {
+    return this.targetField.despawn(id, this.tick, events);
   }
 
   /** Simulation time in seconds. */
@@ -146,10 +173,7 @@ export class World {
     for (let i = 0; i < w.slots.length; i++) {
       mix(w.slots[i]!.mag); mix(w.slots[i]!.reserve);
     }
-    for (let i = 0; i < this.targets.length; i++) {
-      const t = this.targets[i]!;
-      mix(t.hp); mix(t.alive ? 1 : 0); mix(t.pos.x); mix(t.pos.y);
-    }
+    this.targetField.hashInto(mix);
     mix(this.rng.getState());
     return h >>> 0;
   }

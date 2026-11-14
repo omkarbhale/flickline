@@ -201,26 +201,22 @@ describe('hitscan weapon', () => {
     expect((walk.log.find((l) => l.type === 'shotFired')!.data as { moving: boolean }).moving).toBe(true);
   });
 
-  it('hits, damages and kills a target, then it respawns', () => {
+  it('kills a beacon with one bullet, then it respawns', () => {
     const { world, run, count, log } = setup();
     run(4);
     const aim = aimAtTarget0(world);
-    const tap = (): void => {
-      run(1, { ...aim, fire: true });
-      run(Math.ceil(TICK_RATE * 0.4), { ...aim, fire: false }); // past the recovery time: a fresh first shot
-    };
-    tap();
+    expect(world.targets[0]!.kind).toBe('beacon');
+    run(1, { ...aim, fire: true });
     expect(count('shotFired')).toBe(1);
     expect(count('targetHit')).toBe(1);
-    const body = world.tunables.weapon.kestrel.damageBands[0]!.body;
-    expect(world.targets[0]!.hp).toBe(world.tunables.targets.maxHp - body);
-    tap();
-    tap();
     expect(count('targetKilled')).toBe(1);
     expect(world.targets[0]!.alive).toBe(false);
+    run(1, { fire: false });
     run(Math.ceil(TICK_RATE * 1.5), { fire: false });
     expect(world.targets[0]!.alive).toBe(true);
+    expect(world.targets[0]!.hp).toBe(world.tunables.targets.maxHp);
     expect(count('targetRespawned')).toBeGreaterThanOrEqual(1);
+    expect(count('targetSpawned')).toBeGreaterThanOrEqual(1);
     expect(log.some((l) => l.type === 'shotImpact')).toBe(true);
   });
 

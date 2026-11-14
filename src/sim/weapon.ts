@@ -1,12 +1,13 @@
 import type { EventSink } from '../core/eventBus';
 import { DEG2RAD } from '../core/math';
 import type { Rng } from '../core/rng';
-import { TICK_DT, secondsToTicks } from '../core/time';
+import { TICK_DT } from '../core/time';
 import { directionFromAngles, vec3, type Vec3 } from '../core/vec3';
-import type { TargetTunables } from '../config/targets';
 import type { WeaponDef, WeaponId, WeaponRules, WeaponTable } from '../config/weapon';
-import { rayBox, raySphere } from './collision';
-import type { BoxDef, HitZone, PlayerState, SimEvents, TargetState, TickInput, WeaponState } from './types';
+import { rayBox } from './collision';
+import { createZoneHit, type ZoneHit } from './hitZones';
+import type { TargetField } from './targets';
+import type { BoxDef, HitZone, PlayerState, SimEvents, TickInput, WeaponState } from './types';
 import {
   applyRecoilKick,
   damageFor,
@@ -25,8 +26,9 @@ export interface TraceResult {
   distance: number;
   point: Vec3;
   normal: Vec3;
+  /** Registry slot of the struck target (kind 2), else -1. */
   targetIndex: number;
-  /** Zone hit when `kind === 2`. Sphere targets are all `body`; humanoid zones arrive with #15. */
+  /** Zone struck on the target (kind 2). */
   zone: HitZone;
 }
 
@@ -35,11 +37,12 @@ export function createTraceResult(): TraceResult {
 }
 
 const scratchNormal = vec3();
+const scratchZone: ZoneHit = createZoneHit();
 
-/** Nearest hit along a unit-direction ray: static boxes occlude targets. */
+/** Nearest hit along a unit-direction ray: static boxes occlude targets; targets use hit zones. */
 export function trace(
   boxes: readonly BoxDef[],
-  targets: readonly TargetState[],
+  field: TargetField,
   ox: number, oy: number, oz: number,
   dx: number, dy: number, dz: number,
   maxDist: number,
@@ -63,29 +66,20 @@ export function trace(
       out.normal.z = scratchNormal.z;
     }
   }
-  for (let i = 0; i < targets.length; i++) {
-    const tg = targets[i]!;
-    if (!tg.alive) continue;
-    const t = raySphere(ox, oy, oz, dx, dy, dz, tg.pos.x, tg.pos.y, tg.pos.z, tg.radius, best);
-    if (t >= 0 && t < best) {
-      best = t;
-      out.kind = 2;
-      out.targetIndex = i;
-    }
+  const slot = field.traceNearest(ox, oy, oz, dx, dy, dz, best, scratchZone);
+  if (slot >= 0) {
+    best = scratchZone.distance;
+    out.kind = 2;
+    out.targetIndex = slot;
+    out.zone = scratchZone.zone;
+    out.normal.x = scratchZone.nx;
+    out.normal.y = scratchZone.ny;
+    out.normal.z = scratchZone.nz;
   }
   out.distance = best;
   out.point.x = ox + dx * best;
   out.point.y = oy + dy * best;
   out.point.z = oz + dz * best;
-  if (out.kind === 2) {
-    const tg = targets[out.targetIndex]!;
-    let nx = out.point.x - tg.pos.x;
-    let ny = out.point.y - tg.pos.y;
-    let nz = out.point.z - tg.pos.z;
-    const l = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-    nx /= l; ny /= l; nz /= l;
-    out.normal.x = nx; out.normal.y = ny; out.normal.z = nz;
-  }
   return out;
 }
 
@@ -94,15 +88,16 @@ const EPS = 1e-9;
 /** "Never" for times, finite so hashes and JSON snapshots stay well-defined. */
 const LONG_AGO = -1e9;
 
-/** Reused per-world buffers: event payloads and the trace result. Nothing is allocated per shot. */
+/**
+ * Reused per-world buffers: event payloads and the trace result. Nothing is allocated per shot.
+ * (`targetHit` / `targetKilled` payloads belong to the target field, which emits them.)
+ */
 export interface WeaponScratch {
   trace: TraceResult;
   origin: Vec3;
   dir: Vec3;
   fired: SimEvents['shotFired'];
   impact: SimEvents['shotImpact'];
-  hit: SimEvents['targetHit'];
-  killed: SimEvents['targetKilled'];
   reloadStarted: SimEvents['reloadStarted'];
   reloadCompleted: SimEvents['reloadCompleted'];
   reloadCancelled: SimEvents['reloadCancelled'];
@@ -126,11 +121,6 @@ export function createWeaponScratch(): WeaponScratch {
       tick: 0, t: 0, shotId: 0, result: 'miss', targetId: -1, zone: null, damage: 0, killed: false,
       point: t.point, normal: t.normal, onTarget: false, distance: 0,
     },
-    hit: {
-      tick: 0, targetId: 0, shotId: 0, zone: 'body', point: t.point, damage: 0, hpLeft: 0,
-      distance: 0, killed: false,
-    },
-    killed: { tick: 0, targetId: 0, point: t.point, distance: 0 },
     reloadStarted: { tick: 0, weapon, durationSec: 0 },
     reloadCompleted: { tick: 0, weapon, ammo: 0, reserve: 0 },
     reloadCancelled: { tick: 0, weapon },
@@ -218,10 +208,10 @@ function startReload(w: WeaponState, def: WeaponDef, tick: number, events: Event
 /** Everything the weapon simulation reads besides its own state. */
 export interface WeaponWorld {
   boxes: readonly BoxDef[];
-  targets: TargetState[];
+  /** The target registry: hit zones, shot bookkeeping, damage application and kill events. */
+  field: TargetField;
   table: WeaponTable;
   rules: WeaponRules;
-  targetTunables: TargetTunables;
   rng: Rng;
 }
 
@@ -408,7 +398,11 @@ function fire(
   f.ammo = slot.mag;
   events.emit('shotFired', f);
 
-  const tr = trace(world.boxes, world.targets, o.x, o.y, o.z, d.x, d.y, d.z, rules.rangeM, s.trace);
+  const field = world.field;
+  const tr = trace(world.boxes, field, o.x, o.y, o.z, d.x, d.y, d.z, rules.rangeM, s.trace);
+  // Shot bookkeeping for the kill stats (bullets at a target, near misses, moving shots).
+  const hitId = tr.kind === 2 ? field.slots[tr.targetIndex]!.id : -1;
+  field.registerShot(o.x, o.y, o.z, d.x, d.y, d.z, hitId, moving, tick, events);
   if (tr.kind === 0) return;
 
   const im = s.impact;
@@ -427,39 +421,14 @@ function fire(
     return;
   }
 
-  const tg = world.targets[tr.targetIndex]!;
   const damage = damageFor(def, tr.zone, tr.distance);
-  tg.hp -= damage;
-  tg.lastHitTick = tick;
-  const killed = tg.hp <= 0;
-  if (killed) {
-    tg.alive = false;
-    tg.respawnTick = tick + secondsToTicks(world.targetTunables.respawnSec);
-  }
   im.result = 'hit';
-  im.targetId = tg.id;
+  im.targetId = hitId;
   im.zone = tr.zone;
   im.damage = damage;
-  im.killed = killed;
+  im.killed = field.slots[tr.targetIndex]!.hp - damage <= 0;
   events.emit('shotImpact', im);
-
-  const h = s.hit;
-  h.tick = tick;
-  h.targetId = tg.id;
-  h.shotId = shotId;
-  h.zone = tr.zone;
-  h.damage = damage;
-  h.hpLeft = Math.max(0, tg.hp);
-  h.distance = tr.distance;
-  h.killed = killed;
-  events.emit('targetHit', h);
-
-  if (killed) {
-    const k = s.killed;
-    k.tick = tick;
-    k.targetId = tg.id;
-    k.distance = tr.distance;
-    events.emit('targetKilled', k);
-  }
+  // Emits targetHit (and targetKilled) and frees the slot or schedules the respawn.
+  field.applyHit(tr.targetIndex, tr.zone, tr.point, tr.distance, damage, tick, events);
 }
 

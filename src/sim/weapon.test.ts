@@ -288,18 +288,28 @@ describe('damage (spec §3.2)', () => {
   });
 
   it('shotImpact and targetHit carry shot id, zone, damage and kill (design §14.3)', () => {
-    const s = setup();
-    const t = s.world.targets[0]!;
-    const p = s.world.player;
-    const aim = { yaw: 0, pitch: Math.atan2(t.pos.y - (p.pos.y + p.eyeHeight), p.pos.z - t.pos.z) };
-    s.run(1, { ...aim, fire: true });
+    const postRoom: LevelDef = {
+      name: 'post',
+      boxes: [{ tag: 'floor', min: vec3(-20, -1, -20), max: vec3(20, 0, 20) }],
+      spawn: { pos: vec3(0, 0, 0), yaw: 0 },
+      targets: [{ kind: 'post', pos: vec3(0, 0, -10) }],
+    };
+    const s = setup(postRoom);
+    const id = s.world.targets.find((t) => t.alive)!.id;
+    const eye = s.world.player.eyeHeight;
+    const pitchTo = (y: number): number => Math.atan2(y - eye, 10);
+    s.run(1, { yaw: 0, pitch: pitchTo(1.2), fire: true }); // chest
     const shot = s.all('shotFired')[0]!;
     const impact = s.all('shotImpact')[0]!;
-    const hit = s.all('targetHit')[0]!;
     expect(shot).toMatchObject({ shotId: 1, weapon: 'kestrel', recoilIndex: 0, ammo: 29, moving: false });
-    expect(impact).toMatchObject({ shotId: 1, result: 'hit', targetId: t.id, zone: 'body', damage: 39, killed: false, onTarget: true });
-    expect(hit).toMatchObject({ shotId: 1, zone: 'body', damage: 39, hpLeft: 61, killed: false });
-    expect(impact.distance).toBeLessThan(20);
+    expect(impact).toMatchObject({ shotId: 1, result: 'hit', targetId: id, zone: 'body', damage: 39, killed: false, onTarget: true });
+    expect(s.all('targetHit')[0]).toMatchObject({ targetId: id, zone: 'body', damage: 39, hpLeft: 61, killed: false });
+    expect(impact.distance).toBeLessThan(10);
+
+    s.run(Math.ceil(0.4 * TICK_RATE), { fire: false });
+    s.run(1, { yaw: 0, pitch: pitchTo(1.66), fire: true }); // head
+    expect(s.all('shotImpact')[1]).toMatchObject({ shotId: 2, zone: 'head', damage: 156, killed: true });
+    expect(s.all('targetKilled')[0]).toMatchObject({ targetId: id, zone: 'head', bullets: 2 });
   });
 });
 
