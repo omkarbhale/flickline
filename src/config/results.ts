@@ -85,7 +85,7 @@ export interface ResultsTunables {
   /** Scenario cards (design §4.4). */
   cardLabels: Record<string, string>;
   /** The header's depth line. */
-  depthCopy: { sector: string; finale: string; finaleDied: string; overtime: string; routeDone: string };
+  depthCopy: { sector: string; finale: string; finaleDied: string; overtime: string; routeDone: string; routePartial: string };
   /** Display names of the skills the rating row names (`line` = the mean of all seven). */
   skillLabels: Record<string, string>;
   /** Display names of medal ids (design §8.4); unknown ids are title-cased. */
@@ -148,6 +148,7 @@ export const results: ResultsTunables = {
     finaleDied: 'Fell in the Finale',
     overtime: 'Overtime {k}',
     routeDone: 'Route cleared, {n} sectors',
+    routePartial: '{k} of {n} sectors cleared',
   },
   skillLabels: {
     precision: 'Precision', flick: 'Flick', track: 'Tracking', footwork: 'Footwork', spray: 'Spray control',

@@ -421,6 +421,15 @@ describe('the run results card (design §8.2, #213)', () => {
     expect(depthLabel(story(4), 'quit')).toBe('Sector 4 of 6');
     // A shorter route (the run director's v0 reports four sectors): n of total, and leaving at its end clears it.
     expect(depthLabel(story(4, { total: 4 }), 'left')).toBe('Route cleared, 4 sectors');
+    // "Cleared" means every Echo dead: walking out without a fight is not clearing the route (#252).
+    const walked = (n: number, total: number, clearedUpTo: number): RunStory =>
+      story(n, { total, sectors: Array.from({ length: n }, (_, i) => tile(i + 1, { cleared: i < clearedUpTo, won: 0, kills: 0 })) });
+    expect(depthLabel(walked(4, 4, 0), 'left')).toBe('0 of 4 sectors cleared');
+    expect(depthLabel(walked(4, 4, 3), 'left')).toBe('3 of 4 sectors cleared');
+    expect(depthLabel(walked(4, 4, 4), 'left')).toBe('Route cleared, 4 sectors');
+    expect(depthLabel(walked(6, 6, 0), 'left')).toBe('0 of 6 sectors cleared');
+    expect(depthLabel(walked(6, 6, 5), 'left')).toBe('5 of 6 sectors cleared');
+    expect(depthLabel(walked(6, 6, 6), 'left')).toBe('Finale cleared');
     expect(depthLabel(story(3, { total: 4 }), 'death')).toBe('Sector 3 of 4');
     expect(depthLabel(story(2, { total: 4 }), 'quit')).toBe('Sector 2 of 4');
   });
