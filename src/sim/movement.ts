@@ -27,7 +27,8 @@ export function stepPlayer(
 
   const maxPitch = m.maxPitchDeg * DEG2RAD;
   p.yaw = input.yaw;
-  p.pitch = clamp(input.pitch, -maxPitch, maxPitch);
+  // The aim punch from being hit (spec §4.4) is added to the view pitch the sim shoots with.
+  p.pitch = clamp(input.pitch + p.aimPunch, -maxPitch, maxPitch);
 
   const hw = m.hullHalfWidth;
 
@@ -70,6 +71,17 @@ export function stepPlayer(
   }
   p.vel.x += dvx;
   p.vel.z += dvz;
+
+  // Tagging (spec §4.3): being hit caps horizontal speed at a fraction of the maximum.
+  if (p.tagScale < 1) {
+    const cap = m.runSpeed * p.tagScale;
+    const sp2 = p.vel.x * p.vel.x + p.vel.z * p.vel.z;
+    if (sp2 > cap * cap) {
+      const k = cap / Math.sqrt(sp2);
+      p.vel.x *= k;
+      p.vel.z *= k;
+    }
+  }
 
   if (input.jump && p.grounded) {
     p.vel.y = m.jumpSpeed;

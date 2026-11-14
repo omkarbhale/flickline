@@ -24,6 +24,8 @@ export interface Settings {
   damageNumbers: boolean;
   /** Disables screen pulses and chromatic effects (design §13.3). */
   reduceFlashing: boolean;
+  /** Aim punch when hit, multiplier of the spec's kick (spec §4.4: 1 = default, 0 disables). */
+  flinchStrength: number;
   /** Crosshair appearance (design 13.2). Replaced as a whole by `set`. */
   crosshair: CrosshairParams;
 }
@@ -41,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
   missGhost: true,
   damageNumbers: true,
   reduceFlashing: false,
+  flinchStrength: 1,
   crosshair: DEFAULT_CROSSHAIR,
 };
 
@@ -78,6 +81,7 @@ export function sanitizeSettings(raw: unknown): Settings {
   out.missGhost = bool(r.missGhost, out.missGhost);
   out.damageNumbers = bool(r.damageNumbers, out.damageNumbers);
   out.reduceFlashing = bool(r.reduceFlashing, out.reduceFlashing);
+  out.flinchStrength = num(r.flinchStrength, 0, 2, out.flinchStrength);
   out.crosshair = sanitizeCrosshair(r.crosshair);
   return out;
 }
