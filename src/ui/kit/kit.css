@@ -1,0 +1,77 @@
+/* UI kit (design section 11 "UI"): bundled open-licence fonts, trim-colour panels, buttons, tabs and
+   toggles. Colours are the palette tokens set on #menu by `applyPalette` (--ink --slate --steel
+   --trim --core --gold --ok --warn --alert); nothing here holds a themed hex literal. Fonts are
+   woff2 subsets (Basic Latin plus a few punctuation marks) shipped with the build: no external request. */
+
+@font-face { font-family: 'Barlow'; font-weight: 500; font-style: normal; font-display: swap; src: url('../../assets/fonts/barlow-500.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow'; font-weight: 700; font-style: normal; font-display: swap; src: url('../../assets/fonts/barlow-700.woff2') format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 600; font-style: normal; font-display: swap; src: url('../../assets/fonts/jetbrains-mono-600.woff2') format('woff2'); }
+
+#menu {
+  --font-ui: 'Barlow', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-num: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fg: color-mix(in srgb, var(--core) 92%, var(--ink));
+  --dim: color-mix(in srgb, var(--core) 62%, var(--ink));
+  --line: color-mix(in srgb, var(--trim) 34%, transparent);
+  --line-strong: color-mix(in srgb, var(--trim) 70%, transparent);
+  --surface: color-mix(in srgb, var(--slate) 94%, transparent);
+  --surface-2: color-mix(in srgb, var(--ink) 55%, var(--slate));
+  --radius: 10px;
+  font-family: var(--font-ui);
+  color: var(--fg);
+}
+
+.fl-icon { flex: none; display: block; }
+.fl-wordmark { display: block; color: var(--fg); }
+
+/* Panel */
+.fl-panel { box-sizing: border-box; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 22px; }
+.fl-panel-title { margin: 0 0 12px; font: 700 13px/1 var(--font-ui); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
+.fl-panel-body { display: block; }
+
+/* Buttons */
+.fl-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px; box-sizing: border-box;
+  min-height: 44px; padding: 0 18px; font: 700 16px/1 var(--font-ui); letter-spacing: .04em;
+  color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+  transition: background-color 90ms linear, border-color 90ms linear, color 90ms linear;
+}
+.fl-btn:hover { border-color: var(--line-strong); background: color-mix(in srgb, var(--trim) 9%, transparent); }
+.fl-btn:active { background: color-mix(in srgb, var(--trim) 16%, transparent); }
+.fl-btn-label { white-space: nowrap; }
+.fl-btn--primary { background: var(--trim); border-color: var(--trim); color: var(--ink); }
+.fl-btn--primary:hover { background: color-mix(in srgb, var(--trim) 86%, var(--core)); border-color: color-mix(in srgb, var(--trim) 86%, var(--core)); }
+.fl-btn--primary:active { background: color-mix(in srgb, var(--trim) 80%, var(--ink)); }
+.fl-btn--ghost { border-color: transparent; color: var(--dim); }
+.fl-btn--ghost:hover { color: var(--fg); }
+.fl-btn[disabled] { opacity: .45; cursor: default; }
+.fl-kbd {
+  margin-left: auto; padding: 3px 6px; font: 600 11px/1 var(--font-num); letter-spacing: .02em;
+  color: var(--dim); background: color-mix(in srgb, var(--ink) 60%, transparent); border: 1px solid var(--line); border-radius: 4px;
+}
+.fl-btn--primary .fl-kbd { color: var(--ink); background: color-mix(in srgb, var(--ink) 14%, transparent); border-color: color-mix(in srgb, var(--ink) 32%, transparent); }
+
+/* One focus style everywhere: a trim ring, never removed. */
+#menu :is(button, input, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--trim); outline-offset: 2px; }
+
+/* Tabs */
+.fl-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 0 16px; }
+.fl-tab {
+  padding: 10px 14px; margin-bottom: -1px; font: 700 14px/1 var(--font-ui); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--dim); background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer;
+}
+.fl-tab:hover { color: var(--fg); }
+.fl-tab[aria-selected='true'] { color: var(--trim); border-bottom-color: var(--trim); }
+
+/* Toggle */
+.fl-toggle { display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 15px; color: var(--fg); }
+.fl-toggle-input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.fl-toggle-track { position: relative; flex: none; width: 36px; height: 20px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); transition: background-color 90ms linear, border-color 90ms linear; }
+.fl-toggle-track::after { content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--dim); transition: transform 90ms ease-out, background-color 90ms linear; }
+.fl-toggle-input:checked + .fl-toggle-track { background: color-mix(in srgb, var(--trim) 28%, transparent); border-color: var(--trim); }
+.fl-toggle-input:checked + .fl-toggle-track::after { transform: translateX(16px); background: var(--trim); }
+.fl-toggle-input:focus-visible + .fl-toggle-track { outline: 2px solid var(--trim); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fl-btn, .fl-toggle-track, .fl-toggle-track::after { transition: none; }
+}

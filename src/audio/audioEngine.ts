@@ -1,8 +1,9 @@
-import { BUS_IDS, CUE_IDS, type AudioTunables, type BusId, type CueId } from '../config/audio';
+import { BUS_IDS, CUE_IDS, cueRecipes, type AudioTunables, type BuiltCueId, type BusId, type CueId } from '../config/audio';
 import { Rng } from '../core/rng';
 import type { Vec3 } from '../core/vec3';
 import { renderSoundSet, STEPPED_CUES } from './cues';
-import { dbToGain, ladderStep, softLimiterCurve } from './mixer';
+import { dbToGain, duckDepthDb, ladderStep, softLimiterCurve } from './mixer';
+import { renderTell } from './tell';
 
 export interface PlayOptions {
   /** Kill ladder step (the clean streak); clamped to 1..8. Ignored by non-stepped cues. */
@@ -11,11 +12,17 @@ export interface PlayOptions {
   position?: Readonly<Vec3>;
   /** Extra linear gain on top of the cue level. */
   gain?: number;
+  /** Start this many ms after now, on the audio clock (staggered layers, scripted scenarios). */
+  delayMs?: number;
+  /** `enemyTell` only: the tell's length. The tone is rendered to exactly this length (default: the reference length). */
+  durationMs?: number;
 }
 
 /** What event subscribers depend on (and what tests fake). */
 export interface CuePlayer {
   play(cue: CueId, opts?: PlayOptions): void;
+  /** Start or stop a looping cue (the Surge shimmer): faded in and out, idempotent. */
+  setLoop(cue: CueId, on: boolean): void;
 }
 
 /** The master low-pass dip (taking damage, design §7.1). Separate from `CuePlayer` so cue fakes stay small. */
@@ -67,8 +74,19 @@ interface Bus {
 }
 
 const LOG_SIZE = 64;
-const HIGH_PRIORITY: ReadonlySet<CueId> = new Set<CueId>(['hitHead', 'kill', 'killSparkle', 'streakBreak']);
-const DUCKERS: ReadonlySet<CueId> = new Set<CueId>(['hitBody', 'hitLeg', 'hitHead', 'kill', 'killSparkle']);
+/** Never dropped at the voice limit: the built cues, plus every recipe flagged `priority`. */
+const HIGH_PRIORITY: ReadonlySet<CueId> = new Set<CueId>([
+  'hitHead', 'kill', 'killSparkle', 'chain', 'enemyTell',
+  ...(Object.keys(cueRecipes) as Exclude<CueId, BuiltCueId>[]).filter((id) => cueRecipes[id].priority),
+]);
+/** Cues with random pitch and gain variation per play. */
+const JITTERED: ReadonlySet<CueId> = new Set<CueId>(
+  (Object.keys(cueRecipes) as Exclude<CueId, BuiltCueId>[]).filter((id) => cueRecipes[id].jitter),
+);
+/** Maximum distinct tell lengths kept rendered (dial steps are few; this is a safety cap). */
+const TELL_CACHE_MAX = 64;
+/** The cues that duck the weapons bus. The sparkle rides on a kill, which already ducks. */
+const DUCKERS: ReadonlySet<CueId> = new Set<CueId>(['hitBody', 'hitLeg', 'hitHead', 'kill']);
 
 /**
  * Web Audio engine (design section 12). The whole sound set is synthesised once, when the context
@@ -87,7 +105,15 @@ export class AudioEngine implements CuePlayer, LowpassDipper {
   readonly lastDip: DipLogEntry = { at: 0, hz: 0, durationMs: 0, count: 0, sounded: false };
   private buses: Partial<Record<BusId, Bus>> = {};
   private buffers: Partial<Record<CueId, AudioBuffer[]>> = {};
+  /** Rendered enemy tells by length in whole ms (a cache: dial steps repeat). */
+  private tells = new Map<number, AudioBuffer>();
+  /** Running loops (the Surge shimmer): the source and its fade gain. */
+  private loops: Partial<Record<CueId, { src: AudioBufferSourceNode; gain: GainNode }>> = {};
   private cueBus: Partial<Record<CueId, BusId>> = {};
+  /** Peak level of each cue as rendered (dBFS), for the duck depth. */
+  private cuePeakDb: Partial<Record<CueId, number>> = {};
+  private duckHoldEnd = 0;
+  private duckGain = 1;
   private volume = 0.7;
   private readonly busVolume: Record<BusId, number> = { weapons: 1, hits: 1, enemies: 1, ui: 1 };
   private readonly rng: Rng;
@@ -157,6 +183,7 @@ export class AudioEngine implements CuePlayer, LowpassDipper {
     for (const id of CUE_IDS) {
       const cue = set[id];
       this.cueBus[id] = cue.bus;
+      this.cuePeakDb[id] = cue.peakDb;
       const list: AudioBuffer[] = [];
       for (const v of cue.variants) {
         const b = ctx.createBuffer(1, v.length, ctx.sampleRate);
@@ -224,6 +251,11 @@ export class AudioEngine implements CuePlayer, LowpassDipper {
     return this.ctx;
   }
 
+  /** The master input node (before the low-pass and limiter), for tooling that feeds a test signal through the real graph. */
+  get masterInput(): AudioNode | null {
+    return this.master;
+  }
+
   /** Voices currently sounding. */
   get activeVoices(): number {
     return this.voices;
@@ -265,15 +297,16 @@ export class AudioEngine implements CuePlayer, LowpassDipper {
     if (!ctx || !list || !busId || !bus) return;
 
     const step = STEPPED_CUES.has(cue) ? ladderStep(opts?.pitchStep ?? 1, list.length) : 1;
-    const buffer = list[Math.min(step, list.length) - 1]!;
-    const isShot = busId === 'weapons' && (cue === 'shotPace' || cue === 'shotKestrel');
+    const buffer = cue === 'enemyTell' && opts?.durationMs !== undefined
+      ? this.tellBuffer(ctx, opts.durationMs)
+      : list[Math.min(step, list.length) - 1]!;
     let rate = 1;
     let gain = opts?.gain ?? 1;
-    if (isShot) {
+    if (JITTERED.has(cue)) {
       rate += (this.rng.next() * 2 - 1) * this.t.shotJitter.pitch;
       gain *= 1 + (this.rng.next() * 2 - 1) * this.t.shotJitter.gain;
     }
-    const at = ctx.currentTime;
+    const at = ctx.currentTime + (opts?.delayMs ?? 0) / 1000;
     const live = ctx.state === 'running' || 'startRendering' in ctx; // offline contexts schedule before they render
     const sounded = live && (this.voices < this.t.voiceLimit || HIGH_PRIORITY.has(cue));
     const e = this.log[this.logHead]!;
@@ -296,9 +329,10 @@ export class AudioEngine implements CuePlayer, LowpassDipper {
       const p = ctx.createPanner();
       p.panningModel = 'HRTF';
       p.distanceModel = 'inverse';
-      p.refDistance = this.t.panner.refDistance;
+      const sp = this.spatialOf(cue);
+      p.refDistance = sp.refDistance;
       p.maxDistance = this.t.panner.maxDistance;
-      p.rolloffFactor = this.t.panner.rolloff;
+      p.rolloffFactor = sp.rolloff;
       if (p.positionX) {
         p.positionX.value = pos.x; p.positionY.value = pos.y; p.positionZ.value = pos.z;
       } else {
@@ -312,22 +346,96 @@ export class AudioEngine implements CuePlayer, LowpassDipper {
     src.onended = this.onVoiceEnded;
     src.start(at);
 
-    if (DUCKERS.has(cue)) this.duckWeapons(at);
+    if (DUCKERS.has(cue)) this.duckWeapons(at, this.cuePeakDb[cue] ?? this.t.duck.weaponsPeakDb);
+  }
+
+  /** Distance model of a positional cue: its own, or the engine default. */
+  private spatialOf(cue: CueId): { refDistance: number; rolloff: number } {
+    if (cue === 'enemyTell') return this.t.enemyTell.spatial;
+    const r = (cueRecipes as Partial<Record<CueId, { spatial?: { refDistance: number; rolloff: number } }>>)[cue];
+    return r?.spatial ?? this.t.panner;
+  }
+
+  /**
+   * The tell rendered to exactly `durationMs` (audio/tell.ts), cached by whole ms: the dial moves
+   * the length only at beat boundaries, so a run touches a handful of distinct lengths and each
+   * costs one short render and one AudioBuffer, once.
+   */
+  private tellBuffer(ctx: BaseAudioContext, durationMs: number): AudioBuffer {
+    const ms = Math.max(1, Math.round(durationMs));
+    let b = this.tells.get(ms);
+    if (!b) {
+      if (this.tells.size >= TELL_CACHE_MAX) this.tells.clear();
+      const data = renderTell(ms, this.t.enemyTell, ctx.sampleRate);
+      b = ctx.createBuffer(1, data.length, ctx.sampleRate);
+      b.copyToChannel(data, 0);
+      this.tells.set(ms, b);
+    }
+    return b;
+  }
+
+  /**
+   * Start or stop a looping cue (the Surge shimmer). The loop fades in and out over
+   * `loopFadeMs` so it never clicks, and starting a running loop or stopping a stopped one is a no-op.
+   */
+  setLoop(cue: CueId, on: boolean): void {
+    const ctx = this.ctx;
+    const list = this.buffers[cue];
+    const busId = this.cueBus[cue];
+    const bus = busId ? this.buses[busId] : undefined;
+    if (!ctx || !list || !bus) return;
+    const running = this.loops[cue];
+    const fade = this.t.loopFadeMs / 1000;
+    const now = ctx.currentTime;
+    if (on && !running) {
+      if (ctx.state !== 'running' && !('startRendering' in ctx)) return;
+      const src = ctx.createBufferSource();
+      src.buffer = list[0]!;
+      src.loop = true;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(1, now + fade);
+      src.connect(gain).connect(bus.volume);
+      src.start(now);
+      this.loops[cue] = { src, gain };
+    } else if (!on && running) {
+      const g = running.gain.gain;
+      g.cancelScheduledValues(now);
+      g.setValueAtTime(g.value, now);
+      g.linearRampToValueAtTime(0, now + fade);
+      running.src.stop(now + fade + 0.01);
+      delete this.loops[cue];
+    }
+  }
+
+  /** Whether a looping cue is sounding (debug hook, tests). */
+  isLooping(cue: CueId): boolean {
+    return this.loops[cue] !== undefined;
   }
 
   private readonly onVoiceEnded = (): void => {
     if (this.voices > 0) this.voices--;
   };
 
-  /** Dip the weapons bus (design 12: -3 dB for 80 ms on hit and kill cues, then a short release). */
-  private duckWeapons(at: number): void {
+  /**
+   * Duck the weapons bus under a hit or kill (design 12): the depth keeps the weapons `dominanceDb`
+   * under the cue (see `AudioTunables.duck`), a deeper duck still holding wins, and the bus
+   * releases `holdMs + releaseMs` later. The duck starts instantly: the shot that came with the
+   * hit starts on the same sample.
+   */
+  private duckWeapons(at: number, cuePeakDb: number): void {
     const bus = this.buses.weapons;
     if (!bus) return;
     const d = this.t.duck;
+    const depthDb = duckDepthDb(cuePeakDb, d);
+    let gain = dbToGain(-depthDb);
+    if (at < this.duckHoldEnd) gain = Math.min(gain, this.duckGain);
+    this.duckGain = gain;
+    this.duckHoldEnd = at + d.holdMs / 1000;
     const g = bus.duck.gain;
     g.cancelScheduledValues(at);
-    g.setValueAtTime(dbToGain(d.db), at);
-    g.setValueAtTime(dbToGain(d.db), at + d.holdMs / 1000);
+    g.setValueAtTime(gain, at);
+    g.setValueAtTime(gain, this.duckHoldEnd);
     g.linearRampToValueAtTime(1, at + (d.holdMs + d.releaseMs) / 1000);
   }
 
@@ -341,9 +449,4 @@ export class AudioEngine implements CuePlayer, LowpassDipper {
     }
     return out;
   }
-
-  // Scaffold-compatible movement placeholders; #41 owns the real set.
-  playJump(): void { this.play('jump'); }
-  playLand(strength: number): void { this.play('land', { gain: Math.min(1, 0.4 + strength * 0.08) }); }
-  playFootstep(crouching: boolean): void { this.play('footstep', { gain: crouching ? 0.4 : 1 }); }
 }

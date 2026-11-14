@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { audio, CUE_IDS, type CueId } from '../config/audio';
 import { bandPeakDb, dominantHz, energyAbove, peakDb, spectralCentroid } from './analysis';
+import { dbToGain as dbToGainFn } from './mixer';
 import { renderSoundSet } from './cues';
-import { dbToGain, ladderStep, softLimiterCurve } from './mixer';
+import { dbToGain, duckDepthDb, ladderStep, softLimiterCurve } from './mixer';
 
 const SR = 48000;
+const coldStart = performance.now();
 const set = renderSoundSet(audio, SR);
+const coldMs = performance.now() - coldStart;
 const one = (id: CueId): Float32Array => set[id].variants[0]!;
 
 describe('sound set', () => {
@@ -57,9 +60,10 @@ describe('sound set', () => {
     const click = bandPeakDb(one('hitBody'), SR, 2500, 4000);
     expect(click).toBeGreaterThan(-23);
     expect(click).toBeLessThan(-17); // about -20 dBFS, some 8 dB under the thock
-    // In the mix a hit ducks the weapons bus (`audio.duck.db`, -3 dB) on the same tick as the shot.
-    for (const shot of ['shotPace', 'shotKestrel'] as const) {
-      expect(click - (bandPeakDb(one(shot), SR, 2500, 4000) + audio.duck.db), shot).toBeGreaterThanOrEqual(10);
+    // In the mix a body hit ducks the weapons bus (`duckDepthDb`) on the same tick as the shot.
+    const duck = duckDepthDb(set.hitBody.peakDb, audio.duck);
+    for (const shot of ['shotPace', 'shotKestrel', 'shotRill', 'shotLongnail'] as const) {
+      expect(click - (bandPeakDb(one(shot), SR, 2500, 4000) - duck), shot).toBeGreaterThanOrEqual(10);
     }
   });
 
@@ -120,6 +124,152 @@ describe('sound set', () => {
         expect(bad, id).toBe(0);
       }
     }
+  });
+});
+
+const ms = (buf: Float32Array): number => (buf.length / SR) * 1000;
+const slice = (buf: Float32Array, fromMs: number, toMs: number): Float32Array => buf.subarray(Math.round((fromMs / 1000) * SR), Math.round((toMs / 1000) * SR));
+const rms = (buf: Float32Array): number => Math.sqrt(buf.reduce((s, v) => s + v * v, 0) / buf.length);
+
+describe('the rest of design section 12 (#41)', () => {
+  it('synthesises the whole set at load in under 300 ms', () => {
+    // The first render is cold (JIT); take the best of it and three more so a busy CI machine's
+    // scheduling noise does not fail the build. Browser numbers are in docs/audio.md.
+    const runs = [coldMs];
+    for (let i = 0; i < 3; i++) {
+      const t0 = performance.now();
+      renderSoundSet(audio, SR);
+      runs.push(performance.now() - t0);
+    }
+    expect(Math.min(...runs)).toBeLessThan(300);
+  });
+
+  it('gives every weapon a distinct voice: Rill tight and fast, Longnail deep with a long tail', () => {
+    const rill = one('shotRill');
+    const kestrel = one('shotKestrel');
+    const pace = one('shotPace');
+    const longnail = one('shotLongnail');
+    expect(ms(rill)).toBeLessThan(ms(pace));
+    expect(ms(longnail)).toBeGreaterThan(3 * ms(kestrel));
+    expect(dominantHz(longnail, SR)).toBeLessThan(dominantHz(kestrel, SR));
+    expect(dominantHz(longnail, SR)).toBeLessThan(150);
+    expect(spectralCentroid(rill, SR)).toBeGreaterThan(spectralCentroid(kestrel, SR));
+    expect(peakDb(rill)).toBeCloseTo(-15, 0);
+    expect(peakDb(longnail)).toBeCloseTo(-15, 0);
+  });
+
+  it('an enemy shot is never mistaken for your own: its spectrum differs from every player shot', () => {
+    const enemy = spectralCentroid(one('enemyShot'), SR);
+    for (const id of ['shotPace', 'shotKestrel', 'shotRill', 'shotLongnail'] as CueId[]) {
+      const other = spectralCentroid(one(id), SR);
+      expect(Math.abs(enemy / other - 1), id).toBeGreaterThan(0.1);
+    }
+    expect(set.enemyShot.bus).toBe('enemies');
+  });
+
+  it('the damage thud is lower and longer than any hit sound, and quiet above 1 kHz', () => {
+    const thud = one('damageThud');
+    expect(dominantHz(thud, SR)).toBeLessThan(110);
+    expect(spectralCentroid(thud, SR)).toBeLessThan(spectralCentroid(one('hitLeg'), SR));
+    expect(ms(thud)).toBeGreaterThanOrEqual(2 * ms(one('hitBody')));
+    expect(energyAbove(thud, SR, 1000)).toBeLessThan(0.02);
+    expect(peakDb(thud)).toBeCloseTo(-12, 0);
+  });
+
+  it('the near-miss whiz is bright and falls in pitch', () => {
+    const w = one('whiz');
+    expect(spectralCentroid(w, SR)).toBeGreaterThan(1200);
+    expect(dominantHz(slice(w, 15, 50), SR)).toBeGreaterThan(dominantHz(slice(w, 60, 100), SR));
+  });
+
+  it('the medal is a 4-note rising phrase of 400 ms, clear of the kill chime timbre', () => {
+    const m = one('medal');
+    expect(ms(m)).toBeCloseTo(400, -1);
+    const notes = [0, 100, 200, 300].map((t) => dominantHz(slice(m, t + 15, t + 85), SR));
+    for (let i = 1; i < 4; i++) expect(notes[i]!, `note ${i}`).toBeGreaterThan(notes[i - 1]!);
+    expect(Math.abs(notes[0]! - 523)).toBeLessThan(40);
+    expect(Math.abs(notes[3]! - 1047)).toBeLessThan(60);
+  });
+
+  it('the Surge shimmer loops seamlessly: whole cycles, steady level, no step at the seam', () => {
+    const l = one('surgeShimmer');
+    expect(l.length).toBe(SR); // exactly one second: every partial completes whole cycles
+    let maxStep = 0;
+    for (let i = 1; i < l.length; i++) maxStep = Math.max(maxStep, Math.abs(l[i]! - l[i - 1]!));
+    expect(Math.abs(l[0]! - l[l.length - 1]!)).toBeLessThanOrEqual(maxStep * 1.01);
+    const windows = [0, 250, 500, 750].map((t) => rms(slice(l, t, t + 250)));
+    expect(Math.max(...windows) / Math.min(...windows)).toBeLessThan(1.5);
+    expect(peakDb(l)).toBeLessThan(-30); // a bed under the information, not on top of it
+  });
+
+  it('the Surge whoosh rises', () => {
+    const w = one('surgeWhoosh');
+    expect(spectralCentroid(slice(w, 250, 400), SR)).toBeGreaterThan(spectralCentroid(slice(w, 0, 150), SR));
+  });
+
+  it('the results fanfare resolves to the ladder root and the run-end note is the root', () => {
+    const f = one('resultsFanfare');
+    expect(Math.abs(dominantHz(slice(f, 300, 540), SR) - audio.ladder.rootHz)).toBeLessThan(15);
+    expect(Math.abs(dominantHz(one('runEnd'), SR) - audio.ladder.rootHz)).toBeLessThan(15);
+    expect(dominantHz(slice(f, 0, 100), SR)).toBeGreaterThan(audio.ladder.rootHz * 1.4); // starts a fifth up, falls home
+  });
+
+  it('the chain layer sits a fifth above its kill note (folded under the tink) and never in the headshot band', () => {
+    expect(set.chain.variants.length).toBe(audio.ladder.semitones.length);
+    set.chain.variants.forEach((v, i) => {
+      const kill = dominantHz(set.kill.variants[i]!, SR);
+      const hz = dominantHz(v, SR);
+      const ratio = hz / kill;
+      const fifth = [1.5, 0.75].some((r) => Math.abs(ratio / r - 1) < 0.03);
+      expect(fifth, `step ${i + 1}: ${hz.toFixed(0)} Hz over ${kill.toFixed(0)} Hz`).toBe(true);
+      expect(energyAbove(v, SR, 1500), `step ${i + 1}`).toBeLessThan(0.03);
+      expect(peakDb(v)).toBeCloseTo(audio.chain.peakDb, 0);
+    });
+  });
+
+  it('footsteps are quiet low clicks; an enemy step rides the enemy bus', () => {
+    expect(peakDb(one('footstep'))).toBeLessThan(-28);
+    expect(spectralCentroid(one('footstep'), SR)).toBeLessThan(300);
+    expect(ms(one('footstep'))).toBeLessThan(60);
+    expect(set.enemyFootstep.bus).toBe('enemies');
+  });
+
+  it('keeps reload, equip and footsteps well under hit level so they can never mask a hit', () => {
+    for (const id of ['reloadOut', 'reloadIn', 'equip', 'footstep', 'enemyFootstep', 'jump', 'land'] as CueId[]) {
+      expect(peakDb(one(id)), id).toBeLessThanOrEqual(-20);
+    }
+  });
+
+  it('never lets a UI or run-flow cue come near a hit: quiet, and nothing in the headshot band', () => {
+    for (const id of ['uiReady', 'uiGo', 'runEnd'] as CueId[]) {
+      expect(peakDb(one(id)), id).toBeLessThanOrEqual(-20);
+      expect(energyAbove(one(id), SR, 1500), id).toBeLessThan(0.03);
+    }
+  });
+
+  it('only the enemy bus carries enemy cues, and a tell stays 2 dB under a hit', () => {
+    for (const id of ['enemyShot', 'enemyTell', 'whiz', 'damageThud', 'enemyFootstep'] as CueId[]) expect(set[id].bus, id).toBe('enemies');
+    expect(set.enemyTell.peakDb).toBe(-14);
+    expect(dbToGainFn(set.hitBody.peakDb)).toBeGreaterThan(dbToGainFn(set.enemyTell.peakDb));
+    expect(peakDb(one('whiz'))).toBeLessThanOrEqual(-18);
+  });
+});
+
+describe('ducking keeps hits above the weapons bus', () => {
+  it('is the design 3 dB under the body thock, headshot and kill, and deeper under the quieter leg thock', () => {
+    expect(duckDepthDb(-12, audio.duck)).toBeCloseTo(3.5, 6);
+    expect(duckDepthDb(-18, audio.duck)).toBeCloseTo(9.5, 6);
+    expect(duckDepthDb(0, audio.duck)).toBe(3); // never less than the design's 3 dB
+  });
+
+  it('leaves every ducking cue at least 6 dB above the loudest weapon shot, shot gain variation included', () => {
+    const worstShot = audio.duck.weaponsPeakDb + 20 * Math.log10(1 + audio.shotJitter.gain);
+    for (const id of ['hitBody', 'hitLeg', 'hitHead'] as CueId[]) {
+      expect(set[id].peakDb - (worstShot - duckDepthDb(set[id].peakDb, audio.duck)), id).toBeGreaterThanOrEqual(6);
+    }
+    for (const v of set.kill.variants) expect(peakDb(v) - (worstShot - duckDepthDb(set.kill.peakDb, audio.duck))).toBeGreaterThanOrEqual(6);
+    // ...and the weapons peak the rule assumes is the real one.
+    for (const id of ['shotPace', 'shotKestrel', 'shotRill', 'shotLongnail'] as CueId[]) expect(set[id].peakDb).toBeLessThanOrEqual(audio.duck.weaponsPeakDb);
   });
 });
 
