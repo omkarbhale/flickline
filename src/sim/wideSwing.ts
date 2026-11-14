@@ -2,6 +2,7 @@ import type { FairnessFloors } from '../config/dial';
 import type { ExpectationTunables } from '../config/expectation';
 import { Rng } from '../core/rng';
 import { TICK_RATE } from '../core/time';
+import { shieldAbsorbed } from './damage';
 import {
   createShotTiming, enemyShotTiming, normalDraw, reactionDraw,
   type Expectation, type ReactionDist,
@@ -11,7 +12,8 @@ import {
  * The settling experiment for #127 (`docs/research/prepared-holders.md`): a player who expects a
  * holder wide-swings an angle that the holder already has its crosshair on. One duel is the opening
  * exchange: each side's time to its first accurate shot, then shots at the fire interval with seeded
- * head/body/miss rolls, until someone takes lethal damage. Both sides share one skill anchor, so the
+ * head/body/miss rolls through each side's shield (the game's own armour rule), until someone takes
+ * lethal damage. Both sides share one skill anchor, so the
  * duel isolates timing. Pure and seeded: the same seed gives the same table, in milliseconds.
  *
  * It is a model of the fight's timing, not the game's movement and weapon code; the mind's
@@ -72,6 +74,9 @@ export interface WideSwingConfig {
   headDamage: number;
   bodyDamage: number;
   hp: number;
+  /** Both sides' starting shield (the economy's tier, design §5.1) and the share of each hit it absorbs. */
+  shield: number;
+  shieldAbsorb: number;
 }
 
 export interface WideSwingResult {
@@ -149,6 +154,8 @@ export function runWideSwing(c: WideSwingConfig, seed: number, n: number): WideS
     const h0 = Math.ceil(hTime * TICK_RATE);
     let pHp = c.hp;
     let hHp = c.hp;
+    let pShield = c.shield;
+    let hShield = c.shield;
     let kp = 0;
     let kh = 0;
     let outcome = 0; // 0 draw, 1 holder, 2 peeker, 3 trade
@@ -156,8 +163,20 @@ export function runWideSwing(c: WideSwingConfig, seed: number, n: number): WideS
       const pNext = kp < MAX_SHOTS ? p0 + kp * ticksPerShot : Infinity;
       const hNext = kh < MAX_SHOTS ? h0 + kh * ticksPerShot : Infinity;
       const t = Math.min(pNext, hNext);
-      if (pNext === t) { hHp -= damage(shotRng, kp === 0 ? a.first : a.later, c.headScale, c); kp++; }
-      if (hNext === t) { pHp -= damage(shotRng, kh === 0 ? a.first : a.later, c.headScale, c); kh++; }
+      if (pNext === t) {
+        const d = damage(shotRng, kp === 0 ? a.first : a.later, c.headScale, c);
+        const absorbed = shieldAbsorbed(d, hShield, c.shieldAbsorb);
+        hShield -= absorbed;
+        hHp -= d - absorbed;
+        kp++;
+      }
+      if (hNext === t) {
+        const d = damage(shotRng, kh === 0 ? a.first : a.later, c.headScale, c);
+        const absorbed = shieldAbsorbed(d, pShield, c.shieldAbsorb);
+        pShield -= absorbed;
+        pHp -= d - absorbed;
+        kh++;
+      }
       if (hHp <= 0 || pHp <= 0) {
         outcome = hHp <= 0 && pHp <= 0 ? 3 : hHp <= 0 ? 2 : 1;
         break;

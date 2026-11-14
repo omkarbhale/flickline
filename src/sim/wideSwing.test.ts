@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { axisValue } from '../adaptive/dial';
 import type { AxisDef, FairnessFloors } from '../config/dial';
 import { cloneTunables } from '../config/tunables';
+import { economyShield } from './damage';
 import { runWideSwing, WIDE_SWING_ANCHORS, type SkillAnchor, type WideSwingConfig, type WideSwingResult } from './wideSwing';
 
 /**
@@ -39,6 +40,9 @@ function config(anchor: SkillAnchor, cond: Condition, headScale = 1): WideSwingC
     headDamage: near.head,
     bodyDamage: near.body,
     hp: tun.player.health.max,
+    // Duels are fought on the default enemy-fire economy (a full buy: heavy shields, design §5.1).
+    shield: economyShield(tun.economy.defaultEnemyFire, tun.economy, tun.player.shield),
+    shieldAbsorb: tun.player.shield.absorb,
   };
 }
 

@@ -12,6 +12,7 @@ import { orbit } from '../modes/orbit';
 import { placement, type PlacementState } from '../modes/placement';
 import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
+import { economyShield } from '../sim/damage';
 import { rayBox } from '../sim/collision';
 import type { MapDef } from '../sim/mapTypes';
 import type { World } from '../sim/world';
@@ -132,6 +133,7 @@ export class ModeHost {
       this.world.weapon.infiniteMagazine = this.priorInfiniteMagazine;
     }
     this.world.movementLocked = false;
+    this.world.setShields(0, 0);
     this.active = null;
   }
 
@@ -182,6 +184,8 @@ export class ModeHost {
     this.priorInfiniteMagazine = w.weapon.infiniteMagazine;
     w.weapon.infiniteMagazine = setup?.infiniteMagazine ?? this.priorInfiniteMagazine;
     w.movementLocked = setup?.lockMovement ?? false;
+    const level = mode.economy ? economyShield(mode.economy, this.tunables.economy, this.tunables.player.shield) : 0;
+    w.setShields(level, level);
   }
 
   /** Line of sight between two points through the level's collision boxes. */

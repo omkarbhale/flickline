@@ -32,7 +32,7 @@ The experiment that #127 specified, run as signature **S12** in the unit tests (
 - **Peeker.** Reaction is the anchor's ex-Gaussian minus the expectation bonus (it timed its own swing), truncated at 0.11 s, the anticipation limit. Its first accurate shot comes at reaction + `max(0.10 s stop to the accuracy gate, correction)` (spec §2.4: rifle gate about 0.10 s after the stopping input). The stop and the aim correction overlap.
 - **Holder.** `enemyShotTiming` from the same anchor, with the aim phase equal to its correction. A correction is skipped (crosshair already on the swing) with the anchor's wide-swing anticipation share (§5.4: 0.05 / 0.15 / 0.35 / 0.55). Otherwise it takes a lognormal time, median the anchor's correction delay (0.20 / 0.17 / 0.14 / 0.12 s), CV 0.3.
 - **The peeker gets the holder's placement quality.** The peeker skips its correction with the same share as the holder. This is conservative: in the card *Take: expected*, the holder knows where the peeker will appear; the peeker only suspects where the holder is.
-- **Exchange.** Both sides fire the Kestrel (11 rounds/s, 156 head, 39 body, 100 HP; spec §7). Shots land on 128 Hz ticks. Each shot rolls head, body or miss: first shot head 0.10 / 0.18 / 0.28 / 0.38, body about 0.4; later shots half the head odds (HYPOTHESIS 35%). A duel ends when one side takes lethal damage. Both dying on one tick is a trade.
+- **Exchange.** Both sides fire the Kestrel (11 rounds/s, 156 head, 39 body; spec §7) at 100 HP with the default enemy-fire economy's heavy shield (50, absorbing 66% of each hit through `sim/damage.ts`, design §5.1). So a headshot kills and four body hits kill. Shots land on 128 Hz ticks. Each shot rolls head, body or miss: first shot head 0.10 / 0.18 / 0.28 / 0.38, body about 0.4; later shots half the head odds (HYPOTHESIS 35%). A duel ends when one side takes lethal damage. Both dying on one tick is a trade.
 - **Size.** 4,000 seeded duels per cell (the issue asked for 1,000; 4,000 keeps the standard error under one point). Every condition uses the same peeker draws (common random numbers).
 
 **Conditions.**
@@ -48,40 +48,40 @@ The experiment that #127 specified, run as signature **S12** in the unit tests (
 
 | Mind | Condition | Holder first shot (median) | Peeker first shot (median) | Holder wins | Peeker wins | Trades + draws | Holder share |
 |---|---|---|---|---|---|---|---|
-| 0 | today | 1092 ms | 763 ms | 1062 | 2902 | 36 | **27%** |
-| 0 | research | 1292 ms | 763 ms | 681 | 3284 | 35 | **17%** |
-| 0 | split | 761 ms | 763 ms | 2025 | 1942 | 33 | **51%** |
-| 0 | split+pa | 816 ms | 763 ms | 1808 | 2149 | 43 | **46%** |
-| 35 | today | 825 ms | 569 ms | 1054 | 2924 | 22 | **26%** |
-| 35 | research | 997 ms | 569 ms | 599 | 3381 | 20 | **15%** |
-| 35 | split | 562 ms | 569 ms | 2089 | 1877 | 34 | **53%** |
-| 35 | split+pa | 617 ms | 569 ms | 1805 | 2163 | 32 | **45%** |
-| 65 | today | 632 ms | 431 ms | 1067 | 2906 | 27 | **27%** |
-| 65 | research | 780 ms | 431 ms | 512 | 3459 | 29 | **13%** |
-| 65 | split | 408 ms | 431 ms | 2125 | 1836 | 39 | **54%** |
-| 65 | split+pa | 463 ms | 431 ms | 1892 | 2077 | 31 | **48%** |
-| 100 | today | 474 ms | 353 ms | 1221 | 2744 | 35 | **31%** |
-| 100 | research | 593 ms | 353 ms | 711 | 3268 | 21 | **18%** |
-| 100 | split | 304 ms | 353 ms | 2319 | 1639 | 42 | **59%** |
-| 100 | split+pa | 359 ms | 353 ms | 2020 | 1932 | 48 | **51%** |
+| 0 | today | 1092 ms | 763 ms | 1264 | 2631 | 105 | **32%** |
+| 0 | research | 1292 ms | 763 ms | 949 | 2951 | 100 | **24%** |
+| 0 | split | 761 ms | 763 ms | 1960 | 1924 | 116 | **50%** |
+| 0 | split+pa | 816 ms | 763 ms | 1816 | 2084 | 100 | **47%** |
+| 35 | today | 825 ms | 569 ms | 1215 | 2761 | 24 | **31%** |
+| 35 | research | 997 ms | 569 ms | 827 | 3146 | 27 | **21%** |
+| 35 | split | 562 ms | 569 ms | 2078 | 1882 | 40 | **52%** |
+| 35 | split+pa | 617 ms | 569 ms | 1837 | 2129 | 34 | **46%** |
+| 65 | today | 632 ms | 431 ms | 1245 | 2733 | 22 | **31%** |
+| 65 | research | 780 ms | 431 ms | 740 | 3240 | 20 | **19%** |
+| 65 | split | 408 ms | 431 ms | 2121 | 1852 | 27 | **53%** |
+| 65 | split+pa | 463 ms | 431 ms | 1914 | 2063 | 23 | **48%** |
+| 100 | today | 474 ms | 353 ms | 1308 | 2665 | 27 | **33%** |
+| 100 | research | 593 ms | 353 ms | 896 | 3088 | 16 | **22%** |
+| 100 | split | 304 ms | 353 ms | 2293 | 1672 | 35 | **58%** |
+| 100 | split+pa | 359 ms | 353 ms | 2010 | 1957 | 33 | **51%** |
 
 **Sensitivity to the hypothetical shot odds** (holder share; both sides' head odds scaled):
 
 | Mind | Head odds | today | split | split+pa |
 |---|---|---|---|---|
-| 65 | ×0.5 | 30% | 53% | 48% |
-| 65 | ×1 | 27% | 54% | 48% |
-| 65 | ×2 | 16% | 57% | 46% |
-| 100 | ×0.5 | 35% | 57% | 50% |
-| 100 | ×1 | 31% | 59% | 51% |
-| 100 | ×2 | 20% | 63% | 50% |
+| 65 | ×0.5 | 35% | 52% | 48% |
+| 65 | ×1 | 31% | 53% | 48% |
+| 65 | ×2 | 19% | 56% | 47% |
+| 100 | ×0.5 | 38% | 56% | 50% |
+| 100 | ×1 | 33% | 58% | 51% |
+| 100 | ×2 | 22% | 62% | 50% |
 
 **Reading.**
 
-1. **The floors invert the lesson.** With the floors, the peeker wins 69–87% of wide swings into a pre-aimed angle at every skill. The research's own F4 tells make it worse. The settling criterion in #127 ("if the peeker wins > 50%, the floors invert the lesson") is met by a wide margin, and the result holds with the shot odds halved or doubled.
-2. **Split floors restore the holder's edge.** The prepared holder wins 51–59%, more at higher skill, because the stop the peeker must make before an accurate shot then costs it. The edge is modest because the model is timing only and gives the peeker the holder's crosshair placement. Real holders also choose the distance and the angle and watch one spot while the peeker searches.
+1. **The floors invert the lesson.** With the floors, the peeker wins 67–81% of wide swings into a pre-aimed angle at every skill. The research's own F4 tells make it worse. The settling criterion in #127 ("if the peeker wins > 50%, the floors invert the lesson") is met by a wide margin, and the result holds with the shot odds halved or doubled.
+2. **Split floors restore the holder's edge.** The prepared holder wins 50–58%, more at higher skill, because the stop the peeker must make before an accurate shot then costs it. The edge is modest because the model is timing only and gives the peeker the holder's crosshair placement. Real holders also choose the distance and the angle and watch one spot while the peeker searches.
 3. **Prepared holders are not superhuman.** At mind 100 the holder's median first shot is 0.30 s over all wide swings and 0.24 s when already on target (5th–95th percentile 0.19–0.37 s). That matches the 0.25–0.35 s human pre-aimed range (`human-performance.md` §1.2) once you remove the ~20 ms of display and mouse delay that range includes and a simulated enemy does not have. At mind 0 it is 0.76 s, a first-week player who is waiting for you.
-4. **Peeker's advantage on its own makes this a coin flip** (45–51%). The holder-side effects that offset it in the reference game are not modelled yet (see 3.2), so it stays off.
+4. **Peeker's advantage on its own makes this a coin flip** (46–51%). The holder-side effects that offset it in the reference game are not modelled yet (see 3.2), so it stays off.
 
 ## 3. Decisions recorded
 
@@ -103,7 +103,7 @@ The dial's other levers on this fight:
 - **The player peeks.** The enemy perceives the player late by the drawn amount.
 - **An Echo peeks.** The Echo reacts early by that amount, still floored.
 
-Both are **0** by default, which keeps research §8 Q1's "No". Turning it on alone takes the holder from 51–59% to 45–51% (table above). In the reference game the netcode gap is offset by effects this model leaves out. For example, a sideways peeker's leading shoulder is visible to the holder before the peeker's eye clears the corner: about 0.15–0.25 m, or 30–45 ms at 5.4 m/s (DERIVED; HYPOTHESIS 40% that it matters). Perception (#89) samples the player's upper body (§5.3), so that effect will arrive with real Echoes.
+Both are **0** by default, which keeps research §8 Q1's "No". Turning it on alone takes the holder from 50–58% to 46–51% (table above). In the reference game the netcode gap is offset by effects this model leaves out. For example, a sideways peeker's leading shoulder is visible to the holder before the peeker's eye clears the corner: about 0.15–0.25 m, or 30–45 ms at 5.4 m/s (DERIVED; HYPOTHESIS 40% that it matters). Perception (#89) samples the player's upper body (§5.3), so that effect will arrive with real Echoes.
 
 **Revisit in #93.** It re-runs S12 with real Echoes. Turn the advantage on only if the holder still wins most with it.
 
@@ -121,4 +121,4 @@ Both are **0** by default, which keeps research §8 Q1's "No". Turning it on alo
 - **#93 signature suite.** Add S12 (this experiment) against real Echoes; decide peeker's advantage there (3.2).
 - **#51 Sweep director.** The share of *Take: expected* contacts is a dial lever (3.1).
 - **#94 death recap.** "It saw you at 0 ms and shot at 290 ms: it was holding this spot" is the honest line for these deaths, and the card's lesson is "deny the expectation".
-- **#110/#126 fight attribution.** The per-card prior for *Take: expected* can start from the `split` row of the table: the player, as peeker, wins about 41–49% at a matched dial.
+- **#110/#126 fight attribution.** The per-card prior for *Take: expected* can start from the `split` row of the table: the player, as peeker, wins about 42–50% at a matched dial (heavy shields).

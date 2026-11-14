@@ -158,7 +158,7 @@ All modes have `ready` → `live` → `result`; weapon per mode is the default b
 
 ### 4.7 Corner Clear — trains `angles`  (first release)
 
-- **Map/weapon**: Elbow, Kestrel. Enemies shoot back; health and slow-on-hit apply (section 5).
+- **Map/weapon**: Elbow, Kestrel. Enemies shoot back; health, shield (default heavy, 50, you and the Peekers) and slow-on-hit apply (section 5).
 - **Rule**: a ten-checkpoint route through the map. Reaching a checkpoint (a floor mark) arms an **angle**: 1–3 Peekers (section 5) hold it, cycling peek patterns on a short random timer. Kill them, or after 6 s they retreat and you move on. The run ends at the route's end, at 90 s, or at 0 HP.
 - **Trial**: one angle = one trial; success = every Peeker killed and no damage taken.
 - **Dial axes**: exposure, enemy reaction and tell length, enemy accuracy, density, distance.
@@ -169,7 +169,7 @@ All modes have `ready` → `live` → `result`; weapon per mode is the default b
 Sweep is a game, not a drill: you move through a compact arena that fights back, and the pressure comes from reading the fight rather than from a timer.
 
 - **Map/weapons**: Foundry. At the start of a run pick a primary (Kestrel or Rill) and the sidearm is always Pace. `1`/`2` swap, `R` reloads, magazines are real.
-- **Rule**: the **Sweep Director** (section 9) sends a continuous stream of **contacts** from six spawn gates: a contact is one to four enemies of mixed types arriving by different routes with staggered timing. You have health (spec values), slow-on-hit applies, there is no passive regeneration. **Kills heal**: a body kill restores 5 HP, a headshot kill 10 HP (tunable), capped at maximum, so playing cleanly sustains you and sloppy play drains you.
+- **Rule**: the **Sweep Director** (section 9) sends a continuous stream of **contacts** from six spawn gates: a contact is one to four enemies of mixed types arriving by different routes with staggered timing. You have health (spec values) and the default heavy shield (50, as do the enemies), slow-on-hit applies, there is no passive regeneration and a spent shield does not come back. **Kills heal**: a body kill restores 5 HP, a headshot kill 10 HP (tunable), capped at maximum and never restoring shield, so playing cleanly sustains you and sloppy play drains you.
 - **Surge**: chain and clean-streak progress fills a meter (never time). When full it triggers an 8-second Surge: score ×2, enemy tells are drawn brighter (more readable), the HUD frame glows. Surge changes no mechanic.
 - **Run end**: 0 HP or 5:00. A typical run for a matched player lasts about 3:00.
 - **Waves of intent** (director pacing, not difficulty): warm-up 0:00–0:20 at dial −8; build to the player's dial by 1:00; two *peaks* (+6 dial) around 2:00 and 4:00 each lasting 20 s; a short *breather* (−6) after each peak.
@@ -198,7 +198,7 @@ Hit zones follow the spec's three-zone hitbox (spec §5.1, PLACEHOLDER dimension
 
 As fractions of the 1.80 m standing height (the fallback if the spec's numbers move): head 0.84–1.00 H, body 0.44–0.84 H, legs 0–0.44 H. A standing player's eye (1.62 m) is inside the head zone, 0.04 m below the head centre, which is why head-height crosshair discipline (section 3) is measured against the head centre.
 
-Hit detection is hitscan against these shapes in the simulation (the same shapes the renderer's silhouette is built from; the render mesh never decides hits). A **head node** (a slightly brighter emissive core inside the head, drawn *without* enlarging the hitbox) marks the head. Health is 100 HP for players and Echoes; there is **no armour in the first release** (spec §4.1 armour is not used).
+Hit detection is hitscan against these shapes in the simulation (the same shapes the renderer's silhouette is built from; the render mesh never decides hits). A **head node** (a slightly brighter emissive core inside the head, drawn *without* enlarging the hitbox) marks the head. Health is 100 HP for players and Echoes. **Shields** (spec §4.1 armour) sit on top of it **in the modes where enemies shoot back** (Corner Clear, Vigil, Sweep), for the player and for every humanoid Echo alike: a shield absorbs 66% of each hit until it has absorbed its capacity (light 25, heavy 50), the rest goes to health, so the total damage to kill is `100 + shield`. Drills have no shields (nothing shoots the player, and the bullet counts the drills train are the unarmoured ones). Orbs (Beacon) and the Gnat carry none. Reversed from the first draft's "no armour in the first release": rifle duels in the reference game are mostly fought by players who bought shields (rifles and full shields are bought together), so training only the unarmoured bullet counts would teach thresholds that fail there (vision review 1, #131).
 
 ### 5.2 Roster
 
@@ -212,7 +212,9 @@ Hit detection is hitscan against these shapes in the simulation (the same shapes
 | **Bulwark** | Echo with a front plate across the torso. | Walks slowly towards the player. | Fires steadily; the plate absorbs body shots from the front (sparks and a muted tick, no damage), so only the head and legs are valid. | Sweep, high dials |
 | **Gnat** | Small spinning octahedron (hand-sized). | Hovers at head height and darts on a 3D curve (seeded Lissajous with random impulses), 1 bullet kills. | None; its job is vertical tracking and fast re-targeting. | Switchboard, Sweep |
 
-All Echoes use HP, damage-per-zone and bullet-count rules identical to the player's side of the spec (`health.max` 100 HP: a rifle headshot kills, three body bullets kill).
+All Echoes use HP, damage-per-zone, shield and bullet-count rules identical to the player's side of the spec (`health.max` 100 HP). **Unshielded**, a rifle headshot kills and three body bullets kill. **With the default heavy shield (50)** the bullet counts of spec §6 apply: a Kestrel needs four body bullets (a headshot beyond 20 m needs two), a Pace needs two headshots (not one), a Rill six body bullets.
+
+**Economy.** The shield level is a scenario variable (`config/economy.ts`): `full` = heavy shield (50) and the rifle, `light` = light shield (25), `eco` = none and the sidearm. A scenario card carries `economy`; a mode that fires back and has no card setting uses `defaultEnemyFire` (`full`). The player and the Echoes get the same tier, as in a real full-buy or eco round. Kill-heal restores health only, never shield (section 4.8). Results and the fix engine name the difference when it mattered: "your Pace needed two headshots on an armoured target".
 
 ### 5.3 How enemies shoot back (where they do)
 
@@ -220,7 +222,7 @@ Only in **Corner Clear** and **Sweep** (and they never shoot in drills). The rul
 
 1. **Tell.** An enemy that has acquired the player begins a **tell**: its head node flares and a thin bright line flickers from its muzzle towards the player's position for `tell` seconds (0.5 s at dial 0 → 0.18 s at dial 100; **never below 0.15 s**, a fairness floor from human reaction times, see research issue). An enemy that was **prepared** for the player (holding this spot with information, #127) does not hold fire for a tell: its tell runs from the moment it sees the player until its shot (`docs/research/prepared-holders.md`). A rising synthesised tone plays from its position (section 12).
 2. **Fire.** At tell end it fires a burst of 1–3 shots at the spec's fire-rate for a sidearm/rifle archetype. Each shot is hitscan with a **seeded hit roll**: base probability `pHit` from the dial (0.15 → 0.6 at standstill, by distance falloff), multiplied by 0.5 if the player's speed is above the accuracy deadzone (strafing is a real defence, as in the reference) and by 0.7 if crouched at range. A near miss draws a thin tracer past the player's head and plays a whiz from the correct side.
-3. **Damage.** Per-zone damage from the spec. A hit applies the spec's **tagging** slow (spec §4.3: speed capped to 27.5% of max, 0.10 s ramp-in, held while hits continue, 0.5 s release; all four are tunables) to the player, shows the damage arc pointing at the shooter, and plays the damage cue (section 7).
+3. **Damage.** Per-zone damage from the spec, through the player's shield first (66% of each hit until the shield is spent, section 5.1). A hit applies the spec's **tagging** slow (spec §4.3: speed capped to 27.5% of max, 0.10 s ramp-in, held while hits continue, 0.5 s release; all four are tunables) to the player, shows the damage arc pointing at the shooter, and plays the damage cue (section 7).
 4. **Reaction.** Enemy `reaction` (time from first seeing the player to starting the tell) scales 1.2 s → 0.3 s with the dial. A prepared enemy reacts on a human pre-aimed draw instead (floor 0.15 s, #127).
 5. **Determinism.** All rolls use the run seed, so a seeded run is replayable.
 
@@ -274,7 +276,7 @@ Rule: every event the player causes is answered **in the same frame** with at le
 
 ### 7.2 Live readouts (all toggleable; default: **minimal**)
 
-Always on: crosshair, ammo, timer, score, multiplier, chain/streak counters, HP (modes with enemy fire).
+Always on: crosshair, ammo, timer, score, multiplier, chain/streak counters, HP and shield (modes with enemy fire; the shield bar sits above the HP bar and is drawn only when the fight has one).
 
 Stat strip (bottom-left, small, default **on** so the feedback is learnable; each item toggleable): **Acc %**, **HS %**, **Median RT**, **Median TTK**, **Moving shots**. A single combined "pace vs PB" bar sits under the score.
 
@@ -503,7 +505,7 @@ All audio is **synthesised with Web Audio** at load (an `OfflineAudioContext` re
  [stat strip:                          +  (crosshair)
   Acc 74% · HS 38% ·
   RT 182ms · TTK 0.41s ·                       
-  Moving 3]                                    [HP ▮▮▮▮▮▮▯▯]  (modes with damage)
+  Moving 3]                                    [SH ▮▮▮▮▯▯▯▯ / HP ▮▮▮▮▮▮▯▯]  (modes with damage)
  [edge meter]                                  [ammo 18 / 90]
 ```
 
@@ -567,10 +569,10 @@ runReady { mode, seed, dial }      runStarted { }      runEnded { reason: 'timer
 shotFired { shotId, weapon, origin, dir, moving: boolean, speed, airborne, spreadDeg, recoilIndex, ammo }
 shotImpact { shotId, result: 'hit'|'miss', targetId?, zone?, damage?, point, distance, killed? }
 targetSpawned { id, kind, pos, tags }     targetVisible { id }
-targetHit { id, zone, damage, killed }    targetKilled { id, kind, zone, ttkMs, rtMs, firstBullet, bullets, clean }
+targetHit { id, zone, damage, absorbed, hpLeft, shieldLeft, killed }    targetKilled { id, kind, zone, ttkMs, rtMs, firstBullet, bullets, shield, clean }
 targetExpired { id }                      targetShielded { id }   (Bulwark plate hit)
 enemyTell { id, durationMs }              enemyFired { id, hit: boolean, dir }
-playerDamaged { amount, hp, dir, sourceId }   playerSlowed { factor, durationMs }   playerDied { }
+playerDamaged { amount (HP lost), absorbed, hp, shield, dir, sourceId }   playerSlowed { factor, durationMs }   playerDied { }
 chainUpdated { count }                    streakUpdated { streak, mult }   surgeStarted { }  surgeEnded { }
 medalAwarded { id }                       skillTrial { skill, itemDifficulty, success, rtMs?, extra }
 ```
