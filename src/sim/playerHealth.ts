@@ -34,6 +34,12 @@ export interface HealthEvents {
     /** Who fired (enemy id), or -1 (debug, environment). */
     sourceId: number;
     killed: boolean;
+    /**
+     * How many enemies see the player at this moment (line of sight, him inside their field of
+     * view), the shooter included (`fight-attribution.md` F5). From the enemy minds' perception
+     * (#89): 0 while none is installed. More than one means he was exposed to several angles.
+     */
+    exposedTo: number;
   };
   /** The tagging slow was started or refreshed by a hit (spec §4.3). */
   playerSlowed: { tick: number; t: number; factor: number; durationMs: number };
@@ -101,7 +107,7 @@ export class PlayerHealthSystem {
   readonly state: PlayerHealth;
   private readonly dmgEv: SimEvents['playerDamaged'] = {
     tick: 0, t: 0, amount: 0, absorbed: 0, hp: 0, maxHp: 0, shield: 0, maxShield: 0, zone: 'body', dir: vec3(0, 0, -1),
-    yaw: 0, sourceId: -1, killed: false,
+    yaw: 0, sourceId: -1, killed: false, exposedTo: 0,
   };
   /** The shield a life starts with (`setShield`); survives `reset()`. */
   private shieldLevel = 0;
@@ -151,11 +157,12 @@ export class PlayerHealthSystem {
   /**
    * The player is hit for `amount` damage in `zone` by a shooter at (`sx`, `sy`, `sz`) (the point the
    * bullet came from; `sourceId` is the enemy's id or -1). Emits `playerDamaged`, `playerSlowed`
-   * and, at 0 HP, `playerDied`. Ignored once dead. Returns whether it killed.
+   * and, at 0 HP, `playerDied`. Ignored once dead. Returns whether it killed. `exposedTo` is the
+   * number of enemies that see the player, reported on `playerDamaged`.
    */
   damage(
     p: PlayerState, amount: number, zone: HitZone, sx: number, sy: number, sz: number, sourceId: number,
-    tick: number, events: EventSink<SimEvents>,
+    tick: number, events: EventSink<SimEvents>, exposedTo = 0,
   ): boolean {
     const h = this.state;
     if (!h.alive || !(amount > 0)) return false;
@@ -186,7 +193,7 @@ export class PlayerHealthSystem {
     const e = this.dmgEv;
     e.tick = tick; e.t = t; e.amount = lost; e.absorbed = absorbed; e.hp = h.hp; e.maxHp = h.maxHp;
     e.shield = h.shield; e.maxShield = h.maxShield; e.zone = zone;
-    e.yaw = p.yaw; e.sourceId = sourceId; e.killed = killed;
+    e.yaw = p.yaw; e.sourceId = sourceId; e.killed = killed; e.exposedTo = exposedTo;
     yawFrameDirection(e.dir, p, sx, sy, sz);
     events.emit('playerDamaged', e);
 
