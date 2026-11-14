@@ -3,6 +3,7 @@ import { MODES } from '../app/modeHost';
 import { scriptedRun } from '../debug/scriptedSweep';
 import { PLACEMENT_MODE } from '../modes/placement';
 import '../feedback/cuePlanner'; // declares the cueScheduleSet event
+import { ArmourNoteTracker } from '../feedback/armourNoteTracker';
 import { ResultsRecorder, type CardModel, type RatedSkill } from '../feedback/results';
 import { RunStoryTracker, storyConfigFrom } from '../feedback/runStory';
 import { keyLabel } from '../settings/keys';
@@ -90,8 +91,22 @@ export const feature = defineFeature({
     game.bus.onAny((type, payload) => {
       if (RunStoryTracker.reads(type)) story.ingest(type, payload as never);
     });
+    // What the shield changed in a kill (the armour note, and the eco note in an eco sector), named on the card.
+    const armour = new ArmourNoteTracker({
+      weapon: () => {
+        const w = game.tunables.weapon[game.world.loadout[game.world.weapon.active]!];
+        return { name: w.name, bands: w.damageBands };
+      },
+      maxHp: game.tunables.player.health.max,
+      absorb: game.tunables.player.shield.absorb,
+      fullShield: game.tunables.player.shield.heavy,
+    });
+    game.bus.on('runReady', () => armour.reset());
+    game.bus.on('sectorEntered', (e) => armour.sectorEntered(e.condition));
+    game.bus.on('targetKilled', (e) => armour.killed(e.zone, e.distance, e.shield));
     const recorder = new ResultsRecorder({
       story,
+      notes: () => armour.notes(),
       bus: game.bus,
       run: game.run,
       deathCause: () => fakeCause,

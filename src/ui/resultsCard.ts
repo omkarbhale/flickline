@@ -116,6 +116,7 @@ export class ResultsCard {
             <p data-k="fixAction"></p>
           </section>
         </div>
+        <ul class="rc-notes" aria-label="Armour" data-k="notes" hidden></ul>
         <section class="rc-rating" aria-label="Rating" data-k="rating">
           <div class="rc-rating-row" data-k="ratingRow">
             <span class="rc-skill" data-k="skill"></span>
@@ -248,6 +249,9 @@ export class ResultsCard {
       q('bartext').textContent = r.progressText;
     }
 
+    const notes = q('notes');
+    notes.replaceChildren(...m.notes.map((n) => h('li', { text: n })));
+    notes.hidden = m.notes.length === 0;
     this.writeRoute(m);
     this.writeFights(m);
     this.writeStats(m);

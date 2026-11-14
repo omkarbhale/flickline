@@ -109,6 +109,8 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
   ctx.placePlayer(sp.entry.x, sp.entry.y, sp.entry.z, sp.entryYaw);
   // One beat per sector: the dial is read from the posterior here, with the sector's offset (design §4.1, §9.3).
   if (i > 0) ctx.advanceBeat();
+  // The sector's economy (design §4.6) before anyone is placed: the Echoes spawn with its shield and weapon.
+  ctx.setEconomy(sp.condition);
   const depth = perSector(cfg.depthMultiplier, i);
   ctx.setPointsMultiplier(depth);
   st.contacts.length = 0;
@@ -135,6 +137,7 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
   ev.t = ctx.timeSec;
   ev.sectorId = sp.sectorId;
   ev.mapId = sp.mapId;
+  ev.condition = sp.condition;
   ev.index = i;
   ev.of = st.plan.sectors.length;
   ev.dial = ctx.dial;
@@ -263,9 +266,11 @@ export const sweep: ModeDef<SweepState> = {
   weapon: 'kestrel',
   // Real magazines and reloads, but the reserve never runs dry: the reference game refills it every
   // round, and a run is many rounds' worth of fights with no ammo to pick up (#201 decision).
-  player: { allowSwap: true, infiniteReserve: true },
+  player: { allowSwap: true, infiniteReserve: true, pickPrimary: true },
   // Echoes shoot back with heavy shields on both sides (design §4.1, §4.6: `full` is the default).
   economy: 'full',
+  // The ready screen is the primary pick (design §4.1): `1`..`3` choose and start the run at once, else it times out on the last pick.
+  readySec: sweepDefaults.pick.readySec,
   durationSec: Infinity,
   axes: ['tellSec', 'enemyReactionSec', 'enemyHitChance', 'strafeSpeed'],
   beatSec: null,

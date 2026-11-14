@@ -376,6 +376,12 @@ describe('the run results card (design §8.2, #213)', () => {
     expect(drill.stats).toHaveLength(8);
   });
 
+  it('carries the armour and eco notes of the run (#207), and none by default', () => {
+    expect(make(sweep(), story(2)).notes).toEqual([]);
+    const notes = ['Your Pace needed two headshots on an armoured target (one kills an unarmoured one).'];
+    expect(make(sweep(), story(2), { notes }).notes).toEqual(notes);
+  });
+
   it('shows a score of 0, not a dash, for a sector run that earned nothing', () => {
     expect(make(sweep(), story(1), { score: null }).score).toBe('0');
     expect(buildCard({ stats: stats(), split: null, score: null, rating: null, pb: null, medals: [] }).score).toBe(DASH);
