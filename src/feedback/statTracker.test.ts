@@ -80,6 +80,10 @@ class Log {
     this.events.push({ type: 'headHeightSampled', data: { tick, err: errDeg * DEG2RAD } });
     return this;
   }
+  lead(tick: number, errDeg: number): this {
+    this.events.push({ type: 'leadSampled', data: { tick, id: 0, err: errDeg * DEG2RAD } });
+    return this;
+  }
   stop(tick: number, latencyMs: number): this {
     this.events.push({ type: 'playerStopped', data: { tick, latencyMs, counterStrafe: false } });
     return this;
@@ -310,6 +314,16 @@ describe('computeStats: positional and timing stats', () => {
     const s = stats(new Log().head(10, 1).head(20, 3).head(30, 2));
     expect(s.headHeightDisciplineDeg).toBeCloseTo(2, 9);
     expect(s.headHeightSamples).toBe(3);
+  });
+
+  it('lead error = the signed mean (+ ahead of the target, - behind it) and the mean absolute, in degrees', () => {
+    const s = stats(new Log().lead(10, 2).lead(20, -1).lead(30, -4));
+    expect(s.leadErrorBiasDeg).toBeCloseTo(-1, 9);
+    expect(s.leadErrorMeanAbsDeg).toBeCloseTo(7 / 3, 9);
+    expect(s.leadSamples).toBe(3);
+    const none = stats(new Log());
+    expect(none.leadErrorBiasDeg).toBeNull();
+    expect(none.leadSamples).toBe(0);
   });
 
   it('pre-aim error is the median of the aim error when each target became visible', () => {

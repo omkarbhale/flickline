@@ -452,6 +452,7 @@ The dial 0–100 maps to the seven axes (each mode uses a subset; linear unless 
 | Flick angle range (°) | 20–40 | 60–120 (a rare 120–180° above dial 85 is #136) | Orbit |
 | Strafe speed (m/s) | 2.0 | 5.4 | Strafer |
 | Strafe leg interval (s) / stand-still window (s) | 1.0 / 0.4 | 0.35 / 0.25 (after the 0.16 s decel) | Strafer |
+| Strafer time limit (s), spawn to kill | 8 | 3 | Strafer (Strafe Track, §4.3) |
 | Exposure, pre-aimed timed targets (s) | 3.0 (g) | 0.45 | Any timed target without its own curve |
 | Exposure, Orbit (s) | 2.5 (g) | 1.6 | Orbit, Placement run (Orbit-style trials) |
 | Exposure, Cold Start (s) | 2.5 (g) | 1.35 | Cold Start, Placement run (Cold-Start-style trials) |

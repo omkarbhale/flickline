@@ -40,6 +40,8 @@ export interface DialAxesTunables {
   /** Strafer leg duration (s) and stand-still window after the 0.16 s decel (s). */
   strafeLegSec: AxisDef;
   standStillSec: AxisDef;
+  /** Strafe Track: time limit of one Strafer, spawn to kill (s); a Strafer not killed in it is a failed trial (#46). */
+  strafeLimitSec: AxisDef;
   /**
    * Time a timed target stays exposed (s); counted from its spawn today, from `targetVisible` once
    * #143 lands (design §9.3.5). `exposureSec` is the
@@ -222,6 +224,8 @@ export const dial: DialTunables = {
     // and 0.35 s legs leave time to re-acquire a reversal (#12 P5).
     strafeLegSec: { at0: 1.0, at100: 0.35, curve: 'linear' },
     standStillSec: { at0: 0.4, at100: 0.25, curve: 'linear' },
+    // Design §4.3: 8 s at dial 0 down to 3 s at dial 100 (#46).
+    strafeLimitSec: { at0: 8, at100: 3, curve: 'linear' },
     // Exposure per mode (#12 §4.1): about 1.3x the minimum feasible time (reaction + aiming
     // movement for the mode's angles and sizes). The generic curve is for pre-aimed targets.
     exposureSec: { at0: 3.0, at100: 0.45, curve: 'geometric' },

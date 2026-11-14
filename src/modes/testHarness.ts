@@ -1,7 +1,7 @@
 import { EventBus } from '../core/eventBus';
 import { vec3, type Vec3 } from '../core/vec3';
 import { cloneTunables, type Tunables } from '../config/tunables';
-import type { AnchorLike, DialSource, ModeEvents, PlayerSourceEvents, SourceEvents, TargetSpawner } from './contracts';
+import type { AnchorLike, AxisValues, DialSource, ModeEvents, PlayerSourceEvents, SourceEvents, StrafeSpawn, TargetSpawner } from './contracts';
 import { createLinearDial, type AxisRange } from './linearDial';
 import { ModeRunner } from './runner';
 import { TEST_MODE_AXES } from './testMode';
@@ -12,7 +12,7 @@ export interface Harness {
   runner: ModeRunner;
   tunables: Tunables;
   log: { type: string; data: Record<string, unknown> }[];
-  targets: Map<number, { kind: string; pos: Vec3; scale: number }>;
+  targets: Map<number, { kind: string; pos: Vec3; scale: number; strafe?: StrafeSpawn }>;
   dialCalls: number[];
   simTick: number;
   player: { pos: Vec3; yaw: number; pitch: number; eyeHeight: number; vel: Vec3; crouching: boolean; grounded: boolean };
@@ -39,16 +39,18 @@ export function ringAnchors(stepDeg = 30): AnchorLike[] {
   return out;
 }
 
-export function makeHarness(table: Record<string, AxisRange> = TEST_MODE_AXES, baseDial = 50): Harness {
+export function makeHarness(
+  table: Record<string, AxisRange> = TEST_MODE_AXES, baseDial = 50, axesFor?: (dial: number) => AxisValues,
+): Harness {
   const bus = new EventBus<ModeEvents & SourceEvents & PlayerSourceEvents>();
   const tunables = cloneTunables();
   const log: Harness['log'] = [];
   const targets: Harness['targets'] = new Map();
   let nextId = 1;
   const spawner: TargetSpawner = {
-    spawn(kind, pos, scale) {
+    spawn(kind, pos, scale, strafe) {
       const id = nextId++;
-      targets.set(id, { kind, pos: vec3(pos.x, pos.y, pos.z), scale });
+      targets.set(id, { kind, pos: vec3(pos.x, pos.y, pos.z), scale, strafe: strafe && { ...strafe } });
       return id;
     },
     despawn(id) {
@@ -62,7 +64,7 @@ export function makeHarness(table: Record<string, AxisRange> = TEST_MODE_AXES, b
       dialCalls.push(beat);
       return inner.dialFor(mode, beat, curve);
     },
-    axes: (d) => inner.axes(d),
+    axes: (d) => (axesFor ? axesFor(d) : inner.axes(d)),
   };
   const player = { pos: vec3(0, 0, 0), yaw: 0, pitch: 0, eyeHeight: 1.62, vel: vec3(0, 0, 0), crouching: false, grounded: true };
   const runner = new ModeRunner({ events: bus, tunables, dial, spawner, player });

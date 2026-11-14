@@ -14,6 +14,18 @@ export interface RunTunables {
   flickMinDeg: number;
   /** Time on target: the hit volume is padded by this angle (design §3). */
   timeOnTargetPadDeg: number;
+  /**
+   * Lead error (Strafe Track, design §3/§4.3): while a Strafer cruises (lane speed at or above
+   * `leadMinSpeedMps`) and the view is within `leadMaxOffDeg` of it, the signed horizontal offset
+   * of the aim from the target's centre of mass is sampled this often. Only a Strafer the aim was
+   * on (inside the padded hit volume) within the last `leadEngageSec` counts: the lead error is a
+   * tracking measure, so the flick that brings the crosshair to a new Strafer (which always
+   * arrives ahead of it) is not part of it.
+   */
+  leadSampleSec: number;
+  leadEngageSec: number;
+  leadMinSpeedMps: number;
+  leadMaxOffDeg: number;
   /** Head-height discipline: sample period while moving with no enemy visible. */
   headHeightSampleSec: number;
   /**
@@ -36,6 +48,10 @@ export const run: RunTunables = {
   restartBudgetMs: 250,
   timeOnTargetPadDeg: 0.5,
   flickMinDeg: 1,
+  leadSampleSec: 0.1,
+  leadEngageSec: 0.6,
+  leadMinSpeedMps: 1,
+  leadMaxOffDeg: 10,
   headHeightSampleSec: 0.125,
   headHeightRefDistance: 10,
   headHeightConeDeg: 30,

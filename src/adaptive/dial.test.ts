@@ -25,6 +25,8 @@ describe('axes (design §9.4)', () => {
     expect(a100.peekWideSec).toBeCloseTo(0.45, 9);
     expect(a100.strafeLegSec).toBeCloseTo(0.35, 9);
     expect(a100.standStillSec).toBeCloseTo(0.25, 9);
+    expect(a0.strafeLimitSec).toBeCloseTo(8, 9);
+    expect(a100.strafeLimitSec).toBeCloseTo(3, 9);
     expect(a0.tellSec).toBeCloseTo(0.7, 9);
     expect(a100.tellSec).toBeCloseTo(0.3, 9);
   });

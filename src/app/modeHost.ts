@@ -6,10 +6,11 @@ import type { Tunables } from '../config/tunables';
 import type { EnemyKind } from '../config/scoring';
 import type { WeaponId } from '../config/weapon';
 import { coldStart } from '../modes/coldStart';
-import type { AnchorSource, AxisValues, DialSource, TargetSpawner } from '../modes/contracts';
+import type { AnchorSource, AxisValues, DialSource, StrafeSpawn, TargetSpawner } from '../modes/contracts';
 import type { ModeDef } from '../modes/modeDef';
 import { orbit } from '../modes/orbit';
 import { placement, type PlacementState } from '../modes/placement';
+import { strafeTrack } from '../modes/strafeTrack';
 import { stopAndPop } from '../modes/stopAndPop';
 import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
@@ -25,6 +26,7 @@ export const MODES: Readonly<Record<string, ModeDef<never>>> = {
   coldStart: coldStart as ModeDef<never>,
   orbit: orbit as ModeDef<never>,
   placement: placement as ModeDef<never>,
+  strafeTrack: strafeTrack as ModeDef<never>,
   stopAndPop: stopAndPop as ModeDef<never>,
 };
 
@@ -33,9 +35,10 @@ class WorldSpawner implements TargetSpawner {
   constructor(private readonly world: World, private readonly bus: EventBus<GameEvents>) {}
 
   /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. */
-  spawn(kind: EnemyKind, pos: Vec3, scale: number): number {
+  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn): number {
     if (kind !== 'post' && kind !== 'beacon' && kind !== 'strafer' && kind !== 'peeker') return -1;
-    return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, { scale });
+    // A Strafer's numbers and lane go to the sim as given; the sim copies them at spawn.
+    return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, strafe ? { scale, strafe } : { scale });
   }
 
   despawn(id: number): void {
