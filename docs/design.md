@@ -147,7 +147,7 @@ Before the Opener the player picks a primary (Kestrel, Vane or Rill) with `1`–
 
 A sector is a region of a map with an entry gate, an exit gate and placement anchors (section 10.2). Its **role** says who has to move:
 
-- **Take** (the player moves in on enemies): the sector's Echoes are placed **at run start of the sector, before the player can see them**, on hold anchors, with initial beliefs from their contact's card (section 4.4). Lines of sight open because the player moves, one slice at a time; nothing is triggered by stepping on a mark (vision review 1, finding 7). The sector is done when its Echoes are dead or the player leaves through the exit gate; leaving enemies alive forfeits the sector-clear bonus and lets the survivors **follow**: they can arrive in the next sector as a flank or trade card.
+- **Take** (the player moves in on enemies): the sector's Echoes are placed **before the player can see them** (as the player passes the previous gate), on hold anchors, with initial beliefs from their contact's card (section 4.4). Lines of sight open because the player moves, one slice at a time; nothing is triggered by stepping on a mark (vision review 1, finding 7). The sector is done when its Echoes are dead or the player leaves through the exit gate; leaving enemies alive forfeits the sector-clear bonus and lets the survivors **follow**: they can arrive in the next sector as a flank or trade card.
 - **Hold** (enemies move in on the player): the player enters with the enemies not yet in the sector. One to three contacts **arrive** over 25–45 s along the sector's approach lanes, with honest audio (section 4.4) and real peek patterns. The player may hold one spot, reposition, or push out to meet them; the exit opens when the sector's enemies are dead. There is nothing to defend: the enemies are hunting the player, and the player chooses where to fight them.
 - **Meet** (both sides moving): a rotation corridor where an Echo group is crossing the same space. Who stops first and who holds head height while moving decides it.
 
@@ -155,7 +155,7 @@ The Opener is always a take; the Finale is always a hold. Sectors 2–5 are draw
 
 ### 4.3 Tempo: why you cannot wait forever
 
-In a take sector the Echoes **set up** over time. Until the sector's tempo window ends (12–25 s after the player enters, by dial and depth), placed Echoes are still settling: some are moving to their spot, some face elsewhere, cards resolve to `take-unaware`, `meet` or `clear`. After it, unaware Echoes turn to their angles and resolve to `take-expected` or `breach`. Running footsteps carry (honest channels, section 4.4), so running in early buys time but tells the Echoes you are coming; walking is silent and slow. This is the reference game's attacker trade-off between tempo and information, made without a timer, a spike or a fail state (`engagement-information.md` §4.3; [#100](https://github.com/omkarbhale/flickline/issues/100)).
+In a take sector the Echoes **set up** over time. Until the sector's tempo window ends (12–25 s after the player enters, by dial and depth), placed Echoes are still settling: some are moving to their spot, some face elsewhere, cards resolve to `take-unaware`, `meet` or `clear`. After it, unaware Echoes turn to their angles and resolve to `take-expected` or `breach`. Tempo changes the card before the mix is sampled, and the mix rebalances over the rest of the run (`engagement-information.md` §4.5 rule 4). Running footsteps carry (honest channels, section 4.4), so running in early buys time but tells the Echoes you are coming; walking is silent and slow. This is the reference game's attacker trade-off between tempo and information, made without a timer, a spike or a fail state (`engagement-information.md` §4.3; [#100](https://github.com/omkarbhale/flickline/issues/100)).
 
 What tempo pays: arriving in the window keeps the Surge meter filling and adds the tempo bonus to the sector clear (section 8.1). Missing it never costs HP and never ends the run; it only makes the next fights harder, as waiting does in the reference game.
 
@@ -205,15 +205,15 @@ The earlier design was an aim trainer: seven 60-second drills, a Placement run, 
 | **Orbit** (merged) | Retired as a mode. | Flick error, flick time and the must-flick trial type become the `flick` trial classifier. Beacons drift in the Lobby as an unscored toy (section 13.4). |
 | **Placement run** (merged) | Retired. | The staircase and the self-report prior place a new player inside the Opener (section 9.2). |
 | **Stop & Pop** (merged, #185) | Retired as a mode; the stance ring cue is retired with it (it has no counterpart in the reference game). | Stop latency, stance correctness and moving-shot stats are measured in every fight. The Lane map becomes a source of meet and take sectors. |
-| **Spray Wall** (open PR #189) | Retired. | The spray trace and per-bullet-index analysis are drawn from real sprays in fights (section 8.2). |
+| **Spray Wall** (merged, #189) | Retired as a mode. | The spray trace and per-bullet-index analysis are drawn from real sprays in fights (section 8.2). |
 | **Strafe Track** (merged, #192) | Retired as a mode. | Strafers fight in duels and meet contacts; time on target is reported for duels against a strafing Echo. |
-| **Switchboard** (not merged) | Retired. | Trades, crossfires, multi-enemy contacts and Gnats; switch time is a stat of every multi-kill contact. |
-| **Corner Clear** (not merged) | Absorbed: it *is* a take sector. | Elbow's checkpoints and peek spots become take sectors; placed holders and the clearing-order stats of vision review 1 finding 7 apply. |
-| **Vigil** (not merged) | Absorbed: it *is* a hold sector. | Hold cards, approach lanes and the Finale. |
+| **Switchboard** (never built) | Retired. | Trades, crossfires, multi-enemy contacts and Gnats; switch time is a stat of every multi-kill contact. |
+| **Corner Clear** (never built) | Absorbed: it *is* a take sector. | Elbow's checkpoints and peek spots become take sectors; placed holders and the clearing-order stats of vision review 1 finding 7 apply. |
+| **Vigil** (never built) | Absorbed: it *is* a hold sector. | Hold cards, approach lanes and the Finale. |
 | **Daily Baseline** (open PR #190) | Replaced by the **cold opener** (section 8.5). | The stored item sets and their generator, the version guard, the levels, keeping its trials out of the matched posterior, the due rule, the noise band and the verdict survive; the separate routine does not. |
 | **Mix runs** (not built), **Today's session** (merged) | Removed. | Every run interleaves all seven skills by construction. |
 | **Practice this (30 s)** | Removed. | Replaced by the lean (section 4.4). |
-| **Sweep** (not merged) | Becomes the whole game. | Its director, kill-heal, Surge, contact settle and tempo become the run's. |
+| **Sweep** (#51, never built as a mode) | Becomes the whole game. | Its director, kill-heal, Surge, contact settle and tempo become the run's. |
 | **Free play** (merged) | Becomes the **Lobby**. | The Range with drifting Beacons behind the menu; nothing is scored or rated there. |
 
 ---
@@ -369,13 +369,13 @@ Per kill: `score = base(enemy) × precision × speed × streak × difficulty`.
 |---|---|
 | `base` | Post 100, Beacon 100, Strafer 150, Peeker 200, Rusher 150, Bulwark 250, Gnat 120 |
 | `precision` | ×1.5 if the killing bullet hit the head; ×1.25 if the killing bullet was the first bullet at that target; they stack to ×1.875 |
-| `speed` | `1 + 0.5 × clamp((par − TTK)/par, 0, 1)` where `par` is the mode's par time for that enemy |
+| `speed` | `1 + 0.5 × clamp((par − TTK)/par, 0, 1)` where `par` is the enemy type's par time at the dial |
 | `streak` | `1 + 0.1 × min(cleanStreak, 20)` (×1.0 → ×3.0) |
 | `difficulty` | `2^((dial − 50)/25)`, so dial 75 = ×2 and dial 25 = ×0.5 (score is comparable across ability; adapting the dial never gives free points or takes them away) |
 
 No negative scores: missing costs you the clean streak, the first-shot bonus and time, never points directly. Surge doubles the total.
 
-`speed` uses TTK, which starts at the first shot, so it pays for killing efficiently once committed and never for rushing into a fight; it applies on every card, holding cards included (#132). `par` is the enemy type's par time at the dial (`config/scoring.ts`).
+`speed` uses TTK, which starts at the first shot, so it pays for killing efficiently once committed and never for rushing into a fight; it applies on every card, holding cards included (#132). `par` lives in `config/scoring.ts`.
 
 **Run terms** (all tunable, starting values HYPOTHESIS until the balance pass #53):
 
@@ -550,7 +550,7 @@ Maps extend the foundation's `LevelDef` (`src/sim/levels.ts`: `boxes`, `spawn`, 
 interface MapDef extends LevelDef {           // LevelDef already has boxes (AABB + tag), spawn, targets
   schema: 1; id: string; name: string;
   bounds: { min: Vec3; max: Vec3 };
-  anchors: Anchor[];     // where modes may place things; typed
+  anchors: Anchor[];     // where the run director may place things; typed
   nav: { nodes: { id: string; pos: Vec3 }[]; edges: [string, string][] };
   lanes?: { id: string; start: Vec3; end: Vec3; width: number }[];
   checkpoints?: { id: string; pos: Vec3; angleAnchors: string[] }[];
@@ -745,7 +745,7 @@ Rules that keep the four honest:
 - **Feel is judged against descriptions, never assets.** The checklist describes behaviours, relationships and timings in our own words. No reference audio, video or image is copied, recorded, ripped, embedded or used as a synthesis target (section 16). Sounds stay synthesised from code and are tuned until the checklist items pass.
 - **Numbers belong to the spec, not to the feel pass.** Tuning for feel changes presentation parameters (viewmodel kick curves, hit-marker timing, synthesis parameters, flinch and tagging presentation), never a value that has a row in the conformance table. If feel can only be reached by changing such a value, that is an issue on the numbers track.
 - **Conflicts are filed, not silently resolved.** Mechanical truth (pillar 1) outranks fun for everything inside the mechanics; fun outranks feel-polish for everything around the mechanics (pacing, rewards, results flow).
-- **A harmful habit is a mechanical-truth defect.** A mode that rewards a habit that fails in the reference game is fixed in the mode, however fun it is; the mechanics' numbers stay the spec's.
+- **A harmful habit is a mechanical-truth defect.** A situation or game layer that rewards a habit that fails in the reference game is fixed where it arises, however fun it is; the mechanics' numbers stay the spec's.
 - **Every playtest pass reports the four verdicts separately**, in four sections of its report, each also posted on its tracking issue; every defect is filed with the matching `quality:numbers`, `quality:feel`, `quality:fun` or `quality:transfer` label.
 - Owners: the conformance suite [#64](https://github.com/omkarbhale/flickline/issues/64), the feel checklist [#65](https://github.com/omkarbhale/flickline/issues/65) and feel tuning [#67](https://github.com/omkarbhale/flickline/issues/67), the fun criteria [#66](https://github.com/omkarbhale/flickline/issues/66) and fun tuning [#68](https://github.com/omkarbhale/flickline/issues/68), the transfer checklist and research (`docs/transfer-checklist.md`, `docs/research/transfer.md`, from [#128](https://github.com/omkarbhale/flickline/issues/128)) with the first habit review [#160](https://github.com/omkarbhale/flickline/issues/160) and the transfer pilot [#158](https://github.com/omkarbhale/flickline/issues/158); the playtests are [#29](https://github.com/omkarbhale/flickline/issues/29) and [#56](https://github.com/omkarbhale/flickline/issues/56).
 
@@ -784,71 +784,30 @@ Flickline copies **mechanics and feel only**: movement speeds and acceleration, 
 
 ## 17. Backlog
 
-The work is tracked in GitHub issues on `omkarbhale/flickline`; every issue states its goal, the design section it implements, acceptance criteria, dependencies and what is out of scope. Design and backlog tracking: [#8](https://github.com/omkarbhale/flickline/issues/8).
+The work is tracked in GitHub issues on `omkarbhale/flickline`; every issue states its goal, the design section it implements, acceptance criteria, dependencies and what is out of scope. Design and backlog tracking: [#8](https://github.com/omkarbhale/flickline/issues/8); the v2 redesign: [#187](https://github.com/omkarbhale/flickline/issues/187), tracked on [#188](https://github.com/omkarbhale/flickline/issues/188).
 
 - Prerequisites outside this backlog: code foundation [#6](https://github.com/omkarbhale/flickline/issues/6) (merged), mechanics spec [#7](https://github.com/omkarbhale/flickline/issues/7) (merged), architecture and conventions [#54](https://github.com/omkarbhale/flickline/issues/54).
-- Phase tracking issues: [#9 first playable](https://github.com/omkarbhale/flickline/issues/9), [#10 first release](https://github.com/omkarbhale/flickline/issues/10), [#11 later (parked ideas)](https://github.com/omkarbhale/flickline/issues/11).
+- Phase tracking issues: [#9 first playable](https://github.com/omkarbhale/flickline/issues/9), [#10 first release](https://github.com/omkarbhale/flickline/issues/10), [#11 later (parked ideas)](https://github.com/omkarbhale/flickline/issues/11). Their v1 lists are kept there as history; the v2 order below supersedes them.
 - Quality tracking issues (long-lived, section 14.7): [#61 numbers conformance](https://github.com/omkarbhale/flickline/issues/61), [#62 feel similarity](https://github.com/omkarbhale/flickline/issues/62), [#63 fun](https://github.com/omkarbhale/flickline/issues/63), [#149 transfer](https://github.com/omkarbhale/flickline/issues/149).
 
-### First playable
+### The order to a replayable game (v2)
 
-- [#12](https://github.com/omkarbhale/flickline/issues/12) research: human performance baselines and skill-transfer evidence for the dial and the drills
-- [#13](https://github.com/omkarbhale/flickline/issues/13) feat(sim): run state machine, event log and stat tracker
-- [#14](https://github.com/omkarbhale/flickline/issues/14) feat(weapons): generic weapon simulation with Pace and Kestrel
-- [#15](https://github.com/omkarbhale/flickline/issues/15) feat(enemies): enemy framework, humanoid hit zones, Post and Beacon
-- [#16](https://github.com/omkarbhale/flickline/issues/16) feat(maps): map data format, loader, lint CLI and the Range map
-- [#17](https://github.com/omkarbhale/flickline/issues/17) feat(skill): difficulty dial, adaptive staircase and grid-posterior skill model
-- [#18](https://github.com/omkarbhale/flickline/issues/18) art: Echo humanoid models, Beacon and Gnat meshes, and the Echo shader
-- [#19](https://github.com/omkarbhale/flickline/issues/19) art(render): Lightline environment look — palette, trim lines, grid floor, sky, fog
-- [#20](https://github.com/omkarbhale/flickline/issues/20) feat(audio): Web Audio engine and the feedback sound set (hit, headshot, kill ladder, miss, moving shot)
-- [#21](https://github.com/omkarbhale/flickline/issues/21) feat(ui): crosshair renderer, editor and share codes
-- [#22](https://github.com/omkarbhale/flickline/issues/22) feat(modes): mode framework — scheduler, scoring table and dial application
-- [#23](https://github.com/omkarbhale/flickline/issues/23) feat(modes): Cold Start, Orbit and the Placement run
-- [#24](https://github.com/omkarbhale/flickline/issues/24) feat(feedback): per-shot visual feedback — hitmarkers, tracers, impacts, kill shatter, screen pulse
-- [#25](https://github.com/omkarbhale/flickline/issues/25) feat(ui): live HUD — score, multiplier, counters, stat strip, ghost-pace and edge meter
-- [#26](https://github.com/omkarbhale/flickline/issues/26) feat(ui): end-of-run results card with stats, rating delta and restart flow
-- [#27](https://github.com/omkarbhale/flickline/issues/27) feat(ui): sensitivity in the reference scale, raw input, and the first-run flow (shooting in ≤ 10 s)
-- [#28](https://github.com/omkarbhale/flickline/issues/28) feat(infra): headless bot playtest harness and frame-time perf harness
-- [#64](https://github.com/omkarbhale/flickline/issues/64) test: spec conformance suite and generated conformance table (numbers quality)
-- [#65](https://github.com/omkarbhale/flickline/issues/65) research: reference-feel checklist for recoil, movement, sounds, hit response and timing (feel quality)
-- [#66](https://github.com/omkarbhale/flickline/issues/66) research: fun criteria and playtest protocol (fun quality)
-- [#160](https://github.com/omkarbhale/flickline/issues/160) review: first transfer habit review of Cold Start, Orbit and the Placement run (transfer quality)
-- [#29](https://github.com/omkarbhale/flickline/issues/29) playtest: first playable pass — reports numbers, feel and fun separately
+The order puts a replayable game on the live link soonest: after step 3, **Play** starts a seeded run of take sectors against shooting Echoes with carried health and a score, and every run differs. Steps without an arrow between them can run in parallel once their dependencies are merged.
 
-### First release
+0. [#184](https://github.com/omkarbhale/flickline/issues/184) load a map without a page reload (prerequisite of step 2; can run beside step 1)
+1. [#200](https://github.com/omkarbhale/flickline/issues/200) sectors in the map schema, Elbow and Lane sectors
+2. [#201](https://github.com/omkarbhale/flickline/issues/201) Sweep run v0: take sectors, placed Echoes, carried health, run score
+3. [#202](https://github.com/omkarbhale/flickline/issues/202) Play starts a run; drills leave the menu; the first click starts the first run. **Replayable game on the live link.**
+4. [#203](https://github.com/omkarbhale/flickline/issues/203) skill matching inside the run · [#213](https://github.com/omkarbhale/flickline/issues/213) run results card · [#205](https://github.com/omkarbhale/flickline/issues/205) gates and route choice
+5. [#204](https://github.com/omkarbhale/flickline/issues/204) hold sectors and the Finale · [#211](https://github.com/omkarbhale/flickline/issues/211) retire the drill code
+6. [#97](https://github.com/omkarbhale/flickline/issues/97) scenario sampler with [#98](https://github.com/omkarbhale/flickline/issues/98) Echo setup and [#99](https://github.com/omkarbhale/flickline/issues/99) honest audio · [#100](https://github.com/omkarbhale/flickline/issues/100) tempo in take sectors · [#207](https://github.com/omkarbhale/flickline/issues/207) conditions and the primary pick
+7. [#214](https://github.com/omkarbhale/flickline/issues/214) repeat-enjoyment playtest (needs steps 3–5)
+8. [#206](https://github.com/omkarbhale/flickline/issues/206) Overtime · [#217](https://github.com/omkarbhale/flickline/issues/217) run and situation records · [#208](https://github.com/omkarbhale/flickline/issues/208) Daily Route
+9. [#209](https://github.com/omkarbhale/flickline/issues/209) the cold opener, then [#151](https://github.com/omkarbhale/flickline/issues/151), [#153](https://github.com/omkarbhale/flickline/issues/153), [#154](https://github.com/omkarbhale/flickline/issues/154) on it · [#210](https://github.com/omkarbhale/flickline/issues/210) the lean (with [#39](https://github.com/omkarbhale/flickline/issues/39))
+10. [#212](https://github.com/omkarbhale/flickline/issues/212) meet sectors (with the mind's body [#87](https://github.com/omkarbhale/flickline/issues/87) and decisions [#91](https://github.com/omkarbhale/flickline/issues/91)) · [#36](https://github.com/omkarbhale/flickline/issues/36) Foundry sectors · [#33](https://github.com/omkarbhale/flickline/issues/33) Rusher, Bulwark and Gnat
 
-- [#30](https://github.com/omkarbhale/flickline/issues/30) feat(weapons): Rill SMG and Vane precise rifle, weapon swapping and loadouts
-- [#31](https://github.com/omkarbhale/flickline/issues/31) feat(sim): player health, taking damage, slow-on-hit, kill-heal and the damage arc data
-- [#32](https://github.com/omkarbhale/flickline/issues/32) feat(enemies): Strafer and Peeker behaviours, including enemy shooting with tells
-- [#33](https://github.com/omkarbhale/flickline/issues/33) feat(enemies): Rusher, Bulwark and Gnat with waypoint navigation
-- [#34](https://github.com/omkarbhale/flickline/issues/34) feat(maps): Lane and Elbow maps with anchors, checkpoints and peek spots
-- [#36](https://github.com/omkarbhale/flickline/issues/36) feat(maps): Foundry map for Sweep (three lanes, catwalk, six gates, nav graph)
-- [#37](https://github.com/omkarbhale/flickline/issues/37) feat(ui): skill profile screen — radar, tiers, confidence bands, trends
-- [#38](https://github.com/omkarbhale/flickline/issues/38) feat(skill): persistence, medals, ranks, personal bests and ghost pace
-- [#39](https://github.com/omkarbhale/flickline/issues/39) feat(ui): results breakdown — fix engine, one-thing-to-fix card, spray trace and plots
-- [#40](https://github.com/omkarbhale/flickline/issues/40) feat(feedback): chain and streak callouts, medal toasts, Surge and rank-up moments
-- [#41](https://github.com/omkarbhale/flickline/issues/41) feat(audio): weapon sounds, enemy tells, damage, near-miss, footsteps and UI sounds
-- [#42](https://github.com/omkarbhale/flickline/issues/42) feat(ui): settings menu — keybinds, audio, graphics, gameplay, data, accessibility
-- [#43](https://github.com/omkarbhale/flickline/issues/43) feat(ui): menu shell — mode select cards, pause menu, today's session, UI kit and fonts
-- [#44](https://github.com/omkarbhale/flickline/issues/44) feat(render): post effects — cheap bloom, vignette, damage vignette, chromatic pulse
-- [#45](https://github.com/omkarbhale/flickline/issues/45) art: procedural weapon viewmodels, muzzle flashes and recoil animation
-- [#46](https://github.com/omkarbhale/flickline/issues/46) feat(modes): Strafe Track mode
-- [#47](https://github.com/omkarbhale/flickline/issues/47) feat(modes): Stop & Pop mode (counter-strafe and stance discipline)
-- [#48](https://github.com/omkarbhale/flickline/issues/48) feat(modes): Spray Wall mode
-- [#49](https://github.com/omkarbhale/flickline/issues/49) feat(modes): Switchboard mode (target switching)
-- [#50](https://github.com/omkarbhale/flickline/issues/50) feat(modes): Corner Clear mode (peeking and clearing angles)
-- [#51](https://github.com/omkarbhale/flickline/issues/51) feat(modes): Sweep flagship mode and its encounter director
-- [#52](https://github.com/omkarbhale/flickline/issues/52) research: audio and visual cue design — hit, headshot and tell cues that players learn in a minute
-- [#53](https://github.com/omkarbhale/flickline/issues/53) balance: tune dial end-points, scoring, medals and Sweep pressure against bot and human data
-- [#55](https://github.com/omkarbhale/flickline/issues/55) perf: first-release 144 fps pass on Range, Lane, Elbow and Foundry
-- [#67](https://github.com/omkarbhale/flickline/issues/67) balance: feel tuning pass — recoil, movement, sounds, hit response and timing against the checklist (feel quality)
-- [#68](https://github.com/omkarbhale/flickline/issues/68) balance: fun tuning pass — pacing, reward cadence, restart friction and the flagship's game feel (fun quality)
-- [#150](https://github.com/omkarbhale/flickline/issues/150) feat(modes): Daily Baseline run — fixed item sets, levels, daily shuffle and reference-like presentation
-- [#151](https://github.com/omkarbhale/flickline/issues/151) feat(skill): Baseline estimate, series and trend — progress beyond the player's own noise
-- [#153](https://github.com/omkarbhale/flickline/issues/153) feat(ui): Baseline on the results card and as the profile headline — verdict, warm-up gap, Retained medal
-- [#154](https://github.com/omkarbhale/flickline/issues/154) feat(ui): reference check-in — weekly, local-only reference-game numbers beside the Baseline trend
-- [#157](https://github.com/omkarbhale/flickline/issues/157) feat(modes): Mix runs and the interleaved Today's session
-- [#158](https://github.com/omkarbhale/flickline/issues/158) playtest: transfer pilot — two arms, two weeks, cold reference-game test before and after (transfer quality)
-- [#159](https://github.com/omkarbhale/flickline/issues/159) playtest: practice-schedule experiment — interleaved Mix against blocked drills, Baseline retention
-- [#56](https://github.com/omkarbhale/flickline/issues/56) playtest: first release pass — reports numbers, feel and fun separately
-- [#57](https://github.com/omkarbhale/flickline/issues/57) audit: identity and legal check — names, assets, fonts, licences, no copied content
+Parallel tracks that the redesign keeps as they were: the enemy mind ([#70](https://github.com/omkarbhale/flickline/issues/70): [#86](https://github.com/omkarbhale/flickline/issues/86)–[#96](https://github.com/omkarbhale/flickline/issues/96)), fight attribution ([#110](https://github.com/omkarbhale/flickline/issues/110): [#120](https://github.com/omkarbhale/flickline/issues/120)–[#125](https://github.com/omkarbhale/flickline/issues/125)), the movement model [#73](https://github.com/omkarbhale/flickline/issues/73), the quality yardsticks and passes ([#64](https://github.com/omkarbhale/flickline/issues/64)–[#68](https://github.com/omkarbhale/flickline/issues/68)), the profile [#37](https://github.com/omkarbhale/flickline/issues/37), callouts and medals [#40](https://github.com/omkarbhale/flickline/issues/40), balance [#53](https://github.com/omkarbhale/flickline/issues/53), performance [#55](https://github.com/omkarbhale/flickline/issues/55), the first-release playtest [#56](https://github.com/omkarbhale/flickline/issues/56), the identity audit [#57](https://github.com/omkarbhale/flickline/issues/57), the transfer pilot [#158](https://github.com/omkarbhale/flickline/issues/158) and the first habit review [#160](https://github.com/omkarbhale/flickline/issues/160) (now of the first playable run).
+
+### Closed by the redesign
+
+Superseded or obsolete, each closed with a comment linking its replacement: Switchboard #49, Corner Clear #50, the Sweep flagship #51 (split into the issues above), Vigil #101, cued drill trials #102, Corner Clear cards #103, Orbit's rare flicks #136, the Daily Baseline run #150, Mix runs #157, the practice-schedule experiment #159, and the Cold Start and Placement follow-ups #171–#174, #193, #196. Merged drill modes (Cold Start, Orbit, Placement, Stop & Pop, Strafe Track, Spray Wall) are retired from the code by #211.
