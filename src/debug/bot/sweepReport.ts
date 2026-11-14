@@ -3,6 +3,7 @@ import { GATE_POLICIES, type GatePolicy } from './gatePolicy';
 import { cloneTunables, type Tunables } from '../../config/tunables';
 import { pickFix, shotSplit } from '../../feedback/results';
 import { dealableCards, leanView } from '../../modes/lean';
+import { createFightPaceStats, FightPace, type FightPaceStats } from '../../feedback/fightPace';
 import { HeadlessGame } from './headless';
 import { playMode } from './play';
 
@@ -29,6 +30,8 @@ export interface SweepRunFacts {
   cards: string[];
   /** Stakes of the sectors entered through a door, in order (design §4.5). */
   stakes: string[];
+  /** Fight pace of the run (#248): fights per live minute, dead air, gates. */
+  pace: FightPaceStats;
 }
 
 export interface SweepSkillRow {
@@ -48,13 +51,17 @@ export interface SweepSkillRow {
   meanScore: number;
 }
 
+/** Who walks the route: the bot (runs every metre, turns at 360°/s) or the scripted human pace (`HUMAN_PACE`, #248). */
+export type Walker = 'bot' | 'human';
+
 /** One seeded run at one skill, with the sweep facts taken from the bus. */
-export function sweepRun(skill: number, seed: number, pinDial?: number, gatePolicy?: GatePolicy): SweepRunFacts {
+export function sweepRun(skill: number, seed: number, pinDial?: number, gatePolicy?: GatePolicy, walker: Walker = 'bot'): SweepRunFacts {
   const g = new HeadlessGame({ seed });
   const f: SweepRunFacts = {
     seed, endReason: null, reached: 0, sectors: 0, ehpAtExit: [], contacts: { cleared: 0, disengaged: 0, avoided: 0, died: 0 },
-    liveSec: 0, score: 0, kills: 0, cards: [], stakes: [],
+    liveSec: 0, score: 0, kills: 0, cards: [], stakes: [], pace: createFightPaceStats(),
   };
+  const pace = new FightPace(g.bus, g.world, g.tunables);
   g.bus.on('sectorEntered', (e) => {
     f.reached = e.index + 1;
     f.sectors = e.of;
@@ -67,7 +74,9 @@ export function sweepRun(skill: number, seed: number, pinDial?: number, gatePoli
     f.contacts[e.outcome]++;
     if (e.card) f.cards.push(e.card);
   });
-  const r = playMode(g, { mode: 'sweep', skill, seed, pinDial, gatePolicy });
+  const r = playMode(g, { mode: 'sweep', skill, seed, pinDial, gatePolicy, sweepHumanPace: walker === 'human', onTick: () => pace.tick() });
+  pace.read(f.pace);
+  pace.dispose();
   f.endReason = r.stats.endReason;
   f.liveSec = r.stats.liveSec;
   f.score = r.modeRun?.score ?? 0;
@@ -75,12 +84,14 @@ export function sweepRun(skill: number, seed: number, pinDial?: number, gatePoli
   return f;
 }
 
-export function sweepReport(skills: readonly number[], runs: number, firstSeed = 1, pinDial?: number, gatePolicy?: GatePolicy): { rows: SweepSkillRow[]; runs: SweepRunFacts[] } {
+export function sweepReport(
+  skills: readonly number[], runs: number, firstSeed = 1, pinDial?: number, gatePolicy?: GatePolicy, walker: Walker = 'bot',
+): { rows: SweepSkillRow[]; runs: SweepRunFacts[] } {
   const all: SweepRunFacts[] = [];
   const rows: SweepSkillRow[] = [];
   for (const skill of skills) {
     const list: SweepRunFacts[] = [];
-    for (let i = 0; i < runs; i++) list.push(sweepRun(skill, firstSeed + i, pinDial, gatePolicy));
+    for (let i = 0; i < runs; i++) list.push(sweepRun(skill, firstSeed + i, pinDial, gatePolicy, walker));
     all.push(...list);
     let won = 0, fought = 0, reached = 0, finished = 0, live = 0, score = 0;
     const ehpSum: number[] = [], ehpN: number[] = [];
@@ -123,6 +134,94 @@ export function formatSweepReport(rows: readonly SweepSkillRow[]): string[] {
     const ehp = [0, 1, 2, 3].map((k) => (r.exitsSeen[k] ? `${r.meanEhpAtExit[k]!.toFixed(0)} (n ${r.exitsSeen[k]})` : '—')).join(' / ');
     out.push(
       `| ${r.skill} | ${r.runs} | ${(r.contactWinRate * 100).toFixed(0)} % | ${r.contactsPerRun.toFixed(1)} | ${r.meanReached.toFixed(2)} | ${(r.finishedShare * 100).toFixed(0)} % | ${ehp} | ${r.meanLiveSec.toFixed(1)} | ${r.meanScore.toFixed(0)} |`,
+    );
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Fight pace (#248, design §2.2): fights per live minute and dead air, for the bot and a person's pace.
+// ---------------------------------------------------------------------------------------------
+
+/** One walker at one skill: the fight pace of its runs, against the design's targets. */
+export interface PaceRow {
+  walker: Walker;
+  skill: number;
+  runs: number;
+  /** Medians over the runs: live seconds, fights, fights and duels per live minute; and the quartiles of fights per minute. */
+  liveSec: number;
+  fights: number;
+  fightsPerMin: number;
+  fightsPerMinP25: number;
+  fightsPerMinP75: number;
+  duelsPerMin: number;
+  /** Each run's longest dead air inside a sector: the median and the worst run; and the share of runs with one over the target. */
+  deadAirSec: number;
+  deadAirWorstSec: number;
+  deadAirOverShare: number;
+  /** Each run's longest gate: the median and the worst run (runs that walked no gate are left out). */
+  gateSec: number;
+  gateWorstSec: number;
+  /** Share of live time spent in gates. */
+  gateShare: number;
+}
+
+/** The p-quantile (0..1) of `xs` by linear interpolation; 0 for none. */
+export function quantile(xs: readonly number[], p: number): number {
+  if (xs.length === 0) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const k = (s.length - 1) * p;
+  const lo = Math.floor(k), hi = Math.ceil(k);
+  return s[lo]! + (s[hi]! - s[lo]!) * (k - lo);
+}
+
+/** The pace row of one walker's runs at one skill. `maxDeadAirSec`: the target a run's longest dead air is judged against. */
+export function paceRow(walker: Walker, skill: number, runs: readonly SweepRunFacts[], maxDeadAirSec: number): PaceRow {
+  const p = runs.map((r) => r.pace);
+  const gated = p.filter((x) => x.gates > 0);
+  const live = p.reduce((a, x) => a + x.liveSec, 0);
+  return {
+    walker, skill, runs: runs.length,
+    liveSec: quantile(p.map((x) => x.liveSec), 0.5),
+    fights: quantile(p.map((x) => x.fights), 0.5),
+    fightsPerMin: quantile(p.map((x) => x.fightsPerMin), 0.5),
+    fightsPerMinP25: quantile(p.map((x) => x.fightsPerMin), 0.25),
+    fightsPerMinP75: quantile(p.map((x) => x.fightsPerMin), 0.75),
+    duelsPerMin: quantile(p.map((x) => x.duelsPerMin), 0.5),
+    deadAirSec: quantile(p.map((x) => x.deadAirMaxSec), 0.5),
+    deadAirWorstSec: p.reduce((a, x) => Math.max(a, x.deadAirMaxSec), 0),
+    deadAirOverShare: p.length ? p.filter((x) => x.deadAirMaxSec > maxDeadAirSec).length / p.length : 0,
+    gateSec: quantile(gated.map((x) => x.gateMaxSec), 0.5),
+    gateWorstSec: gated.reduce((a, x) => Math.max(a, x.gateMaxSec), 0),
+    gateShare: live > 0 ? p.reduce((a, x) => a + x.gateSec, 0) / live : 0,
+  };
+}
+
+/** The targets the pace table is judged against (`config/fightPace.ts`). */
+export interface PaceTargets {
+  targetFightsPerMin: number;
+  maxDeadAirSec: number;
+  maxGateSec: number;
+}
+
+/** Which targets a row meets: fights per minute at the median, the median run's longest dead air and longest gate. */
+export function paceVerdict(r: PaceRow, t: PaceTargets): { fights: boolean; deadAir: boolean; gates: boolean } {
+  return { fights: r.fightsPerMin >= t.targetFightsPerMin, deadAir: r.deadAirSec <= t.maxDeadAirSec, gates: r.gateSec <= t.maxGateSec };
+}
+
+/** The pace table as Markdown (posted on the issue), with the targets and each row's verdict. */
+export function formatPaceReport(rows: readonly PaceRow[], t: PaceTargets): string[] {
+  const mark = (ok: boolean): string => (ok ? 'yes' : '**no**');
+  const out = [
+    `Target (HYPOTHESIS until #214, design §2.2): at least ${t.targetFightsPerMin} fights per live minute at the median run, no dead air over ${t.maxDeadAirSec} s inside a sector, gates of at most ${t.maxGateSec} s.`,
+    '',
+    '| Walker | Bot skill | Runs | Live s / run | Fights / run | Fights / live min (p25–p75) | Duels / live min | Longest dead air in a sector: median (worst) | Runs with dead air > target | Longest gate: median (worst) | Time in gates | Meets: fights / dead air / gates |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|',
+  ];
+  for (const r of rows) {
+    const v = paceVerdict(r, t);
+    out.push(
+      `| ${r.walker} | ${r.skill} | ${r.runs} | ${r.liveSec.toFixed(0)} | ${r.fights.toFixed(1)} | ${r.fightsPerMin.toFixed(1)} (${r.fightsPerMinP25.toFixed(1)}–${r.fightsPerMinP75.toFixed(1)}) | ${r.duelsPerMin.toFixed(1)} | ${r.deadAirSec.toFixed(1)} s (${r.deadAirWorstSec.toFixed(1)} s) | ${(r.deadAirOverShare * 100).toFixed(0)} % | ${r.gateSec.toFixed(1)} s (${r.gateWorstSec.toFixed(1)} s) | ${(r.gateShare * 100).toFixed(0)} % | ${mark(v.fights)} / ${mark(v.deadAir)} / ${mark(v.gates)} |`,
     );
   }
   return out;
