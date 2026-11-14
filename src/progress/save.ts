@@ -161,6 +161,8 @@ export interface ProgressData {
   plays: Record<string, number>;
   /** The skill of the last "one thing to fix", or null. */
   flaggedSkill: SkillId | null;
+  /** The primary picked on the last Sweep `ready` screen (design §4.1), or '' before the first pick: the default. Added without a version bump: an older save reads as ''. */
+  lastPrimary: string;
   /** Cold-opener records and levels, reference check-ins: opaque to this version (#209, #151, #154). */
   coldOpeners: Record<string, unknown>[];
   coldOpenerLevels: Record<string, unknown>;
@@ -170,7 +172,7 @@ export interface ProgressData {
 export function defaultProgress(): ProgressData {
   return {
     ratings: null, ranks: {}, runBests: {}, dailyBests: {}, situations: {}, drillBests: {}, medals: {}, history: [],
-    plays: {}, flaggedSkill: null, coldOpeners: [], coldOpenerLevels: {}, checkins: [],
+    plays: {}, flaggedSkill: null, lastPrimary: '', coldOpeners: [], coldOpenerLevels: {}, checkins: [],
   };
 }
 
@@ -409,6 +411,7 @@ export function sanitizeProgress(raw: unknown, cfg: ProgressTunables = progressC
   const flagged = raw.flaggedSkill;
   out.flaggedSkill = typeof flagged === 'string' && (SKILL_IDS as readonly string[]).includes(flagged) ? (flagged as SkillId) : null;
 
+  out.lastPrimary = typeof raw.lastPrimary === 'string' && /^[a-z]{1,16}$/.test(raw.lastPrimary) ? raw.lastPrimary : '';
   out.coldOpeners = plainObjects(section(raw, 'coldOpeners', 'array'), cfg.maxColdOpeners);
   const levels = section(raw, 'coldOpenerLevels', 'object');
   out.coldOpenerLevels = levels ? (JSON.parse(JSON.stringify(levels)) as Rec) : {};

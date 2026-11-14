@@ -147,7 +147,7 @@ export function playMode(game: BotGame, opts: BotRunOptions): BotReport {
   game.reset(seed);
   if (id === FREEPLAY) {
     game.run.startRun({ mode: FREEPLAY, seed, dial: opts.pinDial ?? 50, durationSec: FREEPLAY_SEC });
-  } else if (!game.modes.start(id, { seed, pinDial: opts.pinDial, lean: opts.lean })) {
+  } else if (!game.modes.start(id, { seed, pinDial: opts.pinDial, pick: game.modes.primary, lean: opts.lean })) {
     throw new Error(`mode '${id}' could not start`);
   }
 

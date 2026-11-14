@@ -285,6 +285,17 @@ export class World implements EnemyWorld {
   }
 
   /**
+   * Change the shield the player wears for the rest of this life (see `PlayerHealthSystem.wearShield`)
+   * and what every Echo spawned from now on carries: its shield and the weapon it fires. Used by a
+   * Sweep sector condition (design §4.6); `setShields` stays the run-start call.
+   */
+  setKit(playerMax: number, playerShield: number, enemyShield: number, enemyWeapon: WeaponId): void {
+    this.healthSys.wearShield(playerMax, playerShield);
+    this.targetField.enemyShield = Math.max(0, enemyShield);
+    this.enemyWeapon = enemyWeapon;
+  }
+
+  /**
    * The player takes `amount` of damage to `zone` from a shooter whose muzzle is at (`sx`, `sy`,
    * `sz`) (`sourceId` = the enemy id, or -1). Applies tagging, flinch and death and emits
    * `playerDamaged` / `playerSlowed` / `playerDied`. This is the one entry point enemy fire (#32,

@@ -146,7 +146,7 @@ function startRun(seed: number) {
   for (const type of ['sectorEntered', 'sectorEnded', 'contactSettled', 'runEnded', 'targetVisible', 'mapLoaded'] as const) {
     g.bus.on(type, (e) => log.push({ type, e: JSON.parse(JSON.stringify(e)) as Record<string, unknown> }));
   }
-  expect(g.modes.start('sweep', { seed })).toBe(true);
+  expect(g.modes.start('sweep', { seed, pick: g.modes.primary })).toBe(true);
   const input = createTickInput();
   const state = (): SweepState => g.modes.runner.state as SweepState;
   /** Walk straight out: stand the player on the exit and let one tick see it. */
