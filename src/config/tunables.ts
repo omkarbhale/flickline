@@ -1,10 +1,13 @@
 import { audio, type AudioTunables } from './audio';
+import { feedback, type FeedbackTunables } from './feedback';
 import { damageFx, type DamageFxTunables } from './damageFx';
 import { dial, type DialTunables } from './dial';
 import { modes, type ModeTunables } from './modes';
 import { movement, type MovementTunables } from './movement';
 import { player, type PlayerTunables } from './player';
+import { profile, type ProfileTunables } from './profile';
 import { render, type RenderTunables } from './render';
+import { run, type RunTunables } from './run';
 import { scoring, type ScoringTunables } from './scoring';
 import { sweep, type SweepTunables } from './sweep';
 import { targets, type TargetTunables } from './targets';
@@ -27,9 +30,12 @@ export interface Tunables {
   view: ViewTunables;
   render: RenderTunables;
   audio: AudioTunables;
+  feedback: FeedbackTunables;
+  profile: ProfileTunables;
   scoring: ScoringTunables;
   modes: ModeTunables;
   dial: DialTunables;
+  run: RunTunables;
   /** The player's health, tagging and flinch (spec §4). */
   player: PlayerTunables;
   /** Sweep rules the simulation needs: kill-heal (design §4.8). */
@@ -40,7 +46,7 @@ export interface Tunables {
 
 /** Live, mutable instance. Only the debug hook and settings UI may mutate it at runtime. */
 export const tunables: Tunables = {
-  movement, weapon, weaponRules, targets, view, render, audio, dial, scoring, modes, player, sweep, damageFx,
+  movement, weapon, weaponRules, targets, view, render, audio, feedback, profile, dial, scoring, modes, run, player, sweep, damageFx,
 };
 
 /** Deep copy for tests and what-if runs (tunables are JSON-safe plain data). */

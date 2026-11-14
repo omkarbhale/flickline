@@ -16,7 +16,13 @@ export interface Settings {
   enemiesVolume: number;
   uiVolume: number;
   quality: QualityLevel;
-  /** Disables screen pulses and chromatic effects (design §13.3); the damage arc stays, fading slowly. */
+  /** Amber moving-shot tracer, `⇆` glyph (design §13.3 "Coaching cues"). */
+  coachingCues: boolean;
+  /** Ghost ring where the nearest target's head was, after a miss. */
+  missGhost: boolean;
+  /** Floating damage numbers on hits. */
+  damageNumbers: boolean;
+  /** Disables screen pulses and chromatic effects (design §13.3). */
   reduceFlashing: boolean;
   /** Aim punch when hit, multiplier of the spec's kick (spec §4.4: 1 = default, 0 disables). */
   flinchStrength: number;
@@ -33,6 +39,9 @@ export const DEFAULT_SETTINGS: Settings = {
   enemiesVolume: 1,
   uiVolume: 1,
   quality: 'medium',
+  coachingCues: true,
+  missGhost: true,
+  damageNumbers: true,
   reduceFlashing: false,
   flinchStrength: 1,
   crosshair: DEFAULT_CROSSHAIR,
@@ -67,7 +76,11 @@ export function sanitizeSettings(raw: unknown): Settings {
   if (typeof r.quality === 'string' && (QUALITY_LEVELS as readonly string[]).includes(r.quality)) {
     out.quality = r.quality as QualityLevel;
   }
-  out.reduceFlashing = typeof r.reduceFlashing === 'boolean' ? r.reduceFlashing : out.reduceFlashing;
+  const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
+  out.coachingCues = bool(r.coachingCues, out.coachingCues);
+  out.missGhost = bool(r.missGhost, out.missGhost);
+  out.damageNumbers = bool(r.damageNumbers, out.damageNumbers);
+  out.reduceFlashing = bool(r.reduceFlashing, out.reduceFlashing);
   out.flinchStrength = num(r.flinchStrength, 0, 2, out.flinchStrength);
   out.crosshair = sanitizeCrosshair(r.crosshair);
   return out;

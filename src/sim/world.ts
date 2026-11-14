@@ -8,6 +8,7 @@ import { TargetField, type SpawnOptions } from './targets';
 import { levelTargetsReset } from './targetsInit';
 import { zoneDamage } from './damage';
 import { PlayerHealthSystem } from './playerHealth';
+import { createProbeState, resetProbe, stepRunProbe, type ProbeState } from './runProbe';
 import type { WeaponId } from '../config/weapon';
 import {
   createWeaponScratch,
@@ -72,6 +73,12 @@ export class World {
   readonly health: PlayerHealth;
   private readonly healthSys: PlayerHealthSystem;
   private readonly relay: KillHealRelay;
+  /**
+   * Whether targets and the weapon are live. The run controller clears it during `ready` (movement
+   * only) and sets it when a self-driven run goes `live`; free play and mode runs keep it true.
+   */
+  live = true;
+  readonly probe: ProbeState = createProbeState();
   private readonly weaponWorld: WeaponWorld;
   private readonly weaponScratch: WeaponScratch = createWeaponScratch();
   /** Reused every tick for target behaviours (`events` is swapped in per step). */
@@ -135,6 +142,8 @@ export class World {
     p.stepAccum = 0;
     this.healthSys.reset(p);
     resetWeaponState(this.weapon, this.loadout, this.tunables.weapon);
+    this.live = true;
+    resetProbe(this.probe);
     this.behaviourCtx.tick = 0;
     this.behaviourCtx.events = NULL_SINK;
     levelTargetsReset(this.targetField, this.level, this.behaviourCtx);
@@ -153,10 +162,15 @@ export class World {
     relay.target = events;
     this.healthSys.step(this.player);
     stepPlayer(this.player, input, this.level.boxes, t.movement, TICK_DT, this.tick, events);
+    if (!this.live) {
+      relay.target = NULL_SINK;
+      return;
+    }
     this.targetField.updateVisibility(this.player, this.level.boxes, this.tick, events);
     stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, relay, this.weaponScratch);
     this.stepTargets(relay);
     relay.target = NULL_SINK;
+    stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events);
   }
 
   /**
@@ -185,6 +199,17 @@ export class World {
     const distance = Math.hypot(sx - p.pos.x, sy - (p.pos.y + p.eyeHeight), sz - p.pos.z);
     const amount = zoneDamage(this.tunables.weapon[weapon].damageBands, zone, distance);
     return this.damagePlayer(amount, zone, sx, sy, sz, sourceId, events);
+  }
+
+  /**
+   * A self-driven run went `live`: announce every living target (`targetSpawned`) so the stat
+   * tracker opens its engagements, forget earlier sightings, and start measuring from a clean
+   * probe state.
+   */
+  beginLive(events: EventSink<SimEvents>): void {
+    this.live = true;
+    resetProbe(this.probe);
+    this.targetField.announceAll(this.tick, events);
   }
 
   /** Advance target behaviours, lifetimes and level respawns. */

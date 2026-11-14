@@ -8,14 +8,19 @@ import { attachDamageAudio } from '../audio/damageAudio';
 import { attachSfx } from '../audio/sfx';
 import { attachUiSounds } from '../audio/uiSounds';
 import { DebugOverlay } from '../debug/overlay';
+import { Timeline } from '../debug/timeline';
 import { PerfStats } from '../debug/perfStats';
 import { SessionStats } from '../feedback/sessionStats';
-import type { ModeEvents } from '../modes/contracts';
+import { applySettingsToOptions, createFeedbackOptions } from '../feedback/options';
+import { ShotCues } from '../feedback/shotCues';
+import type { ModeEvents, RunEndReason } from '../modes/contracts';
+import { RunController, type StartRunOptions } from '../modes/runController';
 import { DamageView } from '../hud/damageView';
 import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
-import { SettingsStore, type Settings } from '../settings/settings';
+import { ProfileStore } from '../settings/profile';
+import { SettingsStore, SETTINGS_KEY, type Settings } from '../settings/settings';
 import { createTickInput, SIM_EVENT_TYPES, type HitZone, type SimEvents, type TargetKind, type TickInput } from '../sim/types';
 import { zoneCentre } from '../sim/hitZones';
 import type { SpawnOptions } from '../sim/targets';
@@ -46,6 +51,7 @@ export class Game {
   readonly bus = new EventBus<GameEvents>();
   readonly tunables: Tunables = liveTunables;
   readonly settings: SettingsStore;
+  readonly profile: ProfileStore;
   readonly map: MapDef = rangeMap;
   readonly world: World;
   readonly renderer: GameRenderer;
@@ -58,6 +64,13 @@ export class Game {
   readonly overlay: DebugOverlay;
   readonly perf = new PerfStats();
   readonly session = new SessionStats();
+  /** Run lifecycle, event log and stats (follows the mode runner's runs too). */
+  readonly run: RunController;
+  /** Per-shot effect cues (pure model; the renderer draws them). */
+  readonly cues: ShotCues;
+  /** Feedback-related settings, shared (live) with the cue model and the HUD. */
+  readonly feedbackOptions: ReturnType<typeof createFeedbackOptions>;
+  readonly timeline = new Timeline();
   readonly modes: ModeHost;
   readonly stepper = new FixedStepper(TICK_DT, 8);
 
@@ -67,8 +80,14 @@ export class Game {
   forceRun = false;
   /** Debug: sticky scripted input merged over live input on every frame. */
   override: Partial<Pick<TickInput, 'moveX' | 'moveZ' | 'jump' | 'crouch' | 'walk' | 'fire' | 'reload' | 'switchTo'>> | null = null;
+  /** Debug: draw with dt = 0 so transient effects hold still for screenshots. */
+  freezeFx = false;
   menuHidden = false;
   readonly eventLog: LoggedEvent[] = [];
+  /** Debug timing of the last instant restart: synchronous reset cost, and press-to-next-frame. */
+  lastRestartMs = -1;
+  lastRestartToFrameMs = -1;
+  private restartStartedAt = -1;
 
   private readonly tickInput = createTickInput();
   private readonly scriptInput = createTickInput();
@@ -78,6 +97,10 @@ export class Game {
   private frozenYaw = 0;
   private frozenPitch = 0;
   private wasAlive = true;
+  /** Has the pointer been locked at least once this page load (pause panel vs landing menu). */
+  private hasPlayed = false;
+  /** The first-run hint is showing and waits for the first hit. */
+  private hintActive = false;
 
   constructor(canvas: HTMLCanvasElement, hudRoot: HTMLElement, menuRoot: HTMLElement, debugRoot: HTMLElement) {
     let storage: Storage | null = null;
@@ -86,14 +109,22 @@ export class Game {
     } catch {
       storage = null;
     }
+    const firstRun = storage === null || storage.getItem(SETTINGS_KEY) === null;
     this.settings = new SettingsStore(this.bus, storage);
+    // Research R12: Reduce flashing defaults on when the OS asks for reduced motion (first run only).
+    if (firstRun && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      this.settings.set({ reduceFlashing: true });
+    }
+    this.profile = new ProfileStore(this.bus, storage);
     const s = this.settings.get();
+    this.feedbackOptions = createFeedbackOptions(s);
 
     const seedParam = new URLSearchParams(window.location.search).get('seed');
     const seed = seedParam !== null && Number.isFinite(Number(seedParam)) ? Number(seedParam) : 1;
     this.world = new World({ level: this.map, tunables: this.tunables, seed });
 
-    this.renderer = new GameRenderer(canvas, this.bus, this.tunables, s.quality);
+    this.cues = new ShotCues(this.bus, this.tunables.feedback, this.feedbackOptions, this.world.targets, this.tunables.targets);
+    this.renderer = new GameRenderer(canvas, this.tunables, s.quality, this.cues);
     this.renderer.loadLevel(this.world, this.map);
 
     this.input = new InputManager(canvas, this.bus);
@@ -108,17 +139,28 @@ export class Game {
     this.session.attach(this.bus);
     // The mode runner is a feedback producer too: it emits `streakUpdated` before the kill chime reads it.
     this.modes = new ModeHost(this.world, this.bus, this.map, this.tunables);
+    this.run = new RunController(this.world, this.bus, this.tunables);
     attachSfx(this.bus, this.audio, this.tunables.audio);
     attachUiSounds(document, this.audio);
 
-    this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair, this.world.weapon, this.tunables.weapon);
+    this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair, this.world.weapon, this.tunables.weapon, {
+      options: this.feedbackOptions,
+      cfg: this.tunables.feedback,
+      project: (x, y, z, out) => this.renderer.projectToScreen(x, y, z, out),
+    });
     this.damage = new DamageView(
       hudRoot, this.bus, this.tunables.damageFx, this.world.health, s.reduceFlashing,
       () => performance.now(), () => this.viewYaw(),
     );
     attachDamageAudio(this.bus, this.audio);
     this.tunables.player.flinch.strength = s.flinchStrength;
-    this.menu = new Menu(menuRoot, this.settings, this.tunables, () => this.play());
+    this.menu = new Menu(menuRoot, this.settings, this.profile, this.tunables, {
+      onPlay: () => this.play(),
+      onRestart: () => {
+        this.resetWorld();
+        this.play();
+      },
+    });
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
 
@@ -135,13 +177,21 @@ export class Game {
       if (changed.includes('quality')) this.renderer.setQuality(settings.quality);
       if (changed.includes('reduceFlashing')) this.damage.setReduceFlashing(settings.reduceFlashing);
       if (changed.includes('flinchStrength')) this.tunables.player.flinch.strength = settings.flinchStrength;
+      applySettingsToOptions(this.feedbackOptions, settings);
       this.menu.sync();
     });
-    this.bus.on('pointerLockChanged', () => this.refreshChrome());
+    this.bus.on('pointerLockChanged', ({ locked }) => {
+      if (locked) this.onLockAcquired();
+      this.refreshChrome();
+    });
+    this.bus.on('rawInputChanged', ({ on }) => this.menu.setRawInput(on));
+    this.bus.on('shotFired', () => this.timeline.mark('firstShot'));
+    this.bus.on('targetHit', () => this.dismissHint());
 
     window.addEventListener('resize', this.onResize);
     this.onResize();
     this.refreshChrome();
+    this.timeline.mark(this.profile.get().firstRunDone ? 'mainMenuShown' : 'firstRunPanelShown');
   }
 
   private applyAudioSettings(s: Readonly<Settings>): void {
@@ -159,12 +209,59 @@ export class Game {
 
   /** Start playing: needs a user gesture (browser rule for pointer lock + audio). */
   play(): void {
+    this.timeline.mark('playClicked');
     this.audio.resume();
     this.input.requestLock();
   }
 
+  /**
+   * First lock of a first-run player: they are in. Remember it (so the next visit lands on the
+   * main menu), start the Placement run with the self-report prior, and point at the first orb.
+   */
+  private onLockAcquired(): void {
+    this.timeline.mark('lockAcquired');
+    this.hasPlayed = true;
+    if (this.profile.get().firstRunDone) return;
+    this.profile.set({ firstRunDone: true });
+    const prior = this.profile.prior(this.tunables.dial);
+    this.bus.emit('placementRunRequested', { priorMean: prior.mean, priorSd: prior.sd });
+    this.showHint();
+  }
+
+  /** Float the single "Click the orb" hint over the target nearest to where the player looks. */
+  private showHint(): void {
+    const targets = this.world.targets;
+    let best = -1;
+    let bestDot = -2;
+    const fx = -Math.sin(this.input.yaw);
+    const fz = -Math.cos(this.input.yaw);
+    const p = this.world.player.pos;
+    for (let i = 0; i < targets.length; i++) {
+      const t = targets[i]!;
+      if (!t.alive) continue;
+      const dx = t.pos.x - p.x;
+      const dz = t.pos.z - p.z;
+      const dot = (dx * fx + dz * fz) / (Math.hypot(dx, dz) || 1);
+      if (dot > bestDot) {
+        bestDot = dot;
+        best = i;
+      }
+    }
+    if (best < 0) return;
+    const t = targets[best]!;
+    this.renderer.hint.show(t.pos.x, t.pos.y + t.radius + 0.9, t.pos.z);
+    this.hintActive = true;
+  }
+
+  private dismissHint(): void {
+    if (!this.hintActive) return;
+    this.hintActive = false;
+    this.renderer.hint.hide();
+  }
+
   refreshChrome(): void {
     const live = this.input.locked;
+    this.menu.setMode(!this.profile.get().firstRunDone ? 'firstRun' : this.hasPlayed ? 'pause' : 'main');
     this.menu.setVisible(!live && !this.menuHidden);
     this.hud.setVisible(live || this.menuHidden);
     if (live) this.stepper.reset();
@@ -179,6 +276,7 @@ export class Game {
   private readonly frame = (ts: number): void => {
     requestAnimationFrame(this.frame);
     this.perf.beginFrame(ts);
+    this.cues.beginFrame();
     const dt = this.lastTs === 0 ? 0 : Math.min((ts - this.lastTs) / 1000, 0.25);
     this.lastTs = ts;
 
@@ -209,8 +307,7 @@ export class Game {
       ticks = this.stepper.advance(dt);
       for (let i = 0; i < ticks; i++) {
         const t0 = performance.now();
-        this.world.step(inp, this.bus);
-        this.modes.tick();
+        if (this.run.step(inp)) this.modes.tick();
         this.perf.recordTick(performance.now() - t0);
         // One-shot inputs apply to the first tick of the frame only.
         inp.jump = false;
@@ -227,6 +324,10 @@ export class Game {
 
     this.drawFrame(this.stepper.alpha, dt);
     this.damage.update();
+    if (this.restartStartedAt >= 0) {
+      this.lastRestartToFrameMs = performance.now() - this.restartStartedAt;
+      this.restartStartedAt = -1;
+    }
     this.perf.endFrame();
     this.overlay.update(ts);
   };
@@ -245,7 +346,7 @@ export class Game {
     // The aim punch from being hit moves the view too (spec §4.4); never past the pitch limit.
     const maxPitch = this.input.maxPitch;
     const pitch = Math.max(-maxPitch, Math.min(maxPitch, this.input.pitch + w.player.aimPunch));
-    this.renderer.render(w, alpha, this.input.yaw, pitch, dt);
+    this.renderer.render(w, alpha, this.input.yaw, pitch, this.freezeFx ? 0 : dt);
   }
 
   /** Render once immediately with no interpolation lag (used after deterministic stepping). */
@@ -273,8 +374,7 @@ export class Game {
     for (let i = 0; i < n; i++) {
       s.yaw = this.input.yaw;
       s.pitch = this.input.pitch;
-      this.world.step(s, this.bus);
-      this.modes.tick();
+      if (this.run.step(s)) this.modes.tick();
       s.jump = false;
       s.reload = false;
     }
@@ -386,14 +486,50 @@ export class Game {
     ];
   }
 
+  /** Abandon any run and reset the world (free play). */
   resetWorld(seed?: number): void {
     this.modes.stop();
-    this.world.reset(seed);
+    this.run.cancel(seed);
+    this.afterRunReset();
+  }
+
+  /** Begin a plain run (seeded reset -> ready); replaces a mode run in progress. */
+  startRun(opts: StartRunOptions): void {
+    const t0 = performance.now();
+    this.modes.stop();
+    this.run.startRun(opts);
+    this.afterRunReset();
+    this.noteRestart(t0);
+  }
+
+  /** Instant restart of the current plain run from its seed (or a new one). False if there is none. */
+  restartRun(seed?: number): boolean {
+    const t0 = performance.now();
+    if (!this.run.restartRun(seed)) return false;
+    this.afterRunReset();
+    this.noteRestart(t0);
+    return true;
+  }
+
+  /** End the current run, whoever times it. */
+  endRun(reason: RunEndReason): void {
+    if (this.run.isSelfDriven) this.run.endRun(reason);
+    else this.modes.stop();
+  }
+
+  private afterRunReset(): void {
     this.session.reset();
     this.damage.reset();
+    this.cues.clear();
     this.hud.refresh();
     this.input.setLook(this.world.player.yaw, 0);
     this.stepper.reset();
+  }
+
+  private noteRestart(t0: number): void {
+    this.lastRestartMs = performance.now() - t0;
+    this.lastRestartToFrameMs = -1;
+    this.restartStartedAt = t0;
   }
 
   private debugLines(): string {
@@ -404,9 +540,21 @@ export class Game {
       `pos ${f(p.pos.x)} ${f(p.pos.y)} ${f(p.pos.z)}  speed ${f(speed)} m/s\n` +
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
-      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}` +
+      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}\n` +
+      `fx latency max ${this.cues.latency.max} frame(s) over ${this.cues.latency.samples} cues, ${this.cues.latency.late} late` +
+      this.runLine() +
       this.modeLine()
     );
+  }
+
+  private runLine(): string {
+    const r = this.run;
+    if (r.state === 'idle') return '';
+    const tr = r.tracker;
+    const acc = tr.accuracy === null ? '--' : `${(tr.accuracy * 100).toFixed(0)}%`;
+    const dur = r.info?.durationSec != null ? `/${r.info.durationSec}s` : '';
+    const rs = this.lastRestartMs >= 0 ? `  restart ${this.lastRestartMs.toFixed(1)} ms` : '';
+    return `\nrun ${r.state} ${r.elapsedSec.toFixed(1)}${dur}  acc ${acc} (${tr.hits}/${tr.shots})${rs}`;
   }
 
   private modeLine(): string {
@@ -446,6 +594,15 @@ export class Game {
           visible: t.visibleTick >= 0, bullets: t.bullets,
         })),
       session: { shots: this.session.shots, hits: this.session.hits, kills: this.session.kills },
+      run: {
+        state: this.run.state,
+        info: this.run.info ? { ...this.run.info } : null,
+        elapsedSec: this.run.elapsedSec,
+        shots: this.run.tracker.shots,
+        hits: this.run.tracker.hits,
+        accuracy: this.run.tracker.accuracy,
+        kills: this.run.tracker.kills,
+      },
       settings: { ...this.settings.get() },
       locked: this.input.locked,
     };

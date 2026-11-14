@@ -2,14 +2,36 @@ import type { Game } from '../app/game';
 import { MODES } from '../app/modeHost';
 import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
 import type { CueId } from '../config/audio';
+import type { RunStats } from '../feedback/statTracker';
+import type { RunState, StartRunOptions } from '../modes/runController';
+import type { RunEndReason } from '../modes/contracts';
 import type { WeaponId } from '../config/weapon';
 import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
-import type { HitZone, TargetKind, TickInput } from '../sim/types';
+import type { Settings } from '../settings/settings';
+import type { HitZone, SimEvents, TargetKind, TickInput } from '../sim/types';
 
 export interface ScriptStep {
   /** Number of sim ticks to run with this input. */
   ticks: number;
   input?: Partial<TickInput>;
+}
+
+/** `__flickline.run`: drive the run lifecycle and read its stats (seconds, degrees, plain data). */
+export interface FlicklineRunApi {
+  /** Start a run (seeded reset -> ready). Defaults: mode 'freeplay', current seed, dial 50. Returns the run info. */
+  start(opts?: Partial<StartRunOptions>): unknown;
+  /** End the run (default reason 'quit') and return the final stats. */
+  end(reason?: RunEndReason): RunStats;
+  /** Instant restart; returns the measured synchronous cost in ms (-1 if there is no run). */
+  restart(seed?: number): number;
+  /** idle | ready | live | result */
+  state(): RunState;
+  /** Live stats during a run, final stats once ended. */
+  stats(): RunStats;
+  /** Measured restart timing: `sync` = reset cost, `toFrame` = call to the next rendered frame (-1 until drawn). */
+  restartMs(): { sync: number; toFrame: number; budget: number };
+  /** The run's logged events (oldest first), newest `count` entries. */
+  log(count?: number): unknown[];
 }
 
 /**
@@ -58,7 +80,21 @@ export interface FlicklineDebug {
   /** Frame/tick/draw stats. */
   perf(): unknown;
   /** Update a setting through the real store. */
-  setSetting(key: 'sensitivity' | 'dpi' | 'volume' | 'weaponsVolume' | 'hitsVolume' | 'enemiesVolume' | 'uiVolume' | 'quality' | 'reduceFlashing' | 'flinchStrength', value: number | string | boolean): void;
+  setSetting(key: keyof Settings, value: number | string | boolean): void;
+  /** Per-shot effect stats: cue-to-draw frame latency, pool sizes, JS heap (if exposed). */
+  fx(): unknown;
+  /** Hold transient effects still (dt = 0) so screenshots can catch them; CSS ones need the injected pause style. */
+  freezeFx(on?: boolean): void;
+  /** Render one frame advancing effect time by `sec` (use with freezeFx to step effects to a chosen moment). */
+  fxAdvance(sec: number): void;
+  /** Reset the effect latency counters. */
+  fxResetStats(): void;
+  /**
+   * Emit a synthetic sim event on the bus (zones other than 'body', RT/TTK, ... before the enemy
+   * framework exists), then render. Payload is merged over safe defaults; `point`, `origin`, `dir`
+   * take {x,y,z}. Returns nothing; read the result on screen or with events().
+   */
+  emit(type: keyof SimEvents, payload?: Record<string, unknown>): void;
   /** Play a cue through the real engine (needs the context unlocked by a user gesture, see audioUnlock). */
   playCue(cue: CueId, opts?: PlayOptions): void;
   /** Create/resume the audio context without a click (headless checks). */
@@ -71,6 +107,10 @@ export interface FlicklineDebug {
   setCrosshairCode(code: string): { ok: boolean; error?: string };
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
+  /** Run lifecycle (reset-only restart, event log, stats). Runs started by `mode.start` are mirrored here too. */
+  readonly run: FlicklineRunApi;
+  /** Named timestamps (ms since page load): panel shown, play clicked, lock, first shot. */
+  timeline(): Record<string, number>;
   /**
    * Fire one shot of `weaponId` (a loadout id, e.g. 'kestrel' or 'pace') at the current look, with
    * deterministic stepping: swaps, equips, reloads and waits for the fire interval as the sim
@@ -199,6 +239,52 @@ export function installDebugHook(game: Game): FlicklineDebug {
     setSetting(key, value) {
       game.settings.set({ [key]: value } as never);
     },
+    fx() {
+      const l = game.cues.latency;
+      const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+      return {
+        frame: game.cues.frame,
+        latencyMax: l.max,
+        latencyLast: l.last,
+        cuesDrawn: l.samples,
+        late: l.late,
+        tracers: game.cues.tracers.length,
+        impacts: game.cues.impacts.length,
+        decals: game.cues.decals.length,
+        shatters: game.cues.shatters.length,
+        heapBytes: heap ? heap.usedJSHeapSize : null,
+        drawCalls: game.renderer.stats.drawCalls,
+      };
+    },
+    freezeFx(on = true) {
+      game.freezeFx = on;
+    },
+    fxAdvance(sec) {
+      game.renderer.render(game.world, 1, game.input.yaw, game.input.pitch, sec);
+    },
+    fxResetStats() {
+      game.cues.resetLatency();
+    },
+    emit(type, payload = {}) {
+      const v = { x: 0, y: 1.5, z: -10 };
+      const defaults: Record<string, unknown> = {
+        tick: game.world.tick,
+        point: v,
+        origin: { x: 0, y: 1.62, z: 8 },
+        dir: { x: 0, y: 0, z: -1 },
+        normal: { x: 0, y: 0, z: 1 },
+        moving: false,
+        onTarget: false,
+        distance: 10,
+        targetId: 0,
+        damage: 34,
+        hpLeft: 66,
+        zone: 'body',
+        killed: false,
+      };
+      (game.bus as unknown as { emit(t: string, p: unknown): void }).emit(type, { ...defaults, ...payload });
+      game.renderNow();
+    },
     playCue(cue, opts) {
       game.audio.play(cue, opts);
     },
@@ -226,6 +312,33 @@ export function installDebugHook(game: Game): FlicklineDebug {
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);
     },
+    run: {
+      start(opts = {}) {
+        game.startRun({
+          mode: opts.mode ?? 'freeplay',
+          seed: opts.seed ?? game.world.seed,
+          dial: opts.dial ?? 50,
+          durationSec: opts.durationSec,
+        });
+        return { state: game.run.state, ...game.run.info };
+      },
+      end(reason = 'quit') {
+        game.endRun(reason);
+        return game.run.liveStats();
+      },
+      restart(seed) {
+        return game.restartRun(seed) ? game.lastRestartMs : -1;
+      },
+      state: () => game.run.state,
+      stats: () => game.run.liveStats(),
+      restartMs: () => ({
+        sync: game.lastRestartMs,
+        toFrame: game.lastRestartToFrameMs,
+        budget: game.tunables.run.restartBudgetMs,
+      }),
+      log: (count = 64) => game.run.log.events.slice(-count),
+    },
+    timeline: () => game.timeline.toObject(),
     fire(weaponId) {
       return game.fireOnce(weaponId as WeaponId);
     },
@@ -250,8 +363,8 @@ export function installDebugHook(game: Game): FlicklineDebug {
         arcsShowing: game.damage.arcsShowing,
         arcDraws: game.damage.draws,
         dip: { ...game.audio.lastDip },
-        runPhase: game.modes.runner.phase,
-        runEndReason: game.modes.runner.endReason,
+        runPhase: game.run.state,
+        runEndReason: game.run.finalStats ? game.modes.runner.endReason : null,
         tick: w.tick,
       };
     },
