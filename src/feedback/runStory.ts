@@ -27,7 +27,7 @@ export type ContactOutcome = 'cleared' | 'disengaged' | 'avoided' | 'died';
 export interface StoryEvents {
   runReady: { mode: string; seed: number; dial: number };
   sectorEntered: { sectorId: string; index: number; of?: number; role: string; condition?: string; stake?: string; dial?: number };
-  sectorEnded: { sectorId: string; cleared: boolean; keptSector?: number; tempo?: boolean; points?: number };
+  sectorEnded: { sectorId: string; cleared: boolean; keptSector?: number; tempo?: boolean; points?: number; reason?: string };
   contactSettled: { contactId: number; outcome: ContactOutcome; kept: number; points: number; card?: string };
   playerDamaged: { hp: number; shield: number };
   playerHealed: { hp: number };
@@ -58,6 +58,8 @@ export interface SectorTile {
   cleared: boolean;
   /** The sector ended (the player left or cleared it); false for the one the run ended in. */
   ended: boolean;
+  /** The player died (or the run was stopped) in this sector: it has no exit, or its end said `death`. */
+  fell: boolean;
   /** Contacts cleared / lost (died or disengaged) / avoided in this sector. */
   won: number;
   lost: number;
@@ -205,6 +207,7 @@ export class RunStoryTracker {
       stake: e.stake ?? 'plain',
       cleared: false,
       ended: false,
+      fell: false,
       won: 0,
       lost: 0,
       avoided: 0,
@@ -226,6 +229,7 @@ export class RunStoryTracker {
     const t = this.current;
     if (!t || t.sectorId !== e.sectorId) return;
     t.ended = true;
+    t.fell = e.reason === 'death';
     t.cleared = e.cleared;
     t.hpOut = this.hp;
     t.points = e.points ?? 0;
@@ -269,6 +273,7 @@ export class RunStoryTracker {
       stake: t.stake,
       cleared: t.cleared,
       ended: t.ended,
+      fell: t.fell || !t.ended,
       won: t.won,
       lost: t.lost,
       avoided: t.avoided,

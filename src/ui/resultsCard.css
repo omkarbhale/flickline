@@ -36,8 +36,8 @@ body.results-open #hud { visibility: hidden; }
   position: relative; display: grid; gap: 2px; min-width: 0; padding: 7px 9px 7px 11px; background: var(--surface-2);
   border: 1px solid var(--line); border-left: 3px solid var(--steel); border-radius: 6px; font: 500 12px/1.25 var(--font-ui);
 }
-.rc-tile[data-cleared="1"] { border-left-color: var(--ok); }
-.rc-tile[data-cleared="0"] { border-left-color: var(--alert); }
+.rc-tile[data-outcome="cleared"] { border-left-color: var(--ok); }
+.rc-tile[data-outcome="fell"] { border-left-color: var(--alert); }
 .rc-tile[data-overtime="1"] { border-style: dashed; border-left-style: solid; }
 .rc-tile[data-flawless="1"] { border-color: var(--gold); border-left-color: var(--gold); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 30%, transparent); }
 .rc-thead { display: flex; align-items: baseline; gap: 6px; }

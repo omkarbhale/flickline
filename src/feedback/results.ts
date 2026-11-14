@@ -94,8 +94,8 @@ export interface RouteTileView {
   hpTone: Tone;
   flawless: boolean;
   overtime: boolean;
-  /** The sector was cleared; false for one the player left or fell in. */
-  cleared: boolean;
+  /** `cleared` (every Echo dead), `left` (walked out with Echoes alive), `fell` (the run ended in it, by death or quitting). */
+  outcome: 'cleared' | 'left' | 'fell';
   /** One sentence for a screen reader. */
   label: string;
 }
@@ -464,7 +464,7 @@ function tileView(t: SectorTile, cfg: ResultsTunables): RouteTileView {
     hpTone: dHp > 0 ? 'good' : dHp <= -cfg.run.hurtHp ? 'bad' : 'even',
     flawless: t.flawless,
     overtime: t.overtime,
-    cleared: t.cleared,
+    outcome: t.fell ? 'fell' : t.cleared ? 'cleared' : 'left',
     label:
       `Sector ${t.number}${t.overtime ? ' (Overtime)' : ''}: ${role}${condition ? `, ${condition}` : ''}${stake ? `, ${stake}` : ''}. ` +
       `${fights}. Health ${hpIn} to ${hpOut}.${t.flawless ? ' Flawless.' : ''}`,
@@ -533,8 +533,10 @@ function pbView(input: ResultsInput, endReason: string | null, noun: string): Pi
   return { pbText: text, pbTone: toneOf(d), pbKind: 'none', pbLabel: `${text} vs ${noun}` };
 }
 
-export function buildCard(input: ResultsInput, cfg: ResultsTunables = defaultResults): CardModel {
-  const s = input.stats;
+export function buildCard(rawInput: ResultsInput, cfg: ResultsTunables = defaultResults): CardModel {
+  const s = rawInput.stats;
+  // A sector run always scores: with nothing earned yet (no kill, settle or clear paid) it scored 0, not "no score".
+  const input = rawInput.score === null && cfg.run.modes.includes(s.mode) ? { ...rawInput, score: 0 } : rawInput;
   const medals = new Map<string, MedalView>();
   for (const id of input.medals) {
     const m = medals.get(id);

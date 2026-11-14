@@ -355,7 +355,7 @@ describe('ResultsRecorder', () => {
 describe('the run results card (design §8.2, #213)', () => {
   const sweep = (p: Partial<RunStats> = {}) => stats({ mode: 'sweep', endReason: 'death', medianTtkMs: 410, stopCount: 3, medianStopLatencyMs: 96, ...p });
   const tile = (n: number, p: Partial<RunStory['sectors'][number]> = {}): RunStory['sectors'][number] => ({
-    number: n, sectorId: `s${n}`, role: 'take', condition: 'full', stake: 'plain', cleared: true, ended: true,
+    number: n, sectorId: `s${n}`, role: 'take', condition: 'full', stake: 'plain', cleared: true, ended: true, fell: false,
     won: 1, lost: 0, avoided: 0, kills: 2, hpIn: 100, hpOut: 80, flawless: false, overtime: n > 6, points: 100, ...p,
   });
   const story = (n: number, p: Partial<RunStory> = {}): RunStory => ({
@@ -374,6 +374,11 @@ describe('the run results card (design §8.2, #213)', () => {
     expect(drill.situations).toEqual([]);
     expect(drill.depth).toBe('');
     expect(drill.stats).toHaveLength(8);
+  });
+
+  it('shows a score of 0, not a dash, for a sector run that earned nothing', () => {
+    expect(make(sweep(), story(1), { score: null }).score).toBe('0');
+    expect(buildCard({ stats: stats(), split: null, score: null, rating: null, pb: null, medals: [] }).score).toBe(DASH);
   });
 
   it('never shows a meaningless 0 ms time to kill (#175)', () => {
@@ -421,6 +426,9 @@ describe('the run results card (design §8.2, #213)', () => {
     expect(c.route[0]).toMatchObject({ role: 'Take', stake: 'Hot', condition: 'Eco', fights: '2 won · 1 lost', hp: '100 → 54', hpTone: 'bad', flawless: true });
     expect(c.route[1]).toMatchObject({ role: 'Hold', stake: '', condition: '', fights: 'no fights', hp: '54 → 54', hpTone: 'even', flawless: false });
     expect(c.route[0]!.label).toContain('Flawless');
+    expect(c.route.map((x) => x.outcome)).toEqual(['cleared', 'cleared']);
+    expect(make(sweep(), story(1, { sectors: [tile(1, { cleared: false })] })).route[0]!.outcome).toBe('left');
+    expect(make(sweep(), story(1, { sectors: [tile(1, { cleared: false, fell: true })] })).route[0]!.outcome).toBe('fell');
   });
 
   it('formats fights by situation with the win share and the running record when it is known', () => {

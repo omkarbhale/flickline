@@ -123,7 +123,7 @@ export function scriptedRun(seed: number, sectorCount: number, endReason: string
     tile.flawless = shots > 0 && bad === 0;
     exp.sectors.push(tile);
     const fellHere = endReason === 'death' && (hp === 0 || s === sectorCount - 1);
-    if (!fellHere) push('sectorEnded', { sectorId: `sector-${s}`, cleared: true, keptSector: 1, tempo: false, points: 250 });
+    if (!fellHere) push('sectorEnded', { sectorId: `sector-${s}`, cleared: true, keptSector: 1, tempo: false, points: 250, reason: 'exit' });
     if (hp === 0) break;
   }
   tick += 20;

@@ -319,7 +319,7 @@ export class ResultsCard {
     t.li.dataset.role = v.roleId;
     t.li.dataset.overtime = v.overtime ? '1' : '0';
     t.li.dataset.flawless = v.flawless ? '1' : '0';
-    t.li.dataset.cleared = v.cleared ? '1' : '0';
+    t.li.dataset.outcome = v.outcome;
     t.li.setAttribute('aria-label', v.label);
   }
 

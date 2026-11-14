@@ -96,6 +96,12 @@ describe('RunStoryTracker', () => {
     ]);
   });
 
+  it('tells a sector that was cleared from one walked out of and one the run ended in', () => {
+    const end = (id: string, cleared: boolean, reason = 'exit'): [StoryEventType, object] => ['sectorEnded', { sectorId: id, cleared, reason }];
+    const s = t([enter(0), end('s0', true), enter(1), end('s1', false), enter(2), enter(3), end('s3', false, 'death')]);
+    expect(s.sectors.map((x) => [x.cleared, x.fell])).toEqual([[true, false], [false, false], [false, true], [false, true]]);
+  });
+
   it('marks Flawless only with a shot fired, no miss and no moving shot', () => {
     const shot = (moving: boolean): [StoryEventType, object] => ['shotFired', { moving }];
     const miss: [StoryEventType, object] = ['shotImpact', { result: 'miss' }];
