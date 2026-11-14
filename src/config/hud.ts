@@ -3,8 +3,10 @@
  * gameplay number lives here.
  */
 export interface HudTunables {
-  /** Edge meter: rolling success rate over the last N trials (design §9.5). */
+  /** Edge meter: rolling contact win rate over the last N fights (design §9.5); in a mode without contacts, the last N trials. */
   edgeWindow: number;
+  /** Modes whose fights are contacts: the edge meter shows their contact win rate (#203). */
+  edgeContactModes: readonly string[];
   /** Edge meter: the shaded target band, as success-rate fractions. */
   edgeZoneLo: number;
   edgeZoneHi: number;
@@ -27,6 +29,7 @@ export interface HudTunables {
 
 export const hud: HudTunables = {
   edgeWindow: 20,
+  edgeContactModes: ['sweep'],
   edgeZoneLo: 0.6,
   edgeZoneHi: 0.8,
   ghostFullScaleFrac: 0.25,

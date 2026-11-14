@@ -1,4 +1,5 @@
 import type { Vec3 } from '../core/vec3';
+import type { EnemyStreams } from '../core/rngStreams';
 import type { WeaponId } from '../config/weapon';
 import type { RunEvents } from './runEvents';
 import type { EnemyAi } from './enemyAi';
@@ -134,6 +135,8 @@ export interface TargetState {
   /** Where the sway is easing towards. */
   swayTarget: number;
   fsm: FsmState;
+  /** This enemy's own random streams, reseeded from `(run seed, id)` on spawn (research §5.8). Not the world rng. */
+  streams: EnemyStreams;
   /** Strafer / Peeker motion and shooting state (`sim/enemyAi.ts`); unused by Post and Beacon. */
   ai: EnemyAi;
   // --- bookkeeping for the kill event (design §3 stat definitions) ---

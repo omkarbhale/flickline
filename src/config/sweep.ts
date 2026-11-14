@@ -17,9 +17,6 @@ export const SWEEP_CARDS: readonly SweepCard[] = ['take-unaware', 'take-expected
 /** Who has to move in a sector (design §4.2). */
 export type SectorRole = 'take' | 'hold' | 'meet';
 
-/** The skill a contact's trials count for (design §3.1: where a run exercises each skill). */
-export type SweepTrialSkill = 'precision' | 'flick' | 'angles' | 'switch' | 'track';
-
 /** What a door's stake does (design §4.5): `shield` refills the shield, `arms` swaps the primary, `hot` adds a contact and pays more, `plain` nothing. */
 export type GateStake = 'shield' | 'arms' | 'hot' | 'plain';
 export const GATE_STAKES: readonly GateStake[] = ['shield', 'arms', 'hot', 'plain'];
@@ -79,14 +76,14 @@ export interface SweepTunables {
   crossfireFromSector: number;
   /** The same card never this many times in a row (design §4.4: never three in a row). */
   maxCardRun: number;
-  /** What each card's trials count for (design §3.1). */
-  cardSkill: Readonly<Record<SweepCard, SweepTrialSkill>>;
   /**
    * The mix of sector roles for sectors 2 and later (design §4.2: takes 50%, holds 35%, meets 15%; HYPOTHESIS), drawn
    * per sector; the Opener is always a take. The same role is never drawn three times in a row. A role the run cannot
    * play yet plays as a take: holds until #204.
    */
   roleMix: Readonly<Record<SectorRole, number>>;
+  /** The roles a run plays today. A drawn role not listed plays as a take (holds arrive with #204); the lean skips it too (#210). */
+  playableRoles: readonly SectorRole[];
   /**
    * Meet sectors (design §4.2, #212): an Echo group crosses the player's corridor on a route from the sector's exit
    * to its entry. Walks and runs are the Echo's gait; a walk is silent, a run is heard (`audio.enemy.silentBelowMps`).
@@ -130,6 +127,21 @@ export interface SweepTunables {
     clearPeekerShare: number;
     /** Share of `take-unaware` Echoes that walk a lane rather than stand (`unaware` and moving: it is busy elsewhere). */
     unawareMoverShare: number;
+  };
+  /**
+   * A new profile's first Opener (design §9.2): instead of one or two contacts it is a chain of short
+   * take sectors with one single-Echo contact each, dealt from the gentlest cards, on a placement
+   * staircase (`adaptive/sectorDial.ts`). It ends once `contactsMin` contacts were fought if the
+   * staircase has turned by then, else at `contactsMax`, or after `maxSectors` sectors. A contact
+   * counts as won for the staircase when it was cleared with at most `winMaxShieldLoss` of the full
+   * shield lost.
+   */
+  opener: {
+    contactsMin: number;
+    contactsMax: number;
+    maxSectors: number;
+    cards: readonly SweepCard[];
+    winMaxShieldLoss: number;
   };
   /**
    * Sector conditions (design §4.6, #207): which sectors of a run are light or eco. Rare: at most one
@@ -178,8 +190,8 @@ export const sweep: SweepTunables = {
   cardWeight: { 'take-unaware': 0.3, 'take-expected': 0.35, clear: 0.2, crossfire: 0.25, meet: 0 },
   crossfireFromSector: 2,
   maxCardRun: 2,
-  cardSkill: { 'take-unaware': 'angles', 'take-expected': 'precision', clear: 'angles', crossfire: 'switch', meet: 'track' },
   roleMix: { take: 0.5, hold: 0.35, meet: 0.15 },
+  playableRoles: ['take', 'meet'],
   meet: {
     groupTwoShare: [0, 0.4, 0.5, 0.6],
     runShare: 0.6,
@@ -202,6 +214,8 @@ export const sweep: SweepTunables = {
     clearPeekerShare: 0.6,
     unawareMoverShare: 0.7,
   },
+  // `hold` is gentle too, and joins the list with hold sectors (#204).
+  opener: { contactsMin: 4, contactsMax: 6, maxSectors: 9, cards: ['take-unaware', 'clear'], winMaxShieldLoss: 0.5 },
   conditions: { ecoChance: 0.4, lightChance: 0.4, firstSector: 1 },
   pick: { primaries: ['kestrel', 'vane', 'rill'], defaultPrimary: 'kestrel', readySec: 3 },
   conditionCopy: {

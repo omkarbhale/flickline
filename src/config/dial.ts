@@ -148,6 +148,11 @@ export interface DialTunables {
   priorSd: number;
   /** Rating shown to players = dial x this (design §8.4: 0–3000). */
   ratingPerDial: number;
+  /**
+   * The fight track (#203, `adaptive/skillModel.ts`): the posterior a 'line' mode's dial follows,
+   * updated by every decisive contact and by every skill trial at `skillWeight` of its evidence.
+   */
+  fight: { skillWeight: number };
   /** Placement staircase (design §9.2): 2-up/1-down. */
   staircase: {
     startStep: number;
@@ -189,6 +194,8 @@ export const dial: DialTunables = {
   priorMean: { new: 15, some: 35, experienced: 55, competitive: 75, skip: 40 },
   priorSd: 25,
   ratingPerDial: 30,
+  // About three skill trials per contact: together they count about as much as the contact itself.
+  fight: { skillWeight: 0.3 },
   staircase: { startStep: 16, minStep: 2, upAfter: 2, reversalsForBound: 4, sanityBound: 10 },
   beat: { drillSec: 10, maxStep: 3 },
   waves: {

@@ -128,6 +128,11 @@ export interface SpawnOptions {
   /** Scenario card of the contact the target belongs to: carried on its `skillTrial` (Sweep). */
   card?: string;
   /**
+   * The target produces a trial of its own (default true: killed = success, expired = failure). A
+   * mode that classifies its fights into trials itself (Sweep, `recordTrial`) turns it off.
+   */
+  trial?: boolean;
+  /**
    * Placed out of the player's sight by the caller (Sweep's director checks it against the level):
    * the spawn fairness floors, which guard targets appearing in view, do not apply.
    */
@@ -153,6 +158,16 @@ export interface ResolveOptions {
   extra?: TrialExtra;
 }
 
+/** A trial that is not one target's fate (Sweep's classified contact trials, `recordTrial`). */
+export interface TrialOptions {
+  /** Item difficulty on the dial scale (design §9.1). */
+  difficulty: number;
+  /** Scenario card of its contact. */
+  card?: string;
+  rtMs?: number;
+  extra?: TrialExtra;
+}
+
 export interface RunStats {
   score: number;
   kills: number;
@@ -170,6 +185,8 @@ export interface ModeContext<S = unknown> {
   readonly seed: number;
   /** The run's seeded stream: use it for every random choice, never `Math.random`. */
   readonly rng: Rng;
+  /** The scenario cards the run leans toward (design §4.4, #210); empty for no lean. Only Sweep reads it. */
+  readonly lean: readonly string[];
   readonly tunables: Tunables;
   readonly player: MotionView;
   /** The player's health and shield (read-only). */
@@ -215,8 +232,28 @@ export interface ModeContext<S = unknown> {
    * target is unknown or already resolved.
    */
   resolveTrial(id: number, success: boolean, opts?: ResolveOptions): boolean;
-  /** Manual-beat modes (`beatSec: null`): start the next beat now (calls the dial module). */
-  advanceBeat(): void;
+  /**
+   * Manual-beat modes (`beatSec: null`): start the next beat now. Without `dial` the dial module is
+   * asked; with one, that dial is the beat's (a mode that schedules its own dial: Sweep's sectors and
+   * its Opener staircase). A pinned run keeps its pin either way.
+   */
+  advanceBeat(dial?: number): void;
+  /** Replace the current beat's dial (a mode that schedules its own dial, from `setup` on). Pinned runs keep the pin. */
+  setDial(dial: number): void;
+  /**
+   * The matched dial the skill model aims this mode at now, before any wave or depth offset
+   * (θ − s·logit(target), design §9.3.1). Reads the posterior: call it at beat boundaries only.
+   */
+  targetDial(): number;
+  /** The run was started for a profile the skill model has never measured (design §9.2: its first Opener places it). */
+  readonly newProfile: boolean;
+  /** The run's dial is pinned ("Pin difficulty", design §9.3.6): the mode's own dial schedule is ignored. */
+  readonly pinned: boolean;
+  /**
+   * Emit a `skillTrial` that is not a target's fate (Sweep's trials from contacts, design §3.1):
+   * counted in the run's trials like any other; a failure breaks the clean streak.
+   */
+  recordTrial(skill: SkillId, success: boolean, opts: TrialOptions): void;
   /**
    * Score a result that is not a kill (the table of design §8.1 applied to a spray) and count it
    * in the streak. Emits `scoreAwarded` for target `id`; returns the points.
