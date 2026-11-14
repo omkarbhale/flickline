@@ -9,7 +9,7 @@ import { createScoreBreakdown, scoreKill, type ScoreBreakdown } from '../feedbac
 import { StreakTracker } from '../feedback/streaks';
 import type {
   AnchorSource, AxisValues, DialSource, ModeEvents, MotionView, PlayerSourceEvents, RunEndReason, SkillId, SourceEvents,
-  TargetSpawner, VitalsView, WeaponSourceEvents,
+  TargetSpawner, TrialSource, VitalsView, WeaponSourceEvents,
 } from './contracts';
 import { effectiveDial } from './itemDifficulty';
 import type { AwardOptions, ModeContext, ModeDef, ModeEvent, ResolveOptions, RunPhase, RunStats, SpawnOptions, WeaponEvent } from './modeDef';
@@ -36,6 +36,8 @@ export interface RunOptions {
   /** Pin the dial to a fixed value ("Pin difficulty", design §9.3): the skill model is not asked. */
   pinDial?: number;
   anchors?: AnchorSource;
+  /** The run opens with a cold opener at this level (design §8.5; `ModeContext.coldOpenerLevel`). */
+  coldOpenerLevel?: number;
 }
 
 /** One tracked target: where its trial's difficulty and skill were fixed (at spawn). */
@@ -51,6 +53,8 @@ interface TargetRecord {
   rtMs: number;
   /** Scenario card of its contact, or null. */
   card: string | null;
+  /** Its trial's stream, or null for the mode's. */
+  source: TrialSource | null;
 }
 
 const MAX_TARGETS = 64;
@@ -68,6 +72,7 @@ export class ModeRunner implements ModeContext<unknown> {
   phase: RunPhase = 'idle';
   mode!: ModeDef<unknown>;
   seed = 0;
+  coldOpenerLevel: number | null = null;
   rng = new Rng(1);
   state: unknown = undefined;
   scheduler!: SpawnScheduler;
@@ -126,7 +131,7 @@ export class ModeRunner implements ModeContext<unknown> {
   private quietId = -1;
   /** Stand-in record for a target beyond the pool capacity, so its trial is still emitted. */
   private readonly overflow: TargetRecord = {
-    active: false, id: -1, skill: 'precision', dial: 0, itemDifficulty: 0, expireTick: -1, resolved: false, rtMs: -1, card: null,
+    active: false, id: -1, skill: 'precision', dial: 0, itemDifficulty: 0, expireTick: -1, resolved: false, rtMs: -1, card: null, source: null,
   };
 
   constructor(private readonly deps: RunnerDeps) {
@@ -135,7 +140,7 @@ export class ModeRunner implements ModeContext<unknown> {
     this.vitals = deps.vitals ?? FULL_VITALS;
     this.streaks = new StreakTracker(deps.tunables.scoring, deps.events);
     for (let i = 0; i < MAX_TARGETS; i++) {
-      this.records.push({ active: false, id: -1, skill: 'precision', dial: 0, itemDifficulty: 0, expireTick: -1, resolved: false, rtMs: -1, card: null });
+      this.records.push({ active: false, id: -1, skill: 'precision', dial: 0, itemDifficulty: 0, expireTick: -1, resolved: false, rtMs: -1, card: null, source: null });
     }
     this.killEv = { type: 'targetKilled', payload: null as never };
     this.expiredEv = { type: 'targetExpired', payload: null as never };
@@ -197,6 +202,7 @@ export class ModeRunner implements ModeContext<unknown> {
     const m = this.tunables.modes;
     this.mode = mode as ModeDef<unknown>;
     this.seed = opts.seed;
+    this.coldOpenerLevel = opts.coldOpenerLevel ?? null;
     this.rng = new Rng((opts.seed ^ 0x9e3779b9) >>> 0);
     this.pinDial = opts.pinDial;
     this.scheduler = new SpawnScheduler(m, this.tunables.dial.floors, this.rng, new AnchorIndex(opts.anchors ?? null), this.player);
@@ -322,6 +328,8 @@ export class ModeRunner implements ModeContext<unknown> {
     const rec = this.adopt(id);
     rec.skill = opts?.skill ?? this.mode.skills[0]!;
     rec.card = opts?.card ?? null;
+    rec.source = opts?.source ?? null;
+    if (opts?.dial !== undefined) rec.dial = opts.dial;
     if (opts?.difficulty !== undefined) rec.itemDifficulty = opts.difficulty;
     if (opts?.lifetimeSec !== undefined) {
       rec.expireTick = this.liveTick + secondsToTicks(Math.max(opts.lifetimeSec, fl.exposureSec));
@@ -355,7 +363,7 @@ export class ModeRunner implements ModeContext<unknown> {
     e.success = success;
     e.rtMs = rt >= 0 ? rt : undefined;
     e.extra = opts?.extra;
-    e.source = this.mode.trialSource ?? 'matched';
+    e.source = rec.source ?? this.mode.trialSource ?? 'matched';
     e.card = rec.card ?? undefined;
     this.deps.events.emit('skillTrial', e);
     this.stats.trials++;
@@ -564,6 +572,7 @@ export class ModeRunner implements ModeContext<unknown> {
       r.resolved = false;
       r.rtMs = -1;
       r.card = null;
+      r.source = null;
       this.recordsUsed++;
       return r;
     }
@@ -577,6 +586,7 @@ export class ModeRunner implements ModeContext<unknown> {
     r.resolved = false;
     r.rtMs = -1;
     r.card = null;
+    r.source = null;
     return r;
   }
 

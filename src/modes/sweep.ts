@@ -8,9 +8,11 @@ import { createContactSettle, settleContact, type ContactFacts } from '../feedba
 import { difficultyMultiplier } from '../feedback/scoring';
 import { MAPS } from '../sim/mapLoader';
 import type { RunEvents, SectorEvents } from '../sim/runEvents';
+import type { ColdProfile } from '../config/coldOpener';
+import { coldOpenerPlan, type ColdOpenerEvents } from './coldOpener';
 import type { ModeContext, ModeDef, ModeEvent } from './modeDef';
 import { sectorCatalog } from './sweepCatalog';
-import { perSector, planRun, type ContactPlan, type EchoPlan, type RunPlan, type SectorSource } from './sweepDirector';
+import { perSector, planRun, type ContactPlan, type EchoPlan, type RunPlan, type SectorPlan, type SectorSource } from './sweepDirector';
 
 /**
  * Sweep, the run (design §4; v0 is #201): a seeded chain of take sectors across the sector maps.
@@ -21,6 +23,13 @@ import { perSector, planRun, type ContactPlan, type EchoPlan, type RunPlan, type
  * the sim does that). Walking into a sector's exit ends it: the next sector's map is loaded in place
  * when it differs and the player is put at its entry. The run ends at 0 HP (`death`) or at the
  * last sector's exit (`left`).
+ *
+ * A run with a cold opener (design §8.5, `ctx.coldOpenerLevel`) plays its Opener as the cold opener's
+ * **legs**: one stored contact each, in its own take sector (mirrored ones on the mirrored map), every
+ * Echo at the level's stored profile and item difficulty, its trials tagged `baseline`. To everything
+ * outside the mode the legs are one sector, the Opener: one `sectorEntered` at the first leg, one
+ * `sectorEnded` at the last leg's exit (or the death or quit inside it); `coldLegEntered` marks each
+ * move between legs, and `coldOpenerStarted` / `coldOpenerEnded` bracket the measurement.
  */
 
 /** One contact while the run plays. */
@@ -44,6 +53,12 @@ interface ContactRt {
 export interface SweepState {
   plan: RunPlan;
   sector: number;
+  /** The cold-opener leg being played (index into `plan.cold.sectors`), or -1 outside one. */
+  leg: number;
+  /** Across the current sector's legs: Echoes spawned, their base points, and Echoes left alive. */
+  secKinds: number;
+  secBase: number;
+  secAlive: number;
   contacts: ContactRt[];
   /** Health+shield at the current sector's entry. */
   entryEhp: number;
@@ -67,6 +82,9 @@ const endedEv: SectorEvents['sectorEnded'] = {
   tick: 0, t: 0, sectorId: '', index: 0, cleared: false, keptSector: 0, tempo: false, points: 0, clearPoints: 0, reason: 'exit',
 };
 const settledEv: RunEvents['contactSettled'] = { tick: 0, t: 0, contactId: 0, outcome: 'avoided', kept: 1, enemies: 0, points: 0, card: '' };
+const coldStartEv: ColdOpenerEvents['coldOpenerStarted'] = { tick: 0, version: 0, level: 0, legs: 0, seed: 0 };
+const coldLegEv: ColdOpenerEvents['coldLegEntered'] = { tick: 0, leg: 0, of: 0, mapId: '', sectorId: '', mirrored: false, card: '' };
+const coldEndEv: ColdOpenerEvents['coldOpenerEnded'] = { tick: 0, t: 0, reason: 'exit', legsDone: 0, kept: 0 };
 
 /** The shipped maps' sectors, built once per tunables object (the visibility answers are memoised inside). */
 let catalogCache: { tunables: Tunables; sectors: SectorSource[] } | null = null;
@@ -75,42 +93,64 @@ export function sweepCatalog(tunables: Tunables): SectorSource[] {
   return catalogCache.sectors;
 }
 
-/** The plan a seed gives (what `setup` plays): for tests, the bot report and the debug hook. */
-export function sweepPlan(seed: number, tunables: Tunables): RunPlan {
-  return planRun(seed, sweepCatalog(tunables), tunables.sweep, tunables.movement);
+/**
+ * The plan a seed gives (what `setup` plays): for tests, the bot report and the debug hook. With
+ * `coldLevel`, the Opener is that level's cold opener for the seed (design §8.5): its first leg stands
+ * in `sectors[0]`, every leg is in `cold.sectors`, and the later sectors' contacts are numbered after them.
+ */
+export function sweepPlan(seed: number, tunables: Tunables, coldLevel: number | null = null): RunPlan {
+  const catalog = sweepCatalog(tunables);
+  const plan = planRun(seed, catalog, tunables.sweep, tunables.movement);
+  if (coldLevel === null) return plan;
+  const cold = coldOpenerPlan(seed, coldLevel, catalog, undefined, tunables.coldOpener);
+  let next = cold.sectors.length;
+  const rest = plan.sectors.slice(1).map((sp) => ({ ...sp, contacts: sp.contacts.map((c) => ({ ...c, index: next++ })) }));
+  return { seed, sectors: [cold.sectors[0]!, ...rest], cold };
+}
+
+/** The sector plan being played: the current cold-opener leg, else the current sector. */
+export function currentSector(st: SweepState): SectorPlan {
+  return st.leg >= 0 && st.plan.cold ? st.plan.cold.sectors[st.leg]! : st.plan.sectors[st.sector]!;
 }
 
 function ehp(ctx: ModeContext<SweepState>): number {
   return ctx.vitals.alive ? ctx.vitals.hp + ctx.vitals.shield : 0;
 }
 
-/** Feet position of each Echo's spawn, with the dial's numbers for its kind (design §5.2, §5.3). */
-function spawnEcho(ctx: ModeContext<SweepState>, c: ContactRt, e: EchoPlan): number {
-  const a = ctx.axes;
+/**
+ * Feet position of each Echo's spawn, with the dial's numbers for its kind (design §5.2, §5.3). A cold
+ * opener's Echo plays the level's stored profile instead, at the level's item difficulty and dial, and
+ * its trial is a `baseline` one (design §8.5): no adaptation inside the cold opener.
+ */
+function spawnEcho(ctx: ModeContext<SweepState>, c: ContactRt, e: EchoPlan, cold: { level: number; profile: ColdProfile } | null): number {
   const cfg = ctx.tunables.sweep;
-  const fire = { tellSec: a.tellSec!, reactionSec: a.enemyReactionSec!, hitChance: a.enemyHitChance!, expectation: e.expectation };
-  const common = { fire, crouched: e.crouched, card: c.plan.card, skill: cfg.cardSkill[c.plan.card], placed: true };
+  const a = ctx.axes;
+  const p = cold?.profile;
+  const fire = {
+    tellSec: p ? p.tellSec : a.tellSec!, reactionSec: p ? p.reactionSec : a.enemyReactionSec!, hitChance: p ? p.hitChance : a.enemyHitChance!,
+    expectation: e.expectation,
+  };
+  const common = {
+    fire, crouched: e.crouched, card: c.plan.card, skill: cfg.cardSkill[c.plan.card], placed: true,
+    ...(cold ? { source: 'baseline' as const, dial: cold.level, difficulty: cold.level } : {}),
+  };
   if (e.kind === 'peeker' && e.peek) {
-    return ctx.spawn('peeker', e.feet, { ...common, peek: { pattern: e.peek.pattern, hold: e.peek.hold, out: e.peek.out, wideSec: a.peekWideSec } });
+    return ctx.spawn('peeker', e.feet, { ...common, peek: { pattern: e.peek.pattern, hold: e.peek.hold, out: e.peek.out, wideSec: p ? p.peekWideSec : a.peekWideSec } });
   }
   return ctx.spawn('strafer', e.feet, {
     ...common,
-    strafe: { speed: a.strafeSpeed!, legSec: a.strafeLegSec!, standStillSec: a.standStillSec!, laneA: e.laneA ?? e.feet, laneB: e.laneB ?? e.feet },
+    strafe: {
+      speed: p ? p.strafeSpeed : a.strafeSpeed!, legSec: p ? p.strafeLegSec : a.strafeLegSec!, standStillSec: p ? p.standStillSec : a.standStillSec!,
+      laneA: e.laneA ?? e.feet, laneB: e.laneB ?? e.feet,
+    },
   });
 }
 
-/** Put the player at sector `i`'s entry and place its Echoes (they are out of the player's sight there). */
-function enterSector(ctx: ModeContext<SweepState>, i: number): void {
+/** Put the player at `sp`'s entry and place its Echoes (out of the player's sight there). Returns the Echoes placed. */
+function placeSector(ctx: ModeContext<SweepState>, sp: SectorPlan, cold: { level: number; profile: ColdProfile } | null): number {
   const st = ctx.state;
-  const sp = st.plan.sectors[i]!;
-  const cfg = ctx.tunables.sweep;
-  st.sector = i;
   ctx.loadMap(sp.mapId);
   ctx.placePlayer(sp.entry.x, sp.entry.y, sp.entry.z, sp.entryYaw);
-  // One beat per sector: the dial is read from the posterior here, with the sector's offset (design §4.1, §9.3).
-  if (i > 0) ctx.advanceBeat();
-  const depth = perSector(cfg.depthMultiplier, i);
-  ctx.setPointsMultiplier(depth);
   st.contacts.length = 0;
   let echoes = 0;
   for (const cp of sp.contacts) {
@@ -118,7 +158,7 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
       plan: cp, id: -1, open: false, echoIds: [], kinds: [], alive: 0, startEhp: 0, damage: 0, lastSightTick: 0, engaged: false,
     };
     for (const e of cp.echoes) {
-      const id = spawnEcho(ctx, c, e);
+      const id = spawnEcho(ctx, c, e, cold);
       c.echoIds.push(id);
       c.kinds.push(e.kind);
       if (id >= 0) {
@@ -128,20 +168,94 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
     }
     st.contacts.push(c);
   }
+  return echoes;
+}
+
+/** A key that changes whenever the player is moved to a new sector or cold-opener leg (bots re-plan their route on it). */
+export function sectorKey(st: SweepState): number {
+  return st.sector * 64 + st.leg + 1;
+}
+
+/** The cold opener's level and profile while a leg is played, else null. */
+function coldOf(st: SweepState): { level: number; profile: ColdProfile } | null {
+  return st.leg >= 0 && st.plan.cold ? st.plan.cold : null;
+}
+
+/** The next cold-opener leg: the previous one's contacts are already closed. */
+function enterLeg(ctx: ModeContext<SweepState>, leg: number): void {
+  const st = ctx.state;
+  const cold = st.plan.cold!;
+  st.leg = leg;
+  placeSector(ctx, cold.sectors[leg]!, cold);
+  emitLeg(ctx, leg);
+}
+
+/** Announce the cold-opener leg `leg` (`coldLegEntered`). */
+function emitLeg(ctx: ModeContext<SweepState>, leg: number): void {
+  const cold = ctx.state.plan.cold!;
+  const sp = cold.sectors[leg]!;
+  const e = coldLegEv;
+  e.tick = ctx.simTick;
+  e.leg = leg;
+  e.of = cold.sectors.length;
+  e.mapId = sp.mapId;
+  e.sectorId = sp.sectorId;
+  e.mirrored = cold.legs[leg]!.mirrored;
+  e.card = sp.contacts[0]?.card ?? '';
+  ctx.events.emit('coldLegEntered', e);
+}
+
+/**
+ * Put the player at sector `i`'s entry and place its Echoes (they are out of the player's sight there).
+ * Sector 0 of a run with a cold opener is its first leg; the sector's totals count every leg.
+ */
+function enterSector(ctx: ModeContext<SweepState>, i: number): void {
+  const st = ctx.state;
+  const cfg = ctx.tunables.sweep;
+  st.sector = i;
+  // One beat per sector: the dial is read from the posterior here, with the sector's offset (design §4.1, §9.3).
+  if (i > 0) ctx.advanceBeat();
+  const depth = perSector(cfg.depthMultiplier, i);
+  ctx.setPointsMultiplier(depth);
+  st.secKinds = st.secBase = st.secAlive = 0;
+  const cold = i === 0 ? st.plan.cold ?? null : null;
+  st.leg = cold ? 0 : -1;
+  const sp = currentSector(st);
+  const echoes = placeSector(ctx, sp, cold);
   st.entryEhp = ehp(ctx);
   st.entryScore = ctx.stats.score;
+  if (cold) {
+    const c = coldStartEv;
+    c.tick = ctx.simTick;
+    c.version = cold.version;
+    c.level = cold.level;
+    c.legs = cold.sectors.length;
+    c.seed = st.plan.seed;
+    ctx.events.emit('coldOpenerStarted', c);
+  }
   const ev = enteredEv;
   ev.tick = ctx.simTick;
   ev.t = ctx.timeSec;
-  ev.sectorId = sp.sectorId;
+  ev.sectorId = cold ? 'cold-opener' : sp.sectorId;
   ev.mapId = sp.mapId;
   ev.index = i;
   ev.of = st.plan.sectors.length;
-  ev.dial = ctx.dial;
+  ev.dial = cold ? cold.level : ctx.dial;
   ev.depth = depth;
-  ev.contacts = sp.contacts.length;
-  ev.echoes = echoes;
+  let contacts = sp.contacts.length;
+  let all = echoes;
+  if (cold) {
+    contacts = all = 0;
+    for (const leg of cold.sectors) {
+      contacts += leg.contacts.length;
+      for (const c of leg.contacts) all += c.echoes.length;
+    }
+  }
+  ev.contacts = contacts;
+  ev.echoes = all;
   ctx.events.emit('sectorEntered', ev);
+  // The first leg is entered with the sector; later legs announce themselves as they come.
+  if (cold) emitLeg(ctx, 0);
 }
 
 function contactOf(st: SweepState, targetId: number): ContactRt | null {
@@ -201,28 +315,36 @@ function inSight(ctx: ModeContext<SweepState>, c: ContactRt): boolean {
   return false;
 }
 
-/** The sector is over: settle what is open, fail the trials of Echoes that fought and lived, clear the field, pay the clear. */
-function endSector(ctx: ModeContext<SweepState>, reason: 'exit' | 'death' | 'quit'): void {
+/** Close the contacts on the field: settle what is open, fail the trials of Echoes that fought and lived, clear them away, and add them to the sector's totals. */
+function closeContacts(ctx: ModeContext<SweepState>, died: boolean): void {
   const st = ctx.state;
-  const sp = st.plan.sectors[st.sector]!;
-  const cfg = ctx.tunables.sweep;
-  const died = reason === 'death';
-  let alive = 0;
-  let kinds = 0;
-  let base = 0;
   for (const c of st.contacts) {
     settleOpen(ctx, c, died);
     for (let k = 0; k < c.echoIds.length; k++) {
       const id = c.echoIds[k]!;
       if (id < 0) continue;
-      kinds++;
-      base += ctx.tunables.scoring.base[c.kinds[k]!];
+      st.secKinds++;
+      st.secBase += ctx.tunables.scoring.base[c.kinds[k]!];
       if (!ctx.targetPosition(id, body)) continue; // dead
-      alive++;
+      st.secAlive++;
       if (c.engaged) ctx.resolveTrial(id, false);
       ctx.despawn(id);
     }
   }
+  st.contacts.length = 0;
+}
+
+/** The sector is over (its last leg, for a cold opener): close its contacts and pay the clear. */
+function endSector(ctx: ModeContext<SweepState>, reason: 'exit' | 'death' | 'quit'): void {
+  const st = ctx.state;
+  const sp = st.plan.sectors[st.sector]!;
+  const cfg = ctx.tunables.sweep;
+  const died = reason === 'death';
+  const cold = coldOf(st);
+  closeContacts(ctx, died);
+  const alive = st.secAlive;
+  const kinds = st.secKinds;
+  const base = st.secBase;
   const kept = died || st.entryEhp <= 0 ? 0 : Math.min(1, ehp(ctx) / st.entryEhp);
   const cleared = !died && reason === 'exit' && alive === 0 && kinds > 0;
   let clearPoints = 0;
@@ -230,10 +352,20 @@ function endSector(ctx: ModeContext<SweepState>, reason: 'exit' | 'death' | 'qui
     const kill = (base / kinds) * difficultyMultiplier(ctx.dial, ctx.tunables.scoring);
     clearPoints = ctx.awardPoints(cfg.clearKills * kill * kept * perSector(cfg.depthMultiplier, st.sector));
   }
+  if (cold) {
+    const c = coldEndEv;
+    c.tick = ctx.simTick;
+    c.t = ctx.timeSec;
+    c.reason = reason;
+    c.legsDone = st.leg + (reason === 'exit' ? 1 : 0);
+    c.kept = kept;
+    st.leg = -1;
+    ctx.events.emit('coldOpenerEnded', c);
+  }
   const e = endedEv;
   e.tick = ctx.simTick;
   e.t = ctx.timeSec;
-  e.sectorId = sp.sectorId;
+  e.sectorId = cold ? 'cold-opener' : sp.sectorId;
   e.index = st.sector;
   e.cleared = cleared;
   e.keptSector = kept;
@@ -245,7 +377,7 @@ function endSector(ctx: ModeContext<SweepState>, reason: 'exit' | 'death' | 'qui
 }
 
 function atExit(ctx: ModeContext<SweepState>): boolean {
-  const sp = ctx.state.plan.sectors[ctx.state.sector]!;
+  const sp = currentSector(ctx.state);
   const p = ctx.player.pos;
   const cfg = ctx.tunables.sweep;
   const dx = p.x - sp.exit.x, dz = p.z - sp.exit.z;
@@ -274,7 +406,8 @@ export const sweep: ModeDef<SweepState> = {
 
   setup(ctx) {
     ctx.state = {
-      plan: sweepPlan(ctx.seed, ctx.tunables), sector: 0, contacts: [], entryEhp: 0, entryScore: 0, nextContactId: 0, won: 0, lost: 0, done: false,
+      plan: sweepPlan(ctx.seed, ctx.tunables, ctx.coldOpenerLevel), sector: 0, leg: -1, secKinds: 0, secBase: 0, secAlive: 0,
+      contacts: [], entryEhp: 0, entryScore: 0, nextContactId: 0, won: 0, lost: 0, done: false,
     };
     enterSector(ctx, 0);
     return ctx.state;
@@ -292,6 +425,13 @@ export const sweep: ModeDef<SweepState> = {
       else if (ctx.simTick - c.lastSightTick >= holdTicks) settleOpen(ctx, c, false);
     }
     if (!atExit(ctx)) return;
+    const cold = st.plan.cold;
+    if (cold && st.leg >= 0 && st.leg + 1 < cold.sectors.length) {
+      // A leg of the cold opener is done: the next one, still inside the Opener (no gate, no beat).
+      closeContacts(ctx, false);
+      enterLeg(ctx, st.leg + 1);
+      return;
+    }
     endSector(ctx, 'exit');
     if (st.sector + 1 >= st.plan.sectors.length) {
       st.done = true;

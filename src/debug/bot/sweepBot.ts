@@ -3,7 +3,7 @@ import { secondsToTicks, TICK_DT } from '../../core/time';
 import { vec3, type Vec3 } from '../../core/vec3';
 import { lineClear } from '../../sim/exposure';
 import { targetAimPoint, wrapPi, yawOf } from '../../sim/aim';
-import type { SweepState } from '../../modes/sweep';
+import { currentSector, sectorKey, type SweepState } from '../../modes/sweep';
 import { navRoute } from '../../modes/sweepCatalog';
 import type { TickInput } from '../../sim/types';
 import type { World } from '../../sim/world';
@@ -59,7 +59,7 @@ export class SweepBot {
     if (!world.health.alive || !world.live) return out;
     const st = this.game.modes.runner.state as SweepState | undefined;
     if (!st?.plan) return out;
-    if (st.sector !== this.sector) this.plan(st, true);
+    if (sectorKey(st) !== this.sector) this.plan(st, true);
 
     const p = world.player;
     const eyeY = p.pos.y + p.eyeHeight;
@@ -127,8 +127,8 @@ export class SweepBot {
 
   /** The route to the sector's exit (straight, or along the nav graph), from its entry or from where the player stands. */
   private plan(st: SweepState, fromEntry: boolean): void {
-    this.sector = st.sector;
-    const sp = st.plan.sectors[st.sector]!;
+    this.sector = sectorKey(st);
+    const sp = currentSector(st);
     const map = this.game.modes.currentMap;
     this.path = navRoute(map, fromEntry ? sp.entry : this.game.world.player.pos, sp.exit);
     this.wp = 0;

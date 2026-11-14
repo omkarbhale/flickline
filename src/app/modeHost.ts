@@ -19,7 +19,7 @@ import { testMode } from '../modes/testMode';
 import { economyShield } from '../sim/damage';
 import { FIRE_IDLE } from '../sim/enemyAi';
 import { rayBox } from '../sim/collision';
-import { MAPS } from '../sim/mapLoader';
+import { findMap } from '../sim/mapLoader';
 import type { MapDef } from '../sim/mapTypes';
 import type { SpawnOptions } from '../sim/targets';
 import type { World } from '../sim/world';
@@ -164,6 +164,12 @@ export class ModeHost {
     });
   }
 
+  /**
+   * Whether a run of `modeId` on `seed` opens with a cold opener, and at which level (design §8.5); null
+   * for no. Set by the cold-opener feature, which reads the save and the clock (`features/coldOpener.ts`).
+   */
+  coldOpenerFor: ((modeId: string, seed: number) => number | null) | null = null;
+
   /** The map in the world now: the one the last started mode asked for (the URL's `?map=` or Range until one starts). */
   get currentMap(): MapDef {
     return this.map;
@@ -189,7 +195,7 @@ export class ModeHost {
    * unknown map id.
    */
   loadMap(mapId: string): boolean {
-    const next = MAPS[mapId];
+    const next = findMap(mapId);
     if (!next) return false;
     if (next === this.map) return true;
     this.map = next;
@@ -211,7 +217,10 @@ export class ModeHost {
     this.clearField();
     this.applyPlayerSetup(mode);
     this.active = mode;
-    this.runner.begin(mode, { seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors });
+    this.runner.begin(mode, {
+      seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors,
+      coldOpenerLevel: opts.coldOpenerLevel ?? this.coldOpenerFor?.(id, seed) ?? undefined,
+    });
     return true;
   }
 

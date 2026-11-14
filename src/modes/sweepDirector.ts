@@ -3,6 +3,7 @@ import type { Vec3 } from '../core/vec3';
 import type { SweepCard, SweepTunables } from '../config/sweep';
 import type { PeekPattern } from '../sim/mapTypes';
 import type { Expectation } from '../sim/enemyTiming';
+import type { ColdOpenerPlan } from './coldOpener';
 
 /**
  * The Sweep run director (design §4, #201): from the run's seed, which sectors the run visits, the
@@ -84,7 +85,13 @@ export interface SectorPlan {
 
 export interface RunPlan {
   readonly seed: number;
+  /**
+   * The run's sectors. With a cold opener, `sectors[0]` is its first leg and `cold.sectors` holds every
+   * leg; the contacts of the later sectors are numbered after the legs'.
+   */
   readonly sectors: readonly SectorPlan[];
+  /** The run opens with a cold opener (design §8.5): its pick and its legs, played as the Opener. */
+  readonly cold?: ColdOpenerPlan;
 }
 
 /** What the plan needs about the player: eye height when standing at an entry. */
