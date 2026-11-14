@@ -33,7 +33,7 @@ function setup(options?: { referenceLike: boolean }) {
     play: (cue, opts) => { calls.push({ cue, opts }); },
     setLoop: (cue, on) => { loops.push(`${cue}:${on ? 'on' : 'off'}`); },
   };
-  attachSfx(bus, player, audio, options);
+  attachSfx(bus, player, audio, undefined, options);
   const cues = (): CueId[] => calls.map((c) => c.cue);
   return { bus, calls, cues, loops };
 }
@@ -169,6 +169,15 @@ describe('attachSfx', () => {
     bus.emit('runReady', { tick: 1, mode: 'coldStart', seed: 1, dial: 50 }); // a restart clears it silently
     bus.emit('streakUpdated', { streak: 0, mult: 1 });
     expect(cues()).toEqual(['uiReady']);
+  });
+
+  it('the moving-shot tock follows the cue gate (fading coaching cues)', () => {
+    const bus = new EventBus<E>();
+    const calls: CueId[] = [];
+    attachSfx(bus, { play: (c) => { calls.push(c); }, setLoop: () => undefined }, audio, (e) => e.speed > 3);
+    bus.emit('shotFired', { ...shot(1, true), speed: 2 });
+    bus.emit('shotFired', { ...shot(2, true), speed: 5 });
+    expect(calls.filter((c) => c === 'movingShot')).toHaveLength(1);
   });
 
   it('detaches', () => {

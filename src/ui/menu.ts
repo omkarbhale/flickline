@@ -3,12 +3,14 @@ import type { MenuTunables } from '../config/menu';
 import type { Tunables } from '../config/tunables';
 import type { ProfileStore } from '../settings/profile';
 import type { SettingsStore } from '../settings/settings';
+import { keyLabel, type KeyAction } from '../settings/keys';
 import { icon } from './kit/icons';
 import { applyPalette, button, h, panel } from './kit/kit';
 import { wordmark } from './kit/wordmark';
 import type { CardModel, SessionView } from './menuModel';
-import { gridMove, resolveKey, type NavAction, type NavState, type RunPhase, type Screen } from './navigation';
-import { SettingsPanel } from './settingsPanel';
+import { gridMove, resolveKey, type NavAction, type NavKeys, type NavState, type RunPhase, type Screen } from './navigation';
+import { rawInputText } from './rawInputText';
+import { SettingsPanel, type SettingsHost, type SettingsTab } from './settingsPanel';
 
 /**
  * - `firstRun`: a new player (design 13.4): compact bottom-centre panel over the live Range with
@@ -20,7 +22,7 @@ import { SettingsPanel } from './settingsPanel';
 export type MenuMode = 'firstRun' | 'main' | 'pause';
 
 /** What the menu asks of the game, and what it reads from it. */
-export interface MenuHost {
+export interface MenuHost extends SettingsHost {
   /** First run: enter the game (and take pointer lock); needs a user gesture. */
   play(): void;
   /** Take the pointer lock back and carry on. */
@@ -66,6 +68,9 @@ export class Menu {
   private readonly pauseSession: HTMLElement;
   private readonly pauseSkip: HTMLButtonElement;
   private readonly cfg: MenuTunables;
+  /** The controls reminder under the mode cards and the Restart button's key hint: both follow the player's bindings. */
+  private readonly keysLine = h('p', { class: 'keys' });
+  private restartBtn!: HTMLButtonElement;
   private screen: Screen = 'main';
   private settingsReturn: Exclude<Screen, 'settings'> = 'main';
   private open = false;
@@ -76,7 +81,7 @@ export class Menu {
 
   constructor(
     root: HTMLElement,
-    store: SettingsStore,
+    private readonly store: SettingsStore,
     private readonly profile: ProfileStore,
     tunables: Tunables,
     private readonly host: MenuHost,
@@ -88,7 +93,7 @@ export class Menu {
 
     this.settingsPanel = new SettingsPanel(store, tunables, () => {
       if (this.screen === 'firstRun') host.play();
-    });
+    }, host);
     this.settingsBasicsHome = this.settingsPanel.basics.parentElement as HTMLElement;
 
     // --- First run (design 13.4) ---
@@ -132,7 +137,7 @@ export class Menu {
       h('section', { class: 'modes' }, [modesHead, this.cardsEl]),
       h('footer', { class: 'main-foot' }, [
         this.rawNote(),
-        h('p', { class: 'keys', text: 'WASD move · Space jump · Ctrl/C crouch · Shift walk · LMB shoot · R reload · Backspace restart · Esc menu' }),
+        this.keysLine,
       ]),
     ]);
 
@@ -148,7 +153,7 @@ export class Menu {
       this.pauseSub,
       h('div', { class: 'pause-actions', attrs: { 'data-nav': 'list' } }, [
         button('Resume', { variant: 'primary', icon: 'resume', key: 'Esc', onClick: () => host.resume() }),
-        button('Restart', { icon: 'restart', key: 'Backspace', onClick: () => host.restart() }),
+        (this.restartBtn = button('Restart', { icon: 'restart', key: 'Backspace', onClick: () => host.restart() })),
         button('Settings', { icon: 'settings', key: 'S', onClick: () => this.openSettings() }),
         button('Menu', { icon: 'menu', key: 'M', onClick: () => host.toMenu() }),
       ]),
@@ -194,9 +199,26 @@ export class Menu {
 
   // --- State ---------------------------------------------------------------------------------
 
+  /** The primary key of an action as the player sees it ("W", "Backspace"), or an em dash when it is unbound. */
+  private keyName(action: KeyAction): string {
+    const c = this.store.get().keys[action][0];
+    return c === undefined ? '—' : keyLabel(c);
+  }
+
+  /** Controls reminder and the Restart hint, from the current bindings. */
+  private renderKeyHints(): void {
+    const n = (a: KeyAction): string => this.keyName(a);
+    this.keysLine.textContent =
+      `${n('forward')}${n('left')}${n('back')}${n('right')} move · ${n('jump')} jump · ${n('crouch')} crouch · ${n('walk')} walk · LMB shoot · ${n('reload')} reload · ${n('restart')} restart · Esc menu`;
+    const kbd = this.restartBtn.querySelector('.fl-kbd');
+    if (kbd) kbd.textContent = n('restart');
+    if (this.open && this.screen === 'pause') this.renderPause();
+  }
+
   /** Refresh the settings form from the stores. */
   sync(): void {
     this.settingsPanel.sync();
+    this.renderKeyHints();
     const picked = this.profile.get().selfReport;
     for (const chip of this.chips) chip.setAttribute('aria-pressed', String(chip.dataset.chip === picked));
   }
@@ -225,17 +247,13 @@ export class Menu {
     if (this.open) this.focusDefault();
   }
 
-  /** Show raw-input state of the last lock request (null: not asked yet). */
-  setRawInput(on: boolean | null): void {
-    this.settingsPanel.setRawInput(on);
+  /** Show raw-input state of the last lock request (null: not asked yet). `requested`: the setting asked for it. */
+  setRawInput(on: boolean | null, requested = true): void {
+    const text = rawInputText(on, requested);
+    this.settingsPanel.setRawInput(on, requested);
     for (const note of this.rawNotes) {
       note.dataset.state = on === null ? 'unknown' : on ? 'on' : 'off';
-      note.textContent =
-        on === null
-          ? 'Raw input: requested when you click play'
-          : on
-            ? 'Raw input: on'
-            : 'Raw input: off (this browser cannot disable mouse acceleration; turn off "Enhance pointer precision" in your OS)';
+      note.textContent = text;
     }
   }
 
@@ -322,7 +340,8 @@ export class Menu {
     const label = this.host.runLabel();
     const view = this.host.session();
     this.lastView = view;
-    this.pauseSub.textContent = label ? `${label} · Backspace restarts` : 'Backspace restarts';
+    const restart = this.keyName('restart');
+    this.pauseSub.textContent = label ? `${label} · ${restart} restarts` : `${restart} restarts`;
     this.pauseSession.textContent = view.active ? `Today’s session · ${view.progressText}` : '';
     this.pauseSession.hidden = !view.active;
     this.pauseSkip.hidden = !view.active;
@@ -336,7 +355,18 @@ export class Menu {
   }
 
   private back(): void {
-    if (this.screen === 'settings') this.show(this.settingsReturn);
+    if (this.screen !== 'settings') return;
+    this.settingsPanel.close();
+    this.show(this.settingsReturn);
+  }
+
+  /** Switch the settings tab (debug hook, tests). */
+  selectSettingsTab(id: SettingsTab): void {
+    this.settingsPanel.select(id);
+  }
+
+  get settingsTab(): string {
+    return this.settingsPanel.selected;
   }
 
   // --- Keyboard ------------------------------------------------------------------------------
@@ -345,12 +375,16 @@ export class Menu {
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const st = this.navState();
-    const action = resolveKey(e.code, st);
+    const action = resolveKey(e.code, st, this.navKeys());
     if (action === null) return;
     // Enter, Space and Backspace belong to the focused control unless the rule says otherwise.
     e.preventDefault();
     this.perform(action);
   };
+
+  private navKeys(): NavKeys {
+    return this.store.get().keys;
+  }
 
   private navState(): NavState {
     const a = document.activeElement;

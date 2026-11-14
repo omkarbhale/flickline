@@ -19,6 +19,8 @@ export interface ResultsCardHandlers {
   onMenu(): void;
   /** True while another full-screen layer (the menu) is on top: the card ignores keys then. */
   blocked(): boolean;
+  /** Whether `code` is the confirm key (default `Enter`; the player can rebind it). */
+  isConfirm?(code: string): boolean;
 }
 
 /**
@@ -60,6 +62,7 @@ export class ResultsCard {
             <p class="rc-kicker" data-k="end"></p>
             <h2 class="rc-title" data-k="mode"></h2>
             <p class="rc-seed">Seed <span data-k="seed"></span></p>
+            <p class="rc-clean" data-k="clean" hidden>Clean run: no coaching cues, reference-like HUD. Treat this score as your reference-game level.</p>
           </div>
           <div class="rc-score">
             <span class="rc-score-num" data-k="score" aria-label="Score"></span>
@@ -121,7 +124,8 @@ export class ResultsCard {
   private readonly onKey = (e: KeyboardEvent): void => {
     if (!this.open || e.repeat || e.ctrlKey || e.altKey || e.metaKey || this.handlers.blocked()) return;
     const onButton = e.target instanceof HTMLButtonElement && this.el.contains(e.target);
-    if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+    const confirm = this.handlers.isConfirm ? this.handlers.isConfirm(e.code) : e.code === 'Enter' || e.code === 'NumpadEnter';
+    if (confirm) {
       if (onButton && e.target === this.menuBtn) return; // Enter on Menu activates Menu
       e.preventDefault();
       this.handlers.onPlayAgain(pressTime(e));
@@ -129,6 +133,12 @@ export class ResultsCard {
       this.handlers.onMenu();
     }
   };
+
+  /** The key hint on the primary button ("Enter", or the rebound key). */
+  setConfirmLabel(label: string): void {
+    const k = this.play.querySelector('kbd');
+    if (k) k.textContent = label;
+  }
 
   /** Rename the primary button ("Next: Orbit" inside Today's session); null restores "Play again". */
   setPlayLabel(label: string | null): void {
@@ -144,6 +154,7 @@ export class ResultsCard {
     q('end').textContent = m.endLabel;
     q('mode').textContent = m.modeLabel;
     q('seed').textContent = String(m.seed);
+    q('clean').hidden = !m.clean;
     q('score').textContent = m.score;
     const pb = q('pb');
     pb.textContent = m.pbText === DASH ? 'Personal best: —' : `${m.pbText} vs personal best`;

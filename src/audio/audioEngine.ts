@@ -69,6 +69,8 @@ export interface PlayLogEntry {
 interface Bus {
   /** User volume for the bus. */
   volume: GainNode;
+  /** Tone stage after the volume (the hits bus only: the hit sound style). */
+  tone?: BiquadFilterNode;
   /** Ducking stage (the hit/kill duck of the weapons bus). */
   duck: GainNode;
 }
@@ -115,6 +117,10 @@ export class AudioEngine implements CuePlayer, LowpassDipper {
   private duckHoldEnd = 0;
   private duckGain = 1;
   private volume = 0.7;
+  private hitStyle: 'standard' | 'soft' = 'standard';
+  private mono = false;
+  /** Enemy tell loudness 0..1 on top of the enemies bus (settings). */
+  private tellVolume = 1;
   private readonly busVolume: Record<BusId, number> = { weapons: 1, hits: 1, enemies: 1, ui: 1 };
   private readonly rng: Rng;
   private voices = 0;
@@ -171,10 +177,20 @@ export class AudioEngine implements CuePlayer, LowpassDipper {
     for (const id of BUS_IDS) {
       const volume = ctx.createGain();
       const duck = ctx.createGain();
-      volume.connect(duck).connect(this.master);
-      this.buses[id] = { volume, duck };
+      let tone: BiquadFilterNode | undefined;
+      if (id === 'hits') {
+        tone = ctx.createBiquadFilter();
+        tone.type = 'lowpass';
+        tone.Q.value = 0.5;
+        volume.connect(tone).connect(duck);
+      } else {
+        volume.connect(duck);
+      }
+      duck.connect(this.master);
+      this.buses[id] = { volume, duck, tone };
     }
     this.applyVolumes();
+    this.applyMono();
 
     const t0 = performance.now();
     const set = renderSoundSet(t, ctx.sampleRate);
@@ -234,11 +250,62 @@ export class AudioEngine implements CuePlayer, LowpassDipper {
     this.applyVolumes();
   }
 
+  /** Hit sound style (settings): `soft` low-passes and lowers the hits bus. */
+  setHitStyle(style: 'standard' | 'soft'): void {
+    this.hitStyle = style;
+    this.applyVolumes();
+  }
+
+  /** Mix down to mono (settings): positional cues lose their direction, nothing is lost in level. */
+  setMono(on: boolean): void {
+    this.mono = on;
+    this.applyMono();
+  }
+
+  /** Enemy tell volume 0..1 (settings), applied to each tell as it starts. */
+  setTellVolume(v: number): void {
+    this.tellVolume = v;
+  }
+
+  /** What the audio settings did to the graph (debug hook): null before the context exists. */
+  mixState(): { hitStyle: string; hitToneHz: number; hitsBusGain: number; mono: boolean; masterChannels: number; masterGain: number } | null {
+    const hits = this.buses.hits;
+    if (!this.master || !hits) return null;
+    return {
+      hitStyle: this.hitStyle,
+      hitToneHz: hits.tone?.frequency.value ?? 0,
+      hitsBusGain: hits.volume.gain.value,
+      mono: this.mono,
+      masterChannels: this.master.channelCount,
+      masterGain: this.master.gain.value,
+    };
+  }
+
+  get isMono(): boolean {
+    return this.mono;
+  }
+
+  get hitSoundStyle(): 'standard' | 'soft' {
+    return this.hitStyle;
+  }
+
+  private applyMono(): void {
+    const m = this.master;
+    if (!m) return;
+    // An explicit one-channel gain node downmixes everything feeding it, then the output upmixes it to both ears.
+    m.channelCount = this.mono ? 1 : 2;
+    m.channelCountMode = this.mono ? 'explicit' : 'max';
+    m.channelInterpretation = 'speakers';
+  }
+
   private applyVolumes(): void {
     if (this.master) this.master.gain.value = this.volume * this.t.masterGain;
+    const style = this.t.hitStyles[this.hitStyle];
     for (const id of BUS_IDS) {
       const b = this.buses[id];
-      if (b) b.volume.gain.value = this.busVolume[id];
+      if (!b) continue;
+      b.volume.gain.value = id === 'hits' ? this.busVolume[id] * dbToGain(style.gainDb) : this.busVolume[id];
+      if (b.tone) b.tone.frequency.value = Math.min(style.hz, this.lowpassOpenHz);
     }
   }
 
@@ -302,6 +369,7 @@ export class AudioEngine implements CuePlayer, LowpassDipper {
       : list[Math.min(step, list.length) - 1]!;
     let rate = 1;
     let gain = opts?.gain ?? 1;
+    if (cue === 'enemyTell') gain *= this.tellVolume;
     if (JITTERED.has(cue)) {
       rate += (this.rng.next() * 2 - 1) * this.t.shotJitter.pitch;
       gain *= 1 + (this.rng.next() * 2 - 1) * this.t.shotJitter.gain;

@@ -1,3 +1,4 @@
+import type { CuePhase } from '../config/cues';
 import type { Settings } from '../settings/settings';
 
 /**
@@ -5,18 +6,33 @@ import type { Settings } from '../settings/settings';
  * model and the HUD so a settings change applies live without re-subscribing anything.
  */
 export interface FeedbackOptions {
-  /** Effective values: the settings' choice, forced off while `referenceLike`. */
   coachingCues: boolean;
   missGhost: boolean;
   damageNumbers: boolean;
   reduceFlashing: boolean;
   /**
-   * A reference-like run is on (design §8.5: the Daily Baseline), whatever the settings say: the
-   * three options above read false, and the HUD and the sound map also drop the rewards and
-   * readouts (floating points, time-to-shot, the screen pulse, streak and chain sounds). The shot,
-   * the target's reaction and the hit and kill sounds are unchanged.
+   * Fade the coaching cues as the player improves (design §7.4). Off pins every cue at full.
+   * Optional so a plain options literal keeps working; a missing value reads as on.
    */
-  referenceLike: boolean;
+  cueFading?: boolean;
+  /**
+   * Per-run state set by the cue planner at each run start, never by settings (`applySettingsToOptions`
+   * leaves it alone). Missing values read as `every`, not clean, no Surge.
+   */
+  cuePhase?: CuePhase;
+  /** A clean run: no coaching cues, no added tells, reference-like HUD. */
+  clean?: boolean;
+  /** Surge is active: the tells come back (first release). */
+  surge?: boolean;
+  /**
+   * A reference-like run is on (design §8.5: the Daily Baseline), set per run by `features/baseline.ts`
+   * and never by settings. It is a clean run (`clean`: no coaching cues, no stat strip, ghost pace or
+   * edge meter, whatever the settings say) that also drops the rewards the reference game does not
+   * have: the HUD's clock, score and streak counters, the floating points and time-to-shot readout,
+   * the screen pulse, and the kill ladder, sparkle, chain and streak-break sounds. The shot, the
+   * target's reaction and the hit and kill sounds are unchanged.
+   */
+  referenceLike?: boolean;
 }
 
 export function createFeedbackOptions(s: Readonly<Settings>): FeedbackOptions {
@@ -25,21 +41,19 @@ export function createFeedbackOptions(s: Readonly<Settings>): FeedbackOptions {
     missGhost: s.missGhost,
     damageNumbers: s.damageNumbers,
     reduceFlashing: s.reduceFlashing,
+    cueFading: s.cueFading,
+    cuePhase: 'every',
+    clean: false,
+    surge: false,
     referenceLike: false,
   };
 }
 
-/** Copy the relevant settings into `out` (no allocation); a reference-like run keeps its cues off. */
+/** Copy the relevant settings into `out` (no allocation). */
 export function applySettingsToOptions(out: FeedbackOptions, s: Readonly<Settings>): void {
-  const on = !out.referenceLike;
-  out.coachingCues = on && s.coachingCues;
-  out.missGhost = on && s.missGhost;
-  out.damageNumbers = on && s.damageNumbers;
+  out.coachingCues = s.coachingCues;
+  out.missGhost = s.missGhost;
+  out.damageNumbers = s.damageNumbers;
   out.reduceFlashing = s.reduceFlashing;
-}
-
-/** Enter or leave the reference-like presentation (no allocation): the options are re-derived from the settings. */
-export function setReferenceLike(out: FeedbackOptions, s: Readonly<Settings>, on: boolean): void {
-  out.referenceLike = on;
-  applySettingsToOptions(out, s);
+  out.cueFading = s.cueFading;
 }

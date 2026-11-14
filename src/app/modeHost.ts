@@ -28,13 +28,13 @@ export const MODES: Readonly<Record<string, ModeDef<never>>> = {
   baseline: baseline as ModeDef<never>,
 };
 
-/** The sim's target registry as the framework's spawner (#15). Only the kinds the sim has yet. */
+/** The sim's target registry as the framework's spawner (#15). Only the kinds the sim has yet (Rusher, Bulwark and Gnat: #33). */
 class WorldSpawner implements TargetSpawner {
   constructor(private readonly world: World, private readonly bus: EventBus<GameEvents>) {}
 
   /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. */
   spawn(kind: EnemyKind, pos: Vec3, scale: number): number {
-    if (kind !== 'post' && kind !== 'beacon') return -1;
+    if (kind !== 'post' && kind !== 'beacon' && kind !== 'strafer' && kind !== 'peeker') return -1;
     return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, { scale });
   }
 
@@ -94,6 +94,8 @@ export class ModeHost {
   /** Result of the last finished Placement run, or null. */
   placementOutcome: PlacementOutcome | null = null;
   private active: ModeDef<never> | null = null;
+  /** The player's difficulty pin for a mode (setting `difficultyPin`), or undefined for matched difficulty. */
+  pinFor: (modeId: string) => number | undefined = () => undefined;
   private readonly anchors: AnchorSource;
   private priorInfiniteMagazine = false;
   private readonly ray = vec3();
@@ -130,9 +132,10 @@ export class ModeHost {
     this.clearField();
     this.applyPlayerSetup(mode);
     this.active = mode;
-    // A run pinned to levels (the Baseline) takes each skill's level, and is scored at their mean.
+    // A run pinned to levels (the Baseline) takes each skill's level, scored at their mean. The player's
+    // difficulty pin does not apply: the Baseline is a fixed measurement at the player's level (design §8.5).
     const levels = mode.trialSource === 'baseline' ? this.baselineLevels(opts.pinDial) : undefined;
-    const pinDial = levels ? (levels.flick + levels.precision) / 2 : opts.pinDial;
+    const pinDial = levels ? (levels.flick + levels.precision) / 2 : (opts.pinDial ?? this.pinFor(id));
     this.runner.begin(mode, { seed, pinDial, levels, anchors: opts.anchors ?? this.anchors });
     return true;
   }
@@ -157,6 +160,7 @@ export class ModeHost {
     this.world.movementLocked = false;
     this.world.swapLocked = false;
     this.world.setShields(0, 0);
+    this.world.enemiesFire = false;
     this.active = null;
   }
 
@@ -218,6 +222,9 @@ export class ModeHost {
     w.movementLocked = setup?.lockMovement ?? false;
     const level = mode.economy ? economyShield(mode.economy, this.tunables.economy, this.tunables.player.shield) : 0;
     w.setShields(level, level);
+    // A mode with an economy is a mode where enemies shoot back (design §5.3); drills never have one.
+    w.enemiesFire = mode.economy !== undefined;
+    if (mode.economy) w.enemyWeapon = this.tunables.economy.levels[mode.economy].enemyWeapon;
   }
 
   /** Line of sight between two points through the level's collision boxes. */

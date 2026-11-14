@@ -1,30 +1,24 @@
-/** Default key bindings by KeyboardEvent.code (layout independent). Data, so rebinding is easy later. */
-export interface Bindings {
-  forward: string[];
-  back: string[];
-  left: string[];
-  right: string[];
-  jump: string[];
-  crouch: string[];
-  walk: string[];
-  reload: string[];
-  /** `1`: the primary (loadout slot 0). */
-  slotPrimary: string[];
-  /** `2`: the sidearm (loadout slot 1). */
-  slotSidearm: string[];
-  toggleDebug: string[];
+import { DEFAULT_KEYS, KEY_ACTIONS, type KeyAction, type KeyBindings } from '../settings/keys';
+
+/**
+ * What the input manager listens for: the player's rebindable keys (`settings/keys.ts`, design
+ * §13.3) plus the debug-overlay toggle, which is fixed. Codes are `KeyboardEvent.code`, so they do
+ * not depend on the keyboard layout.
+ */
+export type Bindings = KeyBindings & { toggleDebug: readonly string[] };
+export type BoundAction = KeyAction | 'toggleDebug';
+
+export const DEBUG_KEYS: readonly string[] = ['Backquote'];
+
+export const defaultBindings: Bindings = { ...DEFAULT_KEYS, toggleDebug: DEBUG_KEYS };
+
+/** The code -> action lookup for `bindings`, written into `out` (cleared first). */
+export function indexBindings(bindings: Readonly<Bindings>, out: Map<string, BoundAction>): void {
+  out.clear();
+  for (const action of KEY_ACTIONS) for (const code of bindings[action]) out.set(code, action);
+  for (const code of bindings.toggleDebug) out.set(code, 'toggleDebug');
 }
 
-export const defaultBindings: Bindings = {
-  forward: ['KeyW', 'ArrowUp'],
-  back: ['KeyS', 'ArrowDown'],
-  left: ['KeyA', 'ArrowLeft'],
-  right: ['KeyD', 'ArrowRight'],
-  jump: ['Space'],
-  crouch: ['ControlLeft', 'KeyC'],
-  walk: ['ShiftLeft'],
-  reload: ['KeyR'],
-  slotPrimary: ['Digit1'],
-  slotSidearm: ['Digit2'],
-  toggleDebug: ['Backquote'],
-};
+export function withKeys(keys: Readonly<KeyBindings>): Bindings {
+  return { ...keys, toggleDebug: DEBUG_KEYS };
+}

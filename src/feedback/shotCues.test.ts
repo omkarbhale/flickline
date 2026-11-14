@@ -165,6 +165,72 @@ describe('miss-offset ghost ring', () => {
   });
 });
 
+describe('fading coaching cues (design §7.4)', () => {
+  /** A shot event as the sim would emit it, for cases the bot cannot reach (a slow moving shot). */
+  const emitShot = (r: ReturnType<typeof rig>, speed: number, airborne = false): void => {
+    r.cues.beginFrame();
+    r.bus.emit('shotFired', {
+      tick: 1, t: 0, shotId: 1, weapon: 'kestrel', origin: { x: 0, y: 1.6, z: 0 }, dir: { x: 0, y: 0, z: -1 }, moving: true, speed, airborne,
+      crouching: false, spreadDeg: 0, recoilIndex: 0, recoilPitchDeg: 0, recoilYawDeg: 0, ammo: 29, yaw: 0, pitch: 0,
+      aimTargetId: -1, aimErr: 0, aimDYaw: 0, aimDPitch: 0,
+    } as SimEvents['shotFired']);
+  };
+
+  it('every phase: any moving shot gets the amber tracer', () => {
+    const r = rig({ cuePhase: 'every' });
+    emitShot(r, 1.6);
+    expect(tracerKinds(r.cues)).toContain(TRACER_MOVING);
+  });
+
+  it('bandwidth phase: a shot barely over the deadzone is a plain tracer, a fast or airborne one is amber', () => {
+    const slow = rig({ cuePhase: 'bandwidth' });
+    emitShot(slow, 1.6);
+    expect(tracerKinds(slow.cues)).toEqual([TRACER_NORMAL]);
+    const fast = rig({ cuePhase: 'bandwidth' });
+    emitShot(fast, 5);
+    expect(tracerKinds(fast.cues)).toEqual([TRACER_MOVING]);
+    const air = rig({ cuePhase: 'bandwidth' });
+    emitShot(air, 0.2, true);
+    expect(tracerKinds(air.cues)).toEqual([TRACER_MOVING]);
+  });
+
+  it('summary phase and clean runs: the tracer is never amber', () => {
+    for (const o of [{ cuePhase: 'summary' as const }, { clean: true }]) {
+      const r = rig(o);
+      emitShot(r, 5.4, true);
+      expect(tracerKinds(r.cues)).toEqual([TRACER_NORMAL]);
+    }
+  });
+
+  it('the miss ghost follows the phase: bandwidth keeps only a miss well off the head, summary and clean none', () => {
+    const near = rig({ cuePhase: 'bandwidth' });
+    near.aimAt(0, 0.004); // well under the threshold
+    near.frame(1, { fire: true });
+    expect(near.cues.ghost.active).toBe(false);
+
+    const far = rig({ cuePhase: 'bandwidth' });
+    far.aimAt(0, 0.05); // ~3 degrees
+    far.frame(1, { fire: true });
+    expect(far.cues.ghost.active).toBe(true);
+
+    for (const o of [{ cuePhase: 'summary' as const }, { clean: true }]) {
+      const r = rig(o);
+      r.aimAt(0, 0.05);
+      r.frame(1, { fire: true });
+      expect(r.cues.ghost.active).toBe(false);
+      // the impact itself (spark, decal) is not a coaching cue and stays
+      expect(r.cues.decals.some((d) => d.active)).toBe(true);
+    }
+  });
+
+  it('"fade cues" off keeps the cues at full even when the planner says summary', () => {
+    const r = rig({ cuePhase: 'summary', cueFading: false });
+    r.aimAt(0, 0.05);
+    r.frame(1, { fire: true });
+    expect(r.cues.ghost.active).toBe(true);
+  });
+});
+
 describe('kill shatter and impacts', () => {
   it('a kill spawns one shatter and a kill burst; a miss spawns a decal', () => {
     const r = rig();

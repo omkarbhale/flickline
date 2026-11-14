@@ -70,6 +70,18 @@ export class PlayLog {
     this.data = sanitizePlayLog(raw);
   }
 
+  /** Replace everything with `data` (an imported save, or a reset to `sanitizePlayLog(null)`), persisted. */
+  replace(data: PlayLogData): void {
+    this.data = sanitizePlayLog(data);
+    this.save();
+    this.events.emit('playLogChanged', { modeId: null });
+  }
+
+  /** A copy of the data, for the save export. */
+  snapshot(): PlayLogData {
+    return sanitizePlayLog(this.data);
+  }
+
   /** Best score for a mode, or null if it has no finished run. */
   best(modeId: string): number | null {
     return this.data.bests[modeId] ?? null;

@@ -152,8 +152,10 @@ export class TargetsView {
         this.beacon.add(t.pos.x, t.pos.y, t.pos.z, 0, flash, dissolve, 0, 0, t.scale);
       } else {
         const lean = lerp(t.prevSway, t.sway, alpha);
-        const yaw = yawTowards(t.pos.x, t.pos.z, viewX, viewZ);
-        this.echo.add(t.pos.x, t.pos.y, t.pos.z, yaw, flash, dissolve, t.crouched ? 1 : 0, lean);
+        // Strafers and Peekers move every tick: interpolate like the camera (a still one has prevPos == pos).
+        const x = lerp(t.prevPos.x, t.pos.x, alpha), y = lerp(t.prevPos.y, t.pos.y, alpha), z = lerp(t.prevPos.z, t.pos.z, alpha);
+        const yaw = yawTowards(x, z, viewX, viewZ);
+        this.echo.add(x, y, z, yaw, flash, dissolve, t.crouched ? 1 : 0, lean);
       }
     }
 
