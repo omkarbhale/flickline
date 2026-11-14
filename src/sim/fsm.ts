@@ -65,6 +65,8 @@ export interface Behaviour {
   readonly states: readonly BehaviourState[];
   /** State id entered by `fsmStart`. */
   readonly initial: number;
+  /** The state an arriving Echo starts in (it walks its route in first, `sim/arrival.ts`); absent: the behaviour has no arrival. */
+  readonly arrive?: number;
 }
 
 export function createFsm(): FsmState {
@@ -72,9 +74,9 @@ export function createFsm(): FsmState {
 }
 
 /** Put the FSM into the behaviour's initial state (runs its `enter`). */
-export function fsmStart(b: Behaviour, t: TargetState, ctx: BehaviourContext): void {
+export function fsmStart(b: Behaviour, t: TargetState, ctx: BehaviourContext, state = b.initial): void {
   t.fsm.state = -1;
-  fsmGoto(b, t, ctx, b.initial);
+  fsmGoto(b, t, ctx, state);
 }
 
 /** Switch state now: stops any timer, records the tick, runs the new state's `enter`. */

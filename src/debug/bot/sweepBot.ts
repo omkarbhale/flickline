@@ -4,7 +4,7 @@ import { vec3, type Vec3 } from '../../core/vec3';
 import { lineClear } from '../../sim/exposure';
 import { targetAimPoint, wrapPi, yawOf } from '../../sim/aim';
 import { Rng } from '../../core/rng';
-import type { GateRt, SweepState } from '../../modes/sweep';
+import { sweepCatalog, type GateRt, type SweepState } from '../../modes/sweep';
 import { navRoute } from '../../modes/sweepCatalog';
 import type { TickInput } from '../../sim/types';
 import type { World } from '../../sim/world';
@@ -68,6 +68,8 @@ export class SweepBot {
   /** It was in a fight since the route was planned. */
   private fought = false;
   private sector = -1;
+  /** The sector's exit was open when last looked at: a hold sector's opens when its Echoes are dead, then the route is planned from where the bot stands. */
+  private exitOpen = true;
   private bestDist = Infinity;
   private bestAt = 0;
   private readonly aim = vec3();
@@ -127,7 +129,13 @@ export class SweepBot {
     if (!st?.plan) return out;
     if (st.gate) return this.throughGate(st.gate, world, out);
     this.gate = null;
-    if (st.sector !== this.sector) this.plan(st, true);
+    if (st.sector !== this.sector) {
+      this.plan(st, true);
+      this.exitOpen = st.exitOpen;
+    } else if (st.exitOpen && !this.exitOpen) {
+      this.exitOpen = true;
+      this.plan(st, false);
+    }
 
     const p = world.player;
     const eyeY = p.pos.y + p.eyeHeight;
@@ -178,6 +186,19 @@ export class SweepBot {
         if (!lineClear(world.boxes, p.pos.x, eyeY, p.pos.z, this.aim.x, this.aim.y, this.aim.z)) out.fire = false;
       }
       this.fought = true;
+      return out;
+    }
+    // A hold sector: the Echoes come to the player. It stands at its entry facing where they come from and fights what arrives.
+    if (!st.exitOpen) {
+      const way = this.arrivalDirection(st);
+      const turn = WALK_TURN_DEG_PER_SEC * DEG2RAD * TICK_DT;
+      this.bot.yaw += Math.max(-turn, Math.min(turn, wrapPi(way - this.bot.yaw)));
+      this.bot.pitch += (0 - this.bot.pitch) * 0.2;
+      out.yaw = this.bot.yaw;
+      out.pitch = this.bot.pitch;
+      out.moveX = 0;
+      out.moveZ = 0;
+      out.fire = false;
       return out;
     }
     // A fight pulled it off its route: walk on from where it stands.
@@ -282,6 +303,18 @@ export class SweepBot {
     this.fought = false;
     this.sector = -1;
     return out;
+  }
+
+  /** The yaw towards the middle of the sector's approach lanes' starts: where the bot knows the map's arrivals come from. */
+  private arrivalDirection(st: SweepState): number {
+    const sp = st.plan.sectors[st.sector]!;
+    const src = sweepCatalog(this.game.tunables).find((x) => x.mapId === sp.mapId && x.id === sp.sectorId);
+    const p = this.game.world.player.pos;
+    if (!src || src.approaches.length === 0) return this.bot.yaw;
+    let x = 0, z = 0;
+    for (const a of src.approaches) { x += a.start.x; z += a.start.z; }
+    x /= src.approaches.length; z /= src.approaches.length;
+    return yawOf(x - p.x, z - p.z);
   }
 
   /** The route to the sector's exit (straight, or along the nav graph), from its entry or from where the player stands. */
