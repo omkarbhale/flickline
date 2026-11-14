@@ -66,6 +66,21 @@ export const feature = defineFeature({
       'color:#38e8ff;text-shadow:0 0 8px rgba(56,232,255,.45);opacity:0;transition:opacity .25s;pointer-events:none;text-transform:uppercase;';
     game.hud.root.appendChild(label);
 
+    // The announcement of a light or eco sector (design §4.6): shown on entry until the door shows it too (#205).
+    const banner = document.createElement('div');
+    banner.className = 'sweep-condition';
+    banner.hidden = true;
+    const bannerTitle = document.createElement('b');
+    const bannerLine = document.createElement('span');
+    banner.append(bannerTitle, bannerLine);
+    game.hud.root.appendChild(banner);
+    banner.style.setProperty('--banner-sec', `${cfg.conditionBannerSec}s`);
+    let bannerTimer = 0;
+    const hideBanner = (): void => {
+      window.clearTimeout(bannerTimer);
+      banner.hidden = true;
+    };
+
     const switches: SectorSwitch[] = [];
     let pending: SectorSwitch | null = null;
     let exitAt = 0;
@@ -84,16 +99,27 @@ export const feature = defineFeature({
       fade.style.opacity = '1';
       pending = { from: e.sectorId, to: '', mapChanged: false, setupMs: 0, firstFrameMs: 0 };
     });
-    /** The label's words: the sector's place in the run and what it asks (a hold's exit is shut until its Echoes are dead). */
-    const sectorLabel = (index: number, of: number, role: string, open: boolean): string =>
-      `Sector ${index + 1} / ${of}` + (index === of - 1 ? ' \u00b7 Finale' : '') + ` \u00b7 ${role === 'hold' ? (open ? 'Hold \u00b7 exit open' : 'Hold') : 'Take'}`;
+    /** The label's words: the sector's place in the run, its role and condition (a hold's exit is shut until its Echoes are dead). */
+    const sectorLabel = (index: number, of: number, role: string, condition: string, open: boolean): string => {
+      const word = game.tunables.results.conditionLabels[condition as 'full' | 'light' | 'eco'] ?? '';
+      return `Sector ${index + 1} / ${of}` + (index === of - 1 ? ' \u00b7 Finale' : '') + ` \u00b7 ${role}` + (word ? ` \u00b7 ${word}` : '') + (open ? ' \u00b7 exit open' : '');
+    };
     game.bus.on('sectorEntered', (e) => {
       const st = state();
       const sp = st?.plan.sectors[e.index];
       // A take's exit is open from the first tick; a hold's opens when its Echoes are dead (`sectorExitOpened`).
-      if (sp && e.role === 'take') marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
-      label.textContent = sectorLabel(e.index, e.of, e.role, false);
+      if (sp && e.role !== 'hold') marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
+      label.textContent = sectorLabel(e.index, e.of, e.role, e.condition, false);
       label.style.opacity = '0.9';
+      hideBanner();
+      const copy = cfg.conditionCopy[e.condition as 'full' | 'light' | 'eco'];
+      if (copy && copy.title) {
+        bannerTitle.textContent = copy.title;
+        bannerLine.textContent = copy.line;
+        banner.dataset.condition = e.condition;
+        banner.hidden = false;
+        bannerTimer = window.setTimeout(hideBanner, cfg.conditionBannerSec * 1000);
+      }
       if (pending) {
         pending.to = e.sectorId;
         pending.mapChanged = e.mapId !== lastMap;
@@ -107,7 +133,7 @@ export const feature = defineFeature({
       const sp = state()?.plan.sectors[e.index];
       if (sp) marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
       const st = state();
-      label.textContent = sectorLabel(e.index, st?.plan.sectors.length ?? e.index + 1, 'hold', true);
+      if (st) label.textContent = sectorLabel(e.index, st.plan.sectors.length, 'hold', st.plan.sectors[e.index]!.condition, true);
     });
     game.onFrameEnd(() => {
       if (!awaitFrame || !pending) return;
@@ -120,6 +146,7 @@ export const feature = defineFeature({
       fade.style.opacity = '0';
     });
     const clear = (): void => {
+      hideBanner();
       marker.hide();
       label.style.opacity = '0';
       fade.style.transition = 'none';
@@ -131,6 +158,7 @@ export const feature = defineFeature({
       if (e.mode !== SWEEP_MODE) clear();
     });
     game.bus.on('runEnded', () => {
+      hideBanner();
       marker.hide();
       fade.style.transition = 'none';
       fade.style.opacity = '0';
@@ -154,18 +182,25 @@ export const feature = defineFeature({
           return {
             seed: st.plan.seed,
             sector: st.sector,
-            role: st.role,
             exitOpen: st.exitOpen,
             of: st.plan.sectors.length,
             sectorId: st.plan.sectors[st.sector]?.sectorId,
+            role: st.plan.sectors[st.sector]?.role,
             mapId: game.modes.currentMap.id,
             won: st.won,
             lost: st.lost,
             contacts: st.contacts.map((c) => ({ card: c.plan.card, open: c.open, alive: c.alive, pending: c.pending, echoes: c.echoIds.slice(), engaged: c.engaged })),
-            route: st.plan.sectors.map((s) => `${s.role} ${s.mapId}/${s.sectorId}: ${s.contacts.map((c) => c.card).join(', ')}`),
+            route: st.plan.sectors.map((s) => `${s.mapId}/${s.sectorId} (${s.role}): ${s.contacts.map((c) => c.card).join(', ')}`),
             switches: switches.slice(),
             hp: game.world.health.hp,
             shield: game.world.health.shield,
+            maxShield: game.world.health.maxShield,
+            /** Per sector: the condition the plan dealt it (the doors of #205 show these). */
+            conditions: st.plan.sectors.map((s) => s.condition),
+            weapon: game.world.loadout[game.world.weapon.active],
+            swapLocked: game.world.swapLocked,
+            enemyWeapon: game.world.enemyWeapon,
+            enemyShield: game.world.targetField.enemyShield,
           };
         },
         plan: (seed) => sweepPlan(seed ?? game.world.seed, game.tunables),

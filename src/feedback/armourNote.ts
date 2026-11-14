@@ -26,3 +26,18 @@ export function armourNote(weaponName: string, zone: HitZone, bullets: number, u
   return `Your ${weaponName} needed ${word(bullets)} ${bullets === 1 ? one : many} on an armoured target `
     + `(${word(unarmouredBullets)} ${unarmouredBullets === 1 ? 'kills' : 'kill'} an unarmoured one).`;
 }
+
+/**
+ * The eco counterpart (design §4.6): in an eco sector nobody has a shield, so the bullet counts are the
+ * unarmoured ones. Names it when a shield would have changed the count of this kill, so the player learns
+ * that this sector is the one where the one-tap works. Returns `null` when a shield would have made no
+ * difference.
+ *
+ *   ecoNote('Pace', 'head', 1, 2) -> "Eco sector, no shields: your Pace needed one headshot here (two on a shielded target)."
+ */
+export function ecoNote(weaponName: string, zone: HitZone, bullets: number, shieldedBullets: number): string | null {
+  if (!(shieldedBullets > bullets) || bullets < 1) return null;
+  const [one, many] = NOUN[zone];
+  return `Eco sector, no shields: your ${weaponName} needed ${word(bullets)} ${bullets === 1 ? one : many} here `
+    + `(${word(shieldedBullets)} on a shielded target).`;
+}

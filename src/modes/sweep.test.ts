@@ -8,6 +8,7 @@ import { MAPS } from '../sim/mapLoader';
 import { createTickInput } from '../sim/types';
 import { planCards, sweepCatalog, sweepPlan, type SweepState } from './sweep';
 import { cardSpots, drawCard, drawHoldCard, perSector, planFollowers, planRoles, rolesValid, entryEye } from './sweepDirector';
+import type { SectorRole } from '../config/sweep';
 import { Rng } from '../core/rng';
 
 const tunables = cloneTunables();
@@ -55,6 +56,16 @@ describe('Sweep run director (#201)', () => {
     for (const h of holds) expect(h.approaches.length, h.id).toBeGreaterThanOrEqual(2);
   });
 
+  it('the catalog has Lane\'s meet sector with a straight route from its exit to its entry', () => {
+    const meets = sweepCatalog(tunables).filter((s) => s.roles.includes('meet'));
+    expect(meets.map((s) => `${s.mapId}/${s.id}`)).toEqual(['lane/lane-meet-near']);
+    const r = meets[0]!.meetRoute!;
+    expect(r.from).toEqual(meets[0]!.exit);
+    expect(Math.hypot(r.to.x - r.from.x, r.to.z - r.from.z)).toBeGreaterThan(10);
+    expect(meets[0]!.walkable(r.from, r.to)).toBe(true);
+    expect(sweepCatalog(tunables).filter((s) => !s.roles.includes('meet')).every((s) => s.meetRoute === undefined)).toBe(true);
+  });
+
   it('same seed, same plan; different seeds, different runs', () => {
     expect(sweepPlan(42, tunables)).toEqual(sweepPlan(42, tunables));
     const shapes = new Set<string>();
@@ -74,7 +85,10 @@ describe('Sweep run director (#201)', () => {
       expect(mid.includes('take'), `seed ${seed} ${roles}`).toBe(true);
       expect(mid.includes('hold'), `seed ${seed} ${roles}`).toBe(true);
       for (let k = 2; k < roles.length; k++) expect(roles[k] === roles[k - 1] && roles[k] === roles[k - 2], `seed ${seed} ${roles}`).toBe(false);
-      for (let k = 1; k < plan.sectors.length; k++) expect(plan.sectors[k]!.sectorId).not.toBe(plan.sectors[k - 1]!.sectorId);
+      for (let k = 1; k < plan.sectors.length; k++) {
+        const a = plan.sectors[k]!, b = plan.sectors[k - 1]!;
+        expect(`${a.mapId}/${a.sectorId}`).not.toBe(`${b.mapId}/${b.sectorId}`);
+      }
       // The sector plays a role it can serve.
       for (const x of plan.sectors) {
         const src = sweepCatalog(tunables).find((c) => c.id === x.sectorId)!;
@@ -83,22 +97,33 @@ describe('Sweep run director (#201)', () => {
     }
   });
 
-  it('the role rules: planRoles always satisfies them, rolesValid rejects what they forbid, and the mix is about takes 65 / holds 35 once meets are played as takes', () => {
-    expect(rolesValid(['take', 'take', 'take', 'hold', 'take', 'hold'], 2)).toBe(false);
-    expect(rolesValid(['take', 'hold', 'hold', 'hold', 'take', 'hold'], 2)).toBe(false);
-    expect(rolesValid(['take', 'take', 'take', 'take', 'take', 'hold'], 2)).toBe(false);
-    expect(rolesValid(['take', 'take', 'hold', 'take', 'hold', 'hold'], 2)).toBe(true);
-    let holds = 0;
+  it('the role rules: planRoles always satisfies them, rolesValid rejects what they forbid, and the drawn mix follows takes 50 / holds 35 / meets 15', () => {
+    const pool = { take: 3, hold: 3, meet: 1 };
+    const R = (...r: SectorRole[]): SectorRole[] => r;
+    expect(rolesValid(R('take', 'take', 'take', 'hold', 'take', 'hold'), 5, pool)).toBe(false);
+    expect(rolesValid(R('take', 'hold', 'hold', 'hold', 'take', 'hold'), 5, pool)).toBe(false);
+    expect(rolesValid(R('take', 'take', 'take', 'take', 'take', 'hold'), 5, pool)).toBe(false);
+    expect(rolesValid(R('take', 'take', 'hold', 'take', 'hold', 'hold'), 5, pool)).toBe(true);
+    // One meet sector cannot be dealt twice in a row.
+    expect(rolesValid(R('take', 'meet', 'meet', 'hold', 'take', 'hold'), 5, pool)).toBe(false);
+    expect(rolesValid(R('take', 'meet', 'meet', 'hold', 'take', 'hold'), 5, { ...pool, meet: 2 })).toBe(true);
+    const counts: Record<SectorRole, number> = { take: 0, hold: 0, meet: 0 };
     const n = 3000;
     for (let i = 0; i < n; i++) {
-      const roles = planRoles(new Rng(i + 1), cfg);
-      expect(rolesValid(roles, cfg.maxRoleRun)).toBe(true);
-      holds += roles.slice(1, 5).filter((r) => r === 'hold').length;
+      const roles = planRoles(new Rng(i + 1), cfg, pool);
+      expect(roles).toHaveLength(6);
+      expect(roles[0]).toBe('take');
+      expect(roles[5]).toBe('hold');
+      expect(rolesValid(roles, 5, pool)).toBe(true);
+      for (const r of roles.slice(1, 5)) counts[r]++;
     }
-    const share = holds / (n * 4);
-    // Drawn at 35 %; the rules (at least one of each, never three) push it up a little.
-    expect(share).toBeGreaterThan(0.3);
-    expect(share).toBeLessThan(0.5);
+    const total = counts.take + counts.hold + counts.meet;
+    // Drawn at 50 / 35 / 15; the rules (a take and a hold in every run, never three) push them a little.
+    expect(counts.take / total).toBeGreaterThan(0.38);
+    expect(counts.hold / total).toBeGreaterThan(0.3);
+    expect(counts.hold / total).toBeLessThan(0.5);
+    expect(counts.meet / total).toBeGreaterThan(0.08);
+    expect(counts.meet / total).toBeLessThan(0.2);
   });
 
   it('take sectors keep the card rules of design §4.4; hold sectors deal hold, trade and flank', () => {
@@ -108,7 +133,11 @@ describe('Sweep run director (#201)', () => {
       for (let i = 0; i < plan.sectors.length; i++) {
         const s = plan.sectors[i]!;
         expect(s.contacts.length).toBeGreaterThanOrEqual(1);
-        if (s.role === 'take') {
+        if (s.role === 'meet') {
+          expect(s.contacts).toHaveLength(1);
+          expect(s.contacts[0]!.card).toBe('meet');
+          counts.meet = (counts.meet ?? 0) + 1;
+        } else if (s.role === 'take') {
           expect(s.contacts.length).toBeLessThanOrEqual(perSector(cfg.contactsMax, i));
           const used = new Set<string>();
           for (const c of s.contacts) {
@@ -143,7 +172,7 @@ describe('Sweep run director (#201)', () => {
       for (let k = 2; k < cards.length; k++) expect(cards[k] === cards[k - 1] && cards[k] === cards[k - 2]).toBe(false);
     }
     // Every card is dealt.
-    for (const c of ['take-unaware', 'take-expected', 'clear', 'crossfire', 'hold', 'trade', 'flank']) expect(counts[c] ?? 0, c).toBeGreaterThan(20);
+    for (const c of ['take-unaware', 'take-expected', 'clear', 'crossfire', 'meet', 'hold', 'trade', 'flank']) expect(counts[c] ?? 0, c).toBeGreaterThan(20);
   });
 
   it('the Finale has the run\'s largest contact count; a hold sector\'s arrivals are spread over its window in order, along its own lanes, out of the sector', () => {
@@ -232,8 +261,8 @@ describe('Sweep run director (#201)', () => {
   });
 
   it('walking is silent and running is not: the walk speed is at or under the footstep audio\'s silent speed, the run above it', () => {
-    expect(cfg.hold.walkMps).toBeLessThanOrEqual(tunables.audio.enemy.silentMps);
-    expect(cfg.hold.runMps).toBeGreaterThan(tunables.audio.enemy.silentMps);
+    expect(cfg.hold.walkMps).toBeLessThan(tunables.audio.enemy.silentBelowMps);
+    expect(cfg.hold.runMps).toBeGreaterThanOrEqual(tunables.audio.enemy.silentBelowMps);
   });
 
   it('followers: planFollowers deals a flank after a won contact and a trade otherwise, along one of the sector\'s lanes, at most `follow.max`', () => {
@@ -297,7 +326,7 @@ function startRun(seed: number) {
   for (const type of ['sectorEntered', 'sectorEnded', 'sectorExitOpened', 'contactSettled', 'runEnded', 'targetVisible', 'mapLoaded'] as const) {
     g.bus.on(type, (e) => log.push({ type, e: JSON.parse(JSON.stringify(e)) as Record<string, unknown> }));
   }
-  expect(g.modes.start('sweep', { seed })).toBe(true);
+  expect(g.modes.start('sweep', { seed, pick: g.modes.primary })).toBe(true);
   const input = createTickInput();
   const state = (): SweepState => g.modes.runner.state as SweepState;
   /** Walk straight out: stand the player on the exit and let one tick see it (a hold sector's exit is opened first: the Echoes are not played here). */
@@ -327,6 +356,13 @@ describe('Sweep mode (#201, #204)', () => {
         expect(state().sector).toBe(i);
         expect(state().role).toBe(sp.role);
         expect(g.modes.currentMap.id).toBe(sp.mapId);
+        if (sp.role === 'meet') {
+          // A meet sector is the other kind: nothing hides, but no Echo starts closer than the fairness floor.
+          const p = g.world.player.pos;
+          for (const t of g.world.targets) if (t.alive) expect(Math.hypot(t.pos.x - p.x, t.pos.z - p.z)).toBeGreaterThan(15);
+          toExit();
+          continue;
+        }
         if (sp.role === 'hold') {
           // Nothing is in a hold sector when the player arrives: the Echoes are on their way.
           holdsSeen++;

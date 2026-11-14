@@ -73,6 +73,10 @@ export function sectorSources(map: MapDef, tunables: Tunables): SectorSource[] {
       entryYaw: yawTowards(sector.entry, navRoute(map, sector.entry, sector.exit)[0] ?? sector.exit),
       exit: { ...sector.exit },
       spots,
+      // A meet group crosses on the first straight leg of the walk from the exit to the entry.
+      meetRoute: sector.role.includes('meet')
+        ? { from: { ...sector.exit }, to: { ...(navRoute(map, sector.exit, sector.entry)[0] ?? sector.entry) } }
+        : undefined,
       visible(eye, feet, crouched) {
         const key = `${eye.x.toFixed(2)},${eye.y.toFixed(2)},${eye.z.toFixed(2)}|${feet.x.toFixed(2)},${feet.y.toFixed(2)},${feet.z.toFixed(2)}|${crouched ? 1 : 0}`;
         let v = seen.get(key);

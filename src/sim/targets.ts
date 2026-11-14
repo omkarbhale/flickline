@@ -379,7 +379,7 @@ export class TargetField {
     const e = this.tunables.audio.enemy;
     const mx = t.pos.x - t.prevPos.x, mz = t.pos.z - t.prevPos.z;
     const moved = Math.sqrt(mx * mx + mz * mz);
-    if (moved * TICK_RATE <= e.silentMps) return;
+    if (moved * TICK_RATE < e.silentBelowMps) return;
     const p = ctx.world.player;
     const dx = t.pos.x - p.pos.x, dz = t.pos.z - p.pos.z;
     if (dx * dx + dz * dz > e.maxAudibleM * e.maxAudibleM) return;

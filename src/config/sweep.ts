@@ -1,39 +1,38 @@
 /**
  * Sweep, the run (design §4), tunables. Starting values are HYPOTHESIS until the balance pass (#53):
- * the shape of a run (six sectors: the Opener, four drawn by role, the Finale; #201, #204), the
- * scenario-card mix of its contacts, how the run director places Echoes on a take sector's hold
- * anchors and sends them along a hold sector's approach lanes, and the run terms of design §8.1.
+ * the shape of a v0 run (four take sectors, #201), the scenario-card mix of its contacts, how the
+ * run director places Echoes on a sector's hold anchors, and the run terms of design §8.1.
  * Seconds, metres; names ending `Deg` are degrees.
  */
 
-/** The scenario cards a take sector deals (design §4.4; meet's cards arrive with #212). */
+import type { WeaponId } from './weapon';
+
+/** The scenario cards a take sector deals (design §4.4). */
 export type TakeCard = 'take-unaware' | 'take-expected' | 'clear' | 'crossfire';
 export const TAKE_CARDS: readonly TakeCard[] = ['take-unaware', 'take-expected', 'clear', 'crossfire'];
-/** The scenario cards a hold sector deals, and a survivor that follows the player (design §4.2, §4.4). */
+/** The scenario cards a hold sector deals, and a survivor that follows the player (design §4.2, §4.4, #204). */
 export type HoldCard = 'hold' | 'trade' | 'flank';
 export const HOLD_CARDS: readonly HoldCard[] = ['hold', 'trade', 'flank'];
-export type SweepCard = TakeCard | HoldCard;
-export const SWEEP_CARDS: readonly SweepCard[] = [...TAKE_CARDS, ...HOLD_CARDS];
+/**
+ * The scenario cards a sector can deal (design §4.4): a take sector deals the take cards, a hold sector
+ * (#204) the hold cards, a meet sector (#212) always `meet`.
+ */
+export type SweepCard = TakeCard | HoldCard | 'meet';
+export const SWEEP_CARDS: readonly SweepCard[] = [...TAKE_CARDS, ...HOLD_CARDS, 'meet'];
 
-/** The role a sector plays in a run (design §4.2). */
-export type SweepRole = 'take' | 'hold' | 'meet';
+/** Who has to move in a sector (design §4.2). */
+export type SectorRole = 'take' | 'hold' | 'meet';
 
 /** The skill a contact's trials count for (design §3.1: where a run exercises each skill). */
-export type SweepTrialSkill = 'precision' | 'flick' | 'angles' | 'switch';
+export type SweepTrialSkill = 'precision' | 'flick' | 'angles' | 'switch' | 'track';
 
 export interface SweepTunables {
   /** HP restored by a kill (design §4.1: "a body kill restores 5 HP, a headshot kill 10"); capped at max HP. A leg kill counts as a body kill. */
   killHeal: { body: number; head: number };
+  /** The sector that is the Finale (design §4.1); sectors past it are Overtime. The Closer medal and the run records read it. */
+  finaleSector: number;
   /** Sectors in a run (design §4.1: the Opener, four drawn by role, the Finale). Overtime (#206) goes beyond. */
   sectors: number;
-  /**
-   * Roles of sectors 2 to 5 (design §4.2): the share of each, drawn per sector. The Opener is always a
-   * take and the Finale always a hold. A run has at least one take and one hold among those four and
-   * never `maxRoleRun + 1` of one role in a row. Until meet sectors exist (#212) a drawn meet is played
-   * as a take, and the rules count the role played.
-   */
-  roleWeight: Readonly<Record<SweepRole, number>>;
-  maxRoleRun: number;
   /** 0-based sector indices that never deal a crossfire (design §4.1: sector 5 is a breather). */
   noCrossfireSectors: readonly number[];
   /**
@@ -54,6 +53,41 @@ export interface SweepTunables {
   maxCardRun: number;
   /** What each card's trials count for (design §3.1). */
   cardSkill: Readonly<Record<SweepCard, SweepTrialSkill>>;
+  /**
+   * The mix of sector roles for sectors 2 and later (design §4.2: takes 50%, holds 35%, meets 15%; HYPOTHESIS), drawn
+   * per sector; the Opener is always a take and the Finale (`finaleSector`) always a hold. The same role is never drawn
+   * three times in a row, and a run of `finaleSector` sectors or more has at least one take and one hold among sectors 2
+   * to 5 (`planRoles`, #204). A role the catalog cannot supply plays as a take.
+   */
+  roleMix: Readonly<Record<SectorRole, number>>;
+  /**
+   * Meet sectors (design §4.2, #212): an Echo group crosses the player's corridor on a route from the sector's exit
+   * to its entry. Walks and runs are the Echo's gait; a walk is silent, a run is heard (`audio.enemy.silentBelowMps`).
+   */
+  meet: {
+    /** Chance the group has two Echoes rather than one, by sector index (the last entry repeats). */
+    groupTwoShare: readonly number[];
+    /** Share of groups that run (else they walk). */
+    runShare: number;
+    /** Gait speeds, m/s: a rifle run (spec §7.2) and the walk (`movement.walkFraction` of it, spec §2.2). */
+    runSpeedMps: number;
+    walkSpeedMps: number;
+    /** The lead Echo starts this far behind the sector's exit (seeded uniform, shortened to what is walkable), metres. */
+    startBackMinM: number;
+    startBackMaxM: number;
+    /** The second Echo starts this far behind the first, along the route (seeded uniform), metres. */
+    gapMinM: number;
+    gapMaxM: number;
+    /** The second Echo walks this far to one side of the first (the side is seeded; dropped where it would clip a wall), metres. */
+    lateralM: number;
+    /** A route ends this far before the sector's entry: an Echo that never sees the player stops there, metres. */
+    endShortM: number;
+    /**
+     * Horizontal speed at or below which a side counts as stopped when the report asks who stopped first, m/s: the
+     * accuracy deadzone of a rifle (spec §2.4: 27.5% of its run speed), the speed a counter-strafed shot is accurate at.
+     */
+    stopSpeedMps: number;
+  };
   /** Hold sectors (design §4.2): Echoes arrive along the sector's approach lanes. */
   hold: {
     /** Contacts per sector index, an inclusive range drawn uniformly (the Finale, index 5, is the run's largest). */
@@ -74,7 +108,7 @@ export interface SweepTunables {
     peekerShare: number;
     /** Share of Strafer arrivals that run (audible) rather than walk (silent). A flank always runs: it must be audible. */
     runShare: number;
-    /** Speeds, m/s. A walk stays at or under `audio.enemy.silentMps` (checked by a test). */
+    /** Speeds, m/s. A walk stays under `audio.enemy.silentBelowMps` (checked by a test). */
     runMps: number;
     walkMps: number;
     /** A Strafer stops walking and fights once it sees the player this close: `[min, max]` metres, drawn per Echo. */
@@ -111,6 +145,32 @@ export interface SweepTunables {
     /** Share of `take-unaware` Echoes that walk a lane rather than stand (`unaware` and moving: it is busy elsewhere). */
     unawareMoverShare: number;
   };
+  /**
+   * Sector conditions (design §4.6, #207): which sectors of a run are light or eco. Rare: at most one
+   * of each per run, never the Opener and never the Finale (a run shorter than the Finale simply has none there).
+   */
+  conditions: {
+    /** Chance that a run deals an eco sector, and a light one (drawn independently; HYPOTHESIS until the balance pass #53). */
+    ecoChance: number;
+    lightChance: number;
+    /** First sector index (0-based) that may carry one: 1 = never the Opener. */
+    firstSector: number;
+  };
+  /**
+   * The primary pick on the run's `ready` screen (design §4.1): `1`..`3` choose these in order, the
+   * sidearm is always Pace. Choosing starts the run at once; otherwise the screen times out on the
+   * last pick after `readySec`.
+   */
+  pick: {
+    primaries: readonly WeaponId[];
+    /** The pick of a player who has not chosen yet. */
+    defaultPrimary: WeaponId;
+    readySec: number;
+  };
+  /** What a sector's condition says when the player enters it (and what its door shows, #205): a title and one plain line. `full` says nothing. */
+  conditionCopy: Readonly<Record<'full' | 'light' | 'eco', { title: string; line: string }>>;
+  /** Seconds the entry announcement of a light or eco sector stays up. */
+  conditionBannerSec: number;
   /** A sector's exit: the player's feet within this horizontal radius of the exit point, and this height of it, leave the sector. */
   exitRadiusM: number;
   exitHeightM: number;
@@ -122,9 +182,8 @@ export interface SweepTunables {
 
 export const sweep: SweepTunables = {
   killHeal: { body: 5, head: 10 },
+  finaleSector: 6,
   sectors: 6,
-  roleWeight: { take: 0.5, hold: 0.35, meet: 0.15 },
-  maxRoleRun: 2,
   noCrossfireSectors: [4],
   dialOffset: [-8, -3, 0, 3, 0, 6],
   depthMultiplier: [1.0, 1.2, 1.4, 1.6, 1.8, 2.0],
@@ -134,7 +193,21 @@ export const sweep: SweepTunables = {
   crossfireFromSector: 2,
   maxCardRun: 2,
   cardSkill: {
-    'take-unaware': 'angles', 'take-expected': 'precision', clear: 'angles', crossfire: 'switch', hold: 'angles', trade: 'switch', flank: 'flick',
+    'take-unaware': 'angles', 'take-expected': 'precision', clear: 'angles', crossfire: 'switch', meet: 'track', hold: 'angles', trade: 'switch', flank: 'flick',
+  },
+  roleMix: { take: 0.5, hold: 0.35, meet: 0.15 },
+  meet: {
+    groupTwoShare: [0, 0.4, 0.5, 0.6],
+    runShare: 0.6,
+    runSpeedMps: 5.4,
+    walkSpeedMps: 2.7,
+    startBackMinM: 0,
+    startBackMaxM: 4,
+    gapMinM: 2.5,
+    gapMaxM: 4.5,
+    lateralM: 0.55,
+    endShortM: 3,
+    stopSpeedMps: 1.5,
   },
   hold: {
     contactsMin: [1, 1, 1, 2, 1, 4],
@@ -166,6 +239,14 @@ export const sweep: SweepTunables = {
     clearPeekerShare: 0.6,
     unawareMoverShare: 0.7,
   },
+  conditions: { ecoChance: 0.4, lightChance: 0.4, firstSector: 1 },
+  pick: { primaries: ['kestrel', 'vane', 'rill'], defaultPrimary: 'kestrel', readySec: 3 },
+  conditionCopy: {
+    full: { title: '', line: '' },
+    light: { title: 'Light buy', line: 'Light shields (25) for you and the Echoes' },
+    eco: { title: 'Eco round', line: 'No shields, sidearms only: your primary is holstered' },
+  },
+  conditionBannerSec: 4,
   exitRadiusM: 1.2,
   exitHeightM: 1.5,
   clearKills: 3,

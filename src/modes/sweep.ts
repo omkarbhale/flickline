@@ -1,8 +1,8 @@
-import { secondsToTicks } from '../core/time';
+import { secondsToTicks, TICK_RATE } from '../core/time';
 import { vec3 } from '../core/vec3';
 import { SKILL_IDS } from '../config/dial';
 import type { EnemyKind } from '../config/scoring';
-import { sweep as sweepDefaults, type SweepCard, type SweepRole } from '../config/sweep';
+import { sweep as sweepDefaults, type SectorRole, type SweepCard } from '../config/sweep';
 import type { Tunables } from '../config/tunables';
 import { createContactSettle, settleContact, type ContactFacts } from '../feedback/contactScore';
 import { difficultyMultiplier } from '../feedback/scoring';
@@ -49,7 +49,18 @@ interface ContactRt {
   lastSightTick: number;
   /** It opened at least once: its Echoes' trials count. */
   engaged: boolean;
+  /** Meet contacts: where each Echo was a tick ago (to read its speed) and who stopped first (`StopFirst`) since the contact opened. */
+  prevX: number[];
+  prevZ: number[];
+  /** An Echo has run above stop speed (a standing start is not a stop). */
+  moved: boolean[];
+  /** The player has run above stop speed since the contact opened. */
+  playerMoved: boolean;
+  stopFirst: StopFirst;
 }
+
+/** Who first dropped to counter-strafe speed in a meet contact (design §4.2). */
+type StopFirst = 'none' | 'player' | 'echo' | 'both';
 
 /** An Echo of a hold contact that has not spawned yet. */
 const NOT_YET = -2;
@@ -58,7 +69,7 @@ export interface SweepState {
   plan: RunPlan;
   sector: number;
   /** The role the current sector plays. */
-  role: SweepRole;
+  role: SectorRole;
   /** Sim tick the current sector began on. */
   sectorTick0: number;
   /** Hold: every Echo of the sector is dead (or the fallback ran out) and the exit is open. */
@@ -126,6 +137,14 @@ function spawnEcho(ctx: ModeContext<SweepState>, c: ContactRt, e: EchoPlan): num
   const arrive = e.arrive ? { route: e.arrive.route, speed: e.arrive.speed, engageM: e.arrive.engageM } : undefined;
   // An arrival is out of the sector when it spawns; the fairness floors bind it as it walks in (`sim/arrival.ts`).
   const common = { fire, crouched: e.crouched, card: c.plan.card, skill: cfg.cardSkill[c.plan.card], placed: true, arrive };
+  if (e.gait) {
+    // A meet Echo: it travels its route at its gait, stops once it has reacted to the player, then strafes in stops.
+    const speed = e.gait === 'run' ? cfg.meet.runSpeedMps : cfg.meet.walkSpeedMps;
+    return ctx.spawn('strafer', e.feet, {
+      ...common,
+      strafe: { speed, legSec: a.strafeLegSec!, standStillSec: a.standStillSec!, laneA: e.laneA ?? e.feet, laneB: e.laneB ?? e.feet, travel: true },
+    });
+  }
   if (e.kind === 'peeker' && e.peek) {
     return ctx.spawn('peeker', e.feet, { ...common, peek: { pattern: e.peek.pattern, hold: e.peek.hold, out: e.peek.out, wideSec: a.peekWideSec } });
   }
@@ -138,7 +157,7 @@ function spawnEcho(ctx: ModeContext<SweepState>, c: ContactRt, e: EchoPlan): num
 function newContact(cp: ContactPlan): ContactRt {
   return {
     plan: cp, id: -1, open: false, echoIds: [], kinds: [], alive: 0, pending: 0, armedTick: -1, deferredAt: [], startEhp: 0, damage: 0,
-    lastSightTick: 0, engaged: false,
+    lastSightTick: 0, engaged: false, prevX: [], prevZ: [], moved: [], playerMoved: false, stopFirst: 'none',
   };
 }
 
@@ -149,7 +168,7 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
   const cfg = ctx.tunables.sweep;
   st.sector = i;
   st.role = sp.role;
-  st.exitOpen = sp.role === 'take';
+  st.exitOpen = sp.role !== 'hold';
   st.exitFallbackTick = Infinity;
   st.wonSector = 0;
   st.sectorTick0 = ctx.simTick;
@@ -157,6 +176,8 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
   ctx.placePlayer(sp.entry.x, sp.entry.y, sp.entry.z, sp.entryYaw);
   // One beat per sector: the dial is read from the posterior here, with the sector's offset (design §4.1, §9.3).
   if (i > 0) ctx.advanceBeat();
+  // The sector's economy (design §4.6) before anyone is placed: the Echoes spawn with its shield and weapon.
+  ctx.setEconomy(sp.condition);
   const depth = perSector(cfg.depthMultiplier, i);
   ctx.setPointsMultiplier(depth);
   st.contacts.length = 0;
@@ -178,10 +199,13 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
     const c = newContact(cp);
     for (const e of cp.echoes) {
       c.kinds.push(e.kind);
+      c.prevX.push(e.feet.x);
+      c.prevZ.push(e.feet.z);
+      c.moved.push(false);
+      c.deferredAt.push(0);
       if (e.arrive) {
         // It arrives later: nothing is in the world yet.
         c.echoIds.push(NOT_YET);
-        c.deferredAt.push(0);
         c.pending++;
         echoes++;
         lastDueSec = Math.max(lastDueSec, e.arrive.atSec);
@@ -189,7 +213,6 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
       }
       const id = spawnEcho(ctx, c, e);
       c.echoIds.push(id);
-      c.deferredAt.push(0);
       if (id >= 0) {
         c.alive++;
         echoes++;
@@ -205,9 +228,10 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
   ev.t = ctx.timeSec;
   ev.sectorId = sp.sectorId;
   ev.mapId = sp.mapId;
+  ev.condition = sp.condition;
+  ev.role = sp.role;
   ev.index = i;
   ev.of = st.plan.sectors.length;
-  ev.role = sp.role;
   ev.dial = ctx.dial;
   ev.depth = depth;
   ev.contacts = plans.length;
@@ -287,6 +311,45 @@ function openContact(ctx: ModeContext<SweepState>, c: ContactRt, lostAlready = 0
   c.startEhp = ehp(ctx) + lostAlready;
   c.damage = 0;
   c.lastSightTick = ctx.simTick;
+  c.stopFirst = 'none';
+  c.playerMoved = false;
+}
+
+/**
+ * Meet contacts: note which side first drops to counter-strafe speed or below once the contact is open (design §4.2,
+ * `sweep.meet.stopSpeedMps`). A side has to have run to stop: an Echo's speed is read from its movement since the last
+ * tick, and a player who stands still throughout stopped first by standing (`stoppedFirst` at the settle). Cheap: a
+ * few multiplies per Echo, no allocation.
+ */
+function trackStop(ctx: ModeContext<SweepState>, c: ContactRt, open: boolean): void {
+  const stop = ctx.tunables.sweep.meet.stopSpeedMps;
+  const stopSq = stop * stop;
+  let echoStopped = false;
+  for (let k = 0; k < c.echoIds.length; k++) {
+    const id = c.echoIds[k]!;
+    if (id < 0 || !ctx.targetPosition(id, body)) continue;
+    const dx = (body.x - c.prevX[k]!) * TICK_RATE, dz = (body.z - c.prevZ[k]!) * TICK_RATE;
+    c.prevX[k] = body.x;
+    c.prevZ[k] = body.z;
+    if (dx * dx + dz * dz > stopSq) c.moved[k] = true;
+    else if (c.moved[k]) echoStopped = true;
+  }
+  if (!open) return;
+  const v = ctx.player.vel;
+  const playerSlow = v.x * v.x + v.z * v.z <= stopSq;
+  if (!playerSlow) c.playerMoved = true;
+  if (c.stopFirst !== 'none') return;
+  const playerStopped = c.playerMoved && playerSlow;
+  if (playerStopped && echoStopped) c.stopFirst = 'both';
+  else if (playerStopped) c.stopFirst = 'player';
+  // An Echo stops while the player is still running, or while the player has stood still all along.
+  else if (echoStopped) c.stopFirst = !c.playerMoved && playerSlow ? 'player' : 'echo';
+}
+
+/** Who stopped first in a settled meet contact: a player who never ran stood still the whole time and stopped first. */
+function stoppedFirst(c: ContactRt): 'player' | 'echo' | 'both' | 'neither' {
+  if (c.stopFirst !== 'none') return c.stopFirst;
+  return c.playerMoved ? 'neither' : 'player';
 }
 
 /** Settle an open contact once (design §8.1); its points carry the sector's depth multiplier. */
@@ -316,6 +379,7 @@ function settleOpen(ctx: ModeContext<SweepState>, c: ContactRt, died: boolean): 
   e.enemies = facts.kinds.length;
   e.points = points;
   e.card = c.plan.card;
+  e.stopFirst = c.plan.card === 'meet' ? stoppedFirst(c) : undefined;
   ctx.events.emit('contactSettled', e);
 }
 
@@ -396,9 +460,11 @@ export const sweep: ModeDef<SweepState> = {
   weapon: 'kestrel',
   // Real magazines and reloads, but the reserve never runs dry: the reference game refills it every
   // round, and a run is many rounds' worth of fights with no ammo to pick up (#201 decision).
-  player: { allowSwap: true, infiniteReserve: true },
+  player: { allowSwap: true, infiniteReserve: true, pickPrimary: true },
   // Echoes shoot back with heavy shields on both sides (design §4.1, §4.6: `full` is the default).
   economy: 'full',
+  // The ready screen is the primary pick (design §4.1): `1`..`3` choose and start the run at once, else it times out on the last pick.
+  readySec: sweepDefaults.pick.readySec,
   durationSec: Infinity,
   axes: ['tellSec', 'enemyReactionSec', 'enemyHitChance', 'strafeSpeed'],
   beatSec: null,
@@ -422,6 +488,8 @@ export const sweep: ModeDef<SweepState> = {
     const holdTicks = secondsToTicks(ctx.tunables.scoring.contact.disengageSec);
     for (let i = 0; i < st.contacts.length; i++) {
       const c = st.contacts[i]!;
+      // A meet group is moving before its contact opens: keep each Echo's last position, so its speed is right at the opening tick.
+      if (c.plan.card === 'meet') trackStop(ctx, c, c.open);
       // An Echo of the contact that has not arrived yet is not "out of sight": it is on its way.
       if (!c.open || c.alive === 0) continue;
       if (inSight(ctx, c)) c.lastSightTick = ctx.simTick;

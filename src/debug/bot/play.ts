@@ -33,6 +33,8 @@ export interface BotRunOptions {
   params?: Partial<BotParams>;
   /** Hard stop in simulated seconds. */
   maxSeconds?: number;
+  /** Sweep: the longest the bot keeps running into a fight it has seen before it stops (see `SweepBot`); default 0. */
+  sweepStopDelaySec?: number;
 }
 
 /** The numbers of a finished run, plain data (the per-target and per-bullet arrays are left out). */
@@ -141,14 +143,14 @@ export function playMode(game: BotGame, opts: BotRunOptions): BotReport {
   game.reset(seed);
   if (id === FREEPLAY) {
     game.run.startRun({ mode: FREEPLAY, seed, dial: opts.pinDial ?? 50, durationSec: FREEPLAY_SEC });
-  } else if (!game.modes.start(id, { seed, pinDial: opts.pinDial })) {
+  } else if (!game.modes.start(id, { seed, pinDial: opts.pinDial, pick: game.modes.primary })) {
     throw new Error(`mode '${id}' could not start`);
   }
 
   const aimer = new Bot(params, botSeed, game.tunables);
   // Stop & Pop needs feet: the footwork bot strafes, counter-strafes, takes the ring's stance, then lets the aimer fire.
   // Sweep needs feet too: the sweep bot walks each sector entry to exit and stops to fight what it sees.
-  const bot = id === 'stopAndPop' ? new FootworkBot(aimer, game, botSeed) : id === 'sweep' ? new SweepBot(aimer, game) : aimer;
+  const bot = id === 'stopAndPop' ? new FootworkBot(aimer, game, botSeed) : id === 'sweep' ? new SweepBot(aimer, game, opts.sweepStopDelaySec ?? 0, botSeed) : aimer;
   const input = createTickInput();
   const maxTicks = secondsToTicks(opts.maxSeconds ?? (id === 'sweep' ? MAX_RUN_SEC : MAX_SIM_SEC));
   const startTick = game.world.tick;

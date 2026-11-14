@@ -114,7 +114,7 @@ describe('arrivals (design §4.2, §9.3: hold sectors)', () => {
 
   it('walking is silent and running is not: the sim counts audible steps (`audibleTick`) from runs within the audible range only', () => {
     const { tun } = setup(arena());
-    const silent = tun.audio.enemy.silentMps;
+    const silent = tun.audio.enemy.silentBelowMps;
     /** A walker 5 m from a player who is `playerX` metres along X, on a 25 m route, for up to 5 s. */
     const walker = (speed: number, playerX: number) => {
       const { world, bus, input } = setup(arena([], vec3(0, 0, 100)));

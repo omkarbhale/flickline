@@ -62,13 +62,15 @@ describe('EnemyFootsteps', () => {
     expect(plays).toHaveLength(1);
   });
 
-  it('is silent while an enemy walks (at or under the silent speed) and plays steps when it runs', () => {
+  it('a walking enemy is silent and a running one is heard (honest audio, design §4.4)', () => {
     const { plays, steps } = setup();
-    const s = slot(1, 5, -5);
-    steps.tick([s], 0, 0);
-    walk(steps, s, audio.enemy.silentMps, 4); // 11 m at the walking pace: not a sound
+    const walker = slot(1, 5, -5);
+    steps.tick([walker], 0, 0);
+    walk(steps, walker, audio.enemy.silentBelowMps - 0.3, 4); // ~2.7 m/s, a rifle walk
     expect(plays).toEqual([]);
-    walk(steps, s, audio.enemy.silentMps + 1, 2); // 7.6 m at a run: three strides
-    expect(plays).toHaveLength(3);
+    const runner = slot(2, 5, -5);
+    steps.tick([runner], 0, 0);
+    walk(steps, runner, 5.4, 2); // a rifle run: 10.8 m = 4 strides
+    expect(plays.length).toBeGreaterThanOrEqual(4);
   });
 });

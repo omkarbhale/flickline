@@ -427,11 +427,10 @@ export interface AudioTunables {
     /** An enemy that moves further than this in one tick teleported (respawn): no step is counted. */
     teleportM: number;
     /**
-     * An enemy moving at or under this speed (m/s) is walking and makes no sound (design §4.4: walking is
-     * silent, the player's own shift-walk and crouch-walk too): the player's walk is 0.5 of the run, so
-     * this is a little above half of the Echoes' 5.4 m/s top strafe speed.
+     * An enemy moving slower than this makes no step sound: a walk is silent, a run is heard (design §4.4, the same rule
+     * as the player's shift-walk). Just above a rifle walk (`movement.walkFraction` × 5.4 m/s = 2.7 m/s), below a run.
      */
-    silentMps: number;
+    silentBelowMps: number;
   };
   /** Near-miss whiz: played where the bullet line passes the head, if it passes within `maxMissM`. */
   whiz: { maxMissM: number; minOffsetM: number };
@@ -487,7 +486,7 @@ export const audio: AudioTunables = {
     peakDb: -14, referenceMs: 300, spatial: { refDistance: 3, rolloff: 0.6 },
   },
   chain: { gains: [1, 0.8, 0.65], staggerMs: 55, noteMs: 140, peakDb: -17, foldAboveHz: 1400 },
-  enemy: { muzzleHeightM: 1.3, maxAudibleM: 30, strideM: 2.2, teleportM: 1.5, silentMps: 2.8 },
+  enemy: { muzzleHeightM: 1.3, maxAudibleM: 30, strideM: 2.2, teleportM: 1.5, silentBelowMps: 3 },
   whiz: { maxMissM: 3, minOffsetM: 0.25 },
   loopFadeMs: 120,
   duck: { db: -3, attackMs: 2, holdMs: 80, releaseMs: 40, dominanceDb: 6.5, weaponsPeakDb: -15 },
