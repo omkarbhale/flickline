@@ -250,8 +250,8 @@ describe('Sweep mode (#201)', () => {
     }
   }, 60_000);
 
-  it('health carries over, the depth multiplier and dial offset follow the sector, and the last exit ends the run as left', () => {
-    const { g, log, input, state, toExit, next } = startRun(9);
+  it('health carries over, the depth multiplier and dial offset follow the sector, and the Leave door of the Finale\'s gate ends the run as left', () => {
+    const { g, log, input, state, toExit, throughGate, next } = startRun(9);
     for (let k = 0; k < 120; k++) g.advance(input);
     // Take a hit in sector 1: the damage must still be there in sector 2 (unless the door walked through gave a shield back).
     g.world.hitPlayer('kestrel', 'body', 0, 1.2, 0, -1, g.bus);
@@ -272,7 +272,11 @@ describe('Sweep mode (#201)', () => {
     expect(g.world.health.hp).toBe(hp);
     if (stake !== 'shield') expect(g.world.health.shield).toBe(shield);
     for (let i = 0; i < cfg.sectors - 2; i++) next();
+    // The Finale's exit leads to the Overtime gate (#206): its left door leaves, and the run ends as left.
     toExit();
+    expect(state().gate!.plan.leave).toBe(0);
+    expect(g.run.state).toBe('live');
+    throughGate(0);
     expect(g.run.state).toBe('result');
     const entered = log.filter((l) => l.type === 'sectorEntered').map((l) => l.e);
     expect(entered.map((e) => e.index)).toEqual([0, 1, 2, 3, 4, 5]);

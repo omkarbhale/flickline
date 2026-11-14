@@ -20,6 +20,16 @@ export interface DoorFacts {
   readonly arms?: string;
   /** The sector's economy (design 4.6): a light or eco sector is announced on its door. */
   readonly condition?: 'full' | 'light' | 'eco';
+  /** An Overtime door (design 4.7, #206): which Overtime sector it leads to (1 = the first) and its depth multiplier; announced in the header band. */
+  readonly overtime?: { readonly k: number; readonly mult: number };
+}
+
+/** What a Leave door says (design 4.7, #206): the run ends and what it banks. */
+export interface LeaveFacts {
+  /** The run's score, final once it leaves. */
+  readonly score: number;
+  /** The part of it earned in Overtime and never banked until now (0: leaving straight after the Finale). */
+  readonly overtimePoints: number;
 }
 
 export const FACE_W = 512;
@@ -213,8 +223,20 @@ export function drawDoorFace(
   g.stroke();
   g.globalAlpha = 1;
 
-  // The header band: a light or eco sector is announced here (a full sector says nothing, design 4.6).
-  if (facts.condition === 'light' || facts.condition === 'eco') {
+  // The header band: an Overtime sector (design 4.7), a light or eco sector is announced here (a full sector says nothing, design 4.6).
+  if (facts.overtime) {
+    const text = `OVERTIME ${facts.overtime.k} \u00b7 \u00d7${facts.overtime.mult.toFixed(1)}`;
+    stroke(g, css.gold, 4);
+    g.beginPath();
+    g.roundRect(30, 26, FACE_W - 60, 44, 12);
+    g.stroke();
+    g.fillStyle = css.gold;
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    g.font = `700 32px ${FONT}`;
+    g.fillText(text, FACE_W / 2, 58);
+    g.textAlign = 'left';
+  } else if (facts.condition === 'light' || facts.condition === 'eco') {
     const title = (opts.conditionTitles?.[facts.condition] ?? facts.condition).toUpperCase();
     const colour = facts.condition === 'eco' ? css.alert : css.warn;
     stroke(g, colour, 4);
@@ -260,4 +282,95 @@ export function drawDoorFace(
     g.fillText(row.sub, TEXT_X, cy + 52);
     g.globalAlpha = 1;
   });
+}
+
+/** Thousands-separated whole number ("12,340"), the way the HUD and the results card write a score. */
+function thousands(n: number): string {
+  return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/** An exit: an arrow leaving through a bracket. */
+function leaveGlyph(g: CanvasRenderingContext2D, cx: number, cy: number): void {
+  g.beginPath();
+  g.moveTo(cx - 8, cy - 40);
+  g.lineTo(cx - 40, cy - 40);
+  g.lineTo(cx - 40, cy + 40);
+  g.lineTo(cx - 8, cy + 40);
+  g.stroke();
+  arrow(g, cx - 22, cy, cx + 46, cy);
+}
+
+/** A vault: a lock body with its shackle. */
+function bankGlyph(g: CanvasRenderingContext2D, cx: number, cy: number): void {
+  g.beginPath();
+  g.roundRect(cx - 34, cy - 6, 68, 50, 8);
+  g.stroke();
+  g.beginPath();
+  g.arc(cx, cy - 6, 22, Math.PI, 0);
+  g.stroke();
+  dot(g, cx, cy + 20, 6);
+}
+
+/** A tick: it is kept. */
+function keptGlyph(g: CanvasRenderingContext2D, cx: number, cy: number): void {
+  g.beginPath();
+  g.moveTo(cx - 36, cy + 4);
+  g.lineTo(cx - 10, cy + 30);
+  g.lineTo(cx + 38, cy - 30);
+  g.stroke();
+}
+
+/**
+ * The face of an Overtime gate's Leave door (design 4.7, #206): the run ends and every point is banked. Three rows in the same
+ * trim-line language as a sector's face: **LEAVE** (the run ends), the score it banks, and what Overtime added to it.
+ */
+export function drawLeaveFace(g: CanvasRenderingContext2D, facts: LeaveFacts): void {
+  g.clearRect(0, 0, FACE_W, FACE_H);
+  g.fillStyle = 'rgba(11,13,20,0.82)';
+  g.beginPath();
+  g.roundRect(8, 8, FACE_W - 16, FACE_H - 16, 26);
+  g.fill();
+  stroke(g, css.gold, 4);
+  g.globalAlpha = 0.9;
+  g.stroke();
+  g.globalAlpha = 1;
+  const at = facts.overtimePoints > 0;
+  const rows: { colour: string; word: string; sub: string; glyph: (cx: number, cy: number) => void }[] = [
+    { colour: css.gold, word: 'LEAVE', sub: 'the run ends', glyph: (x, y) => leaveGlyph(g, x, y) },
+    { colour: css.core, word: thousands(facts.score), sub: 'banked', glyph: (x, y) => bankGlyph(g, x, y) },
+    { colour: at ? css.gold : css.core, word: at ? `+${thousands(facts.overtimePoints)}` : 'NONE', sub: at ? 'from Overtime, kept' : 'at risk', glyph: (x, y) => keptGlyph(g, x, y) },
+  ];
+  rows.forEach((row, i) => {
+    const y0 = TOP + i * ROW_H;
+    const cy = y0 + ROW_H / 2 - 6;
+    if (i > 0) {
+      g.globalAlpha = 0.25;
+      stroke(g, css.gold, 2);
+      g.beginPath();
+      g.moveTo(34, y0 - 2);
+      g.lineTo(FACE_W - 34, y0 - 2);
+      g.stroke();
+      g.globalAlpha = 1;
+    }
+    stroke(g, row.colour, 8);
+    row.glyph(ICON_X, cy);
+    g.fillStyle = row.colour;
+    g.textAlign = 'left';
+    g.textBaseline = 'alphabetic';
+    g.font = `700 ${row.word.length > 6 ? 62 : 76}px ${FONT}`;
+    g.fillText(row.word, TEXT_X, cy + 12);
+    g.globalAlpha = 0.78;
+    g.fillStyle = css.core;
+    g.font = `500 38px ${FONT}`;
+    g.fillText(row.sub, TEXT_X, cy + 52);
+    g.globalAlpha = 1;
+  });
+  // The fourth row's place: the way on is the other door.
+  g.globalAlpha = 0.6;
+  g.fillStyle = css.core;
+  g.textAlign = 'center';
+  g.font = `500 34px ${FONT}`;
+  g.fillText('or push on: the other door', FACE_W / 2, TOP + 3 * ROW_H + 70);
+  g.textAlign = 'left';
+  g.globalAlpha = 1;
 }

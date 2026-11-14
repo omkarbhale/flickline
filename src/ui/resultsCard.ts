@@ -216,7 +216,7 @@ export class ResultsCard {
     const ot = q('overtime');
     ot.hidden = m.overtime === null;
     if (m.overtime) {
-      ot.textContent = `Overtime ${m.overtime.points} ${m.overtime.state}`;
+      ot.textContent = `Overtime ${m.overtime.sectors} \u00b7 ${m.overtime.state === 'banked' ? '+' : '\u2212'}${m.overtime.points} ${m.overtime.state}`;
       ot.dataset.state = m.overtime.state;
     }
 
