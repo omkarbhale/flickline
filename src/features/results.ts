@@ -11,12 +11,14 @@ declare module '../debug/hook' {
     /**
      * End-of-run results card (design 8.2). `state()` reads whether it is open, the card's data and the
      * measured timings (ms from `runEnded` to the DOM being written, and to the next painted frame; key press
-     * to the first drawn `ready` frame of the next run). `playAgain()` is the `Enter` path. `pb(n)` installs a
+     * to the first drawn `ready` frame of the next run). `playAgain()` is the `Enter` path (a new run on a new
+     * seed) and `replay()` the `R` path (this seed again). `pb(n)` installs a
      * fake personal best score for the PB line (`null` = no personal best yet).
      */
     readonly results: {
       state(): { open: boolean; card: CardModel | null; buildMs: number; appearMs: number; restartToFrameMs: number; budgetMs: number };
       playAgain(): boolean;
+      replay(): boolean;
       pb(score: number | null): void;
     };
   }
@@ -31,7 +33,7 @@ function skillOf(mode: string): RatedSkill | null {
 
 /**
  * The results card: shown over the frozen last frame inside the `runEnded` dispatch, `Enter` plays
- * again (next seed, no scene rebuild), `Esc` opens the menu. Presentation stage: the run controller
+ * a new run (next seed, no scene rebuild), `R` replays the seed, `Esc` opens the menu. Presentation stage: the run controller
  * has already frozen its stats when this hears `runEnded`.
  */
 export const feature = defineFeature({
@@ -40,6 +42,7 @@ export const feature = defineFeature({
   setup(game) {
     const card = new ResultsCard(document.body, {
       onPlayAgain: (pressedAt) => void game.playAgain(pressedAt),
+      onReplay: (pressedAt) => void game.playAgain(pressedAt, true),
       onMenu: () => game.openMenu(),
       blocked: () => game.menu.isOpen,
       isConfirm: (code) => game.settings.get().keys.confirm.includes(code),
@@ -78,7 +81,6 @@ export const feature = defineFeature({
       skillOf,
       pb: { best: () => (fake === undefined ? before : fake), keepsBest: (mode) => !noBest.includes(mode) },
       onCard: (model) => {
-        card.setPlayLabel(game.nextRunLabel());
         card.show(model, endedAt);
       },
       onNewRun: () => card.hide(),
@@ -106,6 +108,7 @@ export const feature = defineFeature({
           budgetMs: game.tunables.results.appearBudgetMs,
         }),
         playAgain: () => game.playAgain(performance.now()),
+        replay: () => game.playAgain(performance.now(), true),
         pb(score) {
           fake = score;
         },

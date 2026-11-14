@@ -1,9 +1,9 @@
 import type { SkillId } from './dial';
 
 /**
- * Menu copy and session rules (design section 2 "Session", section 9.5, section 13.4). Pure data:
- * the cards are rendered from the mode registry (`app/modeHost.ts` `MODES`), and this table only
- * adds the words and the order. A mode that is registered but has no entry here still gets a card
+ * Menu copy (design section 2, section 13.4) and the names of the registered modes. The menu no
+ * longer lists modes: Play starts a Sweep run (#202). The mode names and the old session and card
+ * entries stay until the drill code is removed (#211); the names label a run started behind `?mode=`. A mode that is registered but has no entry here still gets a card
  * (name derived from its id, listed last), so a new mode shows up without touching this file.
  */
 export interface ModeCardInfo {
@@ -18,6 +18,10 @@ export interface ModeCardInfo {
 }
 
 export interface MenuTunables {
+  /** One line under the wordmark on the first panel and the main menu (vision principle 10: no trainer, no drills). */
+  tagline: string;
+  /** Under Play on the first panel: what clicking the range does instead (design 13.4). */
+  lobbyNote: string;
   session: {
     /**
      * The run that closes Today's session (design section 2): the flagship. When it is not
@@ -35,6 +39,8 @@ export interface MenuTunables {
 }
 
 export const menu: MenuTunables = {
+  tagline: 'First-person fights that read your aim',
+  lobbyNote: 'Or click the range first to try your sensitivity. Nothing there counts.',
   session: { finaleMode: 'sweep' },
   modeCards: {
     coldStart: { name: 'Cold Start', blurb: 'One Post at a time. Your first bullet decides it.', order: 10 },

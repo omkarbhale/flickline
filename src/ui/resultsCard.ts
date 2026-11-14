@@ -13,8 +13,10 @@ function pressTime(e: Event): number {
 }
 
 export interface ResultsCardHandlers {
-  /** `Enter` / the Play again button. `pressedAt` is the key event's timestamp (performance.now() base). */
+  /** `Enter` / the New run button: a new run on a new seed. `pressedAt` is the key event's timestamp (performance.now() base). */
   onPlayAgain(pressedAt: number): void;
+  /** `R` / the Replay seed button: this run's seed again. */
+  onReplay(pressedAt: number): void;
   /** `Esc` when the pointer is already free / the Menu button. */
   onMenu(): void;
   /** True while another full-screen layer (the menu) is on top: the card ignores keys then. */
@@ -26,9 +28,9 @@ export interface ResultsCardHandlers {
 /**
  * The results card (design §8.2): header, rating, headline stats, medals, one thing to fix and the
  * flow keys. Static markup built once; `show()` only writes text into it, so showing the card
- * costs a handful of DOM writes inside the `runEnded` dispatch. Keyboard: `Enter` plays again,
- * `Esc` opens the menu (under pointer lock the browser takes `Esc` and the menu opens through the
- * lock change instead). Tab order is Play again, Menu.
+ * costs a handful of DOM writes inside the `runEnded` dispatch. Keyboard: `Enter` starts a new run on
+ * a new seed, `R` replays this seed, `Esc` opens the menu (under pointer lock the browser takes `Esc`
+ * and the menu opens through the lock change instead). Tab order is New run, Replay seed, Menu.
  */
 export class ResultsCard {
   readonly el: HTMLElement;
@@ -36,6 +38,7 @@ export class ResultsCard {
   private readonly statsEl: HTMLElement;
   private readonly medalsList: HTMLElement;
   private readonly play: HTMLButtonElement;
+  private readonly replayBtn: HTMLButtonElement;
   private readonly menuBtn: HTMLButtonElement;
   private readonly statCells: { dt: HTMLElement; val: HTMLElement; hint: HTMLElement }[] = [];
   private open = false;
@@ -92,7 +95,8 @@ export class ResultsCard {
           <p data-k="fixAction"></p>
         </section>
         <footer class="rc-actions">
-          <button type="button" class="rc-btn primary" data-k="play">Play again <kbd>Enter</kbd></button>
+          <button type="button" class="rc-btn primary" data-k="play">New run <kbd>Enter</kbd></button>
+          <button type="button" class="rc-btn" data-k="replay">Replay seed <kbd>R</kbd></button>
           <button type="button" class="rc-btn" data-k="menu">Menu <kbd>Esc</kbd></button>
         </footer>
       </div>`;
@@ -102,8 +106,10 @@ export class ResultsCard {
     this.statsEl = this.q('stats');
     this.medalsList = this.q('medals');
     this.play = this.q('play') as HTMLButtonElement;
+    this.replayBtn = this.q('replay') as HTMLButtonElement;
     this.menuBtn = this.q('menu') as HTMLButtonElement;
     this.play.addEventListener('click', (e) => handlers.onPlayAgain(pressTime(e)));
+    this.replayBtn.addEventListener('click', (e) => handlers.onReplay(pressTime(e)));
     this.menuBtn.addEventListener('click', () => handlers.onMenu());
     window.addEventListener('keydown', this.onKey);
     window.addEventListener('resize', this.fit);
@@ -120,15 +126,18 @@ export class ResultsCard {
     return this.open;
   }
 
-  /** Keys: Enter plays again, Esc opens the menu. A focused card button keeps its own Enter. */
+  /** Keys: Enter a new run, R replays the seed, Esc opens the menu. A focused card button keeps its own Enter. */
   private readonly onKey = (e: KeyboardEvent): void => {
     if (!this.open || e.repeat || e.ctrlKey || e.altKey || e.metaKey || this.handlers.blocked()) return;
     const onButton = e.target instanceof HTMLButtonElement && this.el.contains(e.target);
     const confirm = this.handlers.isConfirm ? this.handlers.isConfirm(e.code) : e.code === 'Enter' || e.code === 'NumpadEnter';
     if (confirm) {
-      if (onButton && e.target === this.menuBtn) return; // Enter on Menu activates Menu
+      if (onButton && (e.target === this.menuBtn || e.target === this.replayBtn)) return; // Enter on Menu or Replay activates that button
       e.preventDefault();
       this.handlers.onPlayAgain(pressTime(e));
+    } else if (e.code === 'KeyR') {
+      e.preventDefault();
+      this.handlers.onReplay(pressTime(e));
     } else if (e.code === 'Escape') {
       this.handlers.onMenu();
     }
@@ -138,12 +147,6 @@ export class ResultsCard {
   setConfirmLabel(label: string): void {
     const k = this.play.querySelector('kbd');
     if (k) k.textContent = label;
-  }
-
-  /** Rename the primary button ("Next: Orbit" inside Today's session); null restores "Play again". */
-  setPlayLabel(label: string | null): void {
-    const text = this.play.firstChild;
-    if (text !== null && text.nodeType === Node.TEXT_NODE) text.textContent = `${label ?? 'Play again'} `;
   }
 
   /** Write the model into the card and show it. `endedAt` is the `performance.now()` of `runEnded`. */
