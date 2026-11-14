@@ -102,7 +102,7 @@ total, the bytes per tick, and the functions responsible. `bot.test.ts` enforces
 ceiling** (400 B/tick; today about 200) so a new per-tick closure, array or object literal fails
 the build the day it lands. The target is 0; the remaining allocations are V8 boxing doubles
 returned from `Math.hypot` and non-inlined helpers in `runProbe.ts`, `hitZones.ts` and
-`movement.ts` (listed by the audit; filed as an issue, not fixed here because optimising is #55).
+`movement.ts` (listed by the audit; filed as #152, not fixed here because optimising is #55).
 
 ## The perf harness
 
@@ -138,7 +138,7 @@ for absolute frame rate**; judge 144 fps on real hardware (design §14.1, the re
 
 **Zero allocation in the browser:** the page cannot tell its sim's allocation from the renderer's,
 so the report gives the total (bytes/s and bytes/frame) and the floor growth, and the sim's share
-and sources come from the Node audit above. Today the scene allocates (see the findings on #28):
+and sources come from the Node audit above. Today the scene allocates (see #152):
 the harness reports it rather than proving zero.
 
 ## CI
