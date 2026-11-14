@@ -22,7 +22,7 @@ import { BlobShadows } from './blobShadows';
 import { applyEnvQuality, createEnvUniforms, horizonColor, type EnvUniforms } from './envShaders';
 import { buildLevelMesh, type LevelMesh } from './levelMesh';
 import { Sky } from './sky';
-import { PostPipeline, createVignetteEffect, type Overlay } from './post';
+import { PostPipeline, type Overlay } from './post';
 import { WorldHint } from './worldHint';
 import { TargetsView } from './targetsView';
 
@@ -68,7 +68,7 @@ export class GameRenderer {
   readonly renderer: WebGLRenderer;
   readonly scene = new Scene();
   readonly camera: PerspectiveCamera;
-  readonly post = new PostPipeline();
+  readonly post: PostPipeline;
   /**
    * The first-person overlay pass: drawn after the world with the depth buffer cleared, by its own
    * camera (own FOV; the world FOV is locked). The viewmodel layer owns its contents and sets the
@@ -105,6 +105,7 @@ export class GameRenderer {
     initialQuality: QualityLevel,
   ) {
     this.quality = initialQuality;
+    this.post = new PostPipeline(tunables.post);
     this.resolved = tunables.render.quality[initialQuality];
     const preset = tunables.render.quality[initialQuality];
     this.renderer = new WebGLRenderer({
@@ -139,7 +140,6 @@ export class GameRenderer {
 
     this.hint = new WorldHint(this.scene, 'Click the orb');
 
-    this.post.effects.push(createVignetteEffect());
     this.applyQuality();
   }
 
@@ -174,6 +174,7 @@ export class GameRenderer {
     if (!QUALITY_LEVELS.includes(q)) return;
     this.quality = q;
     this.applyQuality();
+    this.post.precompile(this.renderer);
   }
 
   /**
@@ -210,7 +211,7 @@ export class GameRenderer {
       enemyOutline: this.outlineOverride,
     }));
     this.renderer.setPixelRatio(effectivePixelRatio(window.devicePixelRatio || 1, p, this.renderScale));
-    this.post.enabled = p.postProcessing;
+    this.post.configure(p.post);
     this.targetsView?.setQuality(p);
     applyEnvQuality(this.envUniforms, p);
     horizonColor(this.envUniforms, this.fog.color); // fog fades to the sky's horizon colour
@@ -262,6 +263,7 @@ export class GameRenderer {
     // Compile shaders now so the first shot / first frame does not hitch.
     this.renderer.compile(this.scene, this.camera);
     this.renderer.compile(this.overlay.scene, this.overlay.camera);
+    this.post.precompile(this.renderer);
   }
 
   /** Light or dim the loaded map's armed floor stripe (Lane). Survives a level reload. */
