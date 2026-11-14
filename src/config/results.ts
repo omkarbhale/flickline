@@ -14,6 +14,7 @@ export type MetricId =
   | 'flickBias'
   | 'flickError'
   | 'timeOnTarget'
+  | 'leadError'
   | 'stopLatency'
   | 'headHeight'
   | 'bestChain'
@@ -98,7 +99,7 @@ export const results: ResultsTunables = {
     coldStart: ['firstShotRate', 'preAimError'],
     placement: ['firstShotRate', 'flickBias'],
     orbit: ['flickBias', 'flickError'],
-    strafeTrack: ['timeOnTarget', 'bestChain'],
+    strafeTrack: ['timeOnTarget', 'leadError'],
     stopAndPop: ['stopLatency', 'cleanKills'],
     cornerClear: ['preAimError', 'headHeight'],
     sweep: ['bestChain', 'preAimError'],

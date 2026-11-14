@@ -15,6 +15,7 @@ import { SessionStats } from '../feedback/sessionStats';
 import { applySettingsToOptions, createFeedbackOptions } from '../feedback/options';
 import { ShotCues } from '../feedback/shotCues';
 import type { RunEndReason } from '../modes/contracts';
+import { PLACEMENT_MODE } from '../modes/placement';
 import { RunController, type StartRunOptions } from '../modes/runController';
 import { DamageView } from '../hud/damageView';
 import { Hud } from '../hud/hud';
@@ -151,6 +152,8 @@ export class Game {
   private hasPlayed = false;
   /** The first-run hint is showing and waits for the first hit. */
   private hintActive = false;
+  /** The first-run hint is owed: shown over the first orb that exists, until the first hit. */
+  private hintWanted = false;
   /** `?seed=N` from the URL: every run uses it (shareable, replayable), else each run draws its own. */
   private readonly urlSeed: number | null;
 
@@ -294,6 +297,13 @@ export class Game {
     this.bus.on('progressChanged', () => this.menu.refresh());
     this.bus.on('shotFired', () => this.timeline.mark('firstShot'));
     this.bus.on('targetHit', () => this.dismissHint());
+    // The Placement run's first orb appears after the run goes live, not at the click: the hint waits for it.
+    this.bus.on('targetSpawned', () => {
+      if (this.hintWanted) this.showHint();
+    });
+    this.bus.on('targetExpired', () => {
+      if (this.hintActive) this.hideHint(); // the orb it pointed at left unhit: wait for the next one
+    });
 
     window.addEventListener('resize', this.onResize);
     this.onResize();
@@ -486,8 +496,9 @@ export class Game {
     this.showHint();
   }
 
-  /** Float the single "Click the orb" hint over the target nearest to where the player looks. */
+  /** Float the single "Click the orb" hint over the orb nearest to where the player looks; with none yet, the next one that spawns. */
   private showHint(): void {
+    this.hintWanted = true;
     const targets = this.world.targets;
     let best = -1;
     let bestDot = -2;
@@ -496,7 +507,7 @@ export class Game {
     const p = this.world.player.pos;
     for (let i = 0; i < targets.length; i++) {
       const t = targets[i]!;
-      if (!t.alive) continue;
+      if (!t.alive || t.kind !== 'beacon') continue;
       const dx = t.pos.x - p.x;
       const dz = t.pos.z - p.z;
       const dot = (dx * fx + dz * fz) / (Math.hypot(dx, dz) || 1);
@@ -511,7 +522,13 @@ export class Game {
     this.hintActive = true;
   }
 
+  /** The hint is done for good (first hit, or another run started). */
   private dismissHint(): void {
+    this.hintWanted = false;
+    this.hideHint();
+  }
+
+  private hideHint(): void {
     if (!this.hintActive) return;
     this.hintActive = false;
     this.renderer.hint.hide();
@@ -730,7 +747,8 @@ export class Game {
     const info = this.run.info;
     if (!info || this.run.state !== 'result') return false;
     // In Today's session the next run is the session's next step (it advanced when this run ended).
-    const next = this.run.isSelfDriven ? null : this.todaysSession.next();
+    // After the Placement run it is the first step of a new session: the next click is the real game (design 13.4).
+    const next = this.run.isSelfDriven ? null : info.mode === PLACEMENT_MODE ? this.todaysSession.start() : this.todaysSession.next();
     const seed = next === null ? nextSeed(info.seed, this.tunables.results) : this.newSeed();
     if (this.run.isSelfDriven) {
       if (!this.run.restartRun(seed)) return false;
@@ -745,7 +763,12 @@ export class Game {
 
   /** What the results card's primary button says: the session's next step, or null for plain "Play again". */
   nextRunLabel(): string | null {
-    const next = this.run.isSelfDriven ? null : this.todaysSession.next();
+    const info = this.run.info;
+    const next = this.run.isSelfDriven
+      ? null
+      : info?.mode === PLACEMENT_MODE
+        ? (this.todaysSession.plan()[0]?.modeId ?? null)
+        : this.todaysSession.next();
     return next === null ? null : `Next: ${this.tunables.menu.modeCards[next]?.name ?? titleFromId(next)}`;
   }
 

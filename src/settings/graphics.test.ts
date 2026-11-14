@@ -16,12 +16,13 @@ describe('graphics overrides', () => {
       const auto = resolveQuality(base, { postEffects: 'auto', enemyOutline: 'auto' });
       expect(auto).toEqual(base);
       const forced = resolveQuality(base, { postEffects: 'on', enemyOutline: 'on' });
-      expect(forced.postProcessing).toBe(true);
+      // On keeps a preset's own stack, and gives one to a preset that has none (Low: bloom and the vignette).
+      expect(forced.post).toEqual(level === 'low' ? { bloom: true, blur: false, vignette: true, chromatic: false } : base.post);
       expect(forced.echoOutline).toBe(true);
       expect(forced.pixelRatioCap).toBe(base.pixelRatioCap);
       expect(forced.gridDetail).toBe(base.gridDetail);
       const off = resolveQuality(base, { postEffects: 'off', enemyOutline: 'off' });
-      expect(off.postProcessing).toBe(false);
+      expect(off.post).toEqual({ bloom: false, blur: false, vignette: false, chromatic: false });
       expect(off.echoOutline).toBe(false);
     }
   });
@@ -29,7 +30,7 @@ describe('graphics overrides', () => {
   it('does not change the preset it was given', () => {
     const base = render.quality.high;
     resolveQuality(base, { postEffects: 'off', enemyOutline: 'off' });
-    expect(base.postProcessing).toBe(true);
+    expect(base.post.bloom).toBe(true);
   });
 });
 

@@ -4,6 +4,7 @@ import { secondsToTicks, TICK_DT } from '../core/time';
 import { directionFromAngles, vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
 import { createExpectedHead, expectedHead } from './headHeight';
+import { wrapPi, yawOf } from './aim';
 import { createZoneHit } from './hitZones';
 import type { TargetField } from './targets';
 import type { LevelDef, PlayerState, SimEvents, TickInput, WeaponState } from './types';
@@ -12,10 +13,21 @@ import type { LevelDef, PlayerState, SimEvents, TickInput, WeaponState } from '.
 export interface ProbeEvents {
   /** Aim ray entered (`on`) or left the padded hit volume of a visible target (edge events). */
   aimOnTarget: { tick: number; on: boolean; id: number };
+  /**
+   * Signed horizontal aim offset (radians) from a cruising Strafer's centre of mass, sampled at
+   * `run.leadSampleSec` while the view is within `run.leadMaxOffDeg` of it and was on it within
+   * `run.leadEngageSec` (tracking, not the flick onto it): positive = the
+   * crosshair is AHEAD of the target in its direction of travel (leading), negative = BEHIND it
+   * (lagging).
+   */
+  leadSampled: { tick: number; id: number; err: number };
   /** Vertical angle (radians) between the aim ray and head-centre height, sampled while moving with no enemy visible. */
   headHeightSampled: { tick: number; err: number };
-  /** Horizontal speed first fell to the accuracy threshold after a stop or counter-strafe input. */
-  playerStopped: { tick: number; latencyMs: number };
+  /**
+   * Horizontal speed first fell to the accuracy threshold after a stop or counter-strafe input.
+   * `counterStrafe`: the stop began with a direction reversal (the opposite key pressed), not a release.
+   */
+  playerStopped: { tick: number; latencyMs: number; counterStrafe: boolean };
 }
 
 declare module './types' {
@@ -33,21 +45,34 @@ export interface ProbeState {
   aimOn: boolean;
   aimOnId: number;
   nextHeadSampleTick: number;
+  nextLeadSampleTick: number;
+  /** The target the aim was last on and the tick it last was (-1 never): the engagement gate of the lead error. */
+  lastOnId: number;
+  lastOnTick: number;
   /** Tick the current stop began (-1 = not stopping). */
   stopTick: number;
+  /** The current stop began with a direction reversal (the opposite key pressed) rather than a release. */
+  stopCounter: boolean;
   prevInputMag: number;
   prevWishDot: number;
 }
 
 export function createProbeState(): ProbeState {
-  return { aimOn: false, aimOnId: -1, nextHeadSampleTick: 0, stopTick: -1, prevInputMag: 0, prevWishDot: 0 };
+  return {
+    aimOn: false, aimOnId: -1, nextHeadSampleTick: 0, nextLeadSampleTick: 0, lastOnId: -1, lastOnTick: -1, stopTick: -1,
+    stopCounter: false, prevInputMag: 0, prevWishDot: 0,
+  };
 }
 
 export function resetProbe(p: ProbeState): void {
   p.aimOn = false;
   p.aimOnId = -1;
   p.nextHeadSampleTick = 0;
+  p.nextLeadSampleTick = 0;
+  p.lastOnId = -1;
+  p.lastOnTick = -1;
   p.stopTick = -1;
+  p.stopCounter = false;
   p.prevInputMag = 0;
   p.prevWishDot = 0;
 }
@@ -66,8 +91,9 @@ const dir = vec3();
 const probeDir = vec3();
 const zone = createZoneHit();
 const aimPayload = { tick: 0, on: false, id: -1 };
+const leadPayload = { tick: 0, id: -1, err: 0 };
 const headPayload = { tick: 0, err: 0 };
-const stopPayload = { tick: 0, latencyMs: 0 };
+const stopPayload = { tick: 0, latencyMs: 0, counterStrafe: false };
 const head = createExpectedHead();
 
 /**
@@ -89,6 +115,30 @@ function aimedTarget(
     }
   }
   return -1;
+}
+
+/**
+ * Lead error of the Strafer the aim was last on (design §3, §4.3), written to `leadPayload`; false
+ * when the aim has not been on it for `leadEngageSec`, it is not cruising, or the view is further
+ * than `leadMaxOffDeg` from it. The offset is the view yaw minus the yaw to the target's centre of
+ * mass, signed by the direction the target moves across the view (its yaw now minus its yaw at the
+ * start of the tick), so + is ahead of it.
+ */
+function leadOf(s: ProbeState, field: TargetField, p: PlayerState, ox: number, oy: number, oz: number, t: Tunables, tick: number): boolean {
+  const run = t.run;
+  if (s.lastOnId < 0 || tick - s.lastOnTick > secondsToTicks(run.leadEngageSec)) return false;
+  const tg = field.byId(s.lastOnId);
+  if (!tg || !tg.alive || tg.kind !== 'strafer' || tg.visibleTick < 0 || Math.abs(tg.ai.vel) < run.leadMinSpeedMps) return false;
+  const yawNow = yawOf(tg.pos.x - ox, tg.pos.z - oz);
+  const across = wrapPi(yawNow - yawOf(tg.prevPos.x - ox, tg.prevPos.z - oz));
+  if (across === 0) return false;
+  const off = wrapPi(p.yaw - yawNow);
+  const flat = Math.hypot(tg.pos.x - ox, tg.pos.z - oz);
+  const pitchOff = p.pitch - Math.atan2(tg.pos.y + tg.boundsY - oy, flat);
+  if (Math.hypot(off, pitchOff) > run.leadMaxOffDeg * DEG2RAD) return false;
+  leadPayload.id = tg.id;
+  leadPayload.err = across > 0 ? off : -off;
+  return true;
 }
 
 export function stepRunProbe(
@@ -116,6 +166,10 @@ export function stepRunProbe(
 
   // Time on target: edges as the aim ray enters / leaves a padded hit volume.
   const onId = anyVisible ? aimedTarget(field, ox, oy, oz, p.yaw, p.pitch, t.run.timeOnTargetPadDeg * DEG2RAD) : -1;
+  if (onId >= 0) {
+    s.lastOnId = onId;
+    s.lastOnTick = tick;
+  }
   if ((onId >= 0) !== s.aimOn || (onId >= 0 && onId !== s.aimOnId)) {
     s.aimOn = onId >= 0;
     s.aimOnId = onId;
@@ -123,6 +177,15 @@ export function stepRunProbe(
     aimPayload.on = s.aimOn;
     aimPayload.id = onId;
     events.emit('aimOnTarget', aimPayload);
+  }
+
+  // Lead error: signed aim offset from a cruising Strafer, sampled at a fixed rate.
+  if (anyVisible && tick >= s.nextLeadSampleTick) {
+    s.nextLeadSampleTick = tick + secondsToTicks(t.run.leadSampleSec);
+    if (leadOf(s, field, p, ox, oy, oz, t, tick)) {
+      leadPayload.tick = tick;
+      events.emit('leadSampled', leadPayload);
+    }
   }
 
   // Head-height discipline: sampled while moving fast with nobody in view.
@@ -147,10 +210,12 @@ export function stepRunProbe(
   if (s.stopTick < 0) {
     if (speed > thr && ((mag === 0 && s.prevInputMag > 0) || (mag > 0 && wishDot < 0 && s.prevWishDot >= 0))) {
       s.stopTick = tick;
+      s.stopCounter = mag > 0; // the opposite key was pressed (a release has no input magnitude)
     }
   } else if (speed <= thr) {
     stopPayload.tick = tick;
     stopPayload.latencyMs = (tick - s.stopTick) * TICK_DT * 1000;
+    stopPayload.counterStrafe = s.stopCounter;
     s.stopTick = -1;
     events.emit('playerStopped', stopPayload);
   } else if (mag > 0 && wishDot > 0) {

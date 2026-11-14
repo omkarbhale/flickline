@@ -107,6 +107,13 @@ export const echoPresets: Readonly<Record<EchoPresetId, EchoPreset>> = {
   contrast: { color: 0xdcdcdc, head: 0xffffff, outline: 0x000000, outlineAlways: true },
 };
 
+/**
+ * Stop & Pop stance rings (design §4.4): white = stand still, blue = crouched and still. The verdict
+ * after the first bullet reuses `ok` and `alert`. The two stances also differ by shape (one band
+ * against two), so they never rely on hue alone.
+ */
+export const stanceRingColours = { stand: 0xffffff, crouch: 0x4d7cff } as const;
+
 /** Brightness (linear-light weight of `trim`) added to the sky at the horizon by the glow. */
 export const HORIZON_GLOW = 0.004;
 

@@ -1,13 +1,24 @@
 export type QualityLevel = 'low' | 'medium' | 'high';
 export const QUALITY_LEVELS: readonly QualityLevel[] = ['low', 'medium', 'high'];
 
+/** The post stack of one preset. Numbers are in `config/post.ts`. */
+export interface PostPreset {
+  /** Threshold + downsample x4 + add (one quarter-res pass, 5-tap upsample in the composite). */
+  bloom: boolean;
+  /** Smooth the bloom with a separable 5-tap blur at quarter resolution (two more quarter-res passes). */
+  blur: boolean;
+  vignette: boolean;
+  /** The kill pulse is available (still off until the player turns it on, and off under Reduce flashing). */
+  chromatic: boolean;
+}
+
 export interface QualityPreset {
   /** Upper bound for renderer pixel ratio (devicePixelRatio is clamped to this). */
   pixelRatioCap: number;
   /** MSAA on the default framebuffer. Fixed at context creation: a change needs a reload. */
   antialias: boolean;
-  /** Whether the post-processing slot runs its effects. */
-  postProcessing: boolean;
+  /** Which post effects run (design section 11). All false = the pipeline is off: no render targets. */
+  post: PostPreset;
   maxAnisotropy: number;
   /**
    * Grid floor detail (a shader uniform, so switching is live): 0 = 5 m lines only; 1 = adds the
@@ -46,9 +57,9 @@ export interface RenderTunables {
 
 export const render: RenderTunables = {
   quality: {
-    low: { pixelRatioCap: 1, antialias: false, postProcessing: false, maxAnisotropy: 1, gridDetail: 0, skyGlow: false, echoOutline: false },
-    medium: { pixelRatioCap: 1.5, antialias: true, postProcessing: false, maxAnisotropy: 4, gridDetail: 1, skyGlow: true, echoOutline: false },
-    high: { pixelRatioCap: 2, antialias: true, postProcessing: true, maxAnisotropy: 8, gridDetail: 2, skyGlow: true, echoOutline: true },
+    low: { pixelRatioCap: 1, antialias: false, post: { bloom: false, blur: false, vignette: false, chromatic: false }, maxAnisotropy: 1, gridDetail: 0, skyGlow: false, echoOutline: false },
+    medium: { pixelRatioCap: 1.5, antialias: true, post: { bloom: true, blur: false, vignette: false, chromatic: false }, maxAnisotropy: 4, gridDetail: 1, skyGlow: true, echoOutline: false },
+    high: { pixelRatioCap: 2, antialias: true, post: { bloom: true, blur: true, vignette: true, chromatic: true }, maxAnisotropy: 8, gridDetail: 2, skyGlow: true, echoOutline: true },
   },
   budget: { frameMs: 1000 / 144, drawCalls: 150, triangles: 500_000, tickMs: 0.5 },
   fogNear: 30,

@@ -57,11 +57,6 @@ export const feature = defineFeature({
 
     game.hud.live.setPersonalBest(ghost);
 
-    // The self-report prior for a player with no saved ratings (design §9.2); the chips are picked after the model exists.
-    bus.on('placementRunRequested', (e) => {
-      if (store.snapshot.ratings === null) skills.setPrior({ mean: e.priorMean, sd: e.priorSd });
-    });
-
     bus.on('runReady', (e) => {
       curve.reset();
       earned.length = 0;

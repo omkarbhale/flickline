@@ -17,6 +17,7 @@ export const feature = defineFeature({
   setup(game) {
     game.bus.on('laneArmedChanged', (e) => game.renderer.setLaneArmed(e.armed));
     game.onReset(() => game.renderer.setLaneArmed(false));
+    game.bus.on('runEnded', () => game.renderer.setLaneArmed(false));
     game.addDebug({
       laneArmed(armed) {
         game.bus.emit('laneArmedChanged', { tick: game.world.tick, armed });
