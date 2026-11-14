@@ -19,10 +19,20 @@ import { SettingsPanel, type SettingsHost, type SettingsTab } from './settingsPa
  */
 export type MenuMode = 'firstRun' | 'main' | 'pause';
 
+/** What the Daily Route button shows: today's date ("Sun 15 Nov") and the day best score so far. */
+export interface DailyView {
+  label: string;
+  best: number | null;
+}
+
 /** What the menu asks of the game, and what it reads from it. */
 export interface MenuHost extends SettingsHost {
   /** Play: a Sweep run on a new seed, with the pointer lock (needs a user gesture). The first one applies the self-report. */
   play(): void;
+  /** Start today's Daily Route (design §4.8): Sweep on the seed of the local date, with the pointer lock. */
+  playDaily(): void;
+  /** The Daily Route of today: its date label and the day best so far (null before the first scoring run of the day). */
+  daily(): DailyView;
   /** Take the pointer lock back and carry on. */
   resume(): void;
   /** Start a new run on a new seed (and take the lock). */
@@ -57,6 +67,7 @@ export class Menu {
   private settingsReturn: Exclude<Screen, 'settings'> = 'main';
   private open = false;
   private playBtn!: HTMLButtonElement;
+  private dailyNote!: HTMLElement;
 
   constructor(
     root: HTMLElement,
@@ -103,12 +114,16 @@ export class Menu {
     // --- Main ---
     this.playBtn = button('Play', { variant: 'primary', icon: 'play', key: 'Enter', onClick: () => host.play() });
     this.playBtn.classList.add('play-wide');
+    const dailyBtn = button('Daily Route', { variant: 'secondary', icon: 'play', key: 'D', onClick: () => host.playDaily() });
+    this.dailyNote = h('span', { class: 'fl-btn-sub' });
+    dailyBtn.querySelector('.fl-btn-label')!.after(this.dailyNote);
+    dailyBtn.classList.add('daily-btn');
     const settingsBtn = button('Settings', { variant: 'ghost', icon: 'settings', key: 'S', onClick: () => this.openSettings() });
     const mainPanel = panel({ class: 'main-panel' });
     mainPanel.body.append(
       h('div', { class: 'main-brand' }, [wrapHtml(wordmark(40))]),
       h('p', { class: 'main-tag', text: this.cfg.tagline }),
-      h('div', { class: 'main-actions' }, [this.playBtn, settingsBtn]),
+      h('div', { class: 'main-actions' }, [this.playBtn, dailyBtn, settingsBtn]),
       this.rawNote(),
       this.keysLine,
     );
@@ -191,10 +206,11 @@ export class Menu {
     for (const chip of this.chips) chip.setAttribute('aria-pressed', String(chip.dataset.chip === picked));
   }
 
-  /** Rebuild what the pause screen shows (the run in progress) if it is on screen. */
+  /** Rebuild what the pause screen (the run in progress) and the main screen (the Daily Route's day best) show, if on screen. */
   refresh(): void {
     if (!this.open) return;
     if (this.screen === 'pause') this.renderPause();
+    else if (this.screen === 'main') this.renderDaily();
   }
 
   /** Go to a base screen (the pointer lock changed): the first-run panel, the landing menu or the pause menu. */
@@ -210,6 +226,7 @@ export class Menu {
     const home = screen === 'firstRun' ? this.firstRunHost : this.settingsBasicsHome;
     if (this.settingsPanel.basics.parentElement !== home) home.prepend(this.settingsPanel.basics);
     if (screen === 'pause') this.renderPause();
+    if (screen === 'main') this.renderDaily();
     if (this.open) this.focusDefault();
   }
 
@@ -244,6 +261,12 @@ export class Menu {
   }
 
   // --- Screens -------------------------------------------------------------------------------
+
+  /** The Daily Route button's line: the date and the day best, read when the main menu shows (so it follows local midnight). */
+  private renderDaily(): void {
+    const d = this.host.daily();
+    this.dailyNote.textContent = `${d.label} · ${d.best === null ? 'no run yet' : `day best ${d.best.toLocaleString('en-US')}`}`;
+  }
 
   private renderPause(): void {
     const label = this.host.runLabel();
@@ -306,6 +329,9 @@ export class Menu {
     switch (a.type) {
       case 'play':
         this.host.play();
+        break;
+      case 'playDaily':
+        this.host.playDaily();
         break;
       case 'resume':
         this.host.resume();

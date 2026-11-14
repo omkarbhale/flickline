@@ -4,6 +4,7 @@ import { displayRating, tier as tierOf, createTierInfo } from '../adaptive/dial'
 import type { SkillId } from '../config/dial';
 import { results as defaultResults, type FixCopy, type MetricId, type ResultsTunables } from '../config/results';
 import { tunables } from '../config/tunables';
+import { dailyLabel } from '../modes/dailyRoute';
 import type { RunEndReason } from '../sim/runEvents';
 import type { RunLog } from './eventLog';
 import type { RunStory, SectorTile, SituationRow } from './runStory';
@@ -129,6 +130,8 @@ export interface CardModel {
    * is the closest thing to a reference-game score. The card says so.
    */
   clean: boolean;
+  /** The date key of the Daily Route when this run was one, else null: the best on the card is the day best. */
+  daily: string | null;
   score: string;
   scoreValue: number | null;
   /** The score against the best it had to beat ("+345"); `—` without a personal best. */
@@ -183,6 +186,11 @@ export interface ResultsInput {
   clean?: boolean;
   /** Whether the mode keeps personal bests at all (default true; the Placement run does not). */
   keepsBest?: boolean;
+  /**
+   * The local date (`YYYY-MM-DD`) when the run was the Daily Route (design §4.8): `pb` is then the day best, the card
+   * names it ("New day best") and the header says which day's route it was.
+   */
+  daily?: string | null;
 }
 
 /** Where the card gets a personal best from (#38 provides the real one). */
@@ -546,19 +554,21 @@ export function buildCard(rawInput: ResultsInput, cfg: ResultsTunables = default
 
   const isRun = cfg.run.modes.includes(s.mode);
   const story = input.story ?? null;
-  const pb = pbView(input, s.endReason, isRun ? 'best run' : 'personal best');
+  const daily = isRun ? (input.daily ?? null) : null;
+  const pb = pbView(input, s.endReason, daily !== null ? 'day best' : isRun ? 'best run' : 'personal best');
   const reason: string | null = s.endReason;
   const overtimeTiles = story ? story.sectors.filter((t) => t.overtime) : [];
   const overtimePoints = overtimeTiles.reduce((n, t) => n + t.points, 0);
 
   return {
     mode: s.mode,
-    modeLabel: cfg.modeLabels[s.mode] ?? titleCase(s.mode || 'run'),
+    modeLabel: daily !== null ? `Daily Route · ${dailyLabel(daily)}` : (cfg.modeLabels[s.mode] ?? titleCase(s.mode || 'run')),
     seed: s.seed,
     endReason: s.endReason,
     endLabel: reason ? (cfg.endLabels[reason] ?? titleCase(reason)) : '',
     empty: s.shots === 0,
     clean: input.clean === true,
+    daily,
     score: input.score === null ? DASH : formatThousands(input.score),
     scoreValue: input.score,
     ...pb,
@@ -607,6 +617,8 @@ export interface ResultsRecorderDeps {
   onNewRun?(): void;
   /** Whether the run that just started is a clean run (read at `runEnded`). */
   isClean?(): boolean;
+  /** The date key when the run that just started is the Daily Route (read at `runReady`), else null. */
+  dailyDate?(): string | null;
   /** True for a mode whose result is the player's first rating (the Placement run): shown without a delta. */
   firstRating?(mode: string): boolean;
   /** The run's story (`RunStoryTracker`): route strip and fights by situation. Omit for a run without sectors. */
@@ -627,6 +639,7 @@ export class ResultsRecorder {
   private skill: RatedSkill | null = null;
   private before = 0;
   private first = false;
+  private daily: string | null = null;
   private score: number | null = null;
   private medals: string[] = [];
   private readonly pbSource: PbSource;
@@ -639,6 +652,7 @@ export class ResultsRecorder {
       this.skill = deps.skillOf(e.mode);
       this.before = this.skill === null ? 0 : deps.ratings.rating(this.skill);
       this.first = deps.firstRating?.(e.mode) === true;
+      this.daily = deps.dailyDate?.() ?? null;
       this.score = null;
       this.medals = [];
       this.last = null;
@@ -668,6 +682,7 @@ export class ResultsRecorder {
         deathCause: this.deps.deathCause?.() ?? null,
         situationHistory: this.deps.situationHistory,
         clean: this.deps.isClean?.() === true,
+        daily: this.daily,
       },
       this.cfg,
     );

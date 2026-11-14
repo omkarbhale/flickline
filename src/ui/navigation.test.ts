@@ -44,6 +44,10 @@ describe('main menu', () => {
     expect(act('Enter')).toBe('play');
     expect(act('Enter', { onButton: true })).toBeUndefined();
   });
+  it('D plays the Daily Route, but not while typing', () => {
+    expect(act('KeyD')).toBe('playDaily');
+    expect(act('KeyD', { typing: true })).toBeUndefined();
+  });
   it('has no mode shortcuts any more: 1-9 and K do nothing', () => {
     for (const k of ['Digit1', 'Digit9', 'KeyK']) expect(act(k)).toBeUndefined();
   });

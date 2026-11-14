@@ -9,7 +9,7 @@
  *    next run on a new seed, and `R` replays the seed.
  *  - In the Lobby (pointer locked, no run): `Enter` starts a run; `Backspace` resets the Lobby.
  *  - Pause menu: `Esc`/`Enter` resume, `Backspace` starts a new run, `S` settings, `M` menu.
- *  - Main menu: `Enter` plays (a Sweep run on a new seed), `S` settings.
+ *  - Main menu: `Enter` plays (a Sweep run on a new seed), `D` the Daily Route (design §4.8), `S` settings.
  *  - First-run panel: `Enter` plays unless a field or button has it.
  *  - Settings: `Esc` goes back. Nothing is a trap: every screen has a way back or on, one key away.
  */
@@ -19,6 +19,7 @@ export type RunPhase = 'idle' | 'ready' | 'live' | 'result';
 
 export type NavAction =
   | { type: 'play' }
+  | { type: 'playDaily' }
   | { type: 'resume' }
   | { type: 'newRun' }
   | { type: 'openSettings' }
@@ -37,6 +38,7 @@ export interface NavState {
 }
 
 const PLAY: NavAction = { type: 'play' };
+const PLAY_DAILY: NavAction = { type: 'playDaily' };
 const RESUME: NavAction = { type: 'resume' };
 const NEW_RUN: NavAction = { type: 'newRun' };
 const OPEN_SETTINGS: NavAction = { type: 'openSettings' };
@@ -81,6 +83,7 @@ export function resolveKey(code: string, st: NavState, keys: NavKeys = DEFAULT_N
       return null;
     case 'main':
       if (confirm && !st.onButton) return PLAY;
+      if (code === 'KeyD') return PLAY_DAILY;
       if (code === 'KeyS') return OPEN_SETTINGS;
       return null;
   }
