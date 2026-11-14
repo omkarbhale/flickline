@@ -261,7 +261,9 @@ export const sweep: ModeDef<SweepState> = {
   // The first sector's map is loaded by `setup`; this is only where the host starts.
   map: 'elbow',
   weapon: 'kestrel',
-  player: { allowSwap: true },
+  // Real magazines and reloads, but the reserve never runs dry: the reference game refills it every
+  // round, and a run is many rounds' worth of fights with no ammo to pick up (#201 decision).
+  player: { allowSwap: true, infiniteReserve: true },
   // Echoes shoot back with heavy shields on both sides (design §4.1, §4.6: `full` is the default).
   economy: 'full',
   durationSec: Infinity,

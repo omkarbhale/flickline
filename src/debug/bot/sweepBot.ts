@@ -31,6 +31,8 @@ const STUCK_SEC = 3;
 export class SweepBot {
   private path: Vec3[] = [];
   private wp = 0;
+  /** It was in a fight since the route was planned. */
+  private fought = false;
   private sector = -1;
   private bestDist = Infinity;
   private bestAt = 0;
@@ -41,6 +43,11 @@ export class SweepBot {
     private readonly game: BotGame,
   ) {
     bot.visibleOnly = true;
+    bot.inSight = (t) => {
+      const p = game.world.player;
+      targetAimPoint(t, game.tunables.targets, this.aim);
+      return lineClear(game.world.boxes, p.pos.x, p.pos.y + p.eyeHeight, p.pos.z, this.aim.x, this.aim.y, this.aim.z);
+    };
   }
 
   get stats(): BotStats {
@@ -52,7 +59,7 @@ export class SweepBot {
     if (!world.health.alive || !world.live) return out;
     const st = this.game.modes.runner.state as SweepState | undefined;
     if (!st?.plan) return out;
-    if (st.sector !== this.sector) this.plan(st);
+    if (st.sector !== this.sector) this.plan(st, true);
 
     const p = world.player;
     const eyeY = p.pos.y + p.eyeHeight;
@@ -74,7 +81,13 @@ export class SweepBot {
         targetAimPoint(t, this.game.tunables.targets, this.aim);
         if (!lineClear(world.boxes, p.pos.x, eyeY, p.pos.z, this.aim.x, this.aim.y, this.aim.z)) out.fire = false;
       }
+      this.fought = true;
       return out;
+    }
+    // A fight pulled it off its route: walk on from where it stands.
+    if (this.fought) {
+      this.fought = false;
+      this.plan(st, false);
     }
 
     // Walking: towards the next waypoint, looking where it goes, crosshair at head height.
@@ -87,8 +100,11 @@ export class SweepBot {
       this.bestDist = dist;
       this.bestAt = now;
     }
-    if (dist < REACH_M || now - this.bestAt > secondsToTicks(STUCK_SEC)) {
-      if (this.wp < this.path.length - 1) this.wp++;
+    if (now - this.bestAt > secondsToTicks(STUCK_SEC)) {
+      // Stuck on a corner: a fresh route from here.
+      this.plan(st, false);
+    } else if (dist < REACH_M && this.wp < this.path.length - 1) {
+      this.wp++;
       this.bestDist = Infinity;
       this.bestAt = now;
     }
@@ -109,12 +125,12 @@ export class SweepBot {
     return out;
   }
 
-  /** The route through the sector: entry, nav nodes, exit (the nav graph's shortest path between the nodes nearest each end). */
-  private plan(st: SweepState): void {
+  /** The route to the sector's exit (straight, or along the nav graph), from its entry or from where the player stands. */
+  private plan(st: SweepState, fromEntry: boolean): void {
     this.sector = st.sector;
     const sp = st.plan.sectors[st.sector]!;
     const map = this.game.modes.currentMap;
-    this.path = navRoute(map, sp.entry, sp.exit);
+    this.path = navRoute(map, fromEntry ? sp.entry : this.game.world.player.pos, sp.exit);
     this.wp = 0;
     this.bestDist = Infinity;
     this.bestAt = this.game.world.tick;

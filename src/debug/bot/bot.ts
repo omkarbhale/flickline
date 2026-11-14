@@ -103,6 +103,8 @@ export class Bot {
    * hold behind cover (Sweep) turns it on, or the bot would know where they are through walls.
    */
   visibleOnly = false;
+  /** With `visibleOnly`: whether a seen target is in plain sight now (a target that went back behind cover is not picked). */
+  inSight: ((t: TargetState) => boolean) | null = null;
 
   constructor(
     readonly params: BotParams,
@@ -213,7 +215,7 @@ export class Bot {
       const t = slots[i]!;
       if (!t.alive) continue;
       const visible = t.visibleTick >= 0;
-      if (this.visibleOnly && !visible) continue;
+      if (this.visibleOnly && (!visible || (this.inSight !== null && !this.inSight(t)))) continue;
       if (bestVisible && !visible) continue;
       targetAimPoint(t, this.tunables.targets, this.aimPoint);
       const vx = this.aimPoint.x - ex;

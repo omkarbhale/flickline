@@ -2,6 +2,7 @@
 //   npm run bot -- --mode test --skill 40 [--seed 1] [--runs 5] [--json]
 //   npm run bot -- --suite     regression suite (every mode, skill ordering, determinism, parameters)
 //   npm run bot -- --alloc     allocation audit of the sim tick
+//   npm run bot -- --sweep-report   Sweep balance table (skills 30/50/70, 50 seeded runs each)
 //   npm run bot -- --help
 // No rendering, no browser: the sim runs as fast as the CPU allows (a 60 s run takes well under a second).
 import { resolve } from 'node:path';
