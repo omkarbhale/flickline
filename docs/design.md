@@ -48,7 +48,8 @@ Contents: 1 Pitch and pillars · 2 Core loop · 3 Skills and stat definitions ·
 ### Definitions
 
 - **Run**: one attempt at one mode with one seed. It has three states: `ready` (0.8 s, targets not live, crosshair and movement work so you can settle), `live`, `result`.
-- **Session**: one sitting, expected 15–25 minutes and 12–25 runs. Sessions are suggested but never enforced: the **Play** button starts "Today's session": a 3-run warm-up (lowest-rated skill first, then the skill the last results card flagged, then a favourite) followed by one Sweep run. The player can ignore it at any time.
+- **Session**: one sitting, expected 15–25 minutes and 12–25 runs. Sessions are suggested but never enforced: the **Play** button starts "Today's session": the **Daily Baseline** when it is due (section 8.5), then two **Mix** runs, then one Sweep run. The player can ignore it at any time.
+- **Mix run**: a 60-second run on one map with one weapon whose trials are drawn, in random order (at most two of one skill in a row), from the session's chosen skills (lowest-rated, the skill the last results card flagged, a favourite) that share that map and weapon. Each trial runs at its own skill's matched dial and counts for its own skill, as in the Placement run. A skill with fewer than 60 trials gets its own single-skill run first. Interleaving is a tested hypothesis, not a settled fact: the session's schedule is data, and the practice-schedule experiment ([#159](https://github.com/omkarbhale/flickline/issues/159)) decides between interleaved and blocked (`docs/research/transfer.md` §8).
 - **Instant restart**: `Backspace` during a run, `Enter` on the results card. The world is reset from the run seed (no scene rebuild, no asset load); target: key press to first frame of the next `ready` state ≤ 250 ms on the reference rig. The previous run is saved to history before the reset.
 
 ### What makes the player start another run immediately
@@ -335,7 +336,7 @@ A deterministic rules engine (no model needed) picks one weakness per run:
 
 ### 8.4 Progression
 
-Progress is **rating**, **tiers**, **medals** and **personal bests**; time played earns nothing.
+Progress is **rating**, **tiers**, **medals** and **personal bests** for practice, and the **Daily Baseline** (section 8.5) for learning; time played earns nothing.
 
 - **Rating**: each of the seven skills has a rating 0–3000 (dial × 30). The **Line Rating** shown on the profile is their mean (equal weights, tunable).
 - **Tiers** (dial bands): **Chalk** 0–14, **Brass** 14–28, **Steel** 28–42, **Cobalt** 42–58, **Neon** 58–72, **Prism** 72–86, **Zenith** 86–100. Each tier except Zenith has divisions I–III (thirds of the band). Zenith shows the number only. Ranks go up *and down*: no permanent promotion, only a demotion buffer (a tier changes only after the estimate stays across the boundary for two consecutive runs).
@@ -355,9 +356,23 @@ Progress is **rating**, **tiers**, **medals** and **personal bests**; time playe
 | **Untouched** | A Sweep contact of 3+ enemies cleared without taking damage. |
 | **Flawless** | A run with no miss and no moving shot. |
 | **Ascent** | Rank up to a new sub-tier. |
+| **Retained** | A Daily Baseline whose trend reports "Improved" (section 8.5); at most once per 7 days. |
 
 - **Personal bests**: per mode, per dial band (bands: Chalk/Brass, Steel/Cobalt, Neon, Prism/Zenith, so a PB at an easier band doesn't hide a harder band's), stored with seed, date, score, stats. The live ghost-pace bar uses the PB for your current band.
 - **Persistence**: all progress lives in `localStorage` as one versioned save object with a manual export/import JSON file. No accounts, no telemetry.
+- **Ratings and tiers are practice performance**: they say where the targets are set and they move within a session. Whether the player *learned* is the Daily Baseline's job (section 8.5).
+
+### 8.5 The Daily Baseline: learning, not warm-up
+
+Ratings are measured inside a session, after warm-up, on an adaptive dial, so they climb within an evening whether or not anything was learned. The progress claim therefore comes from one cold, fixed measurement a day. Full rules, evidence and hypotheses: `docs/research/transfer.md` §5.
+
+- **When**: the first run after at least 8 hours without a finished run is the Baseline (the Play button's first run; skippable like any run). Only the first Baseline of a calendar day enters the trend. After the run, one optional key answers "Aimed in any game in the last hour?"; a yes marks it **warm** and keeps it out of the trend.
+- **What** (version 1): 40 trials on the Range with the Kestrel, 20 Orbit-style (`flick`) and 20 Cold-Start-style (`precision`), alternating, at the player's **Baseline level** per skill (dial 15, 30, 45, 60, 75 or 90, moved only after 3 of 5 Baselines above 85% or below 35% success). Each level has a fixed, stored item set; the run's seed only shuffles the order and mirrors items, so every Baseline is equally hard and none can be memorised. No adaptation inside the run.
+- **How it looks**: reference-like. Only the shot, the target's reaction and the hit and kill sounds; no coaching cues, numbers, stat strip, ghost pace or edge meter during the run. The results card shows everything afterwards.
+- **The number**: per skill, an estimate from that run's trials alone (flat prior, `s = 9`), independent of the matched posterior; the Baseline score is their mean on the rating scale. One Baseline is good to about ±3 dial points.
+- **The verdict**: the mean of the last `k` valid Baselines against the `k` before (`k` up to 7, at least 3), with a noise band from the player's own day-to-day spread. "**Improved**" only beyond the band, otherwise "**Steady**" or "**Lower**". It is the headline of the profile (section 9.5) and earns the Retained medal.
+- **Reference check-in** (optional, weekly, local only): the player types their reference-game shooting-test scores and 20-match headshot % (`docs/research/transfer.md` §6); the profile shows them beside the Baseline trend and claims nothing about the relationship. Nothing is ever sent anywhere.
+- Each change to the Baseline's content is a new version and a new series. Built in [#150](https://github.com/omkarbhale/flickline/issues/150), [#151](https://github.com/omkarbhale/flickline/issues/151), [#153](https://github.com/omkarbhale/flickline/issues/153) and [#154](https://github.com/omkarbhale/flickline/issues/154).
 
 ---
 
@@ -411,7 +426,7 @@ The dial 0–100 maps to the seven axes (each mode uses a subset; linear unless 
 
 - **Before a run**: the mode card shows "Matched to you: Cobalt II · dial 51", with a one-line explanation on hover: "Targets are set to ~70% hit rate for you."
 - **After a run**: rating, delta, tier, progress bar (section 8.2).
-- **Skill profile screen** (from the menu): a seven-axis radar, each axis with tier badge, rating, a shaded confidence band, and a sparkline of the last 20 runs; the weakest axis is highlighted.
+- **Skill profile screen** (from the menu): headed by the **Daily Baseline trend** (section 8.5): the verdict line, the noise band, "taken X of the last 14 days", the warm-up gap (today's Baseline against today's best matched rating) and, if the player uses it, the reference check-in beside it. Below it, labelled "matched rating: where your targets are set": a seven-axis radar, each axis with tier badge, rating, a shaded confidence band, and a sparkline of the last 20 runs; the weakest axis is highlighted.
 - **While playing**: a thin **edge meter** in the HUD corner shows the rolling success rate (target zone 60–80% shaded); outside the zone it just shows the number. It is purely informational.
 
 ### 9.6 Verification
@@ -538,7 +553,7 @@ Rendered in a dedicated lightweight overlay (CSS or one 2D canvas drawn on chang
 | **Audio** | Master, weapons, hits, enemies, UI volumes; "hit sound style" (Standard, Soft); mono option; enemy tell volume. |
 | **Graphics** | Preset (Low/Medium/High), render scale, FPS cap (60 / 144 / 240 / uncapped), show FPS and 1% lows, post effects, enemy outline, enemy colour preset, **Reduce flashing**, viewmodel (on/off, left/right). |
 | **Gameplay** | **Coaching cues** (violet moving-shot tracer, `⇆` glyph, miss ghost; on by default for learning, off for a pure reference-like view), show damage numbers, stat strip items, HUD scale, difficulty pin (per mode). |
-| **Data** | Export/import save (JSON), reset progress (confirm). |
+| **Data** | Export/import save (JSON), reset progress (confirm), reference check-in prompt (on by default; section 8.5). |
 
 Settings persist immediately and apply live.
 
@@ -598,7 +613,7 @@ All numbers in this document that are marked tunable live in the typed `config/`
 
 ### 14.5 Persistence
 
-One versioned `save` object (`version`, `profile` (self-report, sensitivity), `ratings` (posterior grids per skill, compact), `bests`, `medals`, `history` (last 200 runs, summary stats only), `settings`), stored in `localStorage` under `flickline.save.v1` (separate from the foundation's `flickline.settings.v1`) with a migration function per version and JSON export/import.
+One versioned `save` object (`version`, `profile` (self-report, sensitivity), `ratings` (posterior grids per skill, compact), `bests`, `medals`, `history` (last 200 runs, summary stats only), `baselines` (every Baseline record, compact) and `baselineLevels` (section 8.5), `checkins` (reference check-ins, never sent anywhere), `settings`), stored in `localStorage` under `flickline.save.v1` (separate from the foundation's `flickline.settings.v1`) with a migration function per version and JSON export/import.
 
 ### 14.6 Where the code lives
 
@@ -617,23 +632,25 @@ Aligned with the layout and layering rule in the architecture issue (#54). Pure 
 | Synthesis and cue wiring | `audio/` | no |
 | Bot harness, perf harness | `debug/` (and `scripts/`) | no |
 
-### 14.7 Three quality tracks: numbers, feel, fun
+### 14.7 Four quality tracks: numbers, feel, fun, transfer
 
-Three different questions are asked of the game, tracked in three separate long-lived issues and judged in three different ways. They are never merged into one score, because they fail independently: the numbers can match exactly while the recoil, sounds or hit response feel different from the reference game, and a game can have exact numbers and a faithful feel and still be dull.
+Four different questions are asked of the game, tracked in four separate long-lived issues and judged in four different ways. They are never merged into one score, because they fail independently: the numbers can match exactly while the recoil, sounds or hit response feel different from the reference game, a game can have exact numbers and a faithful feel and still be dull, and a game can pass all three while the player's reference-game play does not move.
 
 | Track | Question | Judged by | Tracking issue |
 |---|---|---|---|
 | **Numbers conformance** | Does every implemented mechanic value and measurable behaviour equal `docs/mechanics-spec.md`? | Automated first. A conformance suite and a generated conformance table, `docs/conformance.md`: one row per spec value or behaviour with the spec value and section, the implemented value, the test, and a status (match / deviation with a written reason / not implemented yet / placeholder-or-estimate flagged by the spec). Pass: every in-scope value has a row, zero unexplained mismatches. | [#61](https://github.com/omkarbhale/flickline/issues/61) |
 | **Feel similarity** | Independent of the numbers, do recoil, movement, shot sounds, hit and kill sounds, hit response and timing feel like the reference game? | Looked-at and listened-to passes scored against a written checklist, `docs/feel-checklist.md`: items per area (recoil feel, movement feel, shot sounds, hit and kill sounds, hit response, timing, view), each scored 0/1/2 with evidence (frame captures, audio renders and measurements, latency numbers). Pass: a percentage of points, a floor per area, no critical zero. | [#62](https://github.com/omkarbhale/flickline/issues/62) |
 | **Fun** | Is it compelling to play: does it pull you into another run, hold you at the edge of your ability, and reward good mechanics clearly? | Playtest passes following `docs/fun-criteria.md`: a fixed human question set, measured proxies (restart friction, edge-of-ability success rate, dead-air gaps, reward cadence) and an explicit verdict on whether Sweep plays like a game rather than a drill. | [#63](https://github.com/omkarbhale/flickline/issues/63) |
+| **Transfer** | Does skill earned here carry over to the reference game, and does every mode teach only habits that are also right there? | `docs/transfer-checklist.md`: a habit review per mode (items scored *same* / *different but harmless* / *harmful*, harmful being a bug), the Daily Baseline's bot tests and data (section 8.5), and the transfer pilot's verdict. Pass: per phase, no open critical harmful habit and learning measured honestly; transfer itself is claimed only by a study large enough to show it. | [#149](https://github.com/omkarbhale/flickline/issues/149) |
 
-Rules that keep the three honest:
+Rules that keep the four honest:
 
 - **Feel is judged against descriptions, never assets.** The checklist describes behaviours, relationships and timings in our own words. No reference audio, video or image is copied, recorded, ripped, embedded or used as a synthesis target (section 16). Sounds stay synthesised from code and are tuned until the checklist items pass.
 - **Numbers belong to the spec, not to the feel pass.** Tuning for feel changes presentation parameters (viewmodel kick curves, hit-marker timing, synthesis parameters, flinch and tagging presentation), never a value that has a row in the conformance table. If feel can only be reached by changing such a value, that is an issue on the numbers track.
 - **Conflicts are filed, not silently resolved.** Mechanical truth (pillar 1) outranks fun for everything inside the mechanics; fun outranks feel-polish for everything around the mechanics (pacing, rewards, results flow).
-- **Every playtest pass reports the three verdicts separately**, in three sections of its report, each also posted on its tracking issue; every defect is filed with the matching `quality:numbers`, `quality:feel` or `quality:fun` label.
-- Owners: the conformance suite [#64](https://github.com/omkarbhale/flickline/issues/64), the feel checklist [#65](https://github.com/omkarbhale/flickline/issues/65) and feel tuning [#67](https://github.com/omkarbhale/flickline/issues/67), the fun criteria [#66](https://github.com/omkarbhale/flickline/issues/66) and fun tuning [#68](https://github.com/omkarbhale/flickline/issues/68); the playtests are [#29](https://github.com/omkarbhale/flickline/issues/29) and [#56](https://github.com/omkarbhale/flickline/issues/56).
+- **A harmful habit is a mechanical-truth defect.** A mode that rewards a habit that fails in the reference game is fixed in the mode, however fun it is; the mechanics' numbers stay the spec's.
+- **Every playtest pass reports the four verdicts separately**, in four sections of its report, each also posted on its tracking issue; every defect is filed with the matching `quality:numbers`, `quality:feel`, `quality:fun` or `quality:transfer` label.
+- Owners: the conformance suite [#64](https://github.com/omkarbhale/flickline/issues/64), the feel checklist [#65](https://github.com/omkarbhale/flickline/issues/65) and feel tuning [#67](https://github.com/omkarbhale/flickline/issues/67), the fun criteria [#66](https://github.com/omkarbhale/flickline/issues/66) and fun tuning [#68](https://github.com/omkarbhale/flickline/issues/68), the transfer checklist and research (`docs/transfer-checklist.md`, `docs/research/transfer.md`, from [#128](https://github.com/omkarbhale/flickline/issues/128)) with the first habit review [#160](https://github.com/omkarbhale/flickline/issues/160) and the transfer pilot [#158](https://github.com/omkarbhale/flickline/issues/158); the playtests are [#29](https://github.com/omkarbhale/flickline/issues/29) and [#56](https://github.com/omkarbhale/flickline/issues/56).
 
 ---
 
@@ -643,7 +660,7 @@ Rules that keep the three honest:
 A build someone can play from a link that demonstrates the loop: Range map; weapons Pace and Kestrel using the spec's numbers; Posts and Beacons; Cold Start and Orbit; the Placement run and the skill model v1 with persistence; the full per-shot feedback of section 7.1 (excluding medals and surge); live stat strip; basic results card with the one-thing-to-fix stub (moving shots, time to shot); crosshair editor; sensitivity in the reference scale; first-run flow; synthesised sounds for shots, hits, headshots, kills; instant restart; a perf harness and an automated bot playtest; the conformance suite and the feel and fun checklists; a looked-at playtest pass reporting numbers, feel and fun separately.
 
 ### First release
-Everything in sections 4–13: all eight modes, four maps, four weapons (Pace, Kestrel, Vane, Rill), seven enemy types, damage and slow-on-hit, the full feedback set including callouts and medals, results breakdown with the fix engine and spray trace, skill profile, ranks and PBs, settings, post effects, viewmodels, UI kit, accessibility options, balance, performance and legal passes, and a full playtest.
+Everything in sections 4–13: all eight modes, four maps, four weapons (Pace, Kestrel, Vane, Rill), seven enemy types, damage and slow-on-hit, the full feedback set including callouts and medals, results breakdown with the fix engine and spray trace, skill profile, ranks and PBs, the Daily Baseline and reference check-in, Mix runs, settings, post effects, viewmodels, UI kit, accessibility options, balance, performance and legal passes, a full playtest, and the transfer pilot.
 
 ### Later (not scheduled)
 Longnail sniper and scoped sensitivity; shotgun; more maps (Stack and others); an in-browser map editor; replays and ghost runs; shareable seeds and daily seeds; online leaderboards (needs a backend); generative music; gamepad; desktop wrapper; localisation.
@@ -672,7 +689,7 @@ The work is tracked in GitHub issues on `omkarbhale/flickline`; every issue stat
 
 - Prerequisites outside this backlog: code foundation [#6](https://github.com/omkarbhale/flickline/issues/6) (merged), mechanics spec [#7](https://github.com/omkarbhale/flickline/issues/7) (merged), architecture and conventions [#54](https://github.com/omkarbhale/flickline/issues/54).
 - Phase tracking issues: [#9 first playable](https://github.com/omkarbhale/flickline/issues/9), [#10 first release](https://github.com/omkarbhale/flickline/issues/10), [#11 later (parked ideas)](https://github.com/omkarbhale/flickline/issues/11).
-- Quality tracking issues (long-lived, section 14.7): [#61 numbers conformance](https://github.com/omkarbhale/flickline/issues/61), [#62 feel similarity](https://github.com/omkarbhale/flickline/issues/62), [#63 fun](https://github.com/omkarbhale/flickline/issues/63).
+- Quality tracking issues (long-lived, section 14.7): [#61 numbers conformance](https://github.com/omkarbhale/flickline/issues/61), [#62 feel similarity](https://github.com/omkarbhale/flickline/issues/62), [#63 fun](https://github.com/omkarbhale/flickline/issues/63), [#149 transfer](https://github.com/omkarbhale/flickline/issues/149).
 
 ### First playable
 
@@ -696,6 +713,7 @@ The work is tracked in GitHub issues on `omkarbhale/flickline`; every issue stat
 - [#64](https://github.com/omkarbhale/flickline/issues/64) test: spec conformance suite and generated conformance table (numbers quality)
 - [#65](https://github.com/omkarbhale/flickline/issues/65) research: reference-feel checklist for recoil, movement, sounds, hit response and timing (feel quality)
 - [#66](https://github.com/omkarbhale/flickline/issues/66) research: fun criteria and playtest protocol (fun quality)
+- [#160](https://github.com/omkarbhale/flickline/issues/160) review: first transfer habit review of Cold Start, Orbit and the Placement run (transfer quality)
 - [#29](https://github.com/omkarbhale/flickline/issues/29) playtest: first playable pass — reports numbers, feel and fun separately
 
 ### First release
@@ -726,5 +744,12 @@ The work is tracked in GitHub issues on `omkarbhale/flickline`; every issue stat
 - [#55](https://github.com/omkarbhale/flickline/issues/55) perf: first-release 144 fps pass on Range, Lane, Elbow and Foundry
 - [#67](https://github.com/omkarbhale/flickline/issues/67) balance: feel tuning pass — recoil, movement, sounds, hit response and timing against the checklist (feel quality)
 - [#68](https://github.com/omkarbhale/flickline/issues/68) balance: fun tuning pass — pacing, reward cadence, restart friction and the flagship's game feel (fun quality)
+- [#150](https://github.com/omkarbhale/flickline/issues/150) feat(modes): Daily Baseline run — fixed item sets, levels, daily shuffle and reference-like presentation
+- [#151](https://github.com/omkarbhale/flickline/issues/151) feat(skill): Baseline estimate, series and trend — progress beyond the player's own noise
+- [#153](https://github.com/omkarbhale/flickline/issues/153) feat(ui): Baseline on the results card and as the profile headline — verdict, warm-up gap, Retained medal
+- [#154](https://github.com/omkarbhale/flickline/issues/154) feat(ui): reference check-in — weekly, local-only reference-game numbers beside the Baseline trend
+- [#157](https://github.com/omkarbhale/flickline/issues/157) feat(modes): Mix runs and the interleaved Today's session
+- [#158](https://github.com/omkarbhale/flickline/issues/158) playtest: transfer pilot — two arms, two weeks, cold reference-game test before and after (transfer quality)
+- [#159](https://github.com/omkarbhale/flickline/issues/159) playtest: practice-schedule experiment — interleaved Mix against blocked drills, Baseline retention
 - [#56](https://github.com/omkarbhale/flickline/issues/56) playtest: first release pass — reports numbers, feel and fun separately
 - [#57](https://github.com/omkarbhale/flickline/issues/57) audit: identity and legal check — names, assets, fonts, licences, no copied content
