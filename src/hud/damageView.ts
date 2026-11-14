@@ -2,38 +2,36 @@ import type { Subscribable } from '../core/eventBus';
 import { clamp } from '../core/math';
 import type { DamageFxTunables } from '../config/damageFx';
 import { palette } from '../config/palette';
-import type { PlayerHealth, SimEvents } from '../sim/types';
+import type { SimEvents } from '../sim/types';
 import { arcAlpha, DamageArcPool } from './damageArcs';
 
-type DamageEvents = Pick<SimEvents, 'playerDamaged' | 'playerHealed'>;
+type DamageEvents = Pick<SimEvents, 'playerDamaged'>;
 
 const ALPHA_STEPS = 32;
 
 /**
  * The player's damage presentation (design §7.1 "Taking damage"): a directional arc towards the
- * shooter, a vignette that narrows in, a 150 ms desaturation and the HP bar flash. Event driven
- * like the rest of the HUD: the vignette, desaturation and HP flash are CSS animations restarted
- * by a class toggle. The only per-frame work is `update()`, which redraws the arcs on a small
- * canvas while one is showing (they follow the live view yaw, so the arc stays on the shooter as
+ * shooter, a vignette that narrows in and a 150 ms desaturation. Event driven like the rest of
+ * the HUD: the vignette and desaturation are CSS animations restarted by a class toggle. It draws
+ * no health bar: there is one, the live HUD's (design §13.1, which respects the HUD toggles and
+ * layout), and that bar also owns the §7.1 "HP bar flashes" cue. The only per-frame work is
+ * `update()`, which redraws the arcs on a small canvas while one is showing (they follow the live view yaw, so the arc stays on the shooter as
  * the player turns) and does nothing otherwise. The canvas draw allocates nothing: the colour
  * strings are built once.
  *
- * Reduce flashing: no vignette pulse, no desaturation, no HP flash; the arc remains (it is
+ * Reduce flashing: no vignette pulse, no desaturation; the arc remains (it is
  * information, not a flash) and fades slowly instead of snapping.
  */
 export class DamageView {
   private readonly host: HTMLElement;
   private readonly vignette: HTMLElement;
   private readonly desat: HTMLElement;
-  private readonly hp: HTMLElement;
-  private readonly hpText: HTMLElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D | null;
   private readonly pool: DamageArcPool;
   private readonly styles: string[] = [];
   private readonly mergeRad: number;
   private reduceFlashing = false;
-  private alwaysShowHp = false;
   private drawn = false;
   /** CSS size of the arc canvas, device pixels per side. */
   private px = 0;
@@ -45,7 +43,6 @@ export class DamageView {
     root: HTMLElement,
     bus: Subscribable<DamageEvents>,
     private readonly fx: Readonly<DamageFxTunables>,
-    private readonly health: Readonly<PlayerHealth>,
     reduceFlashing: boolean,
     private readonly now: () => number,
     private readonly liveYaw: () => number,
@@ -55,15 +52,12 @@ export class DamageView {
     host.innerHTML = `
       <div class="dmg-vignette"></div>
       <div class="dmg-desat"></div>
-      <canvas class="dmg-arcs"></canvas>
-      <div class="hp"><div class="hp-fill"></div><div class="hp-shield"></div><span class="hp-text"></span></div>`;
+      <canvas class="dmg-arcs"></canvas>`;
     root.appendChild(host);
     this.host = host;
     this.vignette = host.querySelector('.dmg-vignette') as HTMLElement;
     this.desat = host.querySelector('.dmg-desat') as HTMLElement;
     this.canvas = host.querySelector('.dmg-arcs') as HTMLCanvasElement;
-    this.hp = host.querySelector('.hp') as HTMLElement;
-    this.hpText = host.querySelector('.hp-text') as HTMLElement;
     this.ctx = this.canvas.getContext('2d');
     this.pool = new DamageArcPool(fx.arcCapacity);
     this.mergeRad = (fx.arcMergeDeg * Math.PI) / 180;
@@ -74,13 +68,8 @@ export class DamageView {
     host.style.setProperty('--dmg-vignette-ms', `${fx.vignetteMs}ms`);
     host.style.setProperty('--dmg-desat-ms', `${fx.desaturateMs}ms`);
     host.style.setProperty('--dmg-desat-to', String(fx.desaturateTo));
-    host.style.setProperty('--dmg-hp-flash-ms', `${fx.hpFlashMs}ms`);
 
-    this.offs = [
-      bus.on('playerDamaged', (e) => this.onDamaged(e)),
-      bus.on('playerHealed', () => this.syncHp(false)),
-    ];
-    this.syncHp(false);
+    this.offs = [bus.on('playerDamaged', (e) => this.onDamaged(e))];
   }
 
   /** Reduce flashing changed (settings). */
@@ -93,12 +82,6 @@ export class DamageView {
     this.host.classList.toggle('gl-vignette', !on);
   }
 
-  /** Keep the HP bar up even at full health (modes with enemy fire). */
-  setHpAlwaysVisible(v: boolean): void {
-    this.alwaysShowHp = v;
-    this.syncHp(false);
-  }
-
   /** Size the arc canvas for the viewport (call on resize). The arcs sit on a ring around the crosshair. */
   resize(width: number, height: number, dpr: number): void {
     const side = Math.round(Math.min(width, height) * 0.84 * Math.min(dpr, 2));
@@ -108,14 +91,12 @@ export class DamageView {
     this.drawn = false;
   }
 
-  /** The world was reset (restart, new run): clear everything and re-read the health. */
+  /** The world was reset (restart, new run): clear everything. */
   reset(): void {
     this.pool.clear();
     this.clearCanvas();
     this.vignette.classList.remove('hit');
     this.desat.classList.remove('hit');
-    this.hp.classList.remove('hit');
-    this.syncHp(false);
   }
 
   private onDamaged(e: Readonly<SimEvents['playerDamaged']>): void {
@@ -124,29 +105,12 @@ export class DamageView {
       this.restart(this.vignette);
       this.restart(this.desat);
     }
-    this.syncHp(!this.reduceFlashing);
   }
 
   private restart(el: HTMLElement): void {
     el.classList.remove('hit');
     void el.offsetWidth; // restart the CSS animation
     el.classList.add('hit');
-  }
-
-  /** Rewrite the HP bar (events only). */
-  private syncHp(flash: boolean): void {
-    const h = this.health;
-    const frac = h.maxHp > 0 ? clamp(h.hp / h.maxHp, 0, 1) : 0;
-    // A shield is a part of the bar: it shows with the bar, as a thin strip along the top (spec §4.1).
-    const sf = h.maxShield > 0 ? clamp(h.shield / h.maxShield, 0, 1) : 0;
-    this.hp.classList.toggle('shown', this.alwaysShowHp || h.hp < h.maxHp || h.shield < h.maxShield);
-    this.hp.classList.toggle('low', frac <= 0.3);
-    this.hp.classList.toggle('shielded', h.maxShield > 0);
-    this.hp.style.setProperty('--hp', String(frac));
-    this.hp.style.setProperty('--sh', String(sf));
-    // HP is shown rounded UP: the sim keeps floats, and 0 on the bar means dead.
-    this.hpText.textContent = String(Math.ceil(h.hp));
-    if (flash) this.restart(this.hp);
   }
 
   /** Per frame: redraw the arcs while any is showing (no-op, and no DOM or canvas work, when idle). */
