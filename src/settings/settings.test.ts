@@ -65,6 +65,9 @@ describe('settings', () => {
 
   it('sanitises Reduce flashing and the flinch strength', () => {
     expect(DEFAULT_SETTINGS.reduceFlashing).toBe(false);
+    expect(DEFAULT_SETTINGS.chromaticPulse).toBe(false); // optional: off until the player opts in (design section 11)
+    expect(sanitizeSettings({ chromaticPulse: 'yes' }).chromaticPulse).toBe(false);
+    expect(sanitizeSettings({ chromaticPulse: true }).chromaticPulse).toBe(true);
     expect(DEFAULT_SETTINGS.flinchStrength).toBe(1);
     const s = sanitizeSettings({ reduceFlashing: 'yes', flinchStrength: 9 });
     expect(s.reduceFlashing).toBe(false);

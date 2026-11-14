@@ -28,6 +28,8 @@ export interface Settings {
   damageNumbers: boolean;
   /** Disables screen pulses and chromatic effects (design §13.3). */
   reduceFlashing: boolean;
+  /** A 50 ms red/blue split on kills (design section 11 "optional chromatic"). Needs the High preset; Reduce flashing overrides it. */
+  chromaticPulse: boolean;
   /** Aim punch when hit, multiplier of the spec's kick (spec §4.4: 1 = default, 0 disables). */
   flinchStrength: number;
   /** Crosshair appearance (design 13.2). Replaced as a whole by `set`. */
@@ -50,6 +52,7 @@ export const DEFAULT_SETTINGS: Settings = {
   missGhost: true,
   damageNumbers: true,
   reduceFlashing: false,
+  chromaticPulse: false,
   flinchStrength: 1,
   crosshair: DEFAULT_CROSSHAIR,
   hud: DEFAULT_HUD,
@@ -96,6 +99,7 @@ export function sanitizeSettings(raw: unknown): Settings {
   out.missGhost = bool(r.missGhost, out.missGhost);
   out.damageNumbers = bool(r.damageNumbers, out.damageNumbers);
   out.reduceFlashing = bool(r.reduceFlashing, out.reduceFlashing);
+  out.chromaticPulse = bool(r.chromaticPulse, out.chromaticPulse);
   out.flinchStrength = num(r.flinchStrength, 0, 2, out.flinchStrength);
   out.crosshair = sanitizeCrosshair(r.crosshair);
   out.hud = sanitizeHud(r.hud);

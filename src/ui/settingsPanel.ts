@@ -12,6 +12,7 @@ const TOGGLES: readonly [keyof Settings, string][] = [
   ['missGhost', 'Miss ghost ring'],
   ['damageNumbers', 'Damage numbers'],
   ['reduceFlashing', 'Reduce flashing (no screen pulses)'],
+  ['chromaticPulse', 'Chromatic kill pulse (High graphics only)'],
 ];
 
 /**
