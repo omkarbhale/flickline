@@ -1,207 +1,475 @@
-import { cmPer360, sensitivityFromCmPer360 } from '../core/sensitivity';
 import { SELF_REPORTS, type SelfReport } from '../config/profile';
-import { QUALITY_LEVELS } from '../config/render';
-import type { ViewmodelMode } from '../config/viewmodel';
+import type { MenuTunables } from '../config/menu';
 import type { Tunables } from '../config/tunables';
 import type { ProfileStore } from '../settings/profile';
-import type { Settings, SettingsStore } from '../settings/settings';
-import { CrosshairEditor } from './crosshairEditor';
-import { HudSettingsPanel } from './hudSettings';
+import type { SettingsStore } from '../settings/settings';
+import { icon } from './kit/icons';
+import { applyPalette, button, h, panel } from './kit/kit';
+import { wordmark } from './kit/wordmark';
+import type { CardModel, SessionView } from './menuModel';
+import { gridMove, resolveKey, type NavAction, type NavState, type RunPhase, type Screen } from './navigation';
+import { SettingsPanel } from './settingsPanel';
 
 /**
  * - `firstRun`: a new player (design 13.4): compact bottom-centre panel over the live Range with
  *   the sensitivity field, self-report chips and Click to play. No tutorial text.
- * - `main`: a returning player's landing menu.
- * - `pause`: the pointer lock was lost (Esc, alt-tab): Click to resume, Backspace restarts.
+ * - `main`: the landing menu: Play (today's session), the mode cards, settings.
+ * - `pause`: the pointer lock was lost (Esc, alt-tab): Resume, Restart, Settings, Menu.
+ * `settings` is reached from `main` and `pause` and goes back to where it came from.
  */
 export type MenuMode = 'firstRun' | 'main' | 'pause';
 
-export interface MenuHandlers {
-  /** Enter the game (and take pointer lock); needs a user gesture. */
-  onPlay: () => void;
-  /** Restart from the pause panel (Backspace). */
-  onRestart: () => void;
+/** What the menu asks of the game, and what it reads from it. */
+export interface MenuHost {
+  /** First run: enter the game (and take pointer lock); needs a user gesture. */
+  play(): void;
+  /** Take the pointer lock back and carry on. */
+  resume(): void;
+  /** Restart the current run from its seed (and take the lock). */
+  restart(): void;
+  /** Leave the run and show the main menu. */
+  toMenu(): void;
+  /** Start Today's session (its first step, or the next one when it is under way). */
+  playSession(): void;
+  /** Skip the current step of the session. */
+  skipStep(): void;
+  /** Start one mode from its card. */
+  launchMode(modeId: string): void;
+  /** The run clock's phase (for the in-run keys). */
+  runPhase(): RunPhase;
+  /** Cards for the registered modes. */
+  cards(): CardModel[];
+  /** Today's session: the plan, or the progress through it. */
+  session(): SessionView;
+  /** Name of the mode in progress ("Orbit") for the pause title, or null. */
+  runLabel(): string | null;
 }
 
 /**
- * Start / pause menu with the settings panel. Shown whenever the pointer is not locked.
- * Plain DOM, built once; values sync from the SettingsStore and ProfileStore.
+ * The menu shell: one router over the screens, built once. Screens are plain DOM written on show
+ * (never per frame); the settings form is `SettingsPanel`, and the key rules are `navigation.ts`.
+ * Shown whenever the pointer is not locked.
  */
 export class Menu {
   private readonly el: HTMLElement;
-  private readonly sens: HTMLInputElement;
-  private readonly dpi: HTMLInputElement;
-  private readonly cm: HTMLInputElement;
-  private readonly vol: HTMLInputElement;
-  private readonly quality: HTMLSelectElement;
-  private readonly flinch: HTMLSelectElement;
-  private readonly viewmodel: HTMLSelectElement;
-  private readonly title: HTMLElement;
-  private readonly toggles: [keyof Settings, HTMLInputElement][] = [];
-  private readonly play: HTMLButtonElement;
-  private readonly raw: HTMLElement;
+  private readonly settingsPanel: SettingsPanel;
+  private readonly screens: Record<Screen, HTMLElement>;
+  private readonly firstRunHost: HTMLElement;
+  private readonly settingsBasicsHome: HTMLElement;
   private readonly chips: HTMLButtonElement[];
-  private mode: MenuMode = 'main';
-  private readonly crosshair: CrosshairEditor;
-  private readonly hudPanel: HudSettingsPanel;
+  private readonly rawNotes: HTMLElement[] = [];
+  private readonly cardsEl: HTMLElement;
+  private readonly sessionEl: HTMLElement;
+  private readonly mainButtons: HTMLElement;
+  private readonly pauseTitle: HTMLElement;
+  private readonly pauseSub: HTMLElement;
+  private readonly pauseSession: HTMLElement;
+  private readonly pauseSkip: HTMLButtonElement;
+  private readonly cfg: MenuTunables;
+  private screen: Screen = 'main';
+  private settingsReturn: Exclude<Screen, 'settings'> = 'main';
+  private open = false;
+  private lastView: SessionView = { active: false, steps: [], progressText: '' };
+  private cardEls: HTMLButtonElement[] = [];
+  private playBtn!: HTMLButtonElement;
+  private skipBtn!: HTMLButtonElement;
 
   constructor(
     root: HTMLElement,
-    private readonly store: SettingsStore,
+    store: SettingsStore,
     private readonly profile: ProfileStore,
     tunables: Tunables,
-    handlers: MenuHandlers,
+    private readonly host: MenuHost,
   ) {
     this.el = root;
-    root.innerHTML = `
-      <div class="panel">
-        <h1>FLICKLINE</h1>
-        <p class="tag">First-person aim and movement trainer</p>
-        <div class="chips only-first" role="group" aria-label="How experienced are you with shooters?">
-          ${SELF_REPORTS.map((r) => `<button type="button" class="chip" data-chip="${r}" aria-pressed="false">${tunables.profile.chipLabels[r]}</button>`).join('')}
-        </div>
-        <button class="play" type="button">Click to play</button>
-        <p class="raw" data-raw></p>
-        <p class="hint not-first" data-title>Esc opens this menu</p>
-        <div class="grid">
-          <label><span>Sensitivity <small>(reference scale)</small></span><input data-k="sens" name="sens" id="set-sens" type="number" step="any" min="0.01" max="20" /></label>
-          <label>Mouse DPI<input data-k="dpi" name="dpi" id="set-dpi" type="number" step="50" min="100" max="32000" /></label>
-          <label>cm / 360°<input data-k="cm" name="cm" id="set-cm" type="number" step="any" min="1" max="1000" /></label>
-          <label class="not-first">Volume<input data-k="vol" name="vol" id="set-vol" type="range" min="0" max="1" step="0.01" /></label>
-          <label class="not-first">Graphics<select data-k="quality" name="quality" id="set-quality">${QUALITY_LEVELS.map((q) => `<option value="${q}">${q}</option>`).join('')}</select></label>
-        </div>
-        <div class="grid toggles not-first">
-          <label class="check"><input data-k="coachingCues" type="checkbox" /> Coaching cues (amber moving-shot tracer, ⇆)</label>
-          <label class="check"><input data-k="missGhost" type="checkbox" /> Miss ghost ring</label>
-          <label class="check"><input data-k="damageNumbers" type="checkbox" /> Damage numbers</label>
-          <label class="check"><input data-k="reduceFlashing" type="checkbox" /> Reduce flashing (no screen pulses)</label>
-          <label>Weapon<select data-k="viewmodel" name="viewmodel" id="set-viewmodel"><option value="right">right hand</option><option value="left">left hand</option><option value="hidden">hidden</option></select></label>
-          <label>Hit flinch<select data-k="flinch" name="flinch" id="set-flinch"><option value="0">off</option><option value="0.5">half</option><option value="1">normal</option><option value="2">strong</option></select></label>
-        </div>
-        <details class="ch-editor not-first"><summary>Crosshair</summary><div data-k="crosshair"></div></details>
-        <details class="ch-editor not-first"><summary>HUD</summary><div data-k="hud"></div></details>
-        <p class="note not-first"></p>
-        <p class="keys not-first">WASD move · Space jump · Ctrl/C crouch · Shift walk · LMB shoot · R reload · \` debug overlay</p>
-      </div>`;
-    const q = <T extends HTMLElement>(k: string): T => root.querySelector(`[data-k="${k}"]`) as T;
-    this.sens = q('sens');
-    this.dpi = q('dpi');
-    this.cm = q('cm');
-    this.vol = q('vol');
-    this.quality = q('quality');
-    this.flinch = q('flinch');
-    this.viewmodel = q('viewmodel');
-    this.crosshair = new CrosshairEditor(q('crosshair'), store);
-    this.hudPanel = new HudSettingsPanel(q('hud'), store);
-    this.title = root.querySelector('[data-title]') as HTMLElement;
-    this.play = root.querySelector('.play') as HTMLButtonElement;
-    this.raw = root.querySelector('[data-raw]') as HTMLElement;
-    this.chips = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-chip]'));
-    (root.querySelector('.note') as HTMLElement).textContent = tunables.view.fovLockNote;
+    this.cfg = tunables.menu;
+    applyPalette(root);
+    root.replaceChildren();
 
-    this.play.addEventListener('click', handlers.onPlay);
-    root.querySelector('.panel')!.addEventListener('click', (e) => e.stopPropagation());
-    root.addEventListener('click', handlers.onPlay);
-    for (const chip of this.chips) {
-      chip.addEventListener('click', () => {
-        const r = chip.dataset.chip as SelfReport;
+    this.settingsPanel = new SettingsPanel(store, tunables, () => {
+      if (this.screen === 'firstRun') host.play();
+    });
+    this.settingsBasicsHome = this.settingsPanel.basics.parentElement as HTMLElement;
+
+    // --- First run (design 13.4) ---
+    const chipRow = h('div', { class: 'chips', attrs: { role: 'group', 'aria-label': 'How experienced are you with shooters?' } });
+    this.chips = SELF_REPORTS.map((r) => {
+      const c = h('button', { class: 'chip', text: tunables.profile.chipLabels[r], attrs: { type: 'button', 'data-chip': r, 'aria-pressed': 'false' } });
+      c.addEventListener('click', () => {
         // Clicking the picked chip again clears it (skip -> prior 40).
-        this.profile.set({ selfReport: this.profile.get().selfReport === r ? null : r });
+        this.profile.set({ selfReport: this.profile.get().selfReport === r ? null : (r as SelfReport) });
         this.sync();
       });
-    }
-    // Enter in a field commits the value and goes straight in (a keypress is a user gesture too).
-    root.querySelectorAll('input').forEach((input) =>
-      input.addEventListener('keydown', (e) => {
-        if (e.key !== 'Enter') return;
-        input.blur();
-        handlers.onPlay();
-      }),
-    );
-    window.addEventListener('keydown', (e) => {
-      if (this.mode === 'pause' && this.el.classList.contains('open') && e.code === 'Backspace') {
-        e.preventDefault();
-        handlers.onRestart();
-      }
+      chipRow.append(c);
+      return c;
     });
+    this.firstRunHost = h('div', { class: 'first-basics' });
+    const firstPlay = button('Click to play', { variant: 'primary', icon: 'play', onClick: () => host.play() });
+    firstPlay.classList.add('play-wide');
+    const firstPanel = panel({ class: 'first-panel' });
+    firstPanel.body.append(
+      h('div', { class: 'first-head' }, [wrapHtml(wordmark(22)), h('span', { class: 'first-tag', text: 'First-person aim and movement trainer' })]),
+      this.firstRunHost,
+      chipRow,
+      firstPlay,
+      this.rawNote(),
+    );
+
+    // --- Main ---
+    this.sessionEl = h('div', { class: 'session-steps' });
+    this.playBtn = button("Play today's session", { variant: 'primary', icon: 'play', key: 'Enter', onClick: () => host.playSession() });
+    this.skipBtn = button('Skip step', { variant: 'ghost', icon: 'skip', key: 'K', onClick: () => host.skipStep() });
+    const settingsBtn = button('Settings', { variant: 'ghost', icon: 'settings', key: 'S', onClick: () => this.openSettings() });
+    this.mainButtons = h('div', { class: 'session-actions' }, [this.playBtn, this.skipBtn]);
+    const sessionPanel = panel({ title: "Today's session", class: 'session-panel' });
+    sessionPanel.body.append(this.sessionEl, this.mainButtons);
+    this.cardsEl = h('div', { class: 'cards', attrs: { role: 'group', 'aria-label': 'Modes' } });
+    const modesHead = h('div', { class: 'modes-head' }, [h('h2', { class: 'fl-panel-title', text: 'Modes' }), h('span', { class: 'modes-hint', text: 'Press 1–9 to start one' })]);
+    const mainHead = h('header', { class: 'main-head' }, [wrapHtml(wordmark(34)), settingsBtn]);
+    const mainScreen = h('div', { class: 'screen screen-main' }, [
+      mainHead,
+      sessionPanel.el,
+      h('section', { class: 'modes' }, [modesHead, this.cardsEl]),
+      h('footer', { class: 'main-foot' }, [
+        this.rawNote(),
+        h('p', { class: 'keys', text: 'WASD move · Space jump · Ctrl/C crouch · Shift walk · LMB shoot · R reload · Backspace restart · Esc menu' }),
+      ]),
+    ]);
+
+    // --- Pause ---
+    this.pauseTitle = h('h1', { class: 'pause-title', text: 'Paused' });
+    this.pauseSub = h('p', { class: 'pause-sub' });
+    this.pauseSession = h('p', { class: 'pause-session' });
+    this.pauseSkip = button('Skip step', { variant: 'ghost', icon: 'skip', key: 'K', onClick: () => host.skipStep() });
+    const pausePanel = panel({ class: 'pause-panel' });
+    pausePanel.body.append(
+      h('div', { class: 'pause-head' }, [wrapHtml(wordmark(20))]),
+      this.pauseTitle,
+      this.pauseSub,
+      h('div', { class: 'pause-actions', attrs: { 'data-nav': 'list' } }, [
+        button('Resume', { variant: 'primary', icon: 'resume', key: 'Esc', onClick: () => host.resume() }),
+        button('Restart', { icon: 'restart', key: 'Backspace', onClick: () => host.restart() }),
+        button('Settings', { icon: 'settings', key: 'S', onClick: () => this.openSettings() }),
+        button('Menu', { icon: 'menu', key: 'M', onClick: () => host.toMenu() }),
+      ]),
+      this.pauseSession,
+      this.pauseSkip,
+    );
+    const pauseScreen = h('div', { class: 'screen screen-pause' }, [pausePanel.el]);
+
+    // --- Settings ---
+    const settingsPanelShell = panel({ class: 'settings-panel' });
+    settingsPanelShell.body.append(
+      h('div', { class: 'settings-head' }, [
+        h('h1', { class: 'settings-title', text: 'Settings' }),
+        button('Back', { variant: 'ghost', icon: 'back', key: 'Esc', onClick: () => this.back() }),
+      ]),
+      this.settingsPanel.el,
+    );
+    const settingsScreen = h('div', { class: 'screen screen-settings' }, [settingsPanelShell.el]);
+
+    const firstScreen = h('div', { class: 'screen screen-first' }, [firstPanel.el]);
+    this.screens = { firstRun: firstScreen, main: mainScreen, pause: pauseScreen, settings: settingsScreen };
+    root.append(firstScreen, mainScreen, pauseScreen, settingsScreen);
+
+    // The backdrop of the pause menu resumes (a click is a user gesture, so the pointer lock works).
+    root.addEventListener('click', (e) => {
+      if (e.target === root && this.screen === 'pause') host.resume();
+    });
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('resize', this.fit);
+    this.fit();
+    root.addEventListener('keydown', this.onArrowKey);
+
     this.setRawInput(null);
     this.setMode('main');
-
-    const num = (el: HTMLInputElement): number => parseFloat(el.value);
-    this.sens.addEventListener('change', () => {
-      const v = num(this.sens);
-      if (Number.isFinite(v)) this.store.set({ sensitivity: v });
-      this.sync();
-    });
-    this.dpi.addEventListener('change', () => {
-      const v = num(this.dpi);
-      if (Number.isFinite(v)) this.store.set({ dpi: v });
-      this.sync();
-    });
-    this.cm.addEventListener('change', () => {
-      const v = num(this.cm);
-      if (Number.isFinite(v) && v > 0) {
-        this.store.set({ sensitivity: sensitivityFromCmPer360(v, this.store.get().dpi) });
-      }
-      this.sync();
-    });
-    this.vol.addEventListener('input', () => this.store.set({ volume: num(this.vol) }));
-    this.quality.addEventListener('change', () => {
-      this.store.set({ quality: this.quality.value as 'low' | 'medium' | 'high' });
-    });
-    for (const key of ['coachingCues', 'missGhost', 'damageNumbers', 'reduceFlashing'] as const) {
-      const el = q<HTMLInputElement>(key);
-      this.toggles.push([key, el]);
-      el.addEventListener('change', () => this.store.set({ [key]: el.checked }));
-    }
-    this.flinch.addEventListener('change', () => this.store.set({ flinchStrength: parseFloat(this.flinch.value) }));
-    this.viewmodel.addEventListener('change', () => this.store.set({ viewmodel: this.viewmodel.value as ViewmodelMode }));
     this.sync();
   }
 
-  /** Refresh the form from the store. */
+  private rawNote(): HTMLElement {
+    const p = h('p', { class: 'raw' });
+    this.rawNotes.push(p);
+    return p;
+  }
+
+  // --- State ---------------------------------------------------------------------------------
+
+  /** Refresh the settings form from the stores. */
   sync(): void {
-    const s = this.store.get();
-    this.sens.value = s.sensitivity.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
-    this.dpi.value = String(Math.round(s.dpi));
-    this.cm.value = cmPer360(s.sensitivity, s.dpi).toFixed(1);
-    this.vol.value = String(s.volume);
-    this.quality.value = s.quality;
-    this.flinch.value = String(s.flinchStrength);
-    this.viewmodel.value = s.viewmodel;
-    for (const [key, el] of this.toggles) el.checked = s[key] as boolean;
+    this.settingsPanel.sync();
     const picked = this.profile.get().selfReport;
     for (const chip of this.chips) chip.setAttribute('aria-pressed', String(chip.dataset.chip === picked));
-    this.crosshair.sync();
-    this.hudPanel.sync();
   }
 
+  /** Rebuild what the main and pause screens show (cards, bests, session) if they are on screen. */
+  refresh(): void {
+    if (!this.open) return;
+    if (this.screen === 'main') this.renderMain();
+    else if (this.screen === 'pause') this.renderPause();
+  }
+
+  /** Go to a base screen (the pointer lock changed): the first-run panel, the landing menu or the pause menu. */
   setMode(mode: MenuMode): void {
-    this.mode = mode;
-    this.el.dataset.mode = mode;
-    this.play.textContent = mode === 'pause' ? 'Click to resume' : 'Click to play';
-    this.title.textContent = mode === 'pause' ? 'Paused · Backspace restarts' : 'Esc opens this menu';
+    this.show(mode);
   }
 
-  /** Show the raw-input state of the last lock request (null: not asked yet). */
+  private show(screen: Screen): void {
+    this.screen = screen;
+    this.el.dataset.screen = screen;
+    for (const s of Object.keys(this.screens) as Screen[]) this.screens[s].hidden = s !== screen;
+    // The sensitivity fields live in the first-run panel on that screen and in the Mouse tab otherwise.
+    const home = screen === 'firstRun' ? this.firstRunHost : this.settingsBasicsHome;
+    if (this.settingsPanel.basics.parentElement !== home) home.prepend(this.settingsPanel.basics);
+    if (screen === 'main') this.renderMain();
+    else if (screen === 'pause') this.renderPause();
+    if (this.open) this.focusDefault();
+  }
+
+  /** Show raw-input state of the last lock request (null: not asked yet). */
   setRawInput(on: boolean | null): void {
-    this.raw.dataset.state = on === null ? 'unknown' : on ? 'on' : 'off';
-    this.raw.textContent =
-      on === null
-        ? 'Raw input: requested when you click play'
-        : on
-          ? 'Raw input: on'
-          : 'Raw input: off (this browser cannot disable mouse acceleration; turn off "Enhance pointer precision" in your OS)';
-  }
-
-  /** Whether the menu is on screen. */
-  get isOpen(): boolean {
-    return this.el.classList.contains('open');
+    this.settingsPanel.setRawInput(on);
+    for (const note of this.rawNotes) {
+      note.dataset.state = on === null ? 'unknown' : on ? 'on' : 'off';
+      note.textContent =
+        on === null
+          ? 'Raw input: requested when you click play'
+          : on
+            ? 'Raw input: on'
+            : 'Raw input: off (this browser cannot disable mouse acceleration; turn off "Enhance pointer precision" in your OS)';
+    }
   }
 
   setVisible(v: boolean): void {
+    const was = this.open;
+    this.open = v;
     this.el.style.display = v ? '' : 'none';
     this.el.classList.toggle('open', v);
+    if (v && !was) {
+      this.refresh();
+      this.focusDefault();
+    }
   }
 
+  /** Which screen is showing (for the debug hook and tests). */
+  get current(): Screen {
+    return this.screen;
+  }
+
+  get isOpen(): boolean {
+    return this.open;
+  }
+
+  // --- Screens -------------------------------------------------------------------------------
+
+  private renderMain(): void {
+    const cards = this.host.cards();
+    const view = this.host.session();
+    this.lastView = view;
+    this.cardEls = [];
+    this.cardsEl.replaceChildren();
+    if (cards.length === 0) this.cardsEl.append(h('p', { class: 'cards-empty', text: this.cfg.emptyModes }));
+    cards.forEach((c, i) => {
+      const card = h('button', {
+        class: 'fl-card',
+        attrs: { type: 'button', 'data-mode': c.id, 'aria-label': `${c.name}. ${c.skillLabel}. Best ${c.bestText}. ${c.matchedText}` },
+      });
+      const skillIcon = c.skill;
+      card.innerHTML = `
+        <span class="card-top">${icon(skillIcon, 20)}<span class="card-skill"></span>${i < 9 ? '<kbd class="fl-kbd"></kbd>' : ''}</span>
+        <span class="card-name"></span>
+        <span class="card-blurb"></span>
+        <span class="card-foot">
+          <span class="card-best"><span class="k">BEST</span><span class="v"></span></span>
+          <span class="card-match"></span>
+        </span>`;
+      card.querySelector('.card-skill')!.textContent = c.skillLabel;
+      const kbd = card.querySelector('.fl-kbd');
+      if (kbd) kbd.textContent = String(i + 1);
+      card.querySelector('.card-name')!.textContent = c.name;
+      card.querySelector('.card-blurb')!.textContent = c.blurb;
+      const best = card.querySelector('.card-best .v') as HTMLElement;
+      best.textContent = c.bestText;
+      best.dataset.empty = String(c.best === null);
+      const match = card.querySelector('.card-match') as HTMLElement;
+      match.textContent = c.matchedText;
+      if (c.matchedText) card.title = this.cfg.matchedHint;
+      card.addEventListener('click', () => this.host.launchMode(c.id));
+      this.cardsEl.append(card);
+      this.cardEls.push(card);
+    });
+    this.renderSteps(this.sessionEl, view);
+    this.playBtn.querySelector('.fl-btn-label')!.textContent = view.active ? 'Continue today’s session' : 'Play today’s session';
+    this.skipBtn.hidden = !view.active;
+  }
+
+  private renderSteps(into: HTMLElement, view: SessionView): void {
+    into.replaceChildren();
+    if (view.steps.length === 0) {
+      into.append(h('p', { class: 'session-empty', text: 'Free play: no modes are registered yet.' }));
+      return;
+    }
+    view.steps.forEach((s, i) => {
+      const step = h('div', { class: `session-step is-${s.state}`, attrs: { title: s.reason } }, [
+        h('span', { class: 'step-n', text: String(i + 1) }),
+        h('span', { class: 'step-body' }, [h('span', { class: 'step-name', text: s.name }), h('span', { class: 'step-why', text: s.reason })]),
+      ]);
+      into.append(step);
+    });
+    if (view.progressText) into.append(h('span', { class: 'session-progress', text: view.progressText }));
+  }
+
+  private renderPause(): void {
+    const label = this.host.runLabel();
+    const view = this.host.session();
+    this.lastView = view;
+    this.pauseSub.textContent = label ? `${label} · Backspace restarts` : 'Backspace restarts';
+    this.pauseSession.textContent = view.active ? `Today’s session · ${view.progressText}` : '';
+    this.pauseSession.hidden = !view.active;
+    this.pauseSkip.hidden = !view.active;
+  }
+
+  /** Show the settings screen; Back returns to the screen it was opened from. */
+  openSettings(): void {
+    if (this.screen === 'settings') return;
+    this.settingsReturn = this.screen === 'pause' ? 'pause' : 'main';
+    this.show('settings');
+  }
+
+  private back(): void {
+    if (this.screen === 'settings') this.show(this.settingsReturn);
+  }
+
+  // --- Keyboard ------------------------------------------------------------------------------
+
+  /** The rules are `navigation.ts`; this builds the situation and performs the action. */
+  private readonly onKeyDown = (e: KeyboardEvent): void => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const st = this.navState();
+    const action = resolveKey(e.code, st);
+    if (action === null) return;
+    // Enter, Space and Backspace belong to the focused control unless the rule says otherwise.
+    e.preventDefault();
+    this.perform(action);
+  };
+
+  private navState(): NavState {
+    const a = document.activeElement;
+    const typing = a instanceof HTMLInputElement ? a.type !== 'checkbox' && a.type !== 'button' : a instanceof HTMLSelectElement || a instanceof HTMLTextAreaElement;
+    return {
+      menuOpen: this.open,
+      screen: this.screen,
+      runPhase: this.host.runPhase(),
+      typing,
+      onButton: a instanceof HTMLButtonElement && this.el.contains(a),
+      sessionActive: this.lastView.active,
+    };
+  }
+
+  private perform(a: NavAction): void {
+    switch (a.type) {
+      case 'playSession':
+        this.host.playSession();
+        break;
+      case 'resume':
+        this.host.resume();
+        break;
+      case 'restart':
+        this.host.restart();
+        break;
+      case 'openSettings':
+        this.openSettings();
+        break;
+      case 'back':
+        this.back();
+        break;
+      case 'toMenu':
+        this.host.toMenu();
+        break;
+      case 'skipStep':
+        this.host.skipStep();
+        break;
+      case 'launchCard': {
+        const c = this.cardEls[a.index];
+        if (c) this.host.launchMode(c.dataset.mode!);
+        break;
+      }
+    }
+  }
+
+  /** Arrow keys move the focus: over the card grid, along the top buttons, down the pause list. */
+  private readonly onArrowKey = (e: KeyboardEvent): void => {
+    if (!this.open || !e.key.startsWith('Arrow')) return;
+    const a = document.activeElement as HTMLElement | null;
+    if (!a || a instanceof HTMLInputElement || a instanceof HTMLSelectElement || a.closest('.fl-tabs')) return;
+    let items: HTMLElement[] = [];
+    let cols = 1;
+    if (this.screen === 'pause') {
+      items = Array.from(this.screens.pause.querySelectorAll<HTMLElement>('.pause-actions button'));
+    } else if (this.screen === 'main') {
+      const top = [this.playBtn, this.skipBtn, this.screens.main.querySelector<HTMLElement>('.main-head .fl-btn')!].filter((b) => !b.hidden);
+      if (top.includes(a)) {
+        const i = top.indexOf(a);
+        if (e.key === 'ArrowRight' && i < top.length - 1) top[i + 1]!.focus();
+        else if (e.key === 'ArrowLeft' && i > 0) top[i - 1]!.focus();
+        else if (e.key === 'ArrowDown') (this.cardEls[0] ?? a).focus();
+        else return;
+        e.preventDefault();
+        return;
+      }
+      items = this.cardEls;
+      cols = this.columns();
+      const idx = items.indexOf(a as HTMLButtonElement);
+      if (idx >= 0 && e.key === 'ArrowUp' && idx < cols) {
+        this.playBtn.focus();
+        e.preventDefault();
+        return;
+      }
+    }
+    const idx = items.indexOf(a);
+    if (idx < 0) return;
+    const next = gridMove(idx, e.key, cols, items.length);
+    if (next !== idx) {
+      items[next]!.focus();
+      e.preventDefault();
+    } else if (e.key.startsWith('Arrow')) {
+      e.preventDefault();
+    }
+  };
+
+  /** The menus are laid out for 1280 x 720; larger windows scale them up to 2x so they stay readable (like the results card). */
+  private readonly fit = (): void => {
+    const z = Math.max(1, Math.min(2, Math.min(window.innerWidth / 1280, window.innerHeight / 720)));
+    this.el.style.setProperty('--menu-zoom', z.toFixed(3));
+  };
+
+  /** Cards per row, read from the layout (the first row is the cards that share the first card's top). */
+  private columns(): number {
+    const first = this.cardEls[0];
+    if (!first) return 1;
+    let n = 0;
+    for (const c of this.cardEls) {
+      if (c.offsetTop !== first.offsetTop) break;
+      n++;
+    }
+    return Math.max(1, n);
+  }
+
+  private focusDefault(): void {
+    const target =
+      this.screen === 'main'
+        ? this.playBtn
+        : this.screen === 'pause'
+          ? this.screens.pause.querySelector<HTMLElement>('.pause-actions button')
+          : this.screen === 'settings'
+            ? this.screens.settings.querySelector<HTMLElement>('.fl-tab[aria-selected="true"]')
+            : this.screens.firstRun.querySelector<HTMLElement>('.play-wide');
+    target?.focus({ preventScroll: true });
+  }
+}
+
+/** Parse trusted static SVG markup into an element. */
+function wrapHtml(markup: string): HTMLElement {
+  const d = h('span', { class: 'brand' });
+  d.innerHTML = markup;
+  return d;
 }
