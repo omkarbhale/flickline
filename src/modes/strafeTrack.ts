@@ -121,7 +121,8 @@ function spawnStrafer(ctx: ModeContext<State>, slot: Slot): boolean {
   slot.limitSec = ctx.axes.strafeLimitSec ?? 5;
   slot.deadline = ctx.liveTick + secondsToTicks(slot.limitSec);
   slot.speed = st.speed;
-  slot.distance = Math.hypot(s.feet.x - eye.x, s.feet.z - eye.z);
+  const dx = s.feet.x - eye.x, dz = s.feet.z - eye.z;
+  slot.distance = Math.sqrt(dx * dx + dz * dz);
   slot.hits = 0;
   slot.headHits = 0;
   return true;

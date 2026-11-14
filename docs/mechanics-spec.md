@@ -393,7 +393,7 @@ What is public:
 - Shape (a journalist's 100-spray test of the precise rifle, qualitative `[WIN-SPRAY]`): about the first 5 to 6 bullets go almost straight up, then a horizontal kick, a "hard snap" after bullet 6 or 7, and then a right-to-left swing; the layout is near the Source-engine rifle pattern but with a sharper break. Treat shape counts as ±1 to 2 bullets.
 - Running or jumping while firing multiplies recoil: both axes ×1.5 (was 1.25) `[PN 4.0]`; vertical ×1.8 (was 1.5) on both rifles and the SMG while running `[PN 6.11]`. Crouched-stationary yaw recoil was reduced 15% `[PN 0.50]`.
 
-Flickline rule: implement recoil as **data**: per archetype, an array of per-bullet `(pitch_deg, yaw_deg)` kicks plus a recovery rate, so measured data can replace the placeholders without code changes. The yaw sign flips per the three published rules. Starting placeholders (PLACEHOLDER, 20% confidence; replace after measuring):
+Flickline rule: implement recoil as **data**: per archetype, an array of per-bullet `(pitch_deg, yaw_deg)` kicks plus a recovery hold, so measured data can replace the placeholders without code changes. The yaw sign flips per the three published rules. Starting placeholders (PLACEHOLDER, 20% confidence; replace after measuring):
 
 | Archetype | Pitch kick per bullet (deg) | Yaw kick per bullet (deg) after protected bullets | Notes |
 |---|---|---|---|
@@ -403,7 +403,7 @@ Flickline rule: implement recoil as **data**: per archetype, an array of per-bul
 | `pistol_*` | 0.60 per shot, recovers within 0.25 s | 0 | no pattern |
 | `sniper` | 1.2 per shot, recovers in 0.8 s | 0 | |
 
-View recovery after firing stops (PLACEHOLDER): the crosshair returns to its pre-fire position at 8°/s once the gun recovery time has elapsed. **Measure** by firing 100 sprays at a flat wall 10 m away with no compensation, record impacts per bullet index, convert pixels to degrees using the FOV (the method in `[WIN-SPRAY]`), and take the per-bullet mean path and flip frequency.
+View recovery after firing stops (the shape is a PLACEHOLDER): Flickline treats the gun recovery time `[PN 0.50]` as the reset of the **whole** spray, so the recoil aim offset is back on the crosshair by then, together with the spread and the pattern position. A shot fired at or after the recovery time is a centred first shot. The offset holds through held fire (1.5 shot intervals, the threshold of section 3.3; pistols do not hold), then glides back along its own direction on a smoothstep curve (no jump in speed at either end) that reaches zero exactly at the recovery time. An earlier draft returned at 8°/s *starting* at the recovery time, which left a tap after a 10-bullet burst up to 2.9° high with nothing on screen to show it (#191). Whether the view itself climbs with recoil is a separate open question (#180 Q2). **Measure** by firing 100 sprays at a flat wall 10 m away with no compensation, record impacts per bullet index, convert pixels to degrees using the FOV (the method in `[WIN-SPRAY]`), and take the per-bullet mean path and flip frequency.
 
 ### 3.6 Wall penetration, tracers, hit scan
 

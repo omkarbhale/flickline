@@ -1,11 +1,11 @@
 import type { EventSink } from '../core/eventBus';
 import { DEG2RAD } from '../core/math';
-import { secondsToTicks, TICK_DT } from '../core/time';
+import { TICK_DT, TICK_RATE } from '../core/time';
 import { directionFromAngles, vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
 import { createExpectedHead, expectedHead } from './headHeight';
-import { wrapPi, yawOf } from './aim';
-import { createZoneHit } from './hitZones';
+import { wrapPi } from './aim';
+import { createRay, createZoneHit } from './hitZones';
 import type { TargetField } from './targets';
 import type { LevelDef, PlayerState, SimEvents, TickInput, WeaponState } from './types';
 
@@ -88,7 +88,7 @@ export function accuracyThreshold(w: WeaponState, t: Tunables): number {
 }
 
 const dir = vec3();
-const probeDir = vec3();
+const probeRay = createRay();
 const zone = createZoneHit();
 const aimPayload = { tick: 0, on: false, id: -1 };
 const leadPayload = { tick: 0, id: -1, err: 0 };
@@ -99,16 +99,24 @@ const head = createExpectedHead();
 /**
  * Id of the visible target the padded aim ray touches (-1 none). The "hit volume padded by 0.5
  * degrees" is tested with the exact zone shapes by casting the view ray plus four rays offset by
- * the pad angle (left/right/up/down).
+ * the pad angle (left/right/up/down). Takes the player and the tunables rather than the eye and
+ * the angles as numbers, and builds each ray's direction inline: V8 boxes every double passed to a
+ * function it does not inline (architecture §7 rule 1).
  */
-function aimedTarget(
-  field: TargetField, ox: number, oy: number, oz: number, yaw: number, pitch: number, padRad: number,
-): number {
+function aimedTarget(field: TargetField, p: PlayerState, t: Tunables): number {
+  const padRad = t.run.timeOnTargetPadDeg * DEG2RAD;
+  probeRay.ox = p.pos.x;
+  probeRay.oy = p.pos.y + p.eyeHeight;
+  probeRay.oz = p.pos.z;
+  probeRay.maxDist = 1e9;
   for (let k = 0; k < 5; k++) {
-    const dy = k === 1 ? padRad : k === 2 ? -padRad : 0;
-    const dx = k === 3 ? padRad : k === 4 ? -padRad : 0;
-    const d = directionFromAngles(probeDir, yaw + dx, pitch + dy);
-    const slot = field.traceNearest(ox, oy, oz, d.x, d.y, d.z, 1e9, zone);
+    const yaw = p.yaw + (k === 3 ? padRad : k === 4 ? -padRad : 0);
+    const pitch = p.pitch + (k === 1 ? padRad : k === 2 ? -padRad : 0);
+    const cp = Math.cos(pitch);
+    probeRay.dx = -Math.sin(yaw) * cp;
+    probeRay.dy = Math.sin(pitch);
+    probeRay.dz = -Math.cos(yaw) * cp;
+    const slot = field.traceNearestRay(probeRay, zone);
     if (slot >= 0) {
       const t = field.slots[slot]!;
       if (t.visibleTick >= 0) return t.id;
@@ -122,20 +130,23 @@ function aimedTarget(
  * when the aim has not been on it for `leadEngageSec`, it is not cruising, or the view is further
  * than `leadMaxOffDeg` from it. The offset is the view yaw minus the yaw to the target's centre of
  * mass, signed by the direction the target moves across the view (its yaw now minus its yaw at the
- * start of the tick), so + is ahead of it.
+ * start of the tick), so + is ahead of it. Inline maths (`secondsToTicks`, `yawOf`) rather than
+ * calls: a double passed to or returned from a function V8 does not inline is boxed.
  */
-function leadOf(s: ProbeState, field: TargetField, p: PlayerState, ox: number, oy: number, oz: number, t: Tunables, tick: number): boolean {
+function leadOf(s: ProbeState, field: TargetField, p: PlayerState, t: Tunables, tick: number): boolean {
   const run = t.run;
-  if (s.lastOnId < 0 || tick - s.lastOnTick > secondsToTicks(run.leadEngageSec)) return false;
+  const ox = p.pos.x, oy = p.pos.y + p.eyeHeight, oz = p.pos.z;
+  if (s.lastOnId < 0 || tick - s.lastOnTick > Math.max(1, Math.round(run.leadEngageSec * TICK_RATE))) return false;
   const tg = field.byId(s.lastOnId);
   if (!tg || !tg.alive || tg.kind !== 'strafer' || tg.visibleTick < 0 || Math.abs(tg.ai.vel) < run.leadMinSpeedMps) return false;
-  const yawNow = yawOf(tg.pos.x - ox, tg.pos.z - oz);
-  const across = wrapPi(yawNow - yawOf(tg.prevPos.x - ox, tg.prevPos.z - oz));
+  const yawNow = Math.atan2(ox - tg.pos.x, oz - tg.pos.z);
+  const across = wrapPi(yawNow - Math.atan2(ox - tg.prevPos.x, oz - tg.prevPos.z));
   if (across === 0) return false;
   const off = wrapPi(p.yaw - yawNow);
-  const flat = Math.hypot(tg.pos.x - ox, tg.pos.z - oz);
+  const fx = tg.pos.x - ox, fz = tg.pos.z - oz;
+  const flat = Math.sqrt(fx * fx + fz * fz);
   const pitchOff = p.pitch - Math.atan2(tg.pos.y + tg.boundsY - oy, flat);
-  if (Math.hypot(off, pitchOff) > run.leadMaxOffDeg * DEG2RAD) return false;
+  if (Math.sqrt(off * off + pitchOff * pitchOff) > run.leadMaxOffDeg * DEG2RAD) return false;
   leadPayload.id = tg.id;
   leadPayload.err = across > 0 ? off : -off;
   return true;
@@ -152,10 +163,12 @@ export function stepRunProbe(
   events: EventSink<SimEvents>,
   level: LevelDef,
 ): void {
-  const ox = p.pos.x, oy = p.pos.y + p.eyeHeight, oz = p.pos.z;
+  const oy = p.pos.y + p.eyeHeight;
   directionFromAngles(dir, p.yaw, p.pitch);
-  const speed = Math.hypot(p.vel.x, p.vel.z);
-  const thr = accuracyThreshold(w, t);
+  const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.z * p.vel.z); // not Math.hypot: V8 boxes its result (#152)
+  // `accuracyThreshold` inline: a double returned from a function V8 does not inline is boxed.
+  const def = t.weapon[w.slots[w.active]!.id];
+  const thr = def.deadzoneFraction * def.runSpeedMps;
 
   let anyVisible = false;
   const slots = field.slots;
@@ -165,7 +178,7 @@ export function stepRunProbe(
   }
 
   // Time on target: edges as the aim ray enters / leaves a padded hit volume.
-  const onId = anyVisible ? aimedTarget(field, ox, oy, oz, p.yaw, p.pitch, t.run.timeOnTargetPadDeg * DEG2RAD) : -1;
+  const onId = anyVisible ? aimedTarget(field, p, t) : -1;
   if (onId >= 0) {
     s.lastOnId = onId;
     s.lastOnTick = tick;
@@ -181,8 +194,8 @@ export function stepRunProbe(
 
   // Lead error: signed aim offset from a cruising Strafer, sampled at a fixed rate.
   if (anyVisible && tick >= s.nextLeadSampleTick) {
-    s.nextLeadSampleTick = tick + secondsToTicks(t.run.leadSampleSec);
-    if (leadOf(s, field, p, ox, oy, oz, t, tick)) {
+    s.nextLeadSampleTick = tick + Math.max(1, Math.round(t.run.leadSampleSec * TICK_RATE));
+    if (leadOf(s, field, p, t, tick)) {
       leadPayload.tick = tick;
       events.emit('leadSampled', leadPayload);
     }
@@ -190,7 +203,7 @@ export function stepRunProbe(
 
   // Head-height discipline: sampled while moving fast with nobody in view.
   if (tick >= s.nextHeadSampleTick) {
-    s.nextHeadSampleTick = tick + secondsToTicks(t.run.headHeightSampleSec);
+    s.nextHeadSampleTick = tick + Math.max(1, Math.round(t.run.headHeightSampleSec * TICK_RATE));
     if (!anyVisible && speed > thr) {
       // Against the head of the enemy the player is facing (its own floor height), not the player's eye level.
       expectedHead(head, level, p, t.run, t.targets.hit.headCentreStand);
@@ -202,7 +215,7 @@ export function stepRunProbe(
   }
 
   // Stop latency: from the stop/counter-strafe input to speed first at or below the threshold.
-  const mag = Math.hypot(input.moveX, input.moveZ);
+  const mag = Math.sqrt(input.moveX * input.moveX + input.moveZ * input.moveZ); // not Math.hypot (#152)
   const rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
   const wx = rx * input.moveX + -Math.sin(p.yaw) * input.moveZ;
   const wz = rz * input.moveX + -Math.cos(p.yaw) * input.moveZ;

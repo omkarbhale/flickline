@@ -125,7 +125,8 @@ export function solvePeekU(t: TargetState, ctx: BehaviourContext, fraction: numb
 /** Fraction of the path covered per tick at the peek speed. */
 function stepPerTick(t: TargetState, ctx: BehaviourContext): number {
   const a = t.ai;
-  const len = Math.hypot(a.out.x - a.hold.x, a.out.y - a.hold.y, a.out.z - a.hold.z);
+  const dx = a.out.x - a.hold.x, dy = a.out.y - a.hold.y, dz = a.out.z - a.hold.z;
+  const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
   return len < 1e-6 ? 1 : (ctx.tunables.enemies.peek.speedMps * TICK_DT) / len;
 }
 
