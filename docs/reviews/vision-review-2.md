@@ -25,7 +25,7 @@ Where a finding is a gap in what the game is for, the answer was decided from th
   - the full open and closed issue list;
   - the trackers #9, #10, #61, #62, #63, #70, #74, #149, #188 and the open question #110;
   - the balance issues the Sweep work filed on itself: #165, #230, #233, #236, #239, #241.
-- **Read in the code**, at `main` `3ab8d87`:
+- **Read in the code**, at `main` `3ab8d87`, and re-checked after #86, #203 and #210 merged (`e6ff27e`; the enemy fire, sight and placement code is unchanged):
   - the run director and its config (`src/modes/sweep*.ts`, `src/config/sweep.ts`);
   - the Echo behaviours and enemy fire (`src/sim/strafer.ts`, `peeker.ts`, `enemyFire.ts`, `enemyTiming.ts`);
   - the sector maps (`src/sim/levels/*.json`) and the results card's cause-line wiring.
@@ -38,7 +38,7 @@ Where a finding is a gap in what the game is for, the answer was decided from th
 - **Measured** with the bot harness (`npm run bot -- --sweep-report`, 60 runs at each of skills 30, 50 and 70) and with a short bus tap over the same headless game: `HeadlessGame` plus `playMode`, 60–80 seeded runs at skill 50. The tap counted `enemySawPlayer` distances, `shotFired`, `enemyFired` and `contactSettled`. It is a scratch script, not added to the repo; each number below names what it counts.
 - **Web:** the reference game's own practice modes, cited in finding 2.
 
-What `main` is today: **Play** starts a Sweep run of four take or meet sectors on Elbow and Lane. Health and shield carry over and death ends the run. Each gate has two doors with true facts and a stake. Sectors carry eco and light conditions, the player picks a primary, and there are the Daily Route, run and situation records, contact settles and the run results card. Not built yet: hold sectors and the Finale (#204), Overtime (#206), tempo (#100), the full scenario sampler (#97), the enemy mind (#86–#96), fight attribution (#120–#125), the cold opener (#209) and Foundry (#36). The lean is an open PR (#242).
+What `main` is today: **Play** starts a Sweep run of four take or meet sectors on Elbow and Lane. Health and shield carry over and death ends the run. Each gate has two doors with true facts and a stake. Sectors carry eco and light conditions, the player picks a primary, and there are the Daily Route, run and situation records, contact settles and the run results card. Not built yet: hold sectors and the Finale (#204), Overtime (#206), tempo (#100), the full scenario sampler (#97), the enemy mind beyond its timing distributions (#87–#96), fight attribution (#120–#125), the cold opener (#209) and Foundry (#36). Skill matching inside the run (#203), the lean (#210) and per-enemy timing distributions (#86) merged while this review was written; every bot number below was re-run on `e6ff27e` after them.
 
 ## What is good (said plainly)
 
@@ -73,7 +73,7 @@ What `main` is today: **Play** starts a Sweep run of four take or meet sectors o
 | 2 | Sweep gives about half the fights a minute of the reference game's own deathmatch, and nothing measures it | Gap | [#248](https://github.com/omkarbhale/flickline/issues/248) (call made on the owner's behalf) |
 | 3 | Every fight is now situational, and none says why it was lost: attribution is outside the v2 order | Aimed wrong | Comment on [#110](https://github.com/omkarbhale/flickline/issues/110); order change on [#188](https://github.com/omkarbhale/flickline/issues/188) |
 | 4 | Fights are close, full-body and level: first sight median 7.9 m, no sector sightline past 17 m, every holder on the floor | Built short | [#249](https://github.com/omkarbhale/flickline/issues/249) |
-| 5 | Taking damage and slow-on-hit barely happen: about 1.4 hits taken per run | Built short | Scope comment on [#165](https://github.com/omkarbhale/flickline/issues/165) |
+| 5 | Taking damage and slow-on-hit barely happen: about 1.5 hits taken per run | Built short | Scope comment on [#165](https://github.com/omkarbhale/flickline/issues/165) |
 | 6 | The transfer habit review has never run; four game-layer habits on `main` look harmful | Gap | Preliminary review on [#160](https://github.com/omkarbhale/flickline/issues/160); comment on [#239](https://github.com/omkarbhale/flickline/issues/239) |
 | 7 | Nothing can tell whether anyone replays: no person has played Sweep, and the save keeps no record of sessions | Gap | [#251](https://github.com/omkarbhale/flickline/issues/251) (call made on the owner's behalf); comment on [#214](https://github.com/omkarbhale/flickline/issues/214) |
 | 8 | Run-to-run variety is three or four sectors, and the two doors usually show the same facts | Built short | Comment on [#239](https://github.com/omkarbhale/flickline/issues/239); #36, #230, #236 |
@@ -93,7 +93,7 @@ What `main` is today: **Play** starts a Sweep run of four take or meet sectors o
 | Aims, and hits what the crosshair is on | Rolls a hit chance (dial base × distance falloff, ×0.5 if the player is moving), then rolls the zone: 12% head, 78% body, 10% legs. Cover is not consulted, so a player showing only a head over half cover can be hit "in the body". |
 | Re-peeks, repositions, trades, pushes, follows | Strafes on a fixed lane or loops a peek pattern on its anchor. Survivors of a skipped take sector do not follow (design §4.2 says they do). |
 
-Design §5.3 says Echo shots are "aimed, not rolled ... with no hidden hit roll", and the vision's *Currently* line for principle 6 says Echoes "run on the player's movement and weapon code". Neither is true on `main`. The enemy-mind backlog (#86–#96) is all still open; only the prepared-holder timing rule (#127) has landed. The v2 build order lists it as a "parallel track", while the redesign calls it "the main source of run-to-run variety" (design §2.4, comment on #70). The gates, conditions, Daily Route, records and the lean were all built first.
+Design §5.3 says Echo shots are "aimed, not rolled ... with no hidden hit roll", and the vision's *Currently* line for principle 6 says Echoes "run on the player's movement and weapon code". Neither is true on `main`. Of the enemy-mind backlog (#86–#96), only #86 (per-enemy random streams and human timing distributions) and the prepared-holder timing rule (#127) have landed; perception, aim, decisions and the shared body (#87–#92) are open. The v2 build order lists it as a "parallel track", while the redesign calls it "the main source of run-to-run variety" (design §2.4, comment on #70). The gates, conditions, Daily Route, records and the lean were all built first.
 
 **Why it matters.**
 - **Transfer.** Each gap teaches a habit the reference game punishes:
@@ -138,8 +138,8 @@ Re-run S12 with real perception there, and decide peeker's advantage (#127) on t
 ### 5. Taking damage and slow-on-hit barely happen
 
 **Evidence.**
-- Over 60 runs at skill 50, Echoes fire 5.2 shots per run and hit 27% of them: **about 1.4 hits taken per run**, so under a second spent tagged.
-- Mean health+shield at the four sector exits: 150 → 137 → 123 → 121.
+- Over 60 runs at skill 50, Echoes fire 5.5 shots per run and hit 27% of them: **about 1.5 hits taken per run**, so under a second spent tagged.
+- Mean health+shield at the four sector exits: 150 → 137 → 124 → 119.
 - #239 found 88% of gates reached at full health and full shield, and deaths coming from one lethal fight rather than wear.
 - In the browser I stood still in the open for a full second, 4 m from a `take-expected` holder at the Opener's dial; its burst missed.
 - #165, filed from the contact model, says the opposite (contacts far too deadly). The built run contradicts the model.
@@ -206,7 +206,7 @@ Re-run S12 with real perception there, and decide peeker's advantage (#127) on t
   - Team deathmatch: first to 100 kills in 9:30, with a 1.5 s respawn ([Riot, Team Deathmatch 101](https://playvalorant.com/en-us/news/game-updates/valorant-team-deathmatch-101/)).
   - A player who goes even in either mode fights about **4 times a minute** (DERIVED).
 - **Sweep as designed:** 10–14 contacts in a 5–9 minute run, about **1.5–2.5 a minute** (DERIVED from design §2.2, §2.3 and §4.1).
-- **Sweep on `main`:** 3.6 contacts dealt per run, 3.1 fought, and **4.3 shots** fired by the bot. #241 found a run too thin for the fix engine's 8-shot minimum.
+- **Sweep on `main`:** 3.6 contacts dealt per run, 3.0–3.1 fought, and **4.4 shots** fired by the bot. #241 found a run too thin for the fix engine's 8-shot minimum.
 - No design section, fun criterion or bot report states a fight rate or measures dead air.
 
 **Why it matters.**
@@ -302,7 +302,7 @@ The fix is an order, not a redesign. The proposed order, posted on #188:
 - **The design describes the target as if built.** Design §5.3 says "aimed, not rolled", and the vision's principle-6 *Currently* line says "the player's movement and weapon code". Both describe the plan. Suggested on #188: a "built on `main`" column in design §17, so a review can tell paper from play without reading the code.
 - **Reserve ammo is infinite in runs** (`30 / ∞`). Magazines and reloads are real, so this is harmless to transfer today; note it if ammo economy is ever wanted as a stake.
 - **The run clock** shows at the top centre, although nothing pays for time. Watch in #214 whether it pushes players to rush.
-- **The bot's matched win rate is 79–83%** at skills 30, 50 and 70 (`--sweep-report`), above the 70% target. This is expected while the Opener is −8 and Echoes rarely hit (finding 5); recheck after #247.
+- **The bot's matched win rate is 82–88%** at skills 30, 50 and 70 (`--sweep-report`), above the 70% target. This is expected while the Opener is −8 and Echoes rarely hit (finding 5); recheck after #247.
 
 ## Considered and not filed
 
