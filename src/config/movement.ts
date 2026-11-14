@@ -26,6 +26,17 @@ export interface MovementTunables {
   maxPitchDeg: number;
   /** Distance walked between footstep events, metres. */
   footstepStride: number;
+  /**
+   * Tallest ledge a grounded player walks up without jumping, and the longest drop they walk
+   * down without becoming airborne, metres (spec 2.7; at least 0.3 m, issue #133). Authored stair
+   * risers should stay at or below 0.3 m so they never depend on the margin.
+   */
+  stepHeight: number;
+  /**
+   * Steepest ramp a map may author, degrees. The map lint rejects a steeper `ramp` box; the sim
+   * itself keeps horizontal speed unchanged on any slope (ESTIMATE, spec 2.7).
+   */
+  maxWalkableSlopeDeg: number;
 }
 
 export const movement: MovementTunables = {
@@ -44,6 +55,8 @@ export const movement: MovementTunables = {
   jumpSpeed: 6,
   maxPitchDeg: 89,
   footstepStride: 2.2,
+  stepHeight: 0.35,
+  maxWalkableSlopeDeg: 45,
 };
 
 /** This file's groups of `Tunables` (config/tunables.ts composes them). */
