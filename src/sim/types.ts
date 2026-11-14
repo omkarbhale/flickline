@@ -58,6 +58,9 @@ export interface PlayerState {
 export interface PlayerHealth {
   hp: number;
   maxHp: number;
+  /** Shield points left and the level this life started at (spec §4.1; 0/0 = unshielded). Kill-heal never restores it. */
+  shield: number;
+  maxShield: number;
   /** False after `playerDied`; the world no longer steps until it is reset. */
   alive: boolean;
   /** Seconds since the last tagging hit; Infinity = not tagged. */
@@ -68,9 +71,10 @@ export interface PlayerHealth {
   flinchDeg: number;
   /** Tick of the last damage taken, -1 = never. */
   lastDamageTick: number;
-  /** Total damage taken and healed this life (stats, "you lost 40 HP to ..."). */
+  /** Total damage taken as HP and healed this life (stats, "you lost 40 HP to ..."), and what the shield soaked. */
   damageTaken: number;
   healed: number;
+  shieldAbsorbed: number;
 }
 
 /** The three humanoid damage zones (design §5.1). Orbs are a single `head` zone. */
@@ -111,6 +115,9 @@ export interface TargetState {
   scale: number;
   hp: number;
   maxHp: number;
+  /** Shield points left and at spawn (spec §4.1). Humanoid Echoes only: 0/0 for orbs and unshielded fights. */
+  shield: number;
+  maxShield: number;
   alive: boolean;
   /** Tick of the last hit (for presentation flashes). -1 = never. */
   lastHitTick: number;
