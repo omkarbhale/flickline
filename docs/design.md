@@ -2,7 +2,7 @@
 
 Status: v1 of the design, written for the first playable and first release. Decisions are made here, not offered as menus. If a rule in this document conflicts with `docs/mechanics-spec.md` on a *number* (speeds, damage, spread, fire rate, FOV, sensitivity scale), the spec wins. If it conflicts with the "Architecture and conventions (read first)" issue (#54) on a *module boundary or event name*, that issue wins. Section numbers of the spec are cited as `spec §x.y`. Everything else here is normative.
 
-Contents: 1 Pitch and pillars · 2 Core loop · 3 Skills and stat definitions · 4 Modes · 5 Enemies and targets · 6 Weapons · 7 Instant feedback · 8 Results and progression · 9 Skill matching · 10 Maps · 11 Look · 12 Sound · 13 Interface · 14 Technical contracts · 15 Scope · 16 Identity and legal line · 17 Backlog
+Contents: 1 Pitch and pillars · 2 Core loop · 3 Skills and stat definitions · 4 Modes · 5 Enemies and targets · 6 Weapons · 7 Instant feedback · 8 Results and progression · 9 Skill matching · 10 Maps · 11 Look · 12 Sound · 13 Interface · 14 Technical contracts (incl. 14.7 quality tracks) · 15 Scope · 16 Identity and legal line · 17 Backlog
 
 ---
 
@@ -12,7 +12,7 @@ Contents: 1 Pitch and pillars · 2 Core loop · 3 Skills and stat definitions ·
 
 **Pillars, ranked.** When two pillars conflict, the higher one wins.
 
-1. **Mechanical truth.** The gun, the body and the camera behave like the reference game's. A drill that teaches a habit that fails in the real game is a bug. Numbers come from `docs/mechanics-spec.md`; we never "game-ify" them (no aim assist, no bullet magnetism, no slow-motion, no hit-box inflation beyond the spec).
+1. **Mechanical truth.** The gun, the body and the camera behave like the reference game's, in numbers *and* in feel, which are tracked separately (section 14.7). A drill that teaches a habit that fails in the real game is a bug. Numbers come from `docs/mechanics-spec.md`; we never "game-ify" them (no aim assist, no bullet magnetism, no slow-motion, no hit-box inflation beyond the spec).
 2. **Feedback is the product.** The feedback that makes a shot feel good and informative (hit confirmation, headshot distinction, kill reward, moving-shot flag, reaction time, miss offset, sound, screen response) is product design, not polish. It is specified in section 7 and built in the first playable, not at the end.
 3. **At the edge of your ability.** A new player and an expert should both be missing roughly three targets in ten within the first minute, and stay there as they improve. Difficulty is a measurement we show, not a rubber band we hide (section 9).
 4. **Zero friction.** Shooting within ten seconds of opening the link; restart in under 250 ms; nothing between you and the next run that you did not ask for.
@@ -602,12 +602,30 @@ Aligned with the layout and layering rule in the architecture issue (#54). Pure 
 | Synthesis and cue wiring | `audio/` | no |
 | Bot harness, perf harness | `debug/` (and `scripts/`) | no |
 
+### 14.7 Three quality tracks: numbers, feel, fun
+
+Three different questions are asked of the game, tracked in three separate long-lived issues and judged in three different ways. They are never merged into one score, because they fail independently: the numbers can match exactly while the recoil, sounds or hit response feel different from the reference game, and a game can have exact numbers and a faithful feel and still be dull.
+
+| Track | Question | Judged by | Tracking issue |
+|---|---|---|---|
+| **Numbers conformance** | Does every implemented mechanic value and measurable behaviour equal `docs/mechanics-spec.md`? | Automated first. A conformance suite and a generated conformance table, `docs/conformance.md`: one row per spec value or behaviour with the spec value and section, the implemented value, the test, and a status (match / deviation with a written reason / not implemented yet / placeholder-or-estimate flagged by the spec). Pass: every in-scope value has a row, zero unexplained mismatches. | [#61](https://github.com/omkarbhale/flickline/issues/61) |
+| **Feel similarity** | Independent of the numbers, do recoil, movement, shot sounds, hit and kill sounds, hit response and timing feel like the reference game? | Looked-at and listened-to passes scored against a written checklist, `docs/feel-checklist.md`: items per area (recoil feel, movement feel, shot sounds, hit and kill sounds, hit response, timing, view), each scored 0/1/2 with evidence (frame captures, audio renders and measurements, latency numbers). Pass: a percentage of points, a floor per area, no critical zero. | [#62](https://github.com/omkarbhale/flickline/issues/62) |
+| **Fun** | Is it compelling to play: does it pull you into another run, hold you at the edge of your ability, and reward good mechanics clearly? | Playtest passes following `docs/fun-criteria.md`: a fixed human question set, measured proxies (restart friction, edge-of-ability success rate, dead-air gaps, reward cadence) and an explicit verdict on whether Sweep plays like a game rather than a drill. | [#63](https://github.com/omkarbhale/flickline/issues/63) |
+
+Rules that keep the three honest:
+
+- **Feel is judged against descriptions, never assets.** The checklist describes behaviours, relationships and timings in our own words. No reference audio, video or image is copied, recorded, ripped, embedded or used as a synthesis target (section 16). Sounds stay synthesised from code and are tuned until the checklist items pass.
+- **Numbers belong to the spec, not to the feel pass.** Tuning for feel changes presentation parameters (viewmodel kick curves, hit-marker timing, synthesis parameters, flinch and tagging presentation), never a value that has a row in the conformance table. If feel can only be reached by changing such a value, that is an issue on the numbers track.
+- **Conflicts are filed, not silently resolved.** Mechanical truth (pillar 1) outranks fun for everything inside the mechanics; fun outranks feel-polish for everything around the mechanics (pacing, rewards, results flow).
+- **Every playtest pass reports the three verdicts separately**, in three sections of its report, each also posted on its tracking issue; every defect is filed with the matching `quality:numbers`, `quality:feel` or `quality:fun` label.
+- Owners: the conformance suite [#64](https://github.com/omkarbhale/flickline/issues/64), the feel checklist [#65](https://github.com/omkarbhale/flickline/issues/65) and feel tuning [#67](https://github.com/omkarbhale/flickline/issues/67), the fun criteria [#66](https://github.com/omkarbhale/flickline/issues/66) and fun tuning [#68](https://github.com/omkarbhale/flickline/issues/68); the playtests are [#29](https://github.com/omkarbhale/flickline/issues/29) and [#56](https://github.com/omkarbhale/flickline/issues/56).
+
 ---
 
 ## 15. Scope
 
 ### First playable (the earliest build that proves the thing)
-A build someone can play from a link that demonstrates the loop: Range map; weapons Pace and Kestrel using the spec's numbers; Posts and Beacons; Cold Start and Orbit; the Placement run and the skill model v1 with persistence; the full per-shot feedback of section 7.1 (excluding medals and surge); live stat strip; basic results card with the one-thing-to-fix stub (moving shots, RT); crosshair editor; sensitivity in the reference scale; first-run flow; synthesised sounds for shots, hits, headshots, kills; instant restart; a perf harness and an automated bot playtest; a looked-at playtest pass.
+A build someone can play from a link that demonstrates the loop: Range map; weapons Pace and Kestrel using the spec's numbers; Posts and Beacons; Cold Start and Orbit; the Placement run and the skill model v1 with persistence; the full per-shot feedback of section 7.1 (excluding medals and surge); live stat strip; basic results card with the one-thing-to-fix stub (moving shots, RT); crosshair editor; sensitivity in the reference scale; first-run flow; synthesised sounds for shots, hits, headshots, kills; instant restart; a perf harness and an automated bot playtest; the conformance suite and the feel and fun checklists; a looked-at playtest pass reporting numbers, feel and fun separately.
 
 ### First release
 Everything in sections 4–13: all eight modes, four maps, four weapons (Pace, Kestrel, Vane, Rill), seven enemy types, damage and slow-on-hit, the full feedback set including callouts and medals, results breakdown with the fix engine and spray trace, skill profile, ranks and PBs, settings, post effects, viewmodels, UI kit, accessibility options, balance, performance and legal passes, and a full playtest.
@@ -639,6 +657,7 @@ The work is tracked in GitHub issues on `omkarbhale/flickline`; every issue stat
 
 - Prerequisites outside this backlog: code foundation [#6](https://github.com/omkarbhale/flickline/issues/6) (merged), mechanics spec [#7](https://github.com/omkarbhale/flickline/issues/7) (merged), architecture and conventions [#54](https://github.com/omkarbhale/flickline/issues/54).
 - Phase tracking issues: [#9 first playable](https://github.com/omkarbhale/flickline/issues/9), [#10 first release](https://github.com/omkarbhale/flickline/issues/10), [#11 later (parked ideas)](https://github.com/omkarbhale/flickline/issues/11).
+- Quality tracking issues (long-lived, section 14.7): [#61 numbers conformance](https://github.com/omkarbhale/flickline/issues/61), [#62 feel similarity](https://github.com/omkarbhale/flickline/issues/62), [#63 fun](https://github.com/omkarbhale/flickline/issues/63).
 
 ### First playable
 
@@ -659,7 +678,10 @@ The work is tracked in GitHub issues on `omkarbhale/flickline`; every issue stat
 - [#26](https://github.com/omkarbhale/flickline/issues/26) feat(ui): end-of-run results card with stats, rating delta and restart flow
 - [#27](https://github.com/omkarbhale/flickline/issues/27) feat(ui): sensitivity in the reference scale, raw input, and the first-run flow (shooting in ≤ 10 s)
 - [#28](https://github.com/omkarbhale/flickline/issues/28) feat(infra): headless bot playtest harness and frame-time perf harness
-- [#29](https://github.com/omkarbhale/flickline/issues/29) playtest: first playable pass — looked-at gameplay, sound and feel check
+- [#64](https://github.com/omkarbhale/flickline/issues/64) test: spec conformance suite and generated conformance table (numbers quality)
+- [#65](https://github.com/omkarbhale/flickline/issues/65) research: reference-feel checklist for recoil, movement, sounds, hit response and timing (feel quality)
+- [#66](https://github.com/omkarbhale/flickline/issues/66) research: fun criteria and playtest protocol (fun quality)
+- [#29](https://github.com/omkarbhale/flickline/issues/29) playtest: first playable pass — reports numbers, feel and fun separately
 
 ### First release
 
@@ -687,5 +709,7 @@ The work is tracked in GitHub issues on `omkarbhale/flickline`; every issue stat
 - [#52](https://github.com/omkarbhale/flickline/issues/52) research: audio and visual cue design — hit, headshot and tell cues that players learn in a minute
 - [#53](https://github.com/omkarbhale/flickline/issues/53) balance: tune dial end-points, scoring, medals and Sweep pressure against bot and human data
 - [#55](https://github.com/omkarbhale/flickline/issues/55) perf: first-release 144 fps pass on Range, Lane, Elbow and Foundry
-- [#56](https://github.com/omkarbhale/flickline/issues/56) playtest: first release pass — every mode, looked at and listened to
+- [#67](https://github.com/omkarbhale/flickline/issues/67) balance: feel tuning pass — recoil, movement, sounds, hit response and timing against the checklist (feel quality)
+- [#68](https://github.com/omkarbhale/flickline/issues/68) balance: fun tuning pass — pacing, reward cadence, restart friction and the flagship's game feel (fun quality)
+- [#56](https://github.com/omkarbhale/flickline/issues/56) playtest: first release pass — reports numbers, feel and fun separately
 - [#57](https://github.com/omkarbhale/flickline/issues/57) audit: identity and legal check — names, assets, fonts, licences, no copied content
