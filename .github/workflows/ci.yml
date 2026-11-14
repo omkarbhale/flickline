@@ -26,4 +26,5 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run map-lint
+      - run: npm run bot -- --suite
       - run: npm run build

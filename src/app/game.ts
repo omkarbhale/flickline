@@ -470,11 +470,16 @@ export class Game {
     for (let i = 0; i < n; i++) {
       s.yaw = this.input.yaw;
       s.pitch = this.input.pitch;
-      if (this.run.step(s)) this.tickRun();
+      this.advance(s);
       s.jump = false;
       s.reload = false;
     }
     if (render) this.renderNow();
+  }
+
+  /** Run one sim tick with `input` exactly as the frame loop does (run state, mode runner, tick hooks), without drawing. */
+  advance(input: TickInput): void {
+    if (this.run.step(input)) this.tickRun();
   }
 
   /**
