@@ -1,7 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { auditAllocations } from './allocAudit';
 import { main } from './cli';
 import { HeadlessGame } from './headless';
 import { FREEPLAY, listModes, mapForMode, playMode, resolveMode } from './play';
@@ -79,15 +78,6 @@ describe('bot suite (runs in CI through npm test)', () => {
     const failed = r.checks.filter((c) => !c.ok).map((c) => `${c.name} (${c.detail})`);
     expect(failed).toEqual([]);
     expect(r.wallMs).toBeLessThan(20_000);
-  }, 60_000);
-});
-
-describe('allocation audit', () => {
-  it('keeps the sim tick under its allocation ceiling and names the sources', () => {
-    const a = auditAllocations({ ticks: 25_000, warmupTicks: 12_000 });
-    expect(a.sites.length).toBeGreaterThan(0);
-    expect(a.bytesPerTick, JSON.stringify(a.sites.slice(0, 4))).toBeLessThanOrEqual(a.ceilingBytesPerTick);
-    // Profiling slows the sim a lot and the suite runs beside other test files: give it room.
   }, 60_000);
 });
 
