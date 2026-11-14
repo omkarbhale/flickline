@@ -16,6 +16,14 @@ export interface Settings {
   enemiesVolume: number;
   uiVolume: number;
   quality: QualityLevel;
+  /** Amber moving-shot tracer, `⇆` glyph (design §13.3 "Coaching cues"). */
+  coachingCues: boolean;
+  /** Ghost ring where the nearest target's head was, after a miss. */
+  missGhost: boolean;
+  /** Floating damage numbers on hits. */
+  damageNumbers: boolean;
+  /** Disables screen pulses and chromatic effects (design §13.3). */
+  reduceFlashing: boolean;
   /** Crosshair appearance (design 13.2). Replaced as a whole by `set`. */
   crosshair: CrosshairParams;
 }
@@ -29,6 +37,10 @@ export const DEFAULT_SETTINGS: Settings = {
   enemiesVolume: 1,
   uiVolume: 1,
   quality: 'medium',
+  coachingCues: true,
+  missGhost: true,
+  damageNumbers: true,
+  reduceFlashing: false,
   crosshair: DEFAULT_CROSSHAIR,
 };
 
@@ -65,6 +77,11 @@ export function sanitizeSettings(raw: unknown): Settings {
   if (typeof r.quality === 'string' && (QUALITY_LEVELS as readonly string[]).includes(r.quality)) {
     out.quality = r.quality as QualityLevel;
   }
+  const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
+  out.coachingCues = bool(r.coachingCues, out.coachingCues);
+  out.missGhost = bool(r.missGhost, out.missGhost);
+  out.damageNumbers = bool(r.damageNumbers, out.damageNumbers);
+  out.reduceFlashing = bool(r.reduceFlashing, out.reduceFlashing);
   out.crosshair = sanitizeCrosshair(r.crosshair);
   return out;
 }

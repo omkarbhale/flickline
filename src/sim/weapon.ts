@@ -5,6 +5,7 @@ import { TICK_DT } from '../core/time';
 import { directionFromAngles, vec3, type Vec3 } from '../core/vec3';
 import type { WeaponDef, WeaponId, WeaponRules, WeaponTable } from '../config/weapon';
 import { rayBox } from './collision';
+import { createAimInfo, nearestAimTarget, type AimInfo } from './aim';
 import { createZoneHit, type ZoneHit } from './hitZones';
 import type { TargetField } from './targets';
 import type { BoxDef, HitZone, PlayerState, SimEvents, TickInput, WeaponState } from './types';
@@ -44,6 +45,15 @@ export interface WeaponEvents {
     recoilYawDeg: number;
     /** Rounds left in the magazine after this shot. */
     ammo: number;
+    /** View angles at the tick (the crosshair, radians); `dir` adds recoil and spread. */
+    yaw: number;
+    pitch: number;
+    /** Nearest visible live target to the view ray (-1 none) and the angle to its head, radians. */
+    aimTargetId: number;
+    aimErr: number;
+    /** Head-centre angles minus view angles for that target, radians. */
+    aimDYaw: number;
+    aimDPitch: number;
   };
   /**
    * Where a shot ended: emitted once per shot that hit a surface or a target, right after its
@@ -151,6 +161,9 @@ const LONG_AGO = -1e9;
  * Reused per-world buffers: event payloads and the trace result. Nothing is allocated per shot.
  * (`targetHit` / `targetKilled` payloads belong to the target field, which emits them.)
  */
+const viewDir = vec3();
+const scratchAim: AimInfo = createAimInfo();
+
 export interface WeaponScratch {
   trace: TraceResult;
   origin: Vec3;
@@ -175,6 +188,7 @@ export function createWeaponScratch(): WeaponScratch {
     fired: {
       tick: 0, t: 0, shotId: 0, weapon, origin, dir, moving: false, speed: 0, airborne: false,
       crouching: false, spreadDeg: 0, recoilIndex: 0, recoilPitchDeg: 0, recoilYawDeg: 0, ammo: 0,
+      yaw: 0, pitch: 0, aimTargetId: -1, aimErr: 0, aimDYaw: 0, aimDPitch: 0,
     },
     impact: {
       tick: 0, t: 0, shotId: 0, result: 'miss', targetId: -1, zone: null, damage: 0, killed: false,
@@ -455,6 +469,15 @@ function fire(
   f.recoilPitchDeg = recoilPitch;
   f.recoilYawDeg = recoilYaw;
   f.ammo = slot.mag;
+  // Stat data: where the crosshair (not the bullet) was relative to the nearest visible target.
+  f.yaw = p.yaw;
+  f.pitch = p.pitch;
+  const vd = directionFromAngles(viewDir, p.yaw, p.pitch);
+  const aim = nearestAimTarget(o.x, o.y, o.z, p.yaw, p.pitch, vd.x, vd.y, vd.z, world.field, scratchAim);
+  f.aimTargetId = aim.targetId;
+  f.aimErr = aim.err;
+  f.aimDYaw = aim.dYaw;
+  f.aimDPitch = aim.dPitch;
   events.emit('shotFired', f);
 
   const field = world.field;

@@ -5,6 +5,7 @@ import {
   Fog,
   PerspectiveCamera,
   Scene,
+  Vector3,
   WebGLRenderer,
 } from 'three';
 import { lerp } from '../core/math';
@@ -19,6 +20,7 @@ import { applyEnvQuality, createEnvUniforms, horizonColor, type EnvUniforms } fr
 import { buildLevelMesh, type LevelMesh } from './levelMesh';
 import { Sky } from './sky';
 import { PostPipeline, createVignetteEffect } from './post';
+import { WorldHint } from './worldHint';
 import { TargetsView } from './targetsView';
 
 /** What a render layer sees each frame. One reused object: read it during `update` only. */
@@ -33,13 +35,15 @@ export interface RenderFrame {
 /**
  * A visual subsystem a feature adds with `addLayer` (shot effects, hints, viewmodels). It builds
  * its objects into `renderer.scene` / `renderer.camera` when constructed; the renderer drives it.
- * Hot-path rule: `update` allocates nothing.
+ * Hot-path rule: `update` and `afterDraw` allocate nothing.
  */
 export interface RenderLayer {
   /** Every drawn frame, after the camera is placed and before drawing, in the order added. */
   update(frame: RenderFrame): void;
-  /** Drawing-buffer size in device pixels, after every resize or quality change. */
-  resize?(width: number, height: number): void;
+  /** Right after the frame was drawn. */
+  afterDraw?(): void;
+  /** Canvas size in CSS pixels and the device pixel ratio, after every resize or quality change. */
+  resize?(width: number, height: number, pixelRatio: number): void;
   dispose(): void;
 }
 
@@ -53,7 +57,7 @@ export interface RenderStats {
 /**
  * Everything three.js. Reads sim state (never writes it), interpolates between the last two
  * ticks, and owns the scene, camera, environment, targets and post pipeline. Features add their
- * own visuals as `RenderLayer`s.
+ * own visuals as `RenderLayer`s (`addLayer`).
  *
  * Hot-path rules: render() allocates nothing. All vectors/matrices are scratch members.
  */
@@ -62,6 +66,8 @@ export class GameRenderer {
   readonly scene = new Scene();
   readonly camera: PerspectiveCamera;
   readonly post = new PostPipeline();
+  /** The single first-run hint floating over a target; hidden unless shown. */
+  readonly hint: WorldHint;
   readonly stats: RenderStats = { drawCalls: 0, triangles: 0, geometries: 0, textures: 0 };
 
   private quality: QualityLevel;
@@ -73,10 +79,9 @@ export class GameRenderer {
   private targetsView: TargetsView | null = null;
   private readonly layers: RenderLayer[] = [];
   private readonly frame: RenderFrame = { world: null as unknown as World, alpha: 1, dt: 0 };
+  private readonly proj = new Vector3();
   private width = 1;
   private height = 1;
-  private bufferWidth = 1;
-  private bufferHeight = 1;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -115,17 +120,19 @@ export class GameRenderer {
     sun.position.set(...r.light.dir).multiplyScalar(12);
     this.scene.add(sun);
 
+    this.hint = new WorldHint(this.scene, 'Click the orb');
+
     this.post.effects.push(createVignetteEffect());
     this.applyQuality();
   }
 
   /**
-   * Add a feature's layer. Add layers before `loadLevel` (features are set up before the level
-   * loads), so their shaders are compiled ahead with the rest.
+   * Add a feature's layer. Features are set up before the level loads, so the layers' shaders are
+   * compiled ahead together with the level's.
    */
   addLayer(layer: RenderLayer): void {
     this.layers.push(layer);
-    layer.resize?.(this.bufferWidth, this.bufferHeight);
+    layer.resize?.(this.width, this.height, this.renderer.getPixelRatio());
   }
 
   setQuality(q: QualityLevel): void {
@@ -151,10 +158,8 @@ export class GameRenderer {
     this.camera.updateProjectionMatrix();
     const pr = this.renderer.getPixelRatio();
     const p = this.tunables.render.quality[this.quality];
-    this.bufferWidth = Math.floor(this.width * pr);
-    this.bufferHeight = Math.floor(this.height * pr);
-    this.post.setSize(this.bufferWidth, this.bufferHeight, p.antialias ? 4 : 0);
-    for (let i = 0; i < this.layers.length; i++) this.layers[i]!.resize?.(this.bufferWidth, this.bufferHeight);
+    for (let i = 0; i < this.layers.length; i++) this.layers[i]!.resize?.(this.width, this.height, pr);
+    this.post.setSize(Math.floor(this.width * pr), Math.floor(this.height * pr), p.antialias ? 4 : 0);
   }
 
   /**
@@ -208,11 +213,24 @@ export class GameRenderer {
 
     this.renderer.info.reset();
     this.post.render(this.renderer, this.scene, this.camera);
+    for (let i = 0; i < this.layers.length; i++) this.layers[i]!.afterDraw?.();
     const info = this.renderer.info;
     this.stats.drawCalls = info.render.calls;
     this.stats.triangles = info.render.triangles;
     this.stats.geometries = info.memory.geometries;
     this.stats.textures = info.memory.textures;
+  }
+
+  /**
+   * Project a world point to CSS pixels using the camera of the last drawn frame (used to anchor
+   * floating numbers). Returns false when the point is behind the camera. No allocation.
+   */
+  projectToScreen(x: number, y: number, z: number, out: { x: number; y: number }): boolean {
+    const v = this.proj.set(x, y, z).project(this.camera);
+    if (v.z > 1) return false;
+    out.x = (v.x * 0.5 + 0.5) * this.width;
+    out.y = (-v.y * 0.5 + 0.5) * this.height;
+    return true;
   }
 
   dispose(): void {

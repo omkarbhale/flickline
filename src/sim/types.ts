@@ -1,5 +1,6 @@
 import type { Vec3 } from '../core/vec3';
 import type { WeaponId } from '../config/weapon';
+import type { RunEvents } from './runEvents';
 
 /** Per-tick player command. The only way input reaches the simulation. Angles in radians. */
 export interface TickInput {
@@ -199,3 +200,6 @@ export interface SimEvents {}
 declare module '../core/gameEvents' {
   interface GameEvents extends SimEvents {}
 }
+
+/** Everything the simulation and the run machinery put on the bus. */
+export type RunAndSimEvents = SimEvents & RunEvents;

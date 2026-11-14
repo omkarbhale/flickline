@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { composeTunables, tunables } from '../config/tunables';
-import { defineFeature, orderFeatures, type FeatureStage } from './feature';
+import { defineFeature, FEATURE_STAGES, orderFeatures, type FeatureStage } from './feature';
 import { FEATURES } from './features';
 
 const f = (id: string, stage: FeatureStage) => ({ feature: defineFeature({ id, stage, setup() {} }) });
@@ -22,18 +22,18 @@ describe('feature registry', () => {
     expect(() => orderFeatures({ '../features/a.ts': f('a', 'late' as FeatureStage) })).toThrow(/unknown stage/);
   });
 
-  it('discovers the real features with producers before presentation', () => {
+  it('discovers the real features, unique and in stage order', () => {
     const ids = FEATURES.map((x) => x.id);
+    expect(ids).toContain('audio');
     expect(new Set(ids).size).toBe(ids.length);
-    // The mode runner emits streakUpdated before the kill chime (audio) reads it.
-    expect(ids.indexOf('modes')).toBeGreaterThanOrEqual(0);
-    expect(ids.indexOf('modes')).toBeLessThan(ids.indexOf('audio'));
+    const ranks = FEATURES.map((x) => FEATURE_STAGES.indexOf(x.stage));
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
   });
 });
 
 describe('tunables registry', () => {
   it('composes every config group', () => {
-    for (const key of ['movement', 'weapon', 'weaponRules', 'targets', 'view', 'render', 'audio', 'scoring', 'modes', 'dial']) {
+    for (const key of ['movement', 'weapon', 'weaponRules', 'targets', 'view', 'render', 'audio', 'feedback', 'profile', 'scoring', 'modes', 'dial', 'run']) {
       expect(tunables, key).toHaveProperty(key);
     }
   });

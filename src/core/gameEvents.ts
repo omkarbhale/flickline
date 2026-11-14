@@ -9,8 +9,7 @@
  *     interface GameEvents extends RunEvents {}
  *   }
  *
- * A clash (two maps declaring the same event with different payloads) is a compile error.
- * Today's maps: `SimEvents` (sim/types.ts), `FeedbackEvents`, `SettingsEvents`, `ModeEvents`,
- * `InputEvents` (input/input.ts).
+ * A clash (two maps declaring the same event with different payloads) is a compile error. Find
+ * every map with a search for `interface GameEvents extends`.
  */
 export interface GameEvents {}

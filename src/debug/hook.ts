@@ -56,9 +56,11 @@ export interface CoreDebug {
   /** Frame/tick/draw stats. */
   perf(): unknown;
   /** Update a setting through the real store. */
-  setSetting<K extends keyof Settings>(key: K, value: Settings[K]): void;
+  setSetting(key: keyof Settings, value: number | string | boolean): void;
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
+  /** Named timestamps (ms since page load): panel shown, play clicked, lock, first shot. */
+  timeline(): Record<string, number>;
   /** Live tunables object (mutate for experiments; not persisted). */
   readonly tunables: unknown;
 }
@@ -138,6 +140,7 @@ export function installDebugHook(game: Game): FlicklineDebug {
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);
     },
+    timeline: () => game.timeline.toObject(),
     tunables: game.tunables,
   };
   for (const key of Object.keys(game.debugCommands)) {
