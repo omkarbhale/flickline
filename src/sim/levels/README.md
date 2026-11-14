@@ -19,7 +19,7 @@ Vectors are `[x, y, z]` metres, +Y up, yaw 0 looks down -Z. Unknown properties a
 | `anchors` | where modes put things; every anchor has `kind`, unique `id`, optional `tags`. Kinds: `post`, `beacon-shell`, `strafe-lane`, `peek`, `gate`, `drone-volume`, `spray-alcove` |
 | `nav` | coarse walkable graph `{nodes: [{id, pos}], edges: [[id, id]]}` |
 | `lanes`, `checkpoints` | optional: named corridors, and route checkpoints `{id, pos, angleAnchors: [peek ids]}` |
-| `marks` | optional floor markings (`tick`, `major`, `line`, `armed`) drawn flat on the floor; never collide. `armed` marks are dim until a `laneArmedChanged { armed: true }` event lights them (the Lane's stripe, driven by a mode) |
+| `marks` | optional floor markings (`tick`, `major`, `line`) drawn flat on the floor; never collide |
 | `look` | `{sky: "#rrggbb", fog: [near, far], palette}`; the renderer picks the box palette by name |
 | `lint` | optional per-map `{overlapTolerance, maxSightline}` |
 
@@ -38,12 +38,12 @@ Stairs are plain boxes: **stack** one box per step (each from the top of the pre
 ## Range
 
 54 x 24 m hall, 8 m ceiling, spawn at the south end (z = 25) looking north, so distances from the spawn are `25 - z`:
-posts at 6/10/15/20/30/40 m (tag `band-N`; 9 angles 15° apart at 6 and 10 m so Cold Start always has a Post 5-25° from the crosshair, 5 angles at the other bands) plus 3 beside the pillars (tag `pillar`); the `beacon-shell` (8-25 m) is centred in the middle of the hall, so the Orbit mode moves the player to its `centre`;
+posts at 6/10/15/20/30/40 m (tag `band-N`; 9 angles 15° apart at 6 and 10 m so a Post is always 5-25° from the crosshair, 5 angles at the other bands) plus 3 beside the pillars (tag `pillar`); the `beacon-shell` (8-25 m) is centred in the middle of the hall, (a retired drill moved the player to its `centre`);
 3 `strafe-lane`s at 12/22/33 m; 3 `spray-alcove`s (niches in the north wall; the player fires from `stand` at the `post` 12/20/28 m away); 5 sphere targets at 5/10/20/30/50 m; floor ticks every 5 m (thicker every 10 m).
 
 ## Lane
 
-6 x 30 m corridor (x -3..3, z -15..15), 4 m ceiling. Spawn at the south end (z = 14) looking north, so distances from the spawn are `14 - z`. A start line at z = 12; five alternating 1.3 m half-wall stops 5 m apart (z = 9, 4, -1, -6, -11, sides left/right/left/right/left, 2 m deep, leaving a 4 m gap); the last 3 m narrow to a 4 m wide far-end alcove. Posts at 16 / 18.5 / 21 / 23.5 / 26 m (three angles each), 27.5 m (`alcove`, three) and 28.5 m (`alcove`, two), tags `band-<d>`. The armed stripe is two `armed` marks: a band behind the start line and a runner down the middle, clear of the half-walls. Distance ticks every 5 m. 3 placeholder sphere targets.
+6 x 30 m corridor (x -3..3, z -15..15), 4 m ceiling. Spawn at the south end (z = 14) looking north, so distances from the spawn are `14 - z`. A start line at z = 12; five alternating 1.3 m half-wall stops 5 m apart (z = 9, 4, -1, -6, -11, sides left/right/left/right/left, 2 m deep, leaving a 4 m gap); the last 3 m narrow to a 4 m wide far-end alcove. Posts at 16 / 18.5 / 21 / 23.5 / 26 m (three angles each), 27.5 m (`alcove`, three) and 28.5 m (`alcove`, two), tags `band-<d>`. Distance ticks every 5 m. 3 placeholder sphere targets.
 
 ## Elbow
 

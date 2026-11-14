@@ -25,7 +25,7 @@ describe('CuePlanner: phases', () => {
     expect(p.phaseOf('precision')).toBe('summary');
   });
 
-  it('the Placement run and runs with no skill always get every cue and are never clean', () => {
+  it('a placing run and runs with no skill always get every cue and are never clean', () => {
     const p = new CuePlanner();
     const done = { runsCompleted: 99, rating: 80, sd: 3 };
     expect(p.plan(input({ placement: true, ...done }))).toEqual({ phase: 'every', clean: false });

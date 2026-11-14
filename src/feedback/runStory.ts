@@ -14,7 +14,7 @@ import type { PlayerTunables } from '../config/player';
  * Events read (payloads as in §14.3; extra fields are ignored, a missing optional field degrades the
  * tile instead of failing): `runReady`, `sectorEntered`, `sectorEnded`, `contactSettled` (+ its
  * `card`), `playerDamaged`, `playerHealed`, `shotFired`, `shotImpact`, `targetKilled`, `runBanked`,
-. A run without sectors (a drill mode) yields an empty story and the card hides both rows.
+. A run without sectors (a run that is not a Sweep run) yields an empty story and the card hides both rows.
  *
  * A **contact is won** when it ended `cleared`; **lost** when the player `died` in it or
  * `disengaged` (retreated after losing at least 30% of its starting health); `avoided` contacts

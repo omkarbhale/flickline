@@ -11,7 +11,7 @@ import { formatHarness, harnessRow, selfReportFor, type HarnessRow } from '../sk
 
 const HELP = `npm run bot -- [options]
 
-  --mode <id>        mode to play: ${'<modes>'} (default: ${'<first>'}); "cold-start" and "coldStart" are the same
+  --mode <id>        mode to play: ${'<modes>'} (default: sweep, the game); ids ignore case and dashes
   --skill <0..100>   bot skill (default 50); see src/debug/bot/README.md
   --seed <n>         world, mode and bot seed (default 1)
   --bot-seed <n>     bot random stream, if it should differ from --seed
@@ -82,7 +82,7 @@ export function main(argv: string[], log: (s: string) => void = console.log): nu
   }
   const modes = listModes();
   if (args.help) {
-    log(HELP.replace('<modes>', modes.join(', ')).replace('<first>', modes[1] ?? modes[0]!));
+    log(HELP.replace('<modes>', modes.join(', ')));
     return 0;
   }
   if (args.list) {
@@ -209,7 +209,7 @@ export function main(argv: string[], log: (s: string) => void = console.log): nu
     }
     const seed = args.seed !== undefined ? Number(args.seed) : 1;
     const opts: BotRunOptions = {
-      mode: typeof args.mode === 'string' ? args.mode : (modes[1] ?? modes[0]!),
+      mode: typeof args.mode === 'string' ? args.mode : 'sweep',
       skill: args.skill !== undefined ? Number(args.skill) : 50,
       seed,
       botSeed: args['bot-seed'] !== undefined ? Number(args['bot-seed']) : undefined,

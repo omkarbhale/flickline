@@ -4,7 +4,6 @@ import type { Rng } from '../core/rng';
 import { secondsToTicks } from '../core/time';
 import { directionFromAngles, set, vec3, type Vec3 } from '../core/vec3';
 import type { FairnessFloors } from '../config/dial';
-import type { ModeTunables } from '../config/modes';
 import type { AnchorLike, AnchorSource, PlayerView } from './contracts';
 
 /**
@@ -19,7 +18,7 @@ import type { AnchorLike, AnchorSource, PlayerView } from './contracts';
 
 /** What to pick. Reuse one query object per mode and mutate it. */
 export interface SpawnQuery {
-  /** Anchor kind (`post`, `gate`, `beacon-shell`, ...). */
+  /** Anchor kind (`post`, `gate`, ...). */
   kind: string;
   /** Optional anchor tag filter. */
   tag?: string;
@@ -85,7 +84,6 @@ export class SpawnScheduler {
   rejected = 0;
 
   constructor(
-    private readonly cfg: ModeTunables,
     private readonly floors: FairnessFloors,
     private readonly rng: Rng,
     private index: AnchorIndex,
@@ -155,50 +153,6 @@ export class SpawnScheduler {
     return null;
   }
 
-  /**
-   * Sample a point on a `beacon-shell` anchor: radius within the shell and the query's distance
-   * band, angular distance from the reference direction within the angle band, pitch within the
-   * shell pitch limits and biased towards head height. Never closer than the fairness floor.
-   * Writes the point into `out`; returns false (and leaves `out`) if no sample fits the bounds.
-   */
-  pickShellPoint(shell: AnchorLike, q: SpawnQuery, out: Vec3): boolean {
-    const c = this.cfg;
-    const eye = this.eyePosition();
-    const ref = this.resolveRef(q);
-    const rLo = Math.max(shell.rMin ?? 0, q.minDist, this.floors.spawnMinDistance);
-    const rHi = Math.min(shell.rMax ?? Infinity, q.maxDist);
-    if (rHi < rLo) return false;
-    const pitch0 = Math.asin(Math.max(-1, Math.min(1, ref.y)));
-    const yaw0 = Math.atan2(-ref.x, -ref.z);
-    const cp0 = Math.cos(pitch0);
-    const sp0 = Math.sin(pitch0);
-    const pLo = c.shellPitchMinDeg * DEG2RAD;
-    const pHi = c.shellPitchMaxDeg * DEG2RAD;
-    const pBias = c.shellPitchBiasDeg * DEG2RAD;
-    for (let i = 0; i < c.spawnMaxTries; i++) {
-      const a = this.rng.range(q.minAngleDeg, q.maxAngleDeg) * DEG2RAD;
-      // Two uniform draws averaged make a triangular bias towards the centre of the pitch range.
-      const u = (this.rng.next() + this.rng.next()) / 2;
-      const p = u < 0.5 ? pLo + (pBias - pLo) * (u * 2) : pBias + (pHi - pBias) * ((u - 0.5) * 2);
-      const cp = Math.cos(p);
-      const arg = (Math.cos(a) - sp0 * Math.sin(p)) / (cp0 * cp);
-      if (!(arg >= -1 && arg <= 1)) continue; // no direction at this angle and pitch: resample
-      const dyaw = Math.acos(arg) * (this.rng.next() < 0.5 ? -1 : 1);
-      directionFromAngles(this.dir, yaw0 + dyaw, p);
-      const r = this.rng.range(rLo, rHi);
-      set(this.pos, eye.x + this.dir.x * r, eye.y + this.dir.y * r, eye.z + this.dir.z * r);
-      if (!this.inBounds(this.pos)) continue;
-      if (!this.fairAt(this.pos)) continue;
-      if (this.index.sightClear && !this.index.sightClear(eye, this.pos)) continue;
-      out.x = this.pos.x;
-      out.y = this.pos.y;
-      out.z = this.pos.z;
-      return true;
-    }
-    this.rejected++;
-    return false;
-  }
-
   private reservoir(list: readonly AnchorLike[], q: SpawnQuery, useAngle: boolean, useDist: boolean, out: Vec3): AnchorLike | null {
     const floor = this.floors.spawnMinDistance;
     const eye = this.eye;
@@ -240,12 +194,6 @@ export class SpawnScheduler {
   private resolveRef(q: SpawnQuery): Vec3 {
     if (q.refDir) return set(this.ref, q.refDir.x, q.refDir.y, q.refDir.z);
     return directionFromAngles(this.ref, this.player.yaw, this.player.pitch);
-  }
-
-  private inBounds(p: Vec3): boolean {
-    const b = this.index.bounds;
-    if (!b) return true;
-    return p.x >= b.min.x && p.x <= b.max.x && p.y >= b.min.y && p.y <= b.max.y && p.z >= b.min.z && p.z <= b.max.z;
   }
 }
 

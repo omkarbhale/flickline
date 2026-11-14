@@ -265,7 +265,7 @@ describe('shot aim data', () => {
   });
 });
 
-describe('lead error (Strafe Track, design §3)', () => {
+describe('lead error against a strafer (design §3)', () => {
   /**
    * A Strafer on a lane 10 m ahead. For the first `onTicks` the view is dead on it; after that it is
    * put `offDeg` ahead of the Strafer's direction of travel (negative = behind it) every tick.

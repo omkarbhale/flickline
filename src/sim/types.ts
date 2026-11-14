@@ -215,7 +215,7 @@ export interface WeaponState {
   wasGrounded: boolean;
   /** Sim time of the last landing, seconds. */
   landTime: number;
-  /** Option (drills): shots never use ammo, so the magazine never empties. Survives reset(). */
+  /** Option (debug, playtests): shots never use ammo, so the magazine never empties. Survives reset(). */
   infiniteMagazine: boolean;
   /** Option: reloads never use reserve ammo. Survives reset(). */
   infiniteReserve: boolean;

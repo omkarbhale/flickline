@@ -469,12 +469,12 @@ export function measureSounds(): SoundReport {
 // --- Restart -----------------------------------------------------------------------------------
 
 /** Synchronous cost of the sim side of an instant restart (mode start from a seed), ms. */
-export function measureRestartSim(mode = 'coldStart', n = 50): Percentiles {
+export function measureRestartSim(mode = 'sweep', n = 50): Percentiles {
   const g = new HeadlessGame();
   const out: number[] = [];
   for (let i = 0; i < n; i++) {
     const t0 = performance.now();
-    g.modes.start(mode, { seed: 100 + i });
+    g.modes.start(mode, { seed: 100 + i, pick: g.modes.primary });
     out.push(performance.now() - t0);
   }
   return percentiles(out);
@@ -497,7 +497,7 @@ export function measureRestartFlow(mode: string): RestartFlow {
   const offSpawn = g.bus.on('targetSpawned', () => {
     if (!Number.isNaN(live) && Number.isNaN(first)) first = ticks;
   });
-  g.modes.start(mode, { seed: 5 });
+  g.modes.start(mode, { seed: 5, pick: g.modes.primary });
   const input = createTickInput();
   input.yaw = g.world.player.yaw;
   while (ticks < 128 * 10 && Number.isNaN(first)) {

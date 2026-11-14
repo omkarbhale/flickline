@@ -159,14 +159,14 @@ describe('settings menu fields (design §13.3)', () => {
     const store = new SettingsStore(bus, memoryStorage());
     store.set({ keys: { ...store.get().keys } }); // same value
     store.set({ keys: { ...store.get().keys, reload: ['KeyT'] } });
-    store.set({ difficultyPin: { orbit: 40 } });
-    store.set({ difficultyPin: { orbit: 40 } });
+    store.set({ difficultyPin: { sweep: 40 } });
+    store.set({ difficultyPin: { sweep: 40 } });
     store.set({ fpsCap: 144, showFps: true });
     expect(seen).toEqual([['keys'], ['difficultyPin'], ['fpsCap', 'showFps']]);
   });
 
   it('sanitises difficulty pins: dial range, mode id shape, count', () => {
-    const p = sanitizeSettings({ difficultyPin: { orbit: 150, coldStart: -5, 'bad id!': 3, strafeTrack: 'x', ok_1: 40.6 } }).difficultyPin;
-    expect(p).toEqual({ orbit: 100, coldStart: 0, ok_1: 41 });
+    const p = sanitizeSettings({ difficultyPin: { sweep: 150, test: -5, 'bad id!': 3, other: 'x', ok_1: 40.6 } }).difficultyPin;
+    expect(p).toEqual({ sweep: 100, test: 0, ok_1: 41 });
   });
 });

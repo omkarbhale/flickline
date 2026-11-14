@@ -112,7 +112,7 @@ export interface SpawnOptions {
   shield?: number;
   /**
    * Health at spawn (default `maxHp`). A mode that needs a target to take any number of hits
-   * without dying (Spray Wall's Post) passes a very large value: it still emits `targetHit`, never `targetKilled`.
+   * without dying passes a very large value: it still emits `targetHit`, never `targetKilled`.
    */
   hp?: number;
   /** Strafer: the dial's speed, leg and stand-still and the lane it runs (defaults: the dial-50 values, a line square to the player). */
@@ -121,7 +121,7 @@ export interface SpawnOptions {
   peek?: PeekParams;
   /**
    * Strafer and Peeker: this enemy shoots back (the world's `enemiesFire` flag must also be on, so
-   * drills never see a shot). Absent = it never fires.
+   * a mode that never fires back sees no shot). Absent = it never fires.
    */
   fire?: FireParams;
   /**

@@ -71,14 +71,14 @@ export class World implements EnemyWorld {
   seed: number;
   tick = 0;
   /**
-   * A mode may lock the player in place (Orbit, design §4.2): movement keys, jump, crouch and walk
+   * The player may be locked in place (the primary pick's ready screen): movement keys, jump, crouch and walk
    * are ignored; look angles, fire, reload and weapon switching still work. Not reset by `reset()`
    * (it belongs to the run); the mode host sets and clears it.
    */
   movementLocked = false;
   /**
    * Whether Strafers and Peekers that were spawned armed (`SpawnOptions.fire`) shoot at the player
-   * (design §5.3: only in Corner Clear and Sweep; drills never). Like `movementLocked` it belongs to
+   * (design §5.3: only in Sweep). Like `movementLocked` it belongs to
    * the run, not the world state: `reset()` leaves it, the mode host sets and clears it.
    */
   enemiesFire = false;
@@ -278,7 +278,7 @@ export class World implements EnemyWorld {
   /**
    * Equip both sides with shields (spec §4.1; `config/economy.ts` says how much): the player now and
    * on every later `reset()`, and every humanoid Echo spawned from now on (orbs never get one).
-   * 0 = none, the default and what drills use. Not cleared by `reset()`; the mode host sets it for
+   * 0 = none, the default. Not cleared by `reset()`; the mode host sets it for
    * the run and clears it when the run stops.
    */
   setShields(player: number, enemy: number): void {

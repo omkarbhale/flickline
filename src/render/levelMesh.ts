@@ -48,8 +48,6 @@ export interface LevelMeshOptions {
 
 export interface LevelMesh {
   root: Object3D;
-  /** Light (or dim) the map's `armed` floor marks (the Lane's armed stripe). No allocation; a no-op on maps without any. */
-  setMarksArmed(armed: boolean): void;
   dispose(): void;
 }
 
@@ -179,10 +177,7 @@ export function buildLevelMesh(
     tick: scaleLinear(palette.trim, r.trim.marks.tick),
     major: scaleLinear(palette.trim, r.trim.marks.major),
     line: scaleLinear(palette.trim, r.trim.marks.line),
-    armed: scaleLinear(palette.trim, r.trim.marks.armedOff),
   };
-  const armedOn = scaleLinear(palette.trim, r.trim.marks.armedOn);
-  const armedIndices: number[] = [];
   let markGeo: PlaneGeometry | null = null;
   let markMat: MeshBasicMaterial | null = null;
   let markMesh: InstancedMesh | null = null;
@@ -201,7 +196,6 @@ export function buildLevelMesh(
       scale.set(Math.hypot(dx, dz), 1, mk.width);
       markMesh!.setMatrixAt(i, m.compose(pos, quat, scale));
       markMesh!.setColorAt(i, col.setHex(markColors[mk.kind]));
-      if (mk.kind === 'armed') armedIndices.push(i);
     });
     markMesh.instanceMatrix.needsUpdate = true;
     if (markMesh.instanceColor) markMesh.instanceColor.needsUpdate = true;
@@ -211,12 +205,6 @@ export function buildLevelMesh(
 
   return {
     root,
-    setMarksArmed(armed) {
-      if (markMesh === null || armedIndices.length === 0) return;
-      const hex = armed ? armedOn : markColors.armed;
-      for (let i = 0; i < armedIndices.length; i++) markMesh.setColorAt(armedIndices[i]!, col.setHex(hex));
-      if (markMesh.instanceColor) markMesh.instanceColor.needsUpdate = true;
-    },
     dispose() {
       for (const d of disposables) d.dispose();
       markGeo?.dispose();

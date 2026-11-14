@@ -11,7 +11,7 @@
  * sector dial (aimed at 70 % from the posterior) drifts without bound. The Echoes' own numbers
  * (reaction, tell, strafe speed) already make most fights harder with the dial; a rule that judges
  * something the Echo does not change (crosshair placement, a flick's time, time on target, a spray's
- * hit share, a switch's time) moves its bar along the dial instead, as Spray Wall's hit fraction
+ * hit share, a switch's time) moves its bar along the dial instead, as the retired Spray Wall's hit fraction
  * did (`dial.axes.sprayHitFraction`). `{ at0, at100 }`: the bar at dial 0 and at dial 100, linear between.
  */
 
