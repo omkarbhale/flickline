@@ -89,9 +89,13 @@ export interface CardModel {
   clean: boolean;
   score: string;
   scoreValue: number | null;
-  /** `—` without a personal best. */
+  /** The score against the best it had to beat ("+345"); `—` without a personal best. */
   pbText: string;
   pbTone: Tone;
+  /** Whether this run set a personal best: the first on the board (`first`), beat the old one (`beat`), or neither. */
+  pbKind: 'first' | 'beat' | 'none';
+  /** The line the card prints under the score ("New personal best", "−655 vs personal best"); empty when there is nothing to say. */
+  pbLabel: string;
   /** Null when the run does not move a rating (a plain run). */
   rating: RatingView | null;
   stats: StatCell[];
@@ -119,11 +123,16 @@ export interface ResultsInput {
   medals: readonly string[];
   /** The run was a clean run (default false). */
   clean?: boolean;
+  /** Whether the mode keeps personal bests at all (default true; the Placement run does not). */
+  keepsBest?: boolean;
 }
 
 /** Where the card gets a personal best from (#38 provides the real one). */
 export interface PbSource {
+  /** The best the run had to beat: as it stood BEFORE the run, whether or not the run has been recorded yet. */
   best(mode: string, dial: number): number | null;
+  /** Whether the mode keeps personal bests (default true). */
+  keepsBest?(mode: string): boolean;
 }
 
 /** The skill model's side: `SkillState` satisfies it. */
@@ -297,6 +306,8 @@ function metricCell(id: MetricId, s: RunStats): StatCell {
       return { id, label: 'Head height', value: formatDeg(s.headHeightDisciplineDeg), hint: 'off head level, lower is better' };
     case 'bestChain':
       return { id, label: 'Best chain', value: s.kills === 0 ? DASH : String(s.maxChain), hint: 'kills in a row, 1.5 s apart' };
+    case 'cleanStreak':
+      return { id, label: 'Clean streak', value: s.kills === 0 ? DASH : String(s.maxCleanStreak), hint: 'kills in a row, no miss' };
     case 'cleanKills':
       return { id, label: 'Clean kills', value: s.kills === 0 ? DASH : String(s.cleanKills), hint: s.kills > 0 ? `of ${s.kills} kills` : '' };
   }
@@ -312,7 +323,10 @@ export function statCells(s: RunStats, cfg: ResultsTunables = defaultResults): S
     // Research P1 (docs/research/human-performance.md): this is visible-to-shot, which includes the aim movement,
     // so the player-facing name is "time to shot", never "reaction time".
     { id: 'timeToShot', label: 'Time to shot', value: formatMs(s.medianRtMs), hint: 'median' },
-    { id: 'ttk', label: 'Time to kill', value: formatMs(s.medianTtkMs), hint: 'median' },
+    // One-bullet modes have no time to kill to speak of (first shot to death is ~0 ms): another tile takes its place.
+    cfg.oneBulletModes.includes(s.mode)
+      ? metricCell(cfg.oneBulletTile, s)
+      : { id: 'ttk', label: 'Time to kill', value: formatMs(s.medianTtkMs), hint: 'median' },
     { id: 'movingShots', label: 'Moving shots', value: s.shots > 0 ? String(s.movingShots) : DASH, hint: movingShare === null ? '' : `${formatPercent(movingShare)} of shots` },
     { id: 'kills', label: 'Kills', value: String(s.kills), hint: s.kills > 0 ? `${s.cleanKills} clean` : '' },
     metricCell(keys[0], s),
@@ -348,6 +362,24 @@ function ratingView(r: NonNullable<ResultsInput['rating']>, cfg: ResultsTunables
   };
 }
 
+/**
+ * The personal-best line. A run sets a best when it scores above the old one (or there is none), mirroring
+ * `beatsBest`; a run quit early is not recorded, so it never claims one. The first score on a board is a reward
+ * moment of its own (design §7.3), so it says so instead of a dash (#175).
+ */
+function pbView(input: ResultsInput, endReason: RunEndReason | null): Pick<CardModel, 'pbText' | 'pbTone' | 'pbKind' | 'pbLabel'> {
+  const none = { pbText: DASH, pbTone: 'none' as Tone, pbKind: 'none' as const, pbLabel: '' };
+  if (input.score === null || input.keepsBest === false) return none;
+  const recorded = endReason !== 'quit' && Math.round(input.score) > 0;
+  if (input.pb === null) {
+    return recorded ? { pbText: DASH, pbTone: 'good', pbKind: 'first', pbLabel: 'New personal best' } : none;
+  }
+  const d = input.score - input.pb;
+  const text = formatDelta(d);
+  if (recorded && Math.round(input.score) > input.pb) return { pbText: text, pbTone: 'good', pbKind: 'beat', pbLabel: `New personal best ${text}` };
+  return { pbText: text, pbTone: toneOf(d), pbKind: 'none', pbLabel: `${text} vs personal best` };
+}
+
 export function buildCard(input: ResultsInput, cfg: ResultsTunables = defaultResults): CardModel {
   const s = input.stats;
   const medals = new Map<string, MedalView>();
@@ -357,13 +389,7 @@ export function buildCard(input: ResultsInput, cfg: ResultsTunables = defaultRes
     else medals.set(id, { id, label: cfg.medalLabels[id] ?? titleCase(id), count: 1 });
   }
 
-  let pbText = DASH;
-  let pbTone: Tone = 'none';
-  if (input.score !== null && input.pb !== null) {
-    const d = input.score - input.pb;
-    pbText = formatDelta(d);
-    pbTone = toneOf(d);
-  }
+  const pb = pbView(input, s.endReason);
 
   return {
     mode: s.mode,
@@ -375,8 +401,7 @@ export function buildCard(input: ResultsInput, cfg: ResultsTunables = defaultRes
     clean: input.clean === true,
     score: input.score === null ? DASH : formatThousands(input.score),
     scoreValue: input.score,
-    pbText,
-    pbTone,
+    ...pb,
     rating: input.rating ? ratingView(input.rating, cfg) : null,
     stats: statCells(s, cfg),
     medals: Array.from(medals.values()),
@@ -463,6 +488,7 @@ export class ResultsRecorder {
         score: this.score,
         rating,
         pb: this.pbSource.best(stats.mode, stats.dial),
+        keepsBest: this.pbSource.keepsBest?.(stats.mode) !== false,
         medals: this.medals,
         clean: this.deps.isClean?.() === true,
       },
