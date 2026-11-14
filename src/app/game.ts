@@ -89,7 +89,7 @@ export class Game {
     attachSfx(this.bus, this.audio);
     this.session.attach(this.bus);
 
-    this.hud = new Hud(hudRoot, this.bus, this.session);
+    this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair);
     this.menu = new Menu(menuRoot, this.settings, this.tunables, () => this.play());
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
@@ -226,7 +226,7 @@ export class Game {
       `pos ${f(p.pos.x)} ${f(p.pos.y)} ${f(p.pos.z)}  speed ${f(speed)} m/s\n` +
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
-      `tick ${this.world.tick}  quality ${this.settings.get().quality}`
+      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}`
     );
   }
 

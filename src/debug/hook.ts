@@ -1,4 +1,5 @@
 import type { Game } from '../app/game';
+import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
 import type { TickInput } from '../sim/types';
 
 export interface ScriptStep {
@@ -40,6 +41,10 @@ export interface FlicklineDebug {
   perf(): unknown;
   /** Update a setting through the real store. */
   setSetting(key: 'sensitivity' | 'dpi' | 'volume' | 'quality', value: number | string): void;
+  /** Crosshair state: current params, share code, redraw counter and last device-pixel geometry. */
+  crosshair(): unknown;
+  /** Import a crosshair share code through the real parser; returns `{ok, error?}`. */
+  setCrosshairCode(code: string): { ok: boolean; error?: string };
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
   /** Live tunables object (mutate for experiments; not persisted). */
@@ -104,6 +109,16 @@ export function installDebugHook(game: Game): FlicklineDebug {
     },
     setSetting(key, value) {
       game.settings.set({ [key]: value } as never);
+    },
+    crosshair() {
+      const p = game.settings.get().crosshair;
+      return { params: p, code: encodeCrosshair(p), draws: game.hud.crosshair.draws, view: game.hud.crosshair.describe() };
+    },
+    setCrosshairCode(code) {
+      const res = decodeCrosshair(code);
+      if (!res.ok) return { ok: false, error: res.error };
+      game.settings.set({ crosshair: res.params });
+      return { ok: true };
     },
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);

@@ -84,7 +84,8 @@ export interface LevelDef {
 
 /** Events the simulation emits. Payloads are read-only and valid only during the callback. */
 export interface SimEvents {
-  shotFired: { tick: number; origin: Vec3; dir: Vec3 };
+  /** `moving`: horizontal speed was above the accuracy deadzone when the shot left. */
+  shotFired: { tick: number; origin: Vec3; dir: Vec3; moving: boolean };
   /** Where a shot ended (world surface, target, or max range). */
   shotImpact: { tick: number; point: Vec3; normal: Vec3; onTarget: boolean; distance: number };
   targetHit: { tick: number; targetId: number; point: Vec3; damage: number; hpLeft: number; distance: number };
