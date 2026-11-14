@@ -36,3 +36,14 @@ export class Rng {
     this.s = s >>> 0;
   }
 }
+
+/** Fisher-Yates shuffle of `a` in place from the seeded stream; returns `a`. */
+export function shuffle<T>(rng: Rng, a: T[]): T[] {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = rng.int(i + 1);
+    const t = a[i]!;
+    a[i] = a[j]!;
+    a[j] = t;
+  }
+  return a;
+}

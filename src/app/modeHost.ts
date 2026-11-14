@@ -132,7 +132,10 @@ export class ModeHost {
     });
     this.runner.attach(bus);
     this.anchors = this.anchorsOf(map);
-    bus.on('skillTrial', (e) => skills.observeTrial(e));
+    // Benchmark trials (the cold opener's, design §8.5) are a separate measurement: the matched posterior never consumes them.
+    bus.on('skillTrial', (e) => {
+      if (e.source !== 'baseline') skills.observeTrial(e);
+    });
     bus.on('runEnded', (e) => {
       if (this.active?.id === 'placement' && e.reason !== 'quit') this.finishPlacement();
     });

@@ -62,6 +62,7 @@ export const feature = defineFeature({
       rating = skill === null ? NaN : skills.rating(skill);
       sd = skill === null ? NaN : skills.confidence(skill);
       const s = game.settings.get();
+      const refLike = MODES[mode]?.referenceLike === true;
       planner.plan(
         {
           skill,
@@ -74,6 +75,12 @@ export const feature = defineFeature({
         },
         plan,
       );
+      // A reference-like run (the Daily Baseline, design 8.5) is always a clean run, whatever the settings
+      // say: it is the session's cold, cue-free measurement, so it also spends the session's clean run.
+      if (refLike) {
+        plan.clean = true;
+        plan.phase = 'summary';
+      }
       apply();
       game.bus.emit('cueScheduleSet', { tick: game.world.tick, mode, phase: plan.phase, clean: plan.clean });
     });
