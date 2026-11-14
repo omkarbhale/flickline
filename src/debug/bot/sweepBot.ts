@@ -67,7 +67,8 @@ export class SweepBot {
   private wp = 0;
   /** It was in a fight since the route was planned. */
   private fought = false;
-  private sector = -1;
+  /** The tick the sector its route is for began: a placing Opener's stages are all sector 0, so the index cannot tell them apart. */
+  private sectorStart = -1;
   /** The sector's exit was open when last looked at: a hold sector's opens when its Echoes are dead, then the route is planned from where the bot stands. */
   private exitOpen = true;
   private bestDist = Infinity;
@@ -129,7 +130,7 @@ export class SweepBot {
     if (!st?.plan) return out;
     if (st.gate) return this.throughGate(st.gate, world, out);
     this.gate = null;
-    if (st.sector !== this.sector) {
+    if (st.sectorTick0 !== this.sectorStart) {
       this.plan(st, true);
       this.exitOpen = st.exitOpen;
     } else if (st.exitOpen && !this.exitOpen) {
@@ -301,7 +302,7 @@ export class SweepBot {
     out.walk = false;
     out.fire = false;
     this.fought = false;
-    this.sector = -1;
+    this.sectorStart = -1;
     return out;
   }
 
@@ -319,7 +320,7 @@ export class SweepBot {
 
   /** The route to the sector's exit (straight, or along the nav graph), from its entry or from where the player stands. */
   private plan(st: SweepState, fromEntry: boolean): void {
-    this.sector = st.sector;
+    this.sectorStart = st.sectorTick0;
     const sp = st.plan.sectors[st.sector]!;
     const map = this.game.modes.currentMap;
     this.path = navRoute(map, fromEntry ? sp.entry : this.game.world.player.pos, sp.exit);

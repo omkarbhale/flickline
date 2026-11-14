@@ -29,13 +29,12 @@ import type { World } from '../sim/world';
 /** The events the tracker reads (a subset of the game's, so the game bus feeds it directly). */
 export interface FightPaceEvents {
   runStarted: { tick: number };
-  runEnded: { tick: number };
+  runEnded: { tick: number; reason: string };
   sectorEntered: { tick: number };
   sectorEnded: { tick: number };
   gateEntered: { tick: number };
   contactSettled: { tick: number; outcome: 'cleared' | 'disengaged' | 'avoided' | 'died' };
   targetKilled: { tick: number };
-  playerDied: { tick: number };
   enemyFired: { tick: number; hit: boolean; audibleToPlayer: boolean };
   enemyFootstep: { tick: number; audibleToPlayer: boolean };
   enemyLanded: { tick: number; audibleToPlayer: boolean };
@@ -117,7 +116,7 @@ export class FightPace {
     const mark = (e: { tick: number }): void => this.engaged(e.tick);
     this.offs = [
       bus.on('runStarted', (e) => this.start(e.tick)),
-      bus.on('runEnded', (e) => this.end(e.tick)),
+      bus.on('runEnded', (e) => this.end(e.tick, e.reason === 'death')),
       bus.on('sectorEntered', (e) => this.enterSector(e.tick)),
       bus.on('sectorEnded', (e) => this.leaveSector(e.tick)),
       bus.on('gateEntered', (e) => {
@@ -131,11 +130,6 @@ export class FightPace {
       bus.on('targetKilled', (e) => {
         if (!this.running) return;
         this.kills++;
-        this.engaged(e.tick);
-      }),
-      bus.on('playerDied', (e) => {
-        if (!this.running) return;
-        this.deaths = 1;
         this.engaged(e.tick);
       }),
       bus.on('enemyFired', (e) => {
@@ -205,8 +199,10 @@ export class FightPace {
     this.startTick = tick;
   }
 
-  private end(tick: number): void {
+  /** The run ended (`died`: at 0 HP; the death is read here, since the run can end before `playerDied` is heard). */
+  private end(tick: number, died: boolean): void {
     if (!this.running) return;
+    if (died) this.deaths = 1;
     this.leaveSector(tick);
     this.gateStart = -1;
     this.running = false;

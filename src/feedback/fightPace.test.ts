@@ -53,14 +53,15 @@ describe('fight pace (#248)', () => {
     r.bus.emit('contactSettled', { ...r.at(), outcome: 'disengaged' });
     r.bus.emit('targetKilled', r.at());
     r.run(10);
-    r.bus.emit('runEnded', r.at());
+    r.bus.emit('runEnded', { ...r.at(), reason: 'death' });
     r.run(5); // after the end nothing counts
     const s = r.read();
     near(s.liveSec, 30);
     expect(s.fights).toBe(2);
     expect(s.avoided).toBe(1);
+    expect(s.deaths).toBe(1);
     near(s.fightsPerMin, 4);
-    near(s.duelsPerMin, 2);
+    near(s.duelsPerMin, 4);
   });
 
   it('dead air is the longest stretch inside a sector with nothing seen, heard or shooting; gates are timed apart', () => {
@@ -79,7 +80,7 @@ describe('fight pace (#248)', () => {
     r.run(3);
     r.bus.emit('targetVisible', r.at());
     r.run(1);
-    r.bus.emit('runEnded', r.at());
+    r.bus.emit('runEnded', { ...r.at(), reason: 'left' });
     const s = r.read();
     near(s.deadAirMaxSec, 18);
     expect(s.deadAirOver).toBe(1);
