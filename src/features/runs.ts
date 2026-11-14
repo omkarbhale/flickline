@@ -102,7 +102,7 @@ export const feature = defineFeature({
         log: (count = 64) => run.log.events.slice(-count),
       },
       mode: {
-        start: (id = 'test', opts = {}) => modes.start(id, opts),
+        start: (id = 'test', opts = {}) => game.startMode(id, opts),
         stop: () => modes.stop(),
         status: () => modes.status(),
         list: () => Object.keys(MODES),
