@@ -106,7 +106,7 @@ export class Game {
     attachSfx(this.bus, this.audio);
     this.session.attach(this.bus);
 
-    this.hud = new Hud(hudRoot, this.bus, this.session, {
+    this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair, {
       options: this.feedbackOptions,
       cfg: this.tunables.feedback,
       project: (x, y, z, out) => this.renderer.projectToScreen(x, y, z, out),
@@ -250,7 +250,7 @@ export class Game {
       `pos ${f(p.pos.x)} ${f(p.pos.y)} ${f(p.pos.z)}  speed ${f(speed)} m/s\n` +
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
-      `tick ${this.world.tick}  quality ${this.settings.get().quality}\n` +
+      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}\n` +
       `fx latency max ${this.cues.latency.max} frame(s) over ${this.cues.latency.samples} cues, ${this.cues.latency.late} late`
     );
   }

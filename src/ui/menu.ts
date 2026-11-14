@@ -2,6 +2,7 @@ import { cmPer360, sensitivityFromCmPer360 } from '../core/sensitivity';
 import { QUALITY_LEVELS } from '../config/render';
 import type { Tunables } from '../config/tunables';
 import type { Settings, SettingsStore } from '../settings/settings';
+import { CrosshairEditor } from './crosshairEditor';
 
 /**
  * Start / pause menu with the settings panel. Shown whenever the pointer is not locked.
@@ -16,6 +17,7 @@ export class Menu {
   private readonly quality: HTMLSelectElement;
   private readonly title: HTMLElement;
   private readonly toggles: [keyof Settings, HTMLInputElement][] = [];
+  private readonly crosshair: CrosshairEditor;
 
   constructor(
     root: HTMLElement,
@@ -43,6 +45,7 @@ export class Menu {
           <label class="check"><input data-k="damageNumbers" type="checkbox" /> Damage numbers</label>
           <label class="check"><input data-k="reduceFlashing" type="checkbox" /> Reduce flashing (no screen pulses)</label>
         </div>
+        <details class="ch-editor"><summary>Crosshair</summary><div data-k="crosshair"></div></details>
         <p class="note"></p>
         <p class="keys">WASD move · Space jump · Ctrl/C crouch · Shift walk · LMB shoot · \` debug overlay</p>
       </div>`;
@@ -52,6 +55,7 @@ export class Menu {
     this.cm = q('cm');
     this.vol = q('vol');
     this.quality = q('quality');
+    this.crosshair = new CrosshairEditor(q('crosshair'), store);
     this.title = root.querySelector('[data-title]') as HTMLElement;
     (root.querySelector('.note') as HTMLElement).textContent = tunables.view.fovLockNote;
 
@@ -98,6 +102,7 @@ export class Menu {
     this.vol.value = String(s.volume);
     this.quality.value = s.quality;
     for (const [key, el] of this.toggles) el.checked = s[key] as boolean;
+    this.crosshair.sync();
   }
 
   setVisible(v: boolean): void {

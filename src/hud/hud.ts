@@ -3,6 +3,9 @@ import type { Subscribable } from '../core/eventBus';
 import { cssHex, palette } from '../config/palette';
 import type { FeedbackTunables } from '../config/feedback';
 import type { SessionStats } from '../feedback/sessionStats';
+import { colorToHex, type CrosshairParams } from '../settings/crosshair';
+import type { SettingsEvents } from '../settings/settings';
+import { CrosshairView } from './crosshairView';
 import { formatRtTtk, hitmarkerKind, provisionalKillScore, type HitmarkerKind } from '../feedback/hitFeedback';
 import type { FeedbackOptions } from '../feedback/options';
 import { PulseBudget } from '../feedback/pulseBudget';
@@ -35,7 +38,6 @@ const MARKER_CLASS: Record<HitmarkerKind, (typeof MARKER_CLASSES)[number]> = {
  */
 export class Hud {
   private readonly hitMarker: HTMLElement;
-  private readonly crosshair: HTMLElement;
   private readonly moveGlyph: HTMLElement;
   private readonly rtFloat: HTMLElement;
   private readonly pulse: HTMLElement;
@@ -47,11 +49,14 @@ export class Hud {
   private readonly scratch = { x: 0, y: 0 };
   private markerKind: (typeof MARKER_CLASSES)[number] = 'hm-body';
   readonly root: HTMLElement;
+  /** The crosshair canvas; redraws only on change (see `CrosshairView`). */
+  readonly crosshair: CrosshairView;
 
   constructor(
     root: HTMLElement,
-    bus: Subscribable<SimEvents>,
+    bus: Subscribable<SimEvents & SettingsEvents>,
     private readonly stats: SessionStats,
+    crosshair: Readonly<CrosshairParams>,
     private readonly fx: HudFeedbackDeps,
   ) {
     this.root = root;
@@ -72,14 +77,12 @@ export class Hud {
 
     root.innerHTML = `
       <div class="edge-pulse"></div>
-      <div class="crosshair"><i class="ch-t"></i><i class="ch-b"></i><i class="ch-l"></i><i class="ch-r"></i><i class="ch-dot"></i></div>
       <div class="hitmarker"><i></i><i></i><i></i><i></i><b></b></div>
       <div class="move-glyph" aria-hidden="true">⇆</div>
       <div class="rt-float"></div>
       <div class="floats"></div>
       <div class="counters"></div>`;
     this.pulse = root.querySelector('.edge-pulse') as HTMLElement;
-    this.crosshair = root.querySelector('.crosshair') as HTMLElement;
     this.hitMarker = root.querySelector('.hitmarker') as HTMLElement;
     this.moveGlyph = root.querySelector('.move-glyph') as HTMLElement;
     this.rtFloat = root.querySelector('.rt-float') as HTMLElement;
@@ -93,8 +96,16 @@ export class Hud {
       this.floats.push(el);
     }
     this.budget = new PulseBudget(cfg.pulse.maxPerSecond);
+    this.crosshair = new CrosshairView(root, crosshair);
+    this.applyHitColor(crosshair);
 
+    bus.on('settingsChanged', ({ settings, changed }) => {
+      if (!changed.includes('crosshair')) return;
+      this.crosshair.setParams(settings.crosshair);
+      this.applyHitColor(settings.crosshair);
+    });
     bus.on('shotFired', (e) => {
+      if (e.moving) this.crosshair.pulse();
       if (e.moving && fx.options.coachingCues) this.restart(this.moveGlyph, 'show');
       this.refresh();
     });
@@ -124,6 +135,10 @@ export class Hud {
     el.classList.add(cls);
   }
 
+  private applyHitColor(p: Readonly<CrosshairParams>): void {
+    this.root.style.setProperty('--hit-color', colorToHex(p.hitMarkerColor));
+  }
+
   private showMarker(kind: HitmarkerKind): void {
     const el = this.hitMarker;
     const cls = MARKER_CLASS[kind];
@@ -131,7 +146,7 @@ export class Hud {
     void el.offsetWidth;
     el.classList.add('show', cls);
     this.markerKind = cls;
-    if (kind === 'head' || kind === 'headKill') this.restart(this.crosshair, 'gap');
+    if (kind === 'head' || kind === 'headKill') this.restart(this.crosshair.canvas, 'gap');
   }
 
   private label(n: number): string {

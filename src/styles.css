@@ -10,29 +10,17 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); o
 canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; }
 
 #hud { position: fixed; inset: 0; pointer-events: none; }
-.crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
-.crosshair i { position: absolute; background: #7dff9c; box-shadow: 0 0 0 1px rgba(0,0,0,.55); }
-.ch-dot { width: 2px; height: 2px; left: -1px; top: -1px; }
-.ch-t { width: 2px; height: 7px; left: -1px; top: -13px; }
-.ch-b { width: 2px; height: 7px; left: -1px; top: 6px; }
-.ch-l { width: 7px; height: 2px; left: -13px; top: -1px; }
-.ch-r { width: 7px; height: 2px; left: 6px; top: -1px; }
+.crosshair-canvas { position: absolute; left: 0; top: 0; display: block; pointer-events: none; will-change: transform; }
+.crosshair-canvas.gap { animation: gap-scale var(--hm-head) ease-out; }
+@keyframes gap-scale { 0% { scale: 1.35; } 100% { scale: 1; } }
 .edge-pulse { position: absolute; inset: 0; opacity: 0; box-shadow: inset 0 0 90px 18px var(--trim); }
 .edge-pulse.show { animation: pulse var(--pulse-ms) linear; }
 @keyframes pulse { 0% { opacity: 0; } 33% { opacity: var(--pulse-alpha); } 100% { opacity: 0; } }
 
-.crosshair.gap .ch-t { animation: gap-t var(--hm-head) ease-out; }
-.crosshair.gap .ch-b { animation: gap-b var(--hm-head) ease-out; }
-.crosshair.gap .ch-l { animation: gap-l var(--hm-head) ease-out; }
-.crosshair.gap .ch-r { animation: gap-r var(--hm-head) ease-out; }
-@keyframes gap-t { 0% { transform: translateY(-5px); } 100% { transform: none; } }
-@keyframes gap-b { 0% { transform: translateY(5px); } 100% { transform: none; } }
-@keyframes gap-l { 0% { transform: translateX(-5px); } 100% { transform: none; } }
-@keyframes gap-r { 0% { transform: translateX(5px); } 100% { transform: none; } }
 
 /* Hit markers differ by shape as well as colour (research R17): diagonal ticks (body), short and dim (leg),
    long gold ticks inside a ring (head), a plus-shaped burst (kill), a bigger gold plus in a ring (head kill). */
-.hitmarker { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; --len: 9px; --gap: 6px; --a: 45deg; --col: #fff; --dur: var(--hm-body); }
+.hitmarker { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; --len: 9px; --gap: 6px; --a: 45deg; --col: var(--hit-color, #fff); --dur: var(--hm-body); }
 .hitmarker i { position: absolute; left: 0; top: -1px; width: var(--len); height: 2px; background: var(--col); box-shadow: 0 0 3px rgba(0,0,0,.8); transform-origin: 0 50%; }
 .hitmarker i:nth-child(1) { transform: rotate(calc(var(--a) + 0deg)) translateX(var(--gap)); }
 .hitmarker i:nth-child(2) { transform: rotate(calc(var(--a) + 90deg)) translateX(var(--gap)); }
@@ -40,10 +28,10 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .hitmarker i:nth-child(4) { transform: rotate(calc(var(--a) + 270deg)) translateX(var(--gap)); }
 .hitmarker b { position: absolute; left: -15px; top: -15px; width: 26px; height: 26px; border: 2px solid var(--col); border-radius: 50%; opacity: 0; box-shadow: 0 0 3px rgba(0,0,0,.8); }
 .hitmarker.show { animation: hm var(--dur) ease-out; }
-.hitmarker.hm-leg { --len: 6px; --gap: 5px; --col: rgba(255,255,255,.55); --dur: var(--hm-leg); }
+.hitmarker.hm-leg { --len: 6px; --gap: 5px; --dur: var(--hm-leg); opacity: .55; }
 .hitmarker.hm-head { --len: 13px; --gap: 7px; --col: var(--gold); --dur: var(--hm-head); }
 .hitmarker.hm-head b, .hitmarker.hm-headkill b { opacity: 1; }
-.hitmarker.hm-kill { --len: 14px; --gap: 9px; --a: 0deg; --col: var(--core); --dur: var(--hm-kill); }
+.hitmarker.hm-kill { --len: 14px; --gap: 9px; --a: 0deg; --col: var(--hit-color, var(--core)); --dur: var(--hm-kill); }
 .hitmarker.hm-headkill { --len: 18px; --gap: 11px; --a: 0deg; --col: var(--gold); --dur: var(--hm-kill); }
 .hitmarker.hm-kill i, .hitmarker.hm-headkill i { height: 3px; top: -1.5px; }
 .hitmarker.hm-headkill b { left: -19px; top: -19px; width: 34px; height: 34px; }
@@ -72,7 +60,7 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 
 #menu { position: fixed; inset: 0; display: none; place-items: center; background: rgba(7,10,14,.72); backdrop-filter: blur(3px); }
 #menu.open { display: grid; }
-.panel { width: min(520px, 92vw); padding: 28px 32px; background: #11161d; border: 1px solid #243040; border-radius: 10px; }
+.panel { width: min(520px, 92vw); max-height: 92vh; overflow-y: auto; box-sizing: border-box; padding: 28px 32px; background: #11161d; border: 1px solid #243040; border-radius: 10px; }
 .panel h1 { margin: 0; letter-spacing: .28em; font-size: 28px; }
 .panel .tag { margin: 4px 0 18px; color: var(--dim); }
 .play { width: 100%; padding: 14px; font: 700 16px inherit; background: var(--accent); color: #140a05; border: 0; border-radius: 6px; cursor: pointer; }
@@ -91,3 +79,27 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 #debug[hidden] { display: none; }
 #debug canvas { display: block; margin-top: 6px; }
 #debug .bad { color: #ff7a7a; }
+
+/* Crosshair editor (menu) */
+.ch-editor { margin-top: 16px; border-top: 1px solid #243040; padding-top: 12px; }
+.ch-editor summary { cursor: pointer; font-weight: 700; letter-spacing: .08em; font-size: 13px; }
+.ch-top { display: flex; gap: 14px; margin: 12px 0; align-items: stretch; }
+.ch-preview { position: relative; width: 200px; height: 120px; flex: none; border-radius: 6px; border: 1px solid #243040;
+  background: linear-gradient(90deg, #1b2430 0 33%, #6f7b88 33% 66%, #d9dee4 66% 100%); overflow: hidden; }
+.ch-side { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
+.ch-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.ch-editor button { font: 600 12px inherit; padding: 6px 8px; background: #0b0e12; color: var(--fg); border: 1px solid #243040; border-radius: 4px; cursor: pointer; }
+.ch-editor button:hover { border-color: var(--accent); }
+.ch-editor button.active { border-color: var(--accent); color: var(--accent); }
+.ch-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; align-items: start; }
+.ch-group { margin: 0; padding: 6px 8px 8px; border: 1px solid #243040; border-radius: 6px; min-width: 0; }
+.ch-group legend { padding: 0 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+.ch-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); padding: 2px 0; }
+.ch-row input[type=range] { width: 90px; }
+.ch-row output { min-width: 32px; text-align: right; color: var(--fg); font: 12px ui-monospace, monospace; }
+.ch-share { margin-top: 12px; display: grid; gap: 8px; }
+.ch-code { display: grid; gap: 4px; font-size: 12px; color: var(--dim); }
+.ch-codebox { display: flex; gap: 6px; }
+.ch-codebox input { flex: 1; min-width: 0; font: 13px ui-monospace, monospace; padding: 6px 8px; background: #0b0e12; color: var(--fg); border: 1px solid #243040; border-radius: 4px; }
+.ch-msg { margin: 0; min-height: 16px; font-size: 12px; color: #7dff9c; }
+.ch-msg.bad { color: #ff7a7a; }

@@ -90,16 +90,8 @@ export type HitZone = 'head' | 'body' | 'leg';
 
 /** Events the simulation emits. Payloads are read-only and valid only during the callback. */
 export interface SimEvents {
-  shotFired: {
-    tick: number;
-    origin: Vec3;
-    dir: Vec3;
-    /** Fired while above the accuracy deadzone speed or airborne (design §3 "moving shot"), flagged at fire time. */
-    moving: boolean;
-    /** Horizontal speed at fire time, m/s. */
-    speed: number;
-    airborne: boolean;
-  };
+  /** `moving`: horizontal speed was above the accuracy deadzone when the shot left. */
+  shotFired: { tick: number; origin: Vec3; dir: Vec3; moving: boolean };
   /** Where a shot ended (world surface, target, or max range). */
   shotImpact: { tick: number; point: Vec3; normal: Vec3; onTarget: boolean; distance: number };
   targetHit: {
