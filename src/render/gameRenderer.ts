@@ -20,6 +20,7 @@ import type { ShotCues } from '../feedback/shotCues';
 import { REFERENCE_ASPECT, verticalFovDeg } from '../core/view';
 import { QUALITY_LEVELS, type QualityLevel } from '../config/render';
 import type { Tunables } from '../config/tunables';
+import type { MapDef } from '../sim/mapTypes';
 import type { World } from '../sim/world';
 import { ShotEffects } from './effects';
 import { buildLevelMesh, type LevelMesh } from './levelMesh';
@@ -128,11 +129,18 @@ export class GameRenderer {
     this.post.setSize(Math.floor(this.width * pr), Math.floor(this.height * pr), p.antialias ? 4 : 0);
   }
 
-  /** Build visuals for a level and its targets. */
-  loadLevel(world: World): void {
+  /**
+   * Build visuals for a level and its targets. With a `MapDef`, also applies its look (sky and
+   * fog colour, fog range), box palette and floor markings.
+   */
+  loadLevel(world: World, map?: MapDef): void {
     this.level?.dispose();
     if (this.level) this.scene.remove(this.level.root);
-    this.level = buildLevelMesh(world.level);
+    if (map) {
+      (this.scene.background as Color).set(map.look.sky);
+      this.scene.fog = new Fog(map.look.sky, map.look.fog[0], map.look.fog[1]);
+    }
+    this.level = buildLevelMesh(world.level, { palette: map?.look.palette, marks: map?.marks });
     this.scene.add(this.level.root);
     this.applyQuality();
 

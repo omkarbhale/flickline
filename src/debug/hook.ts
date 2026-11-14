@@ -33,6 +33,10 @@ export interface FlicklineDebug {
   hash(): number;
   /** Recent sim events (oldest first), newest `count` entries. */
   events(count?: number): unknown[];
+  /** The loaded map as plain data: id, bounds, spawn, anchors, nav, marks (see `sim/mapTypes.ts`). */
+  map(): unknown;
+  /** Put the player at (x, y, z) feet position, velocity zeroed, optionally facing yawDeg/pitchDeg. */
+  teleport(x: number, y: number, z: number, yawDeg?: number, pitchDeg?: number): void;
   /** Reset the world (optionally with a seed). */
   reset(seed?: number): void;
   /** Hide/show the start/pause menu so screenshots show the game. */
@@ -99,6 +103,19 @@ export function installDebugHook(game: Game): FlicklineDebug {
     hash: () => game.world.hash(),
     events(count = 32) {
       return game.eventLog.slice(-count);
+    },
+    map: () => game.map,
+    teleport(x, y, z, yawDeg, pitchDeg) {
+      const p = game.world.player;
+      p.pos.x = p.prevPos.x = x;
+      p.pos.y = p.prevPos.y = y;
+      p.pos.z = p.prevPos.z = z;
+      p.vel.x = p.vel.y = p.vel.z = 0;
+      p.grounded = false;
+      if (yawDeg !== undefined || pitchDeg !== undefined) {
+        game.input.setLook((yawDeg ?? p.yaw / DEG) * DEG, (pitchDeg ?? p.pitch / DEG) * DEG);
+      }
+      game.renderNow();
     },
     reset(seed) {
       game.resetWorld(seed);
