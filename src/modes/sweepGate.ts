@@ -160,7 +160,7 @@ export function planGate(plan: RunPlan, env: GateEnv): GatePlan {
   for (let d = 0; d < 2; d++) {
     const want = drawRole(rng, cfg, index, drawnSoFar);
     // Both doors are drawn against the route so far; what the other door drew does not count.
-    let role = playedRole(want);
+    let role = playedRole(want, cfg);
     let pool = drawableSectors(env.catalog, body, role).filter((x) => sectorKey(x) !== cur.mapId + '/' + cur.sectorId);
     // A role with no sector but the one just played (one meet sector today) plays as a take: never the same sector twice in a row.
     if (pool.length === 0) {

@@ -1,5 +1,7 @@
 import { GATE_POLICIES, type GatePolicy } from './gatePolicy';
-import { cloneTunables } from '../../config/tunables';
+import { cloneTunables, type Tunables } from '../../config/tunables';
+import { pickFix, shotSplit } from '../../feedback/results';
+import { dealableCards, leanView } from '../../modes/lean';
 import { HeadlessGame } from './headless';
 import { playMode } from './play';
 
@@ -270,6 +272,176 @@ export function formatMeetReport(rows: readonly MeetRow[]): string[] {
   ];
   for (const r of rows) {
     out.push(`| ${r.skill} | ${r.runs} | ${r.contacts} | ${pct(r.byStop.player)} | ${pct(r.byStop.echo)} | ${pct(r.byStop.both)} | ${pct(r.byStop.neither)} |`);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The lean (#210, `docs/research/replay-not-drills.md` R4): the same player, with and without it.
+// ---------------------------------------------------------------------------------------------
+
+/** What the A/B asks of a player: a planted moving-shot weakness, and how much a fight practises it away. */
+export interface LeanAbOptions {
+  /** Bot skill (the aim), 0..100. */
+  skill: number;
+  /** Consecutive runs per player and arm (the issue: 20). */
+  runs: number;
+  /** Independent players per arm (each on its own block of seeds); the rows average over them. */
+  players: number;
+  /** First seed; both arms play the same seeds in the same order. */
+  firstSeed: number;
+  /** The planted weakness at the start: the share of fights the bot fires in on the move. */
+  startShare: number;
+  /**
+   * The practice model (an ASSUMPTION, not a measurement of people): each fight in a card that exercises the weakness
+   * (`lean.table`) removes this share of what is left of it. A bot does not learn on its own; this is how exposure turns
+   * into change, and it is the same in both arms, so the arms differ only in how many such fights they get.
+   */
+  practice: number;
+  /**
+   * Where the lean comes from. `planted`: the finding of every run after the first is the planted weakness (a working fix
+   * engine, #39, is assumed to find it; a bot run fires only a handful of shots, below the #26 stub's minimum of
+   * `results.minShotsForFix`, so the stub rarely fires on one). `stub`: whatever `pickFix` says.
+   */
+  engine: 'planted' | 'stub';
+  pinDial?: number;
+}
+
+/** One run of one arm. */
+export interface LeanRunFacts {
+  seed: number;
+  /** The weakness share the bot played this run with. */
+  share: number;
+  /** The lean it was dealt (cards), and the finding the stub engine reported at the end of the run. */
+  lean: string[];
+  finding: string;
+  shots: number;
+  movingShots: number;
+  /** Fights (cleared, died or disengaged) in the cards that exercise the planted weakness, and all fights. */
+  exposure: number;
+  fights: number;
+  reached: number;
+  score: number;
+}
+
+export interface LeanArm {
+  name: 'off' | 'on';
+  /** The weakness the players started with. */
+  startShare: number;
+  /** One list of runs per player. */
+  players: LeanRunFacts[][];
+}
+
+/** The planted weakness is the moving shot: these are the cards its fix leans toward and practises (`lean.table`). */
+function plantedCards(t: Tunables): string[] {
+  return t.lean.table.movingShots.cards.filter((c) => dealableCards(t.sweep).includes(c));
+}
+
+/** One player: `runs` consecutive runs, practising. With the lean on, each run leans as the previous run's finding says. */
+function leanPlayer(name: 'off' | 'on', o: LeanAbOptions, firstSeed: number): LeanRunFacts[] {
+  const t = cloneTunables();
+  const planted = plantedCards(t);
+  let share = o.startShare;
+  let next: string[] = [];
+  const runs: LeanRunFacts[] = [];
+  for (let i = 0; i < o.runs; i++) {
+    const seed = firstSeed + i;
+    const g = new HeadlessGame({ seed, tunables: t });
+    const lean = name === 'on' ? next : [];
+    let exposure = 0, fights = 0, reached = 0;
+    g.bus.on('sectorEntered', (e) => {
+      reached = e.index + 1;
+    });
+    g.bus.on('contactSettled', (e) => {
+      if (e.outcome === 'avoided') return;
+      fights++;
+      if (e.card !== undefined && planted.includes(e.card)) exposure++;
+    });
+    const r = playMode(g, { mode: 'sweep', skill: o.skill, seed, pinDial: o.pinDial, sweepMovingShare: share, lean });
+    const stats = g.run.liveStats();
+    const fix = pickFix(stats, shotSplit(g.run.log));
+    runs.push({
+      seed, share, lean, finding: fix.kind, shots: stats.shots, movingShots: stats.movingShots, exposure, fights, reached, score: r.modeRun?.score ?? 0,
+    });
+    // The real loop: the card names what the next run leans toward. Practice: every fight in the planted cards wears the weakness down.
+    next = leanView(o.engine === 'planted' ? 'movingShots' : fix.kind, t.lean, t.sweep)?.cards ?? [];
+    share *= Math.pow(1 - o.practice, exposure);
+  }
+  return runs;
+}
+
+/** One arm: `players` independent players, each on its own block of seeds (the same blocks in both arms). */
+export function leanArm(name: 'off' | 'on', o: LeanAbOptions): LeanArm {
+  const players: LeanRunFacts[][] = [];
+  for (let p = 0; p < o.players; p++) players.push(leanPlayer(name, o, o.firstSeed + p * 1000));
+  return { name, startShare: o.startShare, players };
+}
+
+export interface LeanAbRow {
+  arm: 'off' | 'on';
+  /** Fights per run in the cards that exercise the planted weakness, mean over all runs. */
+  exposurePerRun: number;
+  /** All fights per run (the lean moves fights between situations, not their number). */
+  fightsPerRun: number;
+  /** Moving-shot share (moving shots ÷ shots) over the first five runs, over the last five, and the change. */
+  movingShareFirst5: number;
+  movingShareLast5: number;
+  change: number;
+  /** What is left of the planted weakness at the last run, as a share of what it started with, mean over players. */
+  weaknessLeft: number;
+  /** Runs whose finding (the stub's) was the moving shot, and runs that were dealt a lean. */
+  flaggedRuns: number;
+  leanedRuns: number;
+  meanReached: number;
+}
+
+function mean(xs: readonly number[]): number {
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+}
+
+export function leanAbRow(arm: LeanArm): LeanAbRow {
+  // The share of shots fired moving, pooled over the runs in the window (a run fires only a handful of shots).
+  const pooled = (runs: readonly LeanRunFacts[]): number => {
+    const shots = runs.reduce((n, r) => n + r.shots, 0);
+    return shots > 0 ? runs.reduce((n, r) => n + r.movingShots, 0) / shots : 0;
+  };
+  const all = arm.players.flat();
+  const per = arm.players[0]?.length ?? 0;
+  const k = Math.min(5, Math.floor(per / 2));
+  const first = pooled(arm.players.flatMap((p) => p.slice(0, k)));
+  const last = pooled(arm.players.flatMap((p) => p.slice(per - k)));
+  return {
+    arm: arm.name,
+    exposurePerRun: mean(all.map((r) => r.exposure)),
+    fightsPerRun: mean(all.map((r) => r.fights)),
+    movingShareFirst5: first,
+    movingShareLast5: last,
+    change: last - first,
+    weaknessLeft: arm.startShare > 0 ? mean(arm.players.map((p) => p[p.length - 1]?.share ?? 0)) / arm.startShare : 0,
+    flaggedRuns: all.filter((r) => r.finding === 'movingShots').length,
+    leanedRuns: all.filter((r) => r.lean.length > 0).length,
+    meanReached: mean(all.map((r) => r.reached)),
+  };
+}
+
+/** The A/B: the same seeds, the same starting weakness, the lean off and on. */
+export function leanAb(o: LeanAbOptions): { off: LeanArm; on: LeanArm; rows: LeanAbRow[] } {
+  const off = leanArm('off', o);
+  const on = leanArm('on', o);
+  return { off, on, rows: [leanAbRow(off), leanAbRow(on)] };
+}
+
+/** The A/B as a Markdown table (posted on the issue). */
+export function formatLeanAb(rows: readonly LeanAbRow[]): string[] {
+  const pct = (v: number): string => `${(v * 100).toFixed(1)} %`;
+  const out = [
+    '| Lean | Fights in the planted cards / run | Fights / run | Moving-shot share, runs 1–5 | Last 5 runs | Change | Weakness left after the last run | Runs flagged "moving shots" by the stub | Runs dealt a lean | Depth (of 4) |',
+    '|---|---|---|---|---|---|---|---|---|---|',
+  ];
+  for (const r of rows) {
+    out.push(
+      `| ${r.arm} | ${r.exposurePerRun.toFixed(2)} | ${r.fightsPerRun.toFixed(2)} | ${pct(r.movingShareFirst5)} | ${pct(r.movingShareLast5)} | ${r.change >= 0 ? '+' : '−'}${(Math.abs(r.change) * 100).toFixed(1)} pts | ${pct(r.weaknessLeft)} | ${r.flaggedRuns} | ${r.leanedRuns} | ${r.meanReached.toFixed(2)} |`,
+    );
   }
   return out;
 }

@@ -2,7 +2,7 @@ import { HeadlessGame } from './headless';
 import { listModes, mapForMode, playMode, type BotReport, type BotRunOptions } from './play';
 import { BOT_PARAM_KEYS, type BotParams } from './skill';
 import { runSuite } from './suite';
-import { formatGatePolicyReport, formatMeetReport, formatSweepReport, gatePolicyReport, meetReport, sweepReport } from './sweepReport';
+import { formatGatePolicyReport, formatLeanAb, formatMeetReport, formatSweepReport, gatePolicyReport, leanAb, meetReport, sweepReport } from './sweepReport';
 import { auditAllocations, formatAudit } from './allocAudit';
 
 /** Command line of `npm run bot` (loaded by `scripts/bot.mjs`). Returns the process exit code. */
@@ -19,6 +19,7 @@ const HELP = `npm run bot -- [options]
   --json             print the report(s) as JSON
   --suite            run the regression suite (every mode, skill ordering, determinism, parameters)
   --alloc            audit the sim tick for allocations (see README, "Allocation audit")
+  --lean-report      The lean's A/B (#210): a bot with a planted moving-shot weakness, lean off vs on, --runs per arm (default 20), --skill (default 50), --players n (default 5), --weakness share (default 0.7), --practice per fight (default 0.04), --engine planted|stub (default planted)
   --gate-report      Gate policy table (#205): policies --policies hot,read,facts,left (default) at skills 30/50/70 over --runs seeds (default 200)
   --meet-report      Meet sectors (#212): win rate by who stopped first, skills 30/50/70 (or --skills) over --runs forced meet runs (default 100), --stop-delay S (default 2.5)
   --sweep-report     Sweep balance table (#201): skills 30/50/70 (or --skills a,b,c) over --runs seeds (default 50)
@@ -31,7 +32,7 @@ function parseArgs(argv: string[]): Record<string, string | boolean | string[]> 
     const a = argv[i]!;
     if (!a.startsWith('--')) throw new Error(`unexpected argument '${a}'`);
     const key = a.slice(2);
-    if (['json', 'suite', 'alloc', 'list', 'help', 'sweep-report', 'meet-report', 'gate-report'].includes(key)) {
+    if (['json', 'suite', 'alloc', 'list', 'help', 'sweep-report', 'meet-report', 'gate-report', 'lean-report'].includes(key)) {
       out[key] = true;
       continue;
     }
@@ -92,6 +93,26 @@ export function main(argv: string[], log: (s: string) => void = console.log): nu
       log(`${r.reports.length} bot runs, ${r.wallMs.toFixed(0)} ms: ${r.ok ? 'all checks pass' : 'FAILED'}`);
     }
     return r.ok ? 0 : 1;
+  }
+
+  if (args['lean-report']) {
+    const t0 = performance.now();
+    const r = leanAb({
+      skill: args.skill !== undefined ? Number(args.skill) : 50,
+      runs: args.runs !== undefined ? Math.max(2, Math.floor(Number(args.runs))) : 20,
+      firstSeed: args.seed !== undefined ? Number(args.seed) : 1,
+      players: args.players !== undefined ? Math.max(1, Math.floor(Number(args.players))) : 5,
+      startShare: args.weakness !== undefined ? Number(args.weakness) : 0.7,
+      practice: args.practice !== undefined ? Number(args.practice) : 0.04,
+      engine: args.engine === 'stub' ? 'stub' : 'planted',
+      pinDial: args.dial !== undefined ? Number(args.dial) : undefined,
+    });
+    if (args.json) log(JSON.stringify({ rows: r.rows, off: r.off.players, on: r.on.players }, null, 2));
+    else {
+      for (const line of formatLeanAb(r.rows)) log(line);
+      log(`${(r.off.players.length + r.on.players.length) * (r.off.players[0]?.length ?? 0)} runs, ${(performance.now() - t0).toFixed(0)} ms`);
+    }
+    return 0;
   }
 
   if (args['gate-report']) {

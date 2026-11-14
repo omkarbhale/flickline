@@ -87,6 +87,8 @@ export interface SweepTunables {
    * play yet plays as a take: holds until #204.
    */
   roleMix: Readonly<Record<SectorRole, number>>;
+  /** The roles a run plays today. A drawn role not listed plays as a take (holds arrive with #204); the lean skips it too (#210). */
+  playableRoles: readonly SectorRole[];
   /**
    * Meet sectors (design §4.2, #212): an Echo group crosses the player's corridor on a route from the sector's exit
    * to its entry. Walks and runs are the Echo's gait; a walk is silent, a run is heard (`audio.enemy.silentBelowMps`).
@@ -180,6 +182,7 @@ export const sweep: SweepTunables = {
   maxCardRun: 2,
   cardSkill: { 'take-unaware': 'angles', 'take-expected': 'precision', clear: 'angles', crossfire: 'switch', meet: 'track' },
   roleMix: { take: 0.5, hold: 0.35, meet: 0.15 },
+  playableRoles: ['take', 'meet'],
   meet: {
     groupTwoShare: [0, 0.4, 0.5, 0.6],
     runShare: 0.6,
