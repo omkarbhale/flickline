@@ -125,6 +125,18 @@ export interface FlicklineDebug {
     infiniteMagazine: boolean;
     infiniteReserve: boolean;
   };
+  /**
+   * The player takes `amount` HP to `zone` from a shooter `distance` m away at `bearingDeg`
+   * clockwise from where the player faces (0 ahead, 90 right, 180 behind): the damage arc, vignette,
+   * HP bar, tagging, flinch and the audio dip all run as for a real hit. Returns whether it killed.
+   */
+  hurt(amount: number, opts?: { zone?: HitZone; bearingDeg?: number; distance?: number; sourceId?: number }): boolean;
+  /** As `hurt`, with the damage taken from `weaponId`'s band for the zone at the distance (spec §3.2 / §7.4). */
+  hitBy(weaponId: string, opts?: { zone?: HitZone; bearingDeg?: number; distance?: number; sourceId?: number }): boolean;
+  /** HP, tagging and flinch state plus the damage view (arcs showing, redraws) and the last low-pass dip. */
+  health(): unknown;
+  /** Keep the HP bar visible at full health (modes with enemy fire). */
+  hpAlwaysVisible(v?: boolean): void;
   /** Live tunables object (mutate for experiments; not persisted). */
   readonly tunables: unknown;
   /** Mode framework: start/stop a mode run and read its state (`step()` advances it like any tick). */
@@ -342,6 +354,21 @@ export function installDebugHook(game: Game): FlicklineDebug {
       game.hud.refresh();
       return { infiniteMagazine: w.infiniteMagazine, infiniteReserve: w.infiniteReserve };
     },
+    hurt: (amount, o = {}) => game.hurt(amount, o.zone, o.bearingDeg, o.distance, o.sourceId),
+    hitBy: (weaponId, o = {}) => game.hitBy(weaponId as WeaponId, o.zone, o.bearingDeg, o.distance, o.sourceId),
+    health() {
+      const w = game.world;
+      return {
+        ...(game.snapshot() as { health: unknown }).health as object,
+        arcsShowing: game.damage.arcsShowing,
+        arcDraws: game.damage.draws,
+        dip: { ...game.audio.lastDip },
+        runPhase: game.run.state,
+        runEndReason: game.run.finalStats ? game.modes.runner.endReason : null,
+        tick: w.tick,
+      };
+    },
+    hpAlwaysVisible: (v = true) => game.damage.setHpAlwaysVisible(v),
     tunables: game.tunables,
     mode: {
       start: (id = 'test', opts = {}) => game.modes.start(id, opts),
