@@ -91,7 +91,7 @@ Every stat is computed from the event log (section 14), never from UI state.
 - **Moving shot** = a shot fired while the player's horizontal speed is above the accuracy deadzone from the spec (`move.deadzone_fraction`: 27.5% of the equipped weapon's run speed, 15% for the sniper; spec §2.4) or while airborne. It is flagged at the shot, not inferred later.
 - **Stop latency** = time from the last movement key release (or counter-strafe key press) to horizontal speed first falling below the accuracy threshold.
 - **Pre-aim error** = angle between the aim ray and the centre of the head of an enemy at the tick it becomes visible. Smaller is better.
-- **Head-height discipline** = mean absolute vertical angle between the aim ray and the head-centre height (spec `hit.head_centre_stand`, 1.66 m against the 1.62 m eye) at the player's eye position, sampled while no enemy is visible, while moving. Smaller is better.
+- **Head-height discipline** = mean absolute vertical angle between the aim ray and the head-centre height (spec `hit.head_centre_stand`, 1.66 m against the 1.62 m eye) at the player's eye position, sampled while no enemy is visible, while moving. Smaller is better. On a map with elevation the reference height is the head centre of the enemy the player is facing: the nearest-to-the-view-line enemy anchor (post, gate, peek, lane end) within 30 degrees of the view direction and 3 to 45 m away, at that anchor's own floor height and distance; with none ahead, an enemy standing on the floor 10 m ahead. It is never the player's own floor or eye level.
 - **Flick error** = for a flick, signed overshoot or undershoot (in degrees, along the flick axis) at the first shot relative to the target centre.
 - **Spray trace** = for a burst, the ordered list of per-bullet impact offsets (in degrees, relative to the aim point at the first bullet) and the player's per-bullet mouse pull. **Ideal trace** = the same burst with the spec's recoil pattern perfectly countered (every bullet at the first bullet's offset plus only the spec's random spread). The comparison drawn is between required pull and actual pull per bullet index.
 - **Clean kill** = a kill on that target with no missed shot at it and no moving shot.
@@ -158,7 +158,7 @@ All modes have `ready` → `live` → `result`; weapon per mode is the default b
 
 ### 4.7 Corner Clear — trains `angles`  (first release)
 
-- **Map/weapon**: Elbow, Kestrel. Enemies shoot back; health and slow-on-hit apply (section 5).
+- **Map/weapon**: Elbow, Kestrel. Enemies shoot back; health, shield (default heavy, 50, you and the Peekers) and slow-on-hit apply (section 5).
 - **Rule**: a ten-checkpoint route through the map. Reaching a checkpoint (a floor mark) arms an **angle**: 1–3 Peekers (section 5) hold it, cycling peek patterns on a short random timer. Kill them, or after 6 s they retreat and you move on. The run ends at the route's end, at 90 s, or at 0 HP.
 - **Trial**: one angle = one trial; success = every Peeker killed and no damage taken. Shoulder, jiggle and hop peeks are **bait, not trials** (#12 P3): letting one pass is never a failure, and a Peeker that retreats having shown only bait peeks is not required for success, so the dial never penalises correct patience. For the skill model (#17) and the mode (#50).
 - **Dial axes**: exposure (wide peek 1.4 s → 0.45 s), enemy reaction and tell length, enemy accuracy, density, distance.
@@ -169,7 +169,7 @@ All modes have `ready` → `live` → `result`; weapon per mode is the default b
 Sweep is a game, not a drill: you move through a compact arena that fights back, and the pressure comes from reading the fight rather than from a timer.
 
 - **Map/weapons**: Foundry. At the start of a run pick a primary (Kestrel or Rill) and the sidearm is always Pace. `1`/`2` swap, `R` reloads, magazines are real.
-- **Rule**: the **Sweep Director** (section 9) sends a continuous stream of **contacts** from six spawn gates: a contact is one to four enemies of mixed types arriving by different routes with staggered timing. You have health (spec values), slow-on-hit applies, there is no passive regeneration. **Kills heal**: a body kill restores 5 HP, a headshot kill 10 HP (tunable), capped at maximum, so playing cleanly sustains you and sloppy play drains you.
+- **Rule**: the **Sweep Director** (section 9) sends a continuous stream of **contacts** from six spawn gates: a contact is one to four enemies of mixed types arriving by different routes with staggered timing. You have health (spec values) and the default heavy shield (50, as do the enemies), slow-on-hit applies, there is no passive regeneration and a spent shield does not come back. **Kills heal**: a body kill restores 5 HP, a headshot kill 10 HP (tunable), capped at maximum and never restoring shield, so playing cleanly sustains you and sloppy play drains you.
 - **Surge**: chain and clean-streak progress fills a meter (never time). When full it triggers an 8-second Surge: score ×2, enemy tells are drawn brighter (more readable), the HUD frame glows. Surge changes no mechanic.
 - **Run end**: 0 HP or 5:00. A typical run for a matched player lasts about 3:00.
 - **Waves of intent** (director pacing, not difficulty): warm-up 0:00–0:20 at dial −8; build to the player's dial by 1:00; two *peaks* (+6 dial) around 2:00 and 4:00 each lasting 20 s; a short *breather* (−6) after each peak.
@@ -198,7 +198,7 @@ Hit zones follow the spec's three-zone hitbox (spec §5.1, PLACEHOLDER dimension
 
 As fractions of the 1.80 m standing height (the fallback if the spec's numbers move): head 0.84–1.00 H, body 0.44–0.84 H, legs 0–0.44 H. A standing player's eye (1.62 m) is inside the head zone, 0.04 m below the head centre, which is why head-height crosshair discipline (section 3) is measured against the head centre.
 
-Hit detection is hitscan against these shapes in the simulation (the same shapes the renderer's silhouette is built from; the render mesh never decides hits). A **head node** (a slightly brighter emissive core inside the head, drawn *without* enlarging the hitbox) marks the head. Health is 100 HP for players and Echoes; there is **no armour in the first release** (spec §4.1 armour is not used).
+Hit detection is hitscan against these shapes in the simulation (the same shapes the renderer's silhouette is built from; the render mesh never decides hits). A **head node** (a slightly brighter emissive core inside the head, drawn *without* enlarging the hitbox) marks the head. Health is 100 HP for players and Echoes. **Shields** (spec §4.1 armour) sit on top of it **in the modes where enemies shoot back** (Corner Clear, Vigil, Sweep), for the player and for every humanoid Echo alike: a shield absorbs 66% of each hit until it has absorbed its capacity (light 25, heavy 50), the rest goes to health, so the total damage to kill is `100 + shield`. Drills have no shields (nothing shoots the player, and the bullet counts the drills train are the unarmoured ones). Orbs (Beacon) and the Gnat carry none. Reversed from the first draft's "no armour in the first release": rifle duels in the reference game are mostly fought by players who bought shields (rifles and full shields are bought together), so training only the unarmoured bullet counts would teach thresholds that fail there (vision review 1, #131).
 
 ### 5.2 Roster
 
@@ -212,7 +212,9 @@ Hit detection is hitscan against these shapes in the simulation (the same shapes
 | **Bulwark** | Echo with a front plate across the torso. | Walks slowly towards the player. | Fires steadily; the plate absorbs body shots from the front (sparks and a muted tick, no damage), so only the head and legs are valid. | Sweep, high dials |
 | **Gnat** | Small spinning octahedron (hand-sized). | Hovers at head height and darts on a 3D curve (seeded Lissajous with random impulses), 1 bullet kills. | None; its job is vertical tracking and fast re-targeting. | Switchboard, Sweep |
 
-All Echoes use HP, damage-per-zone and bullet-count rules identical to the player's side of the spec (`health.max` 100 HP: a rifle headshot kills, three body bullets kill).
+All Echoes use HP, damage-per-zone, shield and bullet-count rules identical to the player's side of the spec (`health.max` 100 HP). **Unshielded**, a rifle headshot kills and three body bullets kill. **With the default heavy shield (50)** the bullet counts of spec §6 apply: a Kestrel needs four body bullets (a headshot beyond 20 m needs two), a Pace needs two headshots (not one), a Rill six body bullets.
+
+**Economy.** The shield level is a scenario variable (`config/economy.ts`): `full` = heavy shield (50) and the rifle, `light` = light shield (25), `eco` = none and the sidearm. A scenario card carries `economy`; a mode that fires back and has no card setting uses `defaultEnemyFire` (`full`). The player and the Echoes get the same tier, as in a real full-buy or eco round. Kill-heal restores health only, never shield (section 4.8). Results and the fix engine name the difference when it mattered: "your Pace needed two headshots on an armoured target".
 
 ### 5.3 How enemies shoot back (where they do)
 
@@ -222,7 +224,7 @@ Only in **Corner Clear** and **Sweep** (and they never shoot in drills). The rul
 
 1. **Tell.** An enemy that has acquired the player begins a **tell**: its head node flares and a thin bright line flickers from its muzzle towards the player's position for `tell` seconds (0.7 s at dial 0 → 0.30 s at dial 100; **never below 0.25 s**). The floor is one mean simple reaction time (0.218 s) plus the time a strafe needs to clear the accuracy deadzone; 0.30 s is the first tell at which a typical player's strafe takes effect before the shot (#12 §5). The tell is the enemy's real aiming phase: it lasts `max(aim phase, tell floor)`, so it never adds delay to an enemy that is still aiming (#71 F5; whether the floors apply to prepared holders is open in #127). A rising synthesised tone plays from its position (section 12).
 2. **Fire.** At tell end it fires a burst of 1–3 shots at the spec's fire-rate for a sidearm/rifle archetype. Each shot is **aimed, not rolled**: a hitscan shot from the enemy's simulated crosshair through the spec's spread, recoil and movement error, with no hidden hit roll (#71). Strafing is a real defence for the same reasons as in the reference game: the player's movement takes the hit zones away from where the enemy aims, and an enemy that moves gets the spec's movement error. The dial's enemy hit chance (0.15 → 0.6 at standstill) is a **calibration target** the bot harness measures (#28, #53), not an input. A near miss draws a thin tracer past the player's head and plays a whiz from the correct side.
-3. **Damage.** Per-zone damage from the spec. A hit applies the spec's **tagging** slow (spec §4.3: speed capped to 27.5% of max, 0.10 s ramp-in, held while hits continue, 0.5 s release; all four are tunables) to the player, shows the damage arc pointing at the shooter, and plays the damage cue (section 7).
+3. **Damage.** Per-zone damage from the spec, through the player's shield first (66% of each hit until the shield is spent, section 5.1). A hit applies the spec's **tagging** slow (spec §4.3: speed capped to 27.5% of max, 0.10 s ramp-in, held while hits continue, 0.5 s release; all four are tunables) to the player, shows the damage arc pointing at the shooter, and plays the damage cue (section 7).
 4. **Reaction.** Enemy `reaction` (time from first seeing the player to starting the tell) scales 1.2 s → 0.3 s with the dial.
 5. **Determinism.** Every enemy draw (reaction, aim noise, decisions) comes from a per-enemy stream seeded from the run seed, so a seeded run is replayable.
 
@@ -276,7 +278,7 @@ Rule: every event the player causes is answered **in the same frame** with at le
 
 ### 7.2 Live readouts (all toggleable; default: **minimal**)
 
-Always on: crosshair, ammo, timer, score, multiplier, chain/streak counters, HP (modes with enemy fire).
+Always on: crosshair, ammo, timer, score, multiplier, chain/streak counters, HP and shield (modes with enemy fire; the shield bar sits above the HP bar and is drawn only when the fight has one).
 
 Stat strip (bottom-left, small, default **on** so the feedback is learnable; each item toggleable): **Acc %**, **HS %**, **Median TTS** (time to shot), **Median TTK**, **Moving shots**. A single combined "pace vs PB" bar sits under the score.
 
@@ -436,7 +438,7 @@ Later: **Stack** (a container yard for Sweep variety), more Elbow-style maps.
 
 ### 10.2 Maps as data
 
-Maps extend the foundation's `LevelDef` (`src/sim/levels.ts`: `boxes`, `spawn`, `targets`). Each map is one JSON file under `src/sim/levels/` (so the lint CLI runs without a build), loaded through a typed loader into `LevelDef` plus the additions below. A schema validator and a **map lint** CLI run in CI in under two seconds (checks: all anchors inside bounds, nav graph connected, every checkpoint reachable, every `peek` anchor has a line of sight to the checkpoint it serves, no box overlaps larger than a tolerance, sightline length report). Simulation collision uses axis-aligned boxes only (no meshes); the renderer builds instanced meshes from the same boxes plus trim.
+Maps extend the foundation's `LevelDef` (`src/sim/levels.ts`: `boxes`, `spawn`, `targets`). Each map is one JSON file under `src/sim/levels/` (so the lint CLI runs without a build), loaded through a typed loader into `LevelDef` plus the additions below. A schema validator and a **map lint** CLI run in CI in under two seconds (checks: all anchors inside bounds, nav graph connected, every checkpoint reachable, every `peek` anchor has a line of sight to the checkpoint it serves, no box overlaps larger than a tolerance, sightline length report). Simulation collision uses axis-aligned boxes only (no meshes) plus **ramps**: a box tagged `ramp` with `ramp: {rise: "+x"|"-x"|"+z"|"-z", lowY}` is the box cut by one sloped plane (surface from `lowY` at the low face up to the box's top at the high face). A grounded player steps up ledges and stair risers of at most `movement.stepHeight` (0.35 m), rides ramps at unchanged horizontal speed, and sticks to the ground when it falls away by no more than a step (spec 2.7); enemies use the same movement code. The map lint also checks that every ramp is no steeper than `movement.maxWalkableSlopeDeg`, that its low end meets a walkable floor, that nav edges are walkable over stairs and ramps, and that every raised or sunken anchor, nav node, checkpoint and lane end is reachable on foot from the spawn (stairs: stack one box per step rather than nesting slabs, so boxes do not overlap). The renderer builds instanced meshes from the same boxes plus trim (a ramp is a wedge).
 
 ```ts
 // Sketch. The architecture issue's types win on naming; the structure stays.
@@ -474,7 +476,7 @@ Coordinates are metres, Y up. The mode scheduler picks anchors by tag and distan
 - **Effects**: tracers are camera-facing quad strips; impacts are instanced billboards; shards are instanced quads with a vertex shader doing the motion (no CPU per shard); hit pulse is a 3-frame screen-edge shader.
 - **Post** (first release, behind the quality preset): a cheap single-pass bloom on emissive (downsample ×4, threshold on a luminance pass; no mip-chain), vignette (stronger on damage), optional 3-frame chromatic aberration on kills (off by default; **Reduce flashing** setting disables it and all pulses).
 - **Quality presets**: the foundation's three presets: *Low* (post pipeline off, no outline, render-scale option), *Medium* (bloom only), *High* (bloom, vignette, outline, optional chromatic pulse, full shard count). The pipeline is off at Low so no render targets are allocated, as the architecture requires. Frame cost budget in section 14.
-- **Viewmodel**: low-poly procedural gun meshes, matte dark with a single trim line; recoil animation driven by the sim's recoil state; hide option.
+- **Viewmodel**: low-poly procedural gun meshes (≤ 1,500 triangles, one merged mesh and one draw call per weapon, no textures), matte dark with a single trim line; recoil, equip and reload animation is a pure function of the sim's weapon state (`render/viewmodelPose.ts`: aim offset, last shot time, equip and reload timers; no random number of its own); right-hand, left-hand and hidden settings, live. It is drawn in its own pass with its own camera and a fixed vertical FOV of 60° (`config/viewmodel.ts`), independent of the locked world FOV, so it never clips into walls and keeps its place at every aspect ratio; it stays outside a centre box of 0.2 screen half-heights in every pose (tested). The muzzle flash is a per-weapon procedural sprite drawn at the model's muzzle, and tracers start at the muzzle you see.
 - **UI**: bundled open-licence fonts (Barlow for text, JetBrains Mono for numbers, both SIL OFL), rounded-rectangle panels with 1 px trim-colour borders; a wordmark drawn from the geometry of a horizontal line ending in a dot (original, SVG, no font dependency).
 
 ## 12. Sound
@@ -514,7 +516,7 @@ All audio is **synthesised with Web Audio** at load (an `OfflineAudioContext` re
  [stat strip:                          +  (crosshair)
   Acc 74% · HS 38% ·
   TTS 182ms · TTK 0.41s ·                       
-  Moving 3]                                    [HP ▮▮▮▮▮▮▯▯]  (modes with damage)
+  Moving 3]                                    [SH ▮▮▮▮▯▯▯▯ / HP ▮▮▮▮▮▮▯▯]  (modes with damage)
  [edge meter]                                  [ammo 18 / 90]
 ```
 
@@ -578,10 +580,10 @@ runReady { mode, seed, dial }      runStarted { }      runEnded { reason: 'timer
 shotFired { shotId, weapon, origin, dir, moving: boolean, speed, airborne, spreadDeg, recoilIndex, ammo }
 shotImpact { shotId, result: 'hit'|'miss', targetId?, zone?, damage?, point, distance, killed? }
 targetSpawned { id, kind, pos, tags }     targetVisible { id }
-targetHit { id, zone, damage, killed }    targetKilled { id, kind, zone, ttkMs, rtMs, firstBullet, bullets, clean }
+targetHit { id, zone, damage, absorbed, hpLeft, shieldLeft, killed }    targetKilled { id, kind, zone, ttkMs, rtMs, firstBullet, bullets, shield, clean }
 targetExpired { id }                      targetShielded { id }   (Bulwark plate hit)
 enemyTell { id, durationMs }              enemyFired { id, hit: boolean, dir }
-playerDamaged { amount, hp, dir, sourceId }   playerSlowed { factor, durationMs }   playerDied { }
+playerDamaged { amount (HP lost), absorbed, hp, shield, dir, sourceId }   playerSlowed { factor, durationMs }   playerDied { }
 chainUpdated { count }                    streakUpdated { streak, mult }   surgeStarted { }  surgeEnded { }
 medalAwarded { id }                       skillTrial { skill, itemDifficulty, success, rtMs?, extra }
 ```

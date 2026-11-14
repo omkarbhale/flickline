@@ -17,11 +17,12 @@ import {
   type ShaderMaterial,
 } from 'three';
 import { scaleLinear } from '../core/color';
+import { vec3, type Vec3 } from '../core/vec3';
 import { env, palette } from '../config/palette';
 import type { RenderTunables } from '../config/render';
 import type { FloorMark } from '../sim/mapTypes';
 import type { BoxTag, LevelDef } from '../sim/types';
-import { trimSegments } from './envLayout';
+import { buildWedge, rampParts, trimSegments, type RampParts } from './envLayout';
 import { createBoxMaterial, createFloorMaterial, type EnvUniforms } from './envShaders';
 
 /** Rendered (brightest) colour per box tag; the shader only ever darkens these. */
@@ -34,6 +35,7 @@ const TAG_COLORS: Record<BoxTag, number> = {
   pillar: env.platform,
   panel: env.cover,
   ceiling: env.wall,
+  ramp: env.platform,
 };
 
 /** Floor markings are thin lines of light: trim colour at a weight, never brighter than an Echo. */
@@ -66,7 +68,21 @@ export function buildLevelMesh(
   const boxGeo = new BoxGeometry(1, 1, 1);
   const boxMat: ShaderMaterial = createBoxMaterial(uniforms);
   disposables.push(boxGeo, boxMat);
-  const props = level.boxes.filter((b) => b.tag !== 'floor');
+  const solids = level.boxes.filter((b) => b.tag !== 'floor');
+  // A ramp is drawn as its riser (an ordinary box) plus a wedge instance; everything else is a box.
+  const props: { min: Vec3; max: Vec3; tag: BoxTag }[] = [];
+  const wedges: RampParts[] = [];
+  for (const b of solids) {
+    if (b.ramp === undefined) {
+      props.push(b);
+      continue;
+    }
+    const parts = rampParts(b);
+    if (parts.riser) {
+      props.push({ min: vec3(...parts.riser.min), max: vec3(...parts.riser.max), tag: b.tag });
+    }
+    wedges.push(parts);
+  }
   const inst = new InstancedMesh(boxGeo, boxMat, Math.max(1, props.length));
   const m = new Matrix4();
   const col = new Color();
@@ -86,6 +102,30 @@ export function buildLevelMesh(
   inst.frustumCulled = false;
   disposables.push(inst);
   root.add(inst);
+
+  if (wedges.length > 0) {
+    const w = buildWedge();
+    const wedgeGeo = new BufferGeometry();
+    wedgeGeo.setAttribute('position', new BufferAttribute(new Float32Array(w.positions), 3));
+    wedgeGeo.setAttribute('normal', new BufferAttribute(new Float32Array(w.normals), 3));
+    wedgeGeo.setIndex(w.indices);
+    const wedgeMesh = new InstancedMesh(wedgeGeo, boxMat, wedges.length);
+    const q = new Quaternion();
+    const up = new Vector3(0, 1, 0);
+    const wc = new Vector3();
+    const ws = new Vector3();
+    wedges.forEach((p, i) => {
+      q.setFromAxisAngle(up, p.rotY);
+      wedgeMesh.setMatrixAt(i, m.compose(wc.set(...p.centre), q, ws.set(...p.scale)));
+      wedgeMesh.setColorAt(i, col.setHex(TAG_COLORS.ramp));
+    });
+    wedgeMesh.instanceMatrix.needsUpdate = true;
+    if (wedgeMesh.instanceColor) wedgeMesh.instanceColor.needsUpdate = true;
+    wedgeMesh.matrixAutoUpdate = false;
+    wedgeMesh.frustumCulled = false;
+    disposables.push(wedgeGeo, wedgeMesh);
+    root.add(wedgeMesh);
+  }
 
   // Floor: the top face of every floor slab merged into one grid-shaded mesh.
   const floors = level.boxes.filter((b) => b.tag === 'floor');

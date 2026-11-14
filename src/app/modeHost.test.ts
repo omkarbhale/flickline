@@ -7,7 +7,9 @@ import { rangeMap } from '../sim/mapLoader';
 import { createTickInput } from '../sim/types';
 import { World } from '../sim/world';
 import type { GameEvents } from '../core/gameEvents';
-import { ModeHost } from './modeHost';
+import { ModeHost, MODES } from './modeHost';
+import { testMode } from '../modes/testMode';
+import type { ModeDef } from '../modes/modeDef';
 
 /** The framework on the real sim, real Range anchors and the real skill model, with a bot that aims at the head. */
 function playBot(seed: number, ticks: number) {
@@ -68,5 +70,38 @@ describe('ModeHost on the real sim', () => {
     expect(host.start('nope')).toBe(false);
     host.stop();
     expect(host.status().mode).toBeNull();
+  });
+
+  it("a mode's economy equips the player and the Echoes with the shield tier; drills and stop() clear it (design §5.1)", () => {
+    const tunables = cloneTunables();
+    const world = new World({ level: rangeMap, tunables, seed: 3 });
+    const bus = new EventBus<GameEvents>();
+    const host = new ModeHost(world, bus, rangeMap, tunables);
+    // Same id as the test mode (the skill model only knows registered modes' dials), different economy.
+    const modes = MODES as Record<string, ModeDef<never>>;
+    modes['__armoured'] = { ...(testMode as ModeDef<never>), economy: 'full' };
+    modes['__light'] = { ...(testMode as ModeDef<never>), economy: 'light' };
+    try {
+      expect(host.start('test')).toBe(true); // a drill: no economy, no shield
+      expect(world.health.maxShield).toBe(0);
+      expect(world.targetField.enemyShield).toBe(0);
+
+      expect(host.start('__armoured')).toBe(true);
+      expect(world.health).toMatchObject({ shield: 50, maxShield: 50 });
+      expect(world.targetField.enemyShield).toBe(50);
+      world.reset(); // a restart inside the run keeps it
+      expect(world.health.maxShield).toBe(50);
+
+      expect(host.start('__light')).toBe(true);
+      expect(world.health.maxShield).toBe(25);
+      expect(world.targetField.enemyShield).toBe(25);
+
+      host.stop();
+      expect(world.health.maxShield).toBe(0);
+      expect(world.targetField.enemyShield).toBe(0);
+    } finally {
+      delete modes['__armoured'];
+      delete modes['__light'];
+    }
   });
 });

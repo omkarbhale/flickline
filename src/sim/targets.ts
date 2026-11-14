@@ -3,6 +3,7 @@ import { DEG2RAD } from '../core/math';
 import { TICK_DT, secondsToTicks } from '../core/time';
 import { vec3, type Vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
+import { shieldAbsorbed } from './damage';
 import { createAimInfo, measureAim, yawOf, type AimInfo } from './aim';
 import { rayBox } from './collision';
 import { BEHAVIOURS } from './enemies';
@@ -32,8 +33,13 @@ export interface TargetEvents {
     kind: TargetKind;
     zone: HitZone;
     point: Vec3;
+    /** The bullet's full damage (before the shield took its share). */
     damage: number;
+    /** Part of `damage` the target's shield absorbed (spec §4.1); 0 on an unshielded target. */
+    absorbed: number;
     hpLeft: number;
+    /** Shield points left after the bullet. */
+    shieldLeft: number;
     distance: number;
     killed: boolean;
   };
@@ -53,6 +59,8 @@ export interface TargetEvents {
     firstBullet: boolean;
     /** Bullets fired at it, including the killing one. */
     bullets: number;
+    /** The shield it spawned with (0 = it was unarmoured): "needed two headshots on an armoured target". */
+    shield: number;
     /** No missed shot at it and no moving shot at it. */
     clean: boolean;
   };
@@ -82,6 +90,8 @@ export interface SpawnOptions {
   lifetimeSec?: number;
   /** Orbs only: radius multiplier over the roster's orb radius (default 1). */
   scale?: number;
+  /** Humanoids only: shield points at spawn (spec §4.1). Default: the field's `enemyShield`. Orbs never carry one. */
+  shield?: number;
 }
 
 function createSlot(): TargetState {
@@ -97,6 +107,8 @@ function createSlot(): TargetState {
     scale: 1,
     hp: 0,
     maxHp: 0,
+    shield: 0,
+    maxShield: 0,
     alive: false,
     lastHitTick: -1,
     spawnTick: 0,
@@ -119,11 +131,11 @@ const spawnedPayload = { tick: 0, t: 0, targetId: 0, kind: 'beacon' as TargetKin
 const visiblePayload = { tick: 0, t: 0, targetId: 0, preAim: 0, dYaw: 0, dPitch: 0 };
 const hitPayload = {
   tick: 0, t: 0, targetId: 0, kind: 'beacon' as TargetKind, zone: 'head' as HitZone,
-  point: vec3(), damage: 0, hpLeft: 0, distance: 0, killed: false,
+  point: vec3(), damage: 0, absorbed: 0, hpLeft: 0, shieldLeft: 0, distance: 0, killed: false,
 };
 const killedPayload = {
   tick: 0, t: 0, targetId: 0, kind: 'beacon' as TargetKind, zone: 'head' as HitZone,
-  point: vec3(), distance: 0, ttkMs: 0, rtMs: 0, firstBullet: false, bullets: 0, clean: false,
+  point: vec3(), distance: 0, ttkMs: 0, rtMs: 0, firstBullet: false, bullets: 0, shield: 0, clean: false,
 };
 const expiredPayload = { tick: 0, t: 0, targetId: 0, kind: 'beacon' as TargetKind };
 const respawnedPayload = { tick: 0, targetId: 0 };
@@ -143,6 +155,11 @@ export class TargetField {
   readonly slots: TargetState[] = [];
   readonly spawners: SpawnerState[] = [];
   private nextId = 0;
+  /**
+   * Shield points every new humanoid spawns with (set by the world from the fight's economy; the
+   * orbs never get one). Survives `clear()`, like the world's other per-run setup.
+   */
+  enemyShield = 0;
   private readonly zoneHit: ZoneHit = createZoneHit();
 
   constructor(readonly tunables: Tunables) {
@@ -208,6 +225,7 @@ export class TargetField {
       t.radius = Math.hypot(top / 2, h.torsoWidth / 2) + 0.05;
     }
     t.hp = t.maxHp = tt.maxHp;
+    t.shield = t.maxShield = def.shape === 'humanoid' ? Math.max(0, opts?.shield ?? this.enemyShield) : 0;
     t.alive = true;
     t.lastHitTick = -1;
     t.spawnTick = ctx.tick;
@@ -474,6 +492,12 @@ export class TargetField {
     }
   }
 
+  /** Whether a bullet of `damage` would kill the target in `slot` (shield first, spec §4.1). */
+  wouldKill(slot: number, damage: number): boolean {
+    const t = this.slots[slot]!;
+    return t.hp - (damage - shieldAbsorbed(damage, t.shield, this.tunables.player.shield.absorb)) <= 0;
+  }
+
   /**
    * Apply one bullet's damage to the target in `slot`, emit `targetHit` (and `targetKilled`
    * when it dies; the slot is then released, and level-placed targets schedule their respawn).
@@ -483,10 +507,13 @@ export class TargetField {
     tick: number, events: EventSink<SimEvents>,
   ): void {
     const t = this.slots[slot]!;
-    t.hp -= damage;
+    // Spec §4.1: the shield takes its share first, the overflow hits health (same rule as the player's).
+    const absorbed = shieldAbsorbed(damage, t.shield, this.tunables.player.shield.absorb);
+    t.shield -= absorbed;
+    t.hp -= damage - absorbed;
     t.lastHitTick = tick;
     const killed = t.hp <= 0;
-    const hp = this.hitPayload(t, zone, point, distance, damage, killed, tick);
+    const hp = this.hitPayload(t, zone, point, distance, damage, absorbed, killed, tick);
     events.emit('targetHit', hp);
     if (!killed) return;
 
@@ -501,13 +528,16 @@ export class TargetField {
     k.ttkMs = t.firstShotTick >= 0 ? (tick - t.firstShotTick) * TICK_DT * 1000 : 0;
     k.rtMs = t.reactionShotTick >= 0 && t.visibleTick >= 0 ? (t.reactionShotTick - t.visibleTick) * TICK_DT * 1000 : 0;
     k.bullets = t.bullets;
+    k.shield = t.maxShield;
     k.firstBullet = t.bullets <= 1;
     k.clean = !t.missedShot && !t.movingShot;
     this.free(t, tick);
     events.emit('targetKilled', k);
   }
 
-  private hitPayload(t: TargetState, zone: HitZone, point: Vec3, distance: number, damage: number, killed: boolean, tick: number): typeof hitPayload {
+  private hitPayload(
+    t: TargetState, zone: HitZone, point: Vec3, distance: number, damage: number, absorbed: number, killed: boolean, tick: number,
+  ): typeof hitPayload {
     const p = hitPayload;
     p.tick = tick;
     p.t = tick * TICK_DT;
@@ -516,7 +546,9 @@ export class TargetField {
     p.zone = zone;
     p.point = point;
     p.damage = damage;
+    p.absorbed = absorbed;
     p.hpLeft = Math.max(0, t.hp);
+    p.shieldLeft = t.shield;
     p.distance = distance;
     p.killed = killed;
     return p;
@@ -529,7 +561,7 @@ export class TargetField {
       const t = this.slots[i]!;
       mix(t.alive ? 1 : 0);
       if (!t.alive) continue;
-      mix(t.id); mix(t.hp); mix(t.pos.x); mix(t.pos.y); mix(t.pos.z); mix(t.sway);
+      mix(t.id); mix(t.hp); mix(t.shield); mix(t.pos.x); mix(t.pos.y); mix(t.pos.z); mix(t.sway);
       mix(t.fsm.state); mix(t.fsm.timerTicks);
     }
     for (let i = 0; i < this.spawners.length; i++) mix(this.spawners[i]!.respawnTick);

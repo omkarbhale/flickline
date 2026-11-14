@@ -16,8 +16,16 @@ export interface RunTunables {
   timeOnTargetPadDeg: number;
   /** Head-height discipline: sample period while moving with no enemy visible. */
   headHeightSampleSec: number;
-  /** Distance at which the head-centre height is turned into a pitch angle. */
+  /**
+   * Distance at which the head-centre height is turned into a pitch angle when no enemy anchor is
+   * ahead (the expected enemy then stands on the floor this far in front of the player).
+   */
   headHeightRefDistance: number;
+  /** Enemy anchors count as "ahead" inside this cone around the view direction, degrees (half-angle). */
+  headHeightConeDeg: number;
+  /** ... and between these horizontal distances, metres. */
+  headHeightMinDistance: number;
+  headHeightMaxDistance: number;
   /** Event log capacity; recording stops (and `truncated` is set) beyond it. */
   logMaxEvents: number;
 }
@@ -30,6 +38,9 @@ export const run: RunTunables = {
   flickMinDeg: 1,
   headHeightSampleSec: 0.125,
   headHeightRefDistance: 10,
+  headHeightConeDeg: 30,
+  headHeightMinDistance: 3,
+  headHeightMaxDistance: 45,
   logMaxEvents: 20000,
 };
 

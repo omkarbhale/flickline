@@ -7,7 +7,7 @@ import type { HudStatsSource } from '../feedback/hudStats';
 import type { ModeEvents } from '../modes/contracts';
 import { HUD_ELEMENTS, HUD_LABELS, type HudElementId, type HudSettings } from '../settings/hud';
 import type { SettingsEvents } from '../settings/settings';
-import type { SimEvents, WeaponState } from '../sim/types';
+import type { PlayerHealth, SimEvents, WeaponState } from '../sim/types';
 import {
   chainText, formatClock, formatDelta, formatMs, formatMult, formatPercent, formatScore, formatSeconds, formatTenths,
 } from './format';
@@ -41,6 +41,11 @@ export interface LiveHudDeps {
   settings: Readonly<HudSettings>;
   weapon: WeaponState;
   weapons: WeaponTable;
+  /**
+   * The player's health state. When given, a run that starts with a shield (modes with enemy fire,
+   * design §5.1) shows health and shield from the ready phase instead of from the first hit.
+   */
+  health?: Readonly<PlayerHealth>;
 }
 
 const ELEMENT_ATTR = 'data-el';
@@ -75,6 +80,9 @@ export class LiveHud {
   private readonly edgeNum: HTMLElement;
   private readonly hpFill: HTMLElement;
   private readonly hpNum: HTMLElement;
+  private readonly shBar: HTMLElement;
+  private readonly shFill: HTMLElement;
+  private readonly shNum: HTMLElement;
   private readonly ammoName: HTMLElement;
   private readonly ammoCount: HTMLElement;
   private readonly statV: Record<'acc' | 'hs' | 'rt' | 'ttk' | 'moving', HTMLElement>;
@@ -91,6 +99,10 @@ export class LiveHud {
   private lastTimerKey = NaN;
   private lastEdgeKey = NaN;
   private hpFrac = NaN;
+  private shFrac = NaN;
+  private shMax = 0;
+  /** Shield now, kept for heals (they carry no shield; kill-heal never restores it). */
+  private shNow = 0;
   private readonly statKey = { acc: NaN, hs: NaN, rt: NaN, ttk: NaN, moving: NaN };
 
   constructor(
@@ -139,7 +151,10 @@ export class LiveHud {
         </div>
       </div>
       <div class="lh-br">
-        <div class="lh-hp off" ${ELEMENT_ATTR}="hp"><div class="lh-hp-bar"><i></i></div><span data-v>100</span></div>
+        <div class="lh-hp off" ${ELEMENT_ATTR}="hp">
+          <div class="lh-hp-bars"><div class="lh-sh-bar off"><i></i></div><div class="lh-hp-bar"><i></i></div></div>
+          <span class="lh-sh-n off" title="Shield"></span><span data-v>100</span>
+        </div>
         <div class="lh-ammo" ${ELEMENT_ATTR}="ammo"><span class="n"></span><span class="c" data-v></span></div>
       </div>`;
     root.appendChild(wrap);
@@ -162,7 +177,10 @@ export class LiveHud {
     this.ghostText = el.ghost.querySelector('.lh-ghost-txt') as HTMLElement;
     this.edgeFill = el.edge.querySelector('i') as HTMLElement;
     this.edgeNum = v('edge');
-    this.hpFill = el.hp.querySelector('i') as HTMLElement;
+    this.hpFill = el.hp.querySelector('.lh-hp-bar i') as HTMLElement;
+    this.shBar = el.hp.querySelector('.lh-sh-bar') as HTMLElement;
+    this.shFill = this.shBar.querySelector('i') as HTMLElement;
+    this.shNum = el.hp.querySelector('.lh-sh-n') as HTMLElement;
     this.hpNum = v('hp');
     this.ammoName = el.ammo.querySelector('.n') as HTMLElement;
     this.ammoCount = v('ammo');
@@ -174,8 +192,8 @@ export class LiveHud {
     });
 
     // Health is shown from the first damage or heal of a run (modes with enemy fire), hidden again when a run is readied.
-    bus.on('playerDamaged', (e) => this.setHp(e.hp, e.maxHp));
-    bus.on('playerHealed', (e) => this.setHp(e.hp, e.maxHp));
+    bus.on('playerDamaged', (e) => this.setHp(e.hp, e.maxHp, e.shield, e.maxShield));
+    bus.on('playerHealed', (e) => this.setHp(e.hp, e.maxHp, this.shNow, this.shMax));
     bus.on('runReady', () => this.onRunReady());
     bus.on('runStarted', () => { this.paceDirty = true; });
     bus.on('runEnded', () => { this.paceDirty = true; });
@@ -203,10 +221,16 @@ export class LiveHud {
     this.paceTick = -1;
   }
 
-  /** Player health (modes with enemy fire), or `null` to hide the bar. */
-  setHp(hp: number | null, max = 100): void {
+  /**
+   * Player health (modes with enemy fire), or `null` to hide the bar. With a shield (`maxShield` >
+   * 0, spec §4.1) a thin shield bar and its number sit above the health bar; without one nothing
+   * extra is drawn. Health shows rounded up (0 means dead), the shield too.
+   */
+  setHp(hp: number | null, max = 100, shield = 0, maxShield = 0): void {
     if (hp === null) {
       this.hpFrac = NaN;
+      this.shFrac = NaN;
+      this.shNow = this.shMax = 0;
       this.el.hp.classList.add('off');
       return;
     }
@@ -214,8 +238,22 @@ export class LiveHud {
     if (f !== this.hpFrac) {
       this.hpFrac = f;
       this.hpFill.style.transform = `scaleX(${f})`;
-      this.hpNum.textContent = String(Math.max(0, Math.round(hp)));
+      this.hpNum.textContent = String(Math.max(0, Math.ceil(hp)));
       this.el.hp.classList.toggle('low', f <= 0.3);
+    }
+    this.shNow = shield;
+    this.shMax = maxShield;
+    const sf = maxShield > 0 ? Math.min(1, Math.max(0, shield / maxShield)) : 0;
+    const key = maxShield > 0 ? sf : -1;
+    if (key !== this.shFrac) {
+      this.shFrac = key;
+      const on = maxShield > 0;
+      this.shBar.classList.toggle('off', !on);
+      this.shNum.classList.toggle('off', !on);
+      this.el.hp.classList.toggle('shielded', on);
+      this.el.hp.classList.toggle('broken', on && shield <= 0);
+      this.shFill.style.transform = `scaleX(${sf})`;
+      this.shNum.textContent = on ? String(Math.max(0, Math.ceil(shield))) : '';
     }
     this.el.hp.classList.remove('off');
   }
@@ -312,7 +350,10 @@ export class LiveHud {
     this.setScore(0);
     this.onChain(0);
     this.setStreak(0, 1);
-    this.setHp(null);
+    const h = this.d.health;
+    // A shielded fight shows its health and shield from the start (the shield is part of the plan).
+    if (h && h.maxShield > 0) this.setHp(h.hp, h.maxHp, h.shield, h.maxShield);
+    else this.setHp(null);
     this.paceDirty = true;
     this.refreshStats(true);
     this.refreshEdge();
