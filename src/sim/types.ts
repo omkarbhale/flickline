@@ -187,7 +187,6 @@ export interface LevelDef {
   targets: TargetSpawn[];
 }
 
-/** Events the simulation emits. Payloads are read-only and valid only during the callback. */
 /**
  * Events the simulation emits. Payloads are read-only and valid only during the callback (the
  * weapon reuses its payload objects). `t` is sim seconds since the world was reset.

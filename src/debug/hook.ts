@@ -1,4 +1,6 @@
 import type { Game } from '../app/game';
+import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
+import type { CueId } from '../config/audio';
 import type { WeaponId } from '../config/weapon';
 import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
 import type { HitZone, TargetKind, TickInput } from '../sim/types';
@@ -55,7 +57,13 @@ export interface FlicklineDebug {
   /** Frame/tick/draw stats. */
   perf(): unknown;
   /** Update a setting through the real store. */
-  setSetting(key: 'sensitivity' | 'dpi' | 'volume' | 'quality', value: number | string): void;
+  setSetting(key: 'sensitivity' | 'dpi' | 'volume' | 'weaponsVolume' | 'hitsVolume' | 'enemiesVolume' | 'uiVolume' | 'quality', value: number | string): void;
+  /** Play a cue through the real engine (needs the context unlocked by a user gesture, see audioUnlock). */
+  playCue(cue: CueId, opts?: PlayOptions): void;
+  /** Create/resume the audio context without a click (headless checks). */
+  audioUnlock(): void;
+  /** Audio state: running, voices, sound-set render stats, and the most recent plays (what was scheduled where). */
+  audio(count?: number): { running: boolean; voices: number; stats: SoundSetStats | null; plays: PlayLogEntry[] };
   /** Crosshair state: current params, share code, redraw counter and last device-pixel geometry. */
   crosshair(): unknown;
   /** Import a crosshair share code through the real parser; returns `{ok, error?}`. */
@@ -167,6 +175,20 @@ export function installDebugHook(game: Game): FlicklineDebug {
     },
     setSetting(key, value) {
       game.settings.set({ [key]: value } as never);
+    },
+    playCue(cue, opts) {
+      game.audio.play(cue, opts);
+    },
+    audioUnlock() {
+      game.audio.resume();
+    },
+    audio(count = 16) {
+      return {
+        running: game.audio.running,
+        voices: game.audio.activeVoices,
+        stats: game.audio.stats,
+        plays: game.audio.recentPlays(count),
+      };
     },
     crosshair() {
       const p = game.settings.get().crosshair;
