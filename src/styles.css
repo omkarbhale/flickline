@@ -43,6 +43,32 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 #debug canvas { display: block; margin-top: 6px; }
 #debug .bad { color: #ff7a7a; }
 
+/* Menu modes: main (landing), pause (lock lost), firstRun (compact panel over the live Range). */
+.panel small { font-size: 11px; opacity: .8; }
+#menu .only-first { display: none; }
+#menu[data-mode='firstRun'] .only-first { display: flex; }
+#menu[data-mode='firstRun'] .not-first { display: none; }
+#menu[data-mode='firstRun'] { background: none; backdrop-filter: none; place-items: end center; pointer-events: none; }
+#menu[data-mode='firstRun'] .panel { pointer-events: auto; margin-bottom: 7vh; width: min(560px, 94vw); padding: 18px 22px; background: rgba(13,18,25,.93); }
+#menu[data-mode='firstRun'] h1 { font-size: 15px; letter-spacing: .3em; }
+#menu[data-mode='firstRun'] .tag { display: none; }
+#menu[data-mode='firstRun'] .grid { grid-template-columns: 1.3fr 1fr 1fr; margin-bottom: 14px; }
+.chips { gap: 8px; margin: 14px 0 14px; flex-wrap: wrap; }
+.chip { flex: 1; padding: 8px 6px; font: 600 13px inherit; color: var(--fg); background: #0b0e12; border: 1px solid #243040; border-radius: 6px; cursor: pointer; }
+.chip:hover { border-color: #3a4d66; }
+.chip[aria-pressed='true'] { background: #2a1912; border-color: var(--accent); color: #ffd9cc; }
+.raw { font-size: 12px; margin: 10px 0 0; text-align: center; color: var(--dim); }
+.raw[data-state='on'] { color: #7dff9c; }
+.raw[data-state='off'] { color: #ffb36b; }
+
+.panel { display: flex; flex-direction: column; }
+.panel > * { order: 5; }
+.panel h1 { order: 0; } .panel .tag { order: 1; } .panel .play { order: 2; } .panel .hint { order: 3; } .panel .grid { order: 4; }
+#menu[data-mode='firstRun'] .panel .grid { order: 2; }
+#menu[data-mode='firstRun'] .panel .chips { order: 3; }
+#menu[data-mode='firstRun'] .panel .play { order: 4; }
+#menu[data-mode='firstRun'] .panel .raw { order: 5; }
+
 /* Crosshair editor (menu) */
 .ch-editor { margin-top: 16px; border-top: 1px solid #243040; padding-top: 12px; }
 .ch-editor summary { cursor: pointer; font-weight: 700; letter-spacing: .08em; font-size: 13px; }

@@ -62,27 +62,56 @@ export class InputManager {
     this.pitch = clamp(pitch, -this.maxPitch, this.maxPitch);
   }
 
-  /** Must be called from a user gesture. Requests raw (unadjusted) mouse input when supported. */
+  /** Raw-input state of the last lock request: null until one was made. */
+  rawInput: boolean | null = null;
+
+  /**
+   * Must be called from a user gesture. Requests raw (unadjusted) mouse input. A browser that
+   * lacks it (or that rejects the option) gets a plain lock and `rawInputChanged {on: false}`.
+   */
   requestLock(): void {
     const c = this.canvas as HTMLCanvasElement & {
       requestPointerLock(options?: { unadjustedMovement?: boolean }): Promise<void> | void;
     };
+    // Real feature detection: only a browser that implements the option reads this member.
+    let optionRead = false;
+    const options = {
+      get unadjustedMovement(): boolean {
+        optionRead = true;
+        return true;
+      },
+    };
+    let result: Promise<void> | void;
     try {
-      const r = c.requestPointerLock({ unadjustedMovement: true });
-      if (r && typeof (r as Promise<void>).catch === 'function') {
-        (r as Promise<void>).catch(() => {
-          // Raw input unsupported (e.g. some platforms): fall back to the OS-accelerated pointer.
-          try {
-            const r2 = c.requestPointerLock();
-            if (r2 && typeof (r2 as Promise<void>).catch === 'function') (r2 as Promise<void>).catch(() => {});
-          } catch {
-            /* ignore */
-          }
-        });
-      }
+      result = c.requestPointerLock(options);
     } catch {
-      /* ignore */
+      return;
     }
+    if (!optionRead || !result || typeof result.then !== 'function') {
+      this.setRaw(false);
+      return;
+    }
+    result.then(
+      () => this.setRaw(true),
+      (err: unknown) => {
+        // Only "not supported" means raw input is unavailable; a SecurityError (lock just left,
+        // no gesture) says nothing about it, the player simply clicks again.
+        if ((err as { name?: string } | null)?.name !== 'NotSupportedError') return;
+        this.setRaw(false);
+        try {
+          const r2 = c.requestPointerLock();
+          if (r2 && typeof r2.catch === 'function') r2.catch(() => {});
+        } catch {
+          /* ignore */
+        }
+      },
+    );
+  }
+
+  private setRaw(on: boolean): void {
+    if (this.rawInput === on) return;
+    this.rawInput = on;
+    this.events.emit('rawInputChanged', { on });
   }
 
   private isDown(action: keyof Bindings): boolean {

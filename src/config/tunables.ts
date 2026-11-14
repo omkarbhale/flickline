@@ -2,6 +2,7 @@ import { audio, type AudioTunables } from './audio';
 import { dial, type DialTunables } from './dial';
 import { modes, type ModeTunables } from './modes';
 import { movement, type MovementTunables } from './movement';
+import { profile, type ProfileTunables } from './profile';
 import { render, type RenderTunables } from './render';
 import { scoring, type ScoringTunables } from './scoring';
 import { targets, type TargetTunables } from './targets';
@@ -24,13 +25,14 @@ export interface Tunables {
   view: ViewTunables;
   render: RenderTunables;
   audio: AudioTunables;
+  profile: ProfileTunables;
   scoring: ScoringTunables;
   modes: ModeTunables;
   dial: DialTunables;
 }
 
 /** Live, mutable instance. Only the debug hook and settings UI may mutate it at runtime. */
-export const tunables: Tunables = { movement, weapon, weaponRules, targets, view, render, audio, dial, scoring, modes };
+export const tunables: Tunables = { movement, weapon, weaponRules, targets, view, render, audio, profile, dial, scoring, modes };
 
 /** Deep copy for tests and what-if runs (tunables are JSON-safe plain data). */
 export function cloneTunables(t: Tunables = tunables): Tunables {
