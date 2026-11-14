@@ -15,6 +15,7 @@ import { SessionStats } from '../feedback/sessionStats';
 import { applySettingsToOptions, createFeedbackOptions } from '../feedback/options';
 import { ShotCues } from '../feedback/shotCues';
 import type { RunEndReason } from '../modes/contracts';
+import { LeanKeeper, weakestCards, type Lean } from '../modes/lean';
 import { SWEEP_MODE } from '../modes/sweep';
 import { RunController, type StartRunOptions } from '../modes/runController';
 import { DamageView } from '../hud/damageView';
@@ -83,6 +84,11 @@ export class Game {
    * the run history.
    */
   readonly progress: ProgressStore;
+  /**
+   * The lean (design §4.4, §8.3; #210): the results card sets what the next run leans toward, the next fresh Sweep run
+   * takes it and it is spent; a replay of a seed keeps the lean it had, the Daily Route never leans.
+   */
+  readonly lean = new LeanKeeper();
   /**
    * The map in the world now. Range, or the URL's `?map=lane|elbow` (a dev/playtest switch), until a
    * mode starts: starting a mode loads the map it is designed for (`ModeDef.map`, see `ModeHost.start`).
@@ -475,14 +481,29 @@ export class Game {
   }
 
   /** Start a run of `id`, saying whether it is the Daily Route of `daily` (a date key) or not. False for an unknown mode. */
-  private startModeRun(id: string, seed: number, daily: string | null): boolean {
+  private startModeRun(id: string, seed: number, daily: string | null, replay = false): boolean {
     if (!MODES[id]) return false;
     this.modes.stop(); // the run being left ends as what it was, before the new run's date applies
     const was = this.dailyDate;
     this.dailyDate = daily;
-    if (this.modes.start(id, { seed })) return true;
+    if (this.modes.start(id, { seed, lean: this.leanFor(id, daily, replay) })) return true;
     this.dailyDate = was;
     return false;
+  }
+
+  /**
+   * What the run about to start leans toward (#210): a replay keeps its lean (the same seed is the same route), the Daily
+   * Route and any mode but Sweep never lean, and a fresh Sweep run takes the pending lean and the weakest cards (the
+   * progress records, design §4.4).
+   */
+  private leanFor(id: string, daily: string | null, replay: boolean): Lean {
+    if (id !== SWEEP_MODE || daily !== null) return this.lean.none();
+    if (replay) return this.lean.replay();
+    const t = this.tunables;
+    return this.lean.fresh(weakestCards((card, window) => {
+      const r = this.progress.situation(card, window);
+      return r.contacts > 0 ? { won: r.wins, played: r.contacts } : null;
+    }, t.lean, t.sweep));
   }
 
   /** The Daily Route button: Sweep on the seed of today's date (unlimited attempts), pointer lock taken. */
@@ -747,6 +768,7 @@ export class Game {
   startMode(id: string, opts: { seed?: number; pinDial?: number } = {}): boolean {
     const t0 = performance.now();
     this.dailyDate = null;
+    this.lean.none();
     if (!this.modes.start(id, opts)) return false;
     this.afterRunReset();
     this.noteRestart(t0);
@@ -813,7 +835,7 @@ export class Game {
     if (!info || this.run.state !== 'result') return false;
     if (this.run.isSelfDriven) {
       if (!this.run.restartRun(info.seed)) return false;
-    } else if (!this.startModeRun(info.mode, info.seed, this.dailyDate)) return false;
+    } else if (!this.startModeRun(info.mode, info.seed, this.dailyDate, true)) return false;
     this.afterRunReset();
     this.noteRestart(pressedAt);
     if (!this.input.locked) this.play();

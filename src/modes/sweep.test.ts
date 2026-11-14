@@ -320,7 +320,7 @@ describe('Sweep mode (#201)', () => {
 describe('skill matching inside the run (#203)', () => {
   it('a placing plan opens with short single-Echo sectors from the gentlest cards, then the run as usual', () => {
     for (let seed = 1; seed <= 60; seed++) {
-      const plan = startPlan(seed, tunables, true);
+      const plan = startPlan(seed, tunables, [], true);
       expect(plan.placing).toBe(true);
       const opener = plan.openerStages;
       expect(opener).toHaveLength(cfg.opener.maxSectors);
@@ -333,9 +333,9 @@ describe('skill matching inside the run (#203)', () => {
       }
       for (let i = 1; i < opener.length; i++) expect(opener[i]!.sectorId).not.toBe(opener[i - 1]!.sectorId);
     }
-    expect(startPlan(5, tunables, true)).toEqual(startPlan(5, tunables, true));
-    expect(startPlan(5, tunables, false).placing).toBe(false);
-    expect(startPlan(5, tunables, false).openerStages).toEqual([]);
+    expect(startPlan(5, tunables, [], true)).toEqual(startPlan(5, tunables, [], true));
+    expect(startPlan(5, tunables, [], false).placing).toBe(false);
+    expect(startPlan(5, tunables, [], false).openerStages).toEqual([]);
   });
 
   it('a new profile plays the placing Opener on the staircase; without fights it runs to the last Opener sector, then sector 2', () => {

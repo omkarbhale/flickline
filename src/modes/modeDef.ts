@@ -185,6 +185,8 @@ export interface ModeContext<S = unknown> {
   readonly seed: number;
   /** The run's seeded stream: use it for every random choice, never `Math.random`. */
   readonly rng: Rng;
+  /** The scenario cards the run leans toward (design §4.4, #210); empty for no lean. Only Sweep reads it. */
+  readonly lean: readonly string[];
   readonly tunables: Tunables;
   readonly player: MotionView;
   /** The player's health and shield (read-only). */

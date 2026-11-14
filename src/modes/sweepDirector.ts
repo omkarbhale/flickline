@@ -240,8 +240,6 @@ export function drawRole(rng: Rng, cfg: SweepTunables, index: number, drawn: rea
 /** Roles in the order the draw walks them, and how many of one role may follow each other (design §4.2: never three). */
 const ROLE_ORDER: readonly SectorRole[] = ['take', 'hold', 'meet'];
 const ROLE_RUN_MAX = 2;
-/** The roles a run plays today. Holds arrive with #204: a drawn hold plays as a take until then. */
-const PLAYABLE: readonly SectorRole[] = ['take', 'meet'];
 
 /** How many anchors a card needs. */
 export function cardSpots(card: SweepCard): number {
@@ -484,9 +482,9 @@ export function drawableSectors(catalog: readonly SectorSource[], body: PlanBody
   return catalog.filter(ok).sort((a, b) => (sectorKey(a) < sectorKey(b) ? -1 : 1));
 }
 
-/** The role a sector plays as: holds play as takes until #204. */
-export function playedRole(wanted: SectorRole): SectorRole {
-  return PLAYABLE.includes(wanted) ? wanted : 'take';
+/** The role a sector plays as: a role the run cannot play yet (`cfg.playableRoles`: holds until #204) plays as a take. */
+export function playedRole(wanted: SectorRole, cfg: SweepTunables): SectorRole {
+  return cfg.playableRoles.includes(wanted) ? wanted : 'take';
 }
 
 /**
@@ -570,6 +568,7 @@ export function routeCards(sectors: readonly SectorPlan[]): SweepCard[] {
  * The same `(seed, placing)` gives the same plan.
  */
 export function planRun(seed: number, catalog: readonly SectorSource[], cfg: SweepTunables, body: PlanBody, placing = false): RunPlan {
+  // `cfg` already carries the lean (`leanedSweep`, #210): the draws read its weights and nothing else changes.
   const takes = drawableSectors(catalog, body, 'take');
   if (takes.length === 0) throw new Error('sweep: no take sector with a hidden hold anchor');
   const rng = sectorStream(seed, 0);

@@ -45,6 +45,8 @@ export interface RunOptions {
   anchors?: AnchorSource;
   /** The skill model has never measured this profile (design §9.2; the host decides). */
   newProfile?: boolean;
+  /** The scenario cards the run leans toward (design §4.4, #210). */
+  lean?: readonly string[];
 }
 
 /** One tracked target: where its trial's difficulty and skill were fixed (at spawn). */
@@ -80,6 +82,7 @@ export class ModeRunner implements ModeContext<unknown> {
   mode!: ModeDef<unknown>;
   seed = 0;
   rng = new Rng(1);
+  lean: readonly string[] = [];
   state: unknown = undefined;
   scheduler!: SpawnScheduler;
   liveTick = 0;
@@ -214,6 +217,7 @@ export class ModeRunner implements ModeContext<unknown> {
     this.rng = new Rng((opts.seed ^ 0x9e3779b9) >>> 0);
     this.pinDial = opts.pinDial;
     this.newProfile = opts.newProfile ?? false;
+    this.lean = opts.lean ?? [];
     this.scheduler = new SpawnScheduler(m, this.tunables.dial.floors, this.rng, new AnchorIndex(opts.anchors ?? null), this.player);
     this.streaks.reset();
     const s = this.stats;

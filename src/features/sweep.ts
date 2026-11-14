@@ -22,8 +22,8 @@ declare module '../debug/hook' {
   interface FlicklineDebug {
     /**
      * Sweep, the run (#201). `state()`: the sector, its contacts and Echoes, the run's cards and every
-     * measured sector switch, and the gate the player stands in (its two doors' facts). `plan(seed)`: the
-     * plan a seed starts with (its opener; the gates are drawn as the run reaches them). `toExit()`: stand the
+     * measured sector switch, and the gate the player stands in (its two doors' facts). `plan(seed, lean)`: the
+     * plan a seed starts with, with the cards the run leans toward (#210; its opener; the gates are drawn as the run reaches them). `toExit()`: stand the
      * player on the current sector's exit and step one tick (the gate loads). `gate()`: the doors' facts while in a
      * gate. `choose(door)`: in a gate, walk through door 0 (left) or 1 (right) and let the sector behind it load;
      * returns the facts of the door taken. `walk(maxTicks, stopAtM)`: walk
@@ -33,7 +33,7 @@ declare module '../debug/hook' {
      */
     readonly sweep: {
       state(): unknown;
-      plan(seed?: number): unknown;
+      plan(seed?: number, lean?: readonly string[]): unknown;
       toExit(): boolean;
       gate(): unknown;
       choose(door: 0 | 1, ticks?: number): unknown;
@@ -220,6 +220,8 @@ export const feature = defineFeature({
           if (!st) return null;
           return {
             seed: st.plan.seed,
+            lean: game.lean.now.slice(),
+            nextLean: game.lean.next.slice(),
             sector: st.sector,
             of: cfg.sectors,
             gate: st.gate ? gateState(st) : null,
@@ -253,7 +255,7 @@ export const feature = defineFeature({
             enemyShield: game.world.targetField.enemyShield,
           };
         },
-        plan: (seed) => sweepPlan(seed ?? game.world.seed, game.tunables),
+        plan: (seed, lean) => sweepPlan(seed ?? game.world.seed, game.tunables, lean ?? []),
         gate() {
           const st = state();
           return st?.gate ? gateState(st) : null;

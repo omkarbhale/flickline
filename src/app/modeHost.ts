@@ -256,7 +256,7 @@ export class ModeHost {
     this.applyPlayerSetup(mode);
     this.active = mode;
     this.runner.begin(mode, {
-      seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors, newProfile: opts.newProfile ?? this.newProfile,
+      seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors, lean: opts.lean, newProfile: opts.newProfile ?? this.newProfile,
     });
     if (opts.pick !== undefined) this.pickPrimary(opts.pick);
     return true;
