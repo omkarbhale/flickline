@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { auditAllocations } from './allocAudit';
 import { main } from './cli';
 import { HeadlessGame } from './headless';
-import { FREEPLAY, listModes, playMode, resolveMode } from './play';
+import { FREEPLAY, listModes, mapForMode, playMode, resolveMode } from './play';
 import { BOT_PARAM_KEYS, paramsForSkill, resolveParams } from './skill';
 import { runSuite } from './suite';
 
@@ -41,7 +41,7 @@ describe('bot skill model', () => {
 describe('bot runs', () => {
   it('finishes a run of every mode quickly and reports plain data', () => {
     for (const mode of listModes()) {
-      const r = playMode(new HeadlessGame({ seed: 3 }), { mode, skill: 60, seed: 3 });
+      const r = playMode(new HeadlessGame({ seed: 3, map: mapForMode(mode) }), { mode, skill: 60, seed: 3 });
       expect(r.finished, mode).toBe(true);
       expect(r.wallMs, mode).toBeLessThan(5000);
       expect(r.stats.shots, mode).toBeGreaterThan(0);

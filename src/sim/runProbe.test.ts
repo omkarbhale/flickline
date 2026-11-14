@@ -178,6 +178,7 @@ describe('playerStopped (stop latency)', () => {
     expect(ms).toBeLessThan(150);
     expect(ms / (TICK_DT * 1000)).toBeCloseTo(Math.round(ms / (TICK_DT * 1000)), 6); // whole ticks
     expect(Math.hypot(world.player.vel.x, world.player.vel.z)).toBeLessThanOrEqual(accuracyThreshold(world.weapon, world.tunables));
+    expect(stops[0]!.data.counterStrafe).toBe(false); // a release is not a direction reversal
   });
 
   it('a counter-strafe press starts the clock too', () => {
@@ -186,6 +187,20 @@ describe('playerStopped (stop latency)', () => {
     run(TICK_RATE / 2, { moveX: 1 });
     run(TICK_RATE / 4, { moveX: -1 });
     expect(of('playerStopped').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('flags a stop that began with the opposite key (a true counter-strafe tap) and not a release', () => {
+    const tap = setup(level({ target: false }));
+    tap.run(4);
+    tap.run(TICK_RATE / 2, { moveX: 1 });
+    tap.run(TICK_RATE / 4, { moveX: -1 });
+    expect(tap.of('playerStopped')[0]!.data.counterStrafe).toBe(true);
+
+    const release = setup(level({ target: false }));
+    release.run(4);
+    release.run(TICK_RATE / 2, { moveX: 1 });
+    release.run(TICK_RATE / 4, { moveX: 0 });
+    expect(release.of('playerStopped')[0]!.data.counterStrafe).toBe(false);
   });
 
   it('does not fire when the player was never moving, or when they keep moving', () => {
