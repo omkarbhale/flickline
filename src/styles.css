@@ -233,6 +233,19 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 @keyframes dmg-desat { 0% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
 .dmg-arcs { position: absolute; left: 50%; top: 50%; width: 84vmin; height: 84vmin; transform: translate(-50%, -50%); display: block; }
 
+/* ---- Spray Wall prompt (design 4.5): bullet count, the spray's verdict, the reload prompt. Text only, written from events. */
+.spray-prompt { position: absolute; left: 50%; top: calc(50% + 150px); transform: translateX(-50%); text-align: center; pointer-events: none;
+  font: 700 22px/1.25 ui-sans-serif, system-ui, sans-serif; letter-spacing: .04em; text-shadow: 0 1px 3px rgba(0, 0, 0, .9); font-variant-numeric: tabular-nums; }
+.spray-prompt[hidden], .spray-prompt [hidden] { display: none; }
+.spray-prompt .sp-count { color: var(--core); }
+.spray-prompt .sp-count.good { color: var(--ok); }
+.spray-prompt .sp-count.bad { color: var(--alert); }
+.spray-prompt .sp-reload { margin-top: 6px; font-size: 26px; color: var(--gold); animation: sp-pulse .9s ease-in-out infinite; }
+.spray-prompt .sp-reload b { display: inline-block; min-width: 1.4em; padding: 0 .25em; border: 2px solid var(--gold); border-radius: 4px; }
+@keyframes sp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .spray-prompt .sp-reload { animation: none; } }
+:root[data-reduce-flashing='true'] .spray-prompt .sp-reload { animation: none; }
+
 /* FPS and 1% lows (settings: Show FPS): one quiet line in the top-left corner; text written at 4 Hz by hud/fpsReadout.ts. */
 .fps-readout { position: absolute; left: 10px; top: 8px; font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--fg); opacity: .8; text-shadow: 0 1px 2px rgba(0, 0, 0, .9); font-variant-numeric: tabular-nums; }
 .fps-readout[hidden] { display: none; }

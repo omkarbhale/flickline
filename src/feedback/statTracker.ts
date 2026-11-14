@@ -3,6 +3,7 @@ import { DEG2RAD, RAD2DEG, mean, median } from '../core/math';
 import { TICK_DT } from '../core/time';
 import { run as defaultRun, type RunTunables } from '../config/run';
 import { scoring as defaultScoring, type ScoringTunables } from '../config/scoring';
+import { sprayWall as defaultSprayWall, type SprayWallTunables } from '../config/sprayWall';
 import { targets as defaultTargets, type TargetTunables } from '../config/targets';
 import { wrapPi, yawOf } from '../sim/aim';
 import type { RunEndReason, RunEvents } from '../sim/runEvents';
@@ -16,10 +17,14 @@ export interface StatConfig {
   run: RunTunables;
   targets: Pick<TargetTunables, 'shotAtDeg' | 'reactionAimDeg'>;
   scoring: Pick<ScoringTunables, 'chainWindowSec'>;
+  sprayWall: Pick<SprayWallTunables, 'collapseHitRate' | 'pullToleranceDeg'>;
 }
 
-export const defaultStatConfig: StatConfig = { run: defaultRun, targets: defaultTargets, scoring: defaultScoring };
+export const defaultStatConfig: StatConfig = { run: defaultRun, targets: defaultTargets, scoring: defaultScoring, sprayWall: defaultSprayWall };
 import type { LoggedEvent, RunLog } from './eventLog';
+import {
+  collapseIndex, sprayHitRateByIndex, sprayPullErrorByIndex, type SprayBulletTrace, type SprayRecord,
+} from './sprayTrace';
 
 type AllEvents = SimEvents & RunEvents;
 
@@ -127,6 +132,20 @@ export interface RunStats {
 
   targets: TargetStat[];
   sprayBursts: SprayBullet[][];
+  /**
+   * Spray Wall's sprays (design §4.5), in order: one record each with the per-bullet spray trace
+   * (impact offset, the player's pull and the spec's required counter-pull, see `sprayTrace.ts`).
+   * Empty in every other mode. For the results card (#39).
+   */
+  sprays: SprayRecord[];
+  /** Hit rate of each bullet index over the sprays (null = no spray reached it). */
+  sprayHitRateByIndex: (number | null)[];
+  /** Mean absolute vertical pull error (degrees) of each bullet index. */
+  sprayPullErrorByIndex: (number | null)[];
+  /** First bullet index where the hit rate falls below the limit and stays there; null if it never does. */
+  sprayCollapseIndex: number | null;
+  /** First bullet index where the pull error rises above the tolerance and stays there; null if it never does. */
+  sprayPullFallsApartIndex: number | null;
 }
 
 interface Engagement {
@@ -211,6 +230,15 @@ export class StatTracker {
   private burstFirstYaw = 0;
   private burstFirstPitch = 0;
   private lastShot = { id: -1, aimedId: -1, moving: false };
+  private sprays: SprayRecord[] = [];
+  /** The spray in progress (between `sprayStarted` and `sprayEnded`), or null. */
+  private spray: SprayRecord | null = null;
+  private sprayShotId = -1;
+  private sprayFirstTick = 0;
+  private sprayFirstYaw = 0;
+  private sprayFirstPitch = 0;
+  private sprayFirstRecoilX = 0;
+  private sprayFirstRecoilY = 0;
 
   private aimOn = false;
   private aimOnStart = 0;
@@ -248,6 +276,8 @@ export class StatTracker {
     this.finished = [];
     this.bursts = [];
     this.lastShot = { id: -1, aimedId: -1, moving: false };
+    this.sprays = [];
+    this.spray = null;
     this.aimOn = false;
     this.aimOnStart = this.aimOnTicks = 0;
     this.headHeightSum = this.headHeightN = 0;
@@ -270,6 +300,8 @@ export class StatTracker {
       bus.on('leadSampled', (e) => this.onLead(e)),
       bus.on('headHeightSampled', (e) => this.onHeadHeight(e)),
       bus.on('playerStopped', (e) => this.onPlayerStopped(e)),
+      bus.on('sprayStarted', (e) => this.onSprayStarted(e)),
+      bus.on('sprayEnded', (e) => this.onSprayEnded(e)),
     ];
     return () => offs.forEach((f) => f());
   }
@@ -289,6 +321,8 @@ export class StatTracker {
       case 'leadSampled': this.onLead(ev.data); break;
       case 'headHeightSampled': this.onHeadHeight(ev.data); break;
       case 'playerStopped': this.onPlayerStopped(ev.data); break;
+      case 'sprayStarted': this.onSprayStarted(ev.data); break;
+      case 'sprayEnded': this.onSprayEnded(ev.data); break;
       default: break;
     }
   }
@@ -367,6 +401,8 @@ export class StatTracker {
       hit: false,
     });
 
+    this.recordSprayBullet(e, bulletYaw, bulletPitch);
+
     let aimedId = -1;
     if (e.aimTargetId >= 0) {
       const g = this.engagement(e.aimTargetId);
@@ -385,6 +421,69 @@ export class StatTracker {
     this.lastShot = { id: e.shotId, aimedId, moving: e.moving };
   }
 
+  // --- Spray Wall (design §4.5): cut the shots into sprays and fill the spray trace ----------
+
+  private onSprayStarted(e: AllEvents['sprayStarted']): void {
+    if (!this.live(e.tick)) return;
+    this.spray = {
+      index: e.index, station: e.station, distanceM: e.distanceM, burst: e.burst, requiredFraction: e.requiredFraction,
+      fired: 0, hits: 0, headHits: 0, bodyHits: 0, fraction: 0, success: false, reason: 'burst', trace: [],
+    };
+    this.sprayShotId = -1;
+  }
+
+  private onSprayEnded(e: AllEvents['sprayEnded']): void {
+    const r = this.spray;
+    if (!r || !this.live(e.tick)) return;
+    r.fired = e.bullets;
+    r.hits = e.hits;
+    r.headHits = e.headHits;
+    r.bodyHits = e.bodyHits;
+    r.fraction = e.fraction;
+    r.success = e.success;
+    r.reason = e.reason;
+    this.sprays.push(r);
+    this.spray = null;
+  }
+
+  /** The bullet just fired belongs to the spray in progress: its impact, the player's pull and the required pull. */
+  private recordSprayBullet(e: AllEvents['shotFired'], bulletYaw: number, bulletPitch: number): void {
+    const r = this.spray;
+    if (!r || r.trace.length >= r.burst) return;
+    if (r.trace.length === 0) {
+      this.sprayFirstTick = e.tick;
+      this.sprayFirstYaw = e.yaw;
+      this.sprayFirstPitch = e.pitch;
+      this.sprayFirstRecoilX = e.recoilYawDeg;
+      this.sprayFirstRecoilY = e.recoilPitchDeg;
+    }
+    const cosP = Math.cos(this.sprayFirstPitch);
+    const b: SprayBulletTrace = {
+      index: r.trace.length,
+      tMs: (e.tick - this.sprayFirstTick) * TICK_DT * 1000,
+      impactXDeg: -wrapPi(bulletYaw - this.sprayFirstYaw) * RAD2DEG * cosP,
+      impactYDeg: (bulletPitch - this.sprayFirstPitch) * RAD2DEG,
+      pullXDeg: -wrapPi(e.yaw - this.sprayFirstYaw) * RAD2DEG * cosP,
+      pullYDeg: (e.pitch - this.sprayFirstPitch) * RAD2DEG,
+      requiredPullXDeg: -(e.recoilYawDeg - this.sprayFirstRecoilX),
+      requiredPullYDeg: -(e.recoilPitchDeg - this.sprayFirstRecoilY),
+      spreadDeg: e.spreadDeg,
+      hit: false,
+      zone: null,
+    };
+    r.trace.push(b);
+    this.sprayShotId = e.shotId;
+  }
+
+  private markSprayImpact(e: AllEvents['shotImpact']): void {
+    const r = this.spray;
+    if (!r || e.shotId !== this.sprayShotId) return;
+    const b = r.trace[r.trace.length - 1];
+    if (!b || e.result !== 'hit' || e.targetId < 0) return;
+    b.zone = e.zone;
+    b.hit = e.zone === 'head' || e.zone === 'body';
+  }
+
   private flickError(g: Engagement, e: AllEvents['shotFired']): number | null {
     const len = Math.hypot(g.visDYaw, g.visDPitch);
     if (len < this.cfg.run.flickMinDeg * DEG2RAD) return null;
@@ -395,6 +494,7 @@ export class StatTracker {
 
   private onShotImpact(e: AllEvents['shotImpact']): void {
     if (!this.live(e.tick) || e.shotId !== this.lastShot.id) return;
+    this.markSprayImpact(e);
     if (e.result !== 'hit') return;
     this.hits++;
     if (e.zone === 'head') this.headHits++;
@@ -491,6 +591,8 @@ export class StatTracker {
     const liveTicks = this.started ? Math.max(0, end - this.liveStartTick) : 0;
     let onTicks = this.aimOnTicks;
     if (this.aimOn) onTicks += end - this.aimOnStart;
+    const hitRates = sprayHitRateByIndex(this.sprays);
+    const pullErrors = sprayPullErrorByIndex(this.sprays);
 
     const all: Engagement[] = this.finished.slice();
     this.open.forEach((g) => {
@@ -564,6 +666,11 @@ export class StatTracker {
       cleanStreak: this.streak,
       targets,
       sprayBursts: this.bursts.map((b) => b.map((x) => ({ ...x }))),
+      sprays: this.sprays.map((r) => ({ ...r, trace: r.trace.map((b) => ({ ...b })) })),
+      sprayHitRateByIndex: hitRates,
+      sprayPullErrorByIndex: pullErrors,
+      sprayCollapseIndex: collapseIndex(hitRates, this.cfg.sprayWall.collapseHitRate, true),
+      sprayPullFallsApartIndex: collapseIndex(pullErrors, this.cfg.sprayWall.pullToleranceDeg, false),
     };
   }
 }
