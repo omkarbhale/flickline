@@ -3,24 +3,19 @@ import {
   Color,
   DirectionalLight,
   Fog,
-  Mesh,
-  MeshLambertMaterial,
   PerspectiveCamera,
-  BoxGeometry,
   Scene,
   Vector3,
   WebGLRenderer,
 } from 'three';
 import { lerp } from '../core/math';
-import type { ShotCues } from '../feedback/shotCues';
 import { REFERENCE_ASPECT, verticalFovDeg } from '../core/view';
 import { env, palette } from '../config/palette';
-import { echoPresets, type EchoPresetId } from '../config/palette';
+import type { EchoPresetId } from '../config/palette';
 import { QUALITY_LEVELS, type QualityLevel } from '../config/render';
 import type { Tunables } from '../config/tunables';
 import type { MapDef } from '../sim/mapTypes';
 import type { World } from '../sim/world';
-import { ShotEffects } from './effects';
 import { BlobShadows } from './blobShadows';
 import { applyEnvQuality, createEnvUniforms, horizonColor, type EnvUniforms } from './envShaders';
 import { buildLevelMesh, type LevelMesh } from './levelMesh';
@@ -28,6 +23,30 @@ import { Sky } from './sky';
 import { PostPipeline, createVignetteEffect } from './post';
 import { WorldHint } from './worldHint';
 import { TargetsView } from './targetsView';
+
+/** What a render layer sees each frame. One reused object: read it during `update` only. */
+export interface RenderFrame {
+  world: World;
+  /** Interpolation between the last two ticks. */
+  alpha: number;
+  /** Seconds since the last drawn frame (0 for an immediate re-render). */
+  dt: number;
+}
+
+/**
+ * A visual subsystem a feature adds with `addLayer` (shot effects, hints, viewmodels). It builds
+ * its objects into `renderer.scene` / `renderer.camera` when constructed; the renderer drives it.
+ * Hot-path rule: `update` and `afterDraw` allocate nothing.
+ */
+export interface RenderLayer {
+  /** Every drawn frame, after the camera is placed and before drawing, in the order added. */
+  update(frame: RenderFrame): void;
+  /** Right after the frame was drawn. */
+  afterDraw?(): void;
+  /** Canvas size in CSS pixels and the device pixel ratio, after every resize or quality change. */
+  resize?(width: number, height: number, pixelRatio: number): void;
+  dispose(): void;
+}
 
 export interface RenderStats {
   drawCalls: number;
@@ -38,7 +57,8 @@ export interface RenderStats {
 
 /**
  * Everything three.js. Reads sim state (never writes it), interpolates between the last two
- * ticks, and owns the scene, camera, post pipeline and effect pools.
+ * ticks, and owns the scene, camera, environment, targets and post pipeline. Features add their
+ * own visuals as `RenderLayer`s (`addLayer`).
  *
  * Hot-path rules: render() allocates nothing. All vectors/matrices are scratch members.
  */
@@ -58,19 +78,17 @@ export class GameRenderer {
   private readonly blobs: BlobShadows;
   private readonly fog: Fog;
   private targetsView: TargetsView | null = null;
-  private echoPreset: EchoPresetId = 'ember';
-  private readonly effects: ShotEffects;
-  private readonly viewmodel: Mesh;
+  private preset: EchoPresetId = 'ember';
+  private readonly layers: RenderLayer[] = [];
+  private readonly frame: RenderFrame = { world: null as unknown as World, alpha: 1, dt: 0 };
   private readonly proj = new Vector3();
   private width = 1;
   private height = 1;
-  private viewmodelBaseZ = -0.34;
 
   constructor(
     canvas: HTMLCanvasElement,
     private readonly tunables: Tunables,
     initialQuality: QualityLevel,
-    private readonly cues: ShotCues,
   ) {
     this.quality = initialQuality;
     const preset = tunables.render.quality[initialQuality];
@@ -104,23 +122,32 @@ export class GameRenderer {
     sun.position.set(...r.light.dir).multiplyScalar(12);
     this.scene.add(sun);
 
-    this.effects = new ShotEffects(this.scene, this.camera, cues, tunables.feedback);
     this.hint = new WorldHint(this.scene, 'Click the orb');
-
-    // Placeholder first-person weapon model, parented to the camera.
-    this.viewmodel = new Mesh(new BoxGeometry(0.05, 0.07, 0.36), new MeshLambertMaterial({ color: palette.steel }));
-    this.viewmodel.position.set(0.15, -0.14, this.viewmodelBaseZ);
-    this.camera.add(this.viewmodel);
 
     this.post.effects.push(createVignetteEffect());
     this.applyQuality();
   }
 
-  /** Enemy colour preset (design section 11). Applies to existing and future enemies. */
+  /**
+   * Add a feature's layer. Features are set up before the level loads, so the layers' shaders are
+   * compiled ahead together with the level's.
+   */
+  addLayer(layer: RenderLayer): void {
+    this.layers.push(layer);
+    layer.resize?.(this.width, this.height, this.renderer.getPixelRatio());
+  }
+
+  /**
+   * Enemy colour preset (design section 11). Applies to existing and future enemies; layers that
+   * match it (the kill shatter) read `echoPreset`.
+   */
   setEchoPreset(id: EchoPresetId): void {
-    this.echoPreset = id;
+    this.preset = id;
     this.targetsView?.setPreset(id);
-    this.effects.setShardColor(echoPresets[id].color); // the kill shatter matches the enemy colour
+  }
+
+  get echoPreset(): EchoPresetId {
+    return this.preset;
   }
 
   /** The enemy view (colour preset, showcase props, Gnat clock); null before a level loads. */
@@ -152,7 +179,7 @@ export class GameRenderer {
     this.camera.updateProjectionMatrix();
     const pr = this.renderer.getPixelRatio();
     const p = this.tunables.render.quality[this.quality];
-    this.effects.setViewportHeight(this.height * pr);
+    for (let i = 0; i < this.layers.length; i++) this.layers[i]!.resize?.(this.width, this.height, pr);
     this.post.setSize(Math.floor(this.width * pr), Math.floor(this.height * pr), p.antialias ? 4 : 0);
     this.targetsView?.setViewport(this.width * pr, this.height * pr);
   }
@@ -179,7 +206,7 @@ export class GameRenderer {
       this.targetsView.dispose();
     }
     this.targetsView = new TargetsView(this.tunables, world.targets.length, this.tunables.render.quality[this.quality]);
-    this.targetsView.setPreset(this.echoPreset);
+    this.targetsView.setPreset(this.preset);
     const pr = this.renderer.getPixelRatio();
     this.targetsView.setViewport(this.width * pr, this.height * pr);
     this.scene.add(this.targetsView.root);
@@ -201,15 +228,17 @@ export class GameRenderer {
     this.camera.rotation.set(pitch, yaw, 0);
 
     this.sky.follow(this.camera);
-    this.effects.update(dt);
-    this.viewmodel.position.z = this.viewmodelBaseZ + this.cues.kick * 0.04;
-    this.viewmodel.rotation.x = this.cues.kick * 0.06;
     this.targetsView?.update(world, alpha, dt, this.camera.position.x, this.camera.position.z);
     this.blobs.update(world.targets, this.tunables.targets);
+    const f = this.frame;
+    f.world = world;
+    f.alpha = alpha;
+    f.dt = dt;
+    for (let i = 0; i < this.layers.length; i++) this.layers[i]!.update(f);
 
     this.renderer.info.reset();
     this.post.render(this.renderer, this.scene, this.camera);
-    this.cues.markDrawn();
+    for (let i = 0; i < this.layers.length; i++) this.layers[i]!.afterDraw?.();
     const info = this.renderer.info;
     this.stats.drawCalls = info.render.calls;
     this.stats.triangles = info.render.triangles;
@@ -230,7 +259,7 @@ export class GameRenderer {
   }
 
   dispose(): void {
-    this.effects.dispose();
+    for (const layer of this.layers) layer.dispose();
     this.targetsView?.dispose();
     this.post.dispose();
     this.level?.dispose();

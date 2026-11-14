@@ -1,12 +1,10 @@
 import { EventBus } from '../core/eventBus';
 import { FixedStepper } from '../core/fixedStep';
-import { TICK_DT, TICK_RATE } from '../core/time';
+import type { GameEvents } from '../core/gameEvents';
+import { TICK_DT } from '../core/time';
 import { cloneTunables, tunables as liveTunables, type Tunables } from '../config/tunables';
-import type { WeaponId } from '../config/weapon';
 import { AudioEngine } from '../audio/audioEngine';
-import { attachDamageAudio } from '../audio/damageAudio';
-import { attachSfx } from '../audio/sfx';
-import { attachUiSounds } from '../audio/uiSounds';
+import type { FlicklineDebug } from '../debug/hook';
 import { DebugOverlay } from '../debug/overlay';
 import { Timeline } from '../debug/timeline';
 import { PerfStats } from '../debug/perfStats';
@@ -15,7 +13,7 @@ import { TrackerHudStats } from '../feedback/hudStats';
 import { SessionStats } from '../feedback/sessionStats';
 import { applySettingsToOptions, createFeedbackOptions } from '../feedback/options';
 import { ShotCues } from '../feedback/shotCues';
-import type { ModeEvents, RunEndReason } from '../modes/contracts';
+import type { RunEndReason } from '../modes/contracts';
 import { RunController, type StartRunOptions } from '../modes/runController';
 import { DamageView } from '../hud/damageView';
 import { Hud } from '../hud/hud';
@@ -24,31 +22,41 @@ import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
 import { ProfileStore } from '../settings/profile';
 import { SettingsStore, SETTINGS_KEY, type Settings } from '../settings/settings';
-import { createTickInput, SIM_EVENT_TYPES, type HitZone, type SimEvents, type TargetKind, type TickInput } from '../sim/types';
-import { zoneCentre } from '../sim/hitZones';
-import type { SpawnOptions } from '../sim/targets';
+import { createTickInput, type TickInput } from '../sim/types';
 import type { MapDef } from '../sim/mapTypes';
 import { rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
 import { Menu } from '../ui/menu';
-import type { GameEvents } from './events';
+import { FEATURES } from './features';
 import { ModeHost } from './modeHost';
 
-const MODE_EVENT_TYPES: (keyof ModeEvents)[] = [
-  'runReady', 'runStarted', 'runEnded', 'beatStarted', 'skillTrial', 'scoreAwarded', 'chainUpdated', 'streakUpdated',
-];
+/** Events the app shell emits. */
+export interface AppEvents {
+  /**
+   * The first-run player entered the game: start the Placement run (#23). `priorMean`/`priorSd`
+   * are the skill prior from the self-report chips (#17). Nothing subscribes until those land.
+   */
+  placementRunRequested: { priorMean: number; priorSd: number };
+}
 
-const AIM_SCRATCH = { x: 0, y: 0, z: 0 };
+declare module '../core/gameEvents' {
+  interface GameEvents extends AppEvents {}
+}
 
 export interface LoggedEvent {
-  type: keyof SimEvents | keyof ModeEvents;
+  type: keyof GameEvents;
   data: unknown;
 }
 
 /**
- * Composition root. Owns every subsystem and the frame loop:
+ * Composition root. Owns the core subsystems and the frame loop:
  *   rAF -> sample input (every frame) -> run N fixed sim ticks -> render with interpolation.
  * The sim is only ticked while the pointer is locked (or when the debug hook says so).
+ *
+ * Everything else is a feature (`src/features/*.ts`, see app/feature.ts): it is set up once the
+ * core exists and wires itself in through the registration API below (tick/frame/reset hooks,
+ * overlay lines, snapshot sections, debug commands, render layers). A new feature adds a file; it
+ * does not edit this one.
  */
 export class Game {
   readonly bus = new EventBus<GameEvents>();
@@ -89,12 +97,20 @@ export class Game {
   /** Debug: draw with dt = 0 so transient effects hold still for screenshots. */
   freezeFx = false;
   menuHidden = false;
+  /** Gameplay facts (every event whose payload has a `tick`), newest last, for the debug hook. */
   readonly eventLog: LoggedEvent[] = [];
+  /** Debug-hook commands registered by features (see `addDebug`). */
+  readonly debugCommands: Partial<FlicklineDebug> = {};
   /** Debug timing of the last instant restart: synchronous reset cost, and press-to-next-frame. */
   lastRestartMs = -1;
   lastRestartToFrameMs = -1;
   private restartStartedAt = -1;
 
+  private readonly tickHooks: (() => void)[] = [];
+  private readonly frameHooks: ((dt: number) => void)[] = [];
+  private readonly resetHooks: (() => void)[] = [];
+  private readonly overlayLines: (() => string)[] = [];
+  private readonly snapshotSections = new Map<string, () => unknown>();
   private readonly tickInput = createTickInput();
   private readonly scriptInput = createTickInput();
   private lastTs = 0;
@@ -130,8 +146,7 @@ export class Game {
     this.world = new World({ level: this.map, tunables: this.tunables, seed });
 
     this.cues = new ShotCues(this.bus, this.tunables.feedback, this.feedbackOptions, this.world.targets, this.tunables.targets);
-    this.renderer = new GameRenderer(canvas, this.tunables, s.quality, this.cues);
-    this.renderer.loadLevel(this.world, this.map);
+    this.renderer = new GameRenderer(canvas, this.tunables, s.quality);
 
     this.input = new InputManager(canvas, this.bus);
     this.input.maxPitch = (this.tunables.movement.maxPitchDeg * Math.PI) / 180;
@@ -150,8 +165,6 @@ export class Game {
     this.run = new RunController(this.world, this.bus, this.tunables);
     this.hudStats = new TrackerHudStats(this.run);
     this.hudStats.attach(this.bus);
-    attachSfx(this.bus, this.audio, this.tunables.audio);
-    attachUiSounds(document, this.audio);
 
     this.hud = new Hud(hudRoot, this.bus, s.crosshair, {
       stats: this.hudStats,
@@ -171,7 +184,6 @@ export class Game {
       hudRoot, this.bus, this.tunables.damageFx, this.world.health, s.reduceFlashing,
       () => performance.now(), () => this.viewYaw(),
     );
-    attachDamageAudio(this.bus, this.audio);
     this.tunables.player.flinch.strength = s.flinchStrength;
     this.menu = new Menu(menuRoot, this.settings, this.profile, this.tunables, {
       onPlay: () => this.play(),
@@ -183,12 +195,16 @@ export class Game {
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
 
-    for (const type of [...SIM_EVENT_TYPES, ...MODE_EVENT_TYPES]) {
-      this.bus.on(type, (e) => {
-        this.eventLog.push({ type, data: JSON.parse(JSON.stringify(e)) });
-        if (this.eventLog.length > 256) this.eventLog.shift();
-      });
-    }
+    // Features, in stage order: producers subscribe before presentation (see app/feature.ts). Then
+    // the level loads, so the render layers they added get their shaders compiled with it.
+    for (const f of FEATURES) f.setup(this);
+    this.renderer.loadLevel(this.world, this.map);
+
+    this.bus.onAny((type, e) => {
+      if (typeof e !== 'object' || e === null || !('tick' in e)) return; // UI state, not a gameplay fact
+      this.eventLog.push({ type, data: JSON.parse(JSON.stringify(e)) });
+      if (this.eventLog.length > 256) this.eventLog.shift();
+    });
 
     this.bus.on('settingsChanged', ({ settings, changed }) => {
       if (changed.includes('sensitivity')) this.input.setSensitivity(settings.sensitivity);
@@ -212,6 +228,47 @@ export class Game {
     this.refreshChrome();
     this.timeline.mark(this.profile.get().firstRunDone ? 'mainMenuShown' : 'firstRunPanelShown');
   }
+
+  // --- Feature registration: call these from a feature's `setup` --------------------------------
+
+  /** Run after every sim tick of a run (real time and `step`), in setup order. Must not allocate. */
+  onTick(fn: () => void): void {
+    this.tickHooks.push(fn);
+  }
+
+  /** Run once per rendered frame, after that frame's ticks and before drawing. Must not allocate. */
+  onFrame(fn: (dt: number) => void): void {
+    this.frameHooks.push(fn);
+  }
+
+  /** Run whenever the world is reset or a run restarts, after the reset (clear per-run state). */
+  onReset(fn: () => void): void {
+    this.resetHooks.push(fn);
+  }
+
+  /** More debug-overlay text, shown below the core lines ('' for nothing). */
+  addOverlayLines(fn: () => string): void {
+    this.overlayLines.push(fn);
+  }
+
+  /** A section of the `state()` snapshot under `key` (plain data), after the core fields. */
+  addSnapshot(key: string, fn: () => unknown): void {
+    if (this.snapshotSections.has(key)) throw new Error(`snapshot section '${key}' registered twice`);
+    this.snapshotSections.set(key, fn);
+  }
+
+  /**
+   * Debug-hook commands (`window.__flickline.<name>`). Declare each on `FlicklineDebug` with
+   * interface merging in the same file, so the implementation is checked against it.
+   */
+  addDebug<K extends keyof FlicklineDebug>(commands: Pick<FlicklineDebug, K>): void {
+    for (const key of Object.keys(commands) as K[]) {
+      if (key in this.debugCommands) throw new Error(`debug command '${String(key)}' registered twice`);
+      this.debugCommands[key] = commands[key];
+    }
+  }
+
+  // -----------------------------------------------------------------------------------------------
 
   private applyAudioSettings(s: Readonly<Settings>): void {
     this.audio.setVolume(s.volume);
@@ -326,7 +383,7 @@ export class Game {
       ticks = this.stepper.advance(dt);
       for (let i = 0; i < ticks; i++) {
         const t0 = performance.now();
-        if (this.run.step(inp)) this.modes.tick();
+        if (this.run.step(inp)) this.tickRun();
         this.perf.recordTick(performance.now() - t0);
         // One-shot inputs apply to the first tick of the frame only.
         inp.jump = false;
@@ -338,6 +395,7 @@ export class Game {
     }
     const pl = this.world.player;
     this.audio.setListener(pl.pos.x, pl.pos.y + pl.eyeHeight, pl.pos.z, this.input.yaw, this.input.pitch);
+    for (let i = 0; i < this.frameHooks.length; i++) this.frameHooks[i]!(dt);
     this.input.endFrame(ticks);
     this.perf.ticksLastFrame = ticks;
 
@@ -351,6 +409,12 @@ export class Game {
     this.perf.endFrame();
     this.overlay.update(ts);
   };
+
+  /** After every sim tick a run takes: the mode runner, then the features' tick hooks. */
+  private tickRun(): void {
+    this.modes.tick();
+    for (let i = 0; i < this.tickHooks.length; i++) this.tickHooks[i]!();
+  }
 
   /** The yaw the camera shows: the live mouse yaw, frozen once the player is dead. */
   private viewYaw(): number {
@@ -394,82 +458,11 @@ export class Game {
     for (let i = 0; i < n; i++) {
       s.yaw = this.input.yaw;
       s.pitch = this.input.pitch;
-      if (this.run.step(s)) this.modes.tick();
+      if (this.run.step(s)) this.tickRun();
       s.jump = false;
       s.reload = false;
     }
     this.renderNow();
-  }
-
-  /**
-   * Debug: fire exactly one shot of `id` with deterministic stepping. Switches to the weapon and
-   * waits out its equip, reload and cooldown as the sim requires (so back-to-back calls with an
-   * automatic weapon are a held spray at the real fire rate; a semi-auto gets a fresh press each
-   * call). Returns copies of that shot's `shotFired` and `shotImpact` (null if it hit nothing).
-   */
-  fireOnce(id: WeaponId): { shot: unknown; impact: unknown } {
-    const w = this.world.weapon;
-    const slot = w.slots.findIndex((sl) => sl.id === id);
-    if (slot < 0) throw new Error(`weapon '${id}' is not in the loadout (${w.slots.map((sl) => sl.id).join(', ')})`);
-    const s = this.scriptInput;
-    s.moveX = s.moveZ = 0;
-    s.jump = s.crouch = s.walk = s.reload = false;
-    s.yaw = this.input.yaw;
-    s.pitch = this.input.pitch;
-    s.switchTo = slot;
-    s.fire = false;
-    if (w.active !== slot) this.world.step(s, this.bus); // start the swap
-    const before = w.shots;
-    let shot: unknown = null;
-    let impact: unknown = null;
-    const off1 = this.bus.on('shotFired', (e) => {
-      shot = JSON.parse(JSON.stringify(e));
-    });
-    const off2 = this.bus.on('shotImpact', (e) => {
-      if (impact === null) impact = JSON.parse(JSON.stringify(e));
-    });
-    const semi = this.tunables.weapon[id].fireMode === 'semi';
-    try {
-      const maxTicks = TICK_RATE * 10;
-      for (let i = 0; i < maxTicks && w.shots === before; i++) {
-        // A semi-auto press during equip/reload/cooldown is spent, so release and press again.
-        s.fire = !semi || !s.fire;
-        this.world.step(s, this.bus);
-      }
-    } finally {
-      off1();
-      off2();
-      s.switchTo = -1;
-    }
-    this.renderNow();
-    if (w.shots === before) throw new Error(`weapon '${id}' did not fire within 10 s`);
-    return { shot, impact };
-  }
-
-  /**
-   * Add a target (Post: pos = feet centre; Beacon: pos = orb centre). Debug hook and, later, the
-   * run/mode layer. Returns its id, or -1 when the registry is full.
-   */
-  spawnTarget(kind: TargetKind, x: number, y: number, z: number, opts?: SpawnOptions): number {
-    return this.world.spawnTarget(kind, x, y, z, this.bus, opts);
-  }
-
-  despawnTarget(id: number): boolean {
-    return this.world.despawnTarget(id, this.bus);
-  }
-
-  /** Point the view at a zone centre of a live target (debug/playtest aid). */
-  aimAtTarget(id: number, zone: HitZone = 'head'): boolean {
-    const w = this.world;
-    const t = w.targetField.byId(id);
-    if (!t) return false;
-    const tt = this.tunables.targets;
-    const c = zoneCentre(AIM_SCRATCH, t, tt.hit, tt.kinds[t.kind], zone);
-    const p = w.player;
-    const dx = c.x - p.pos.x, dy = c.y - (p.pos.y + p.eyeHeight), dz = c.z - p.pos.z;
-    this.input.setLook(Math.atan2(-dx, -dz), Math.asin(dy / Math.hypot(dx, dy, dz)));
-    this.renderNow();
-    return true;
   }
 
   /**
@@ -489,40 +482,6 @@ export class Game {
         return modes.running || run.state !== 'idle' ? modes.remainingSec : Infinity;
       },
     };
-  }
-
-  /**
-   * Debug and, later, the enemies' fire: the player takes `amount` HP to `zone` from a shooter
-   * `distance` metres away at `bearingDeg` clockwise from where the player is facing (0 = ahead,
-   * 90 = right). Returns whether it killed the player.
-   */
-  hurt(amount: number, zone: HitZone = 'body', bearingDeg = 0, distance = 10, sourceId = -1): boolean {
-    const [sx, sy, sz] = this.shooterPoint(bearingDeg, distance);
-    const killed = this.world.damagePlayer(amount, zone, sx, sy, sz, sourceId, this.bus);
-    this.renderNow();
-    return killed;
-  }
-
-  /** As `hurt`, but the damage is `weapon`'s band for `zone` at `distance` (spec §3.2 / §7.4). */
-  hitBy(weapon: WeaponId, zone: HitZone = 'body', bearingDeg = 0, distance = 10, sourceId = -1): boolean {
-    const [sx, sy, sz] = this.shooterPoint(bearingDeg, distance);
-    const killed = this.world.hitPlayer(weapon, zone, sx, sy, sz, sourceId, this.bus);
-    this.renderNow();
-    return killed;
-  }
-
-  /** A point `distance` m from the eye at `bearingDeg` clockwise from the player's facing, at eye height. */
-  private shooterPoint(bearingDeg: number, distance: number): [number, number, number] {
-    const p = this.world.player;
-    const b = (bearingDeg * Math.PI) / 180;
-    const yaw = p.yaw;
-    // forward = (-sin, -cos), right = (cos, -sin)
-    const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
-    return [
-      p.pos.x + (fx * Math.cos(b) + rx * Math.sin(b)) * distance,
-      p.pos.y + p.eyeHeight,
-      p.pos.z + (fz * Math.cos(b) + rz * Math.sin(b)) * distance,
-    ];
   }
 
   /** Abandon any run and reset the world (free play). */
@@ -565,6 +524,7 @@ export class Game {
     this.hud.refresh();
     this.input.setLook(this.world.player.yaw, 0);
     this.stepper.reset();
+    for (const fn of this.resetHooks) fn();
   }
 
   private noteRestart(t0: number): void {
@@ -581,37 +541,25 @@ export class Game {
       `pos ${f(p.pos.x)} ${f(p.pos.y)} ${f(p.pos.z)}  speed ${f(speed)} m/s\n` +
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
-      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}\n` +
-      `fx latency max ${this.cues.latency.max} frame(s) over ${this.cues.latency.samples} cues, ${this.cues.latency.late} late` +
-      this.runLine() +
-      this.modeLine()
+      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}` +
+      this.featureLines()
     );
   }
 
-  private runLine(): string {
-    const r = this.run;
-    if (r.state === 'idle') return '';
-    const tr = r.tracker;
-    const acc = tr.accuracy === null ? '--' : `${(tr.accuracy * 100).toFixed(0)}%`;
-    const dur = r.info?.durationSec != null ? `/${r.info.durationSec}s` : '';
-    const rs = this.lastRestartMs >= 0 ? `  restart ${this.lastRestartMs.toFixed(1)} ms` : '';
-    return `\nrun ${r.state} ${r.elapsedSec.toFixed(1)}${dur}  acc ${acc} (${tr.hits}/${tr.shots})${rs}`;
-  }
-
-  private modeLine(): string {
-    const m = this.modes.status();
-    if (m.mode === null) return '';
-    return (
-      `\nmode ${m.mode} ${m.phase}  beat ${m.beat} dial ${m.dial.toFixed(0)}  ${m.timeSec.toFixed(1)}s\n` +
-      `score ${m.score}  kills ${m.kills}  trials ${m.trialsWon}/${m.trials}  streak ${m.streak}  chain ${m.chain}`
-    );
+  private featureLines(): string {
+    let out = '';
+    for (const fn of this.overlayLines) {
+      const text = fn();
+      if (text) out += `\n${text}`;
+    }
+    return out;
   }
 
   /** Test hook: a plain-data snapshot of gameplay state. */
   snapshot(): unknown {
     const w = this.world;
     const p = w.player;
-    return {
+    const snap: Record<string, unknown> = {
       tick: w.tick,
       time: w.time,
       seed: w.seed,
@@ -635,18 +583,14 @@ export class Game {
           visible: t.visibleTick >= 0, bullets: t.bullets,
         })),
       session: { shots: this.session.shots, hits: this.session.hits, kills: this.session.kills },
-      run: {
-        state: this.run.state,
-        info: this.run.info ? { ...this.run.info } : null,
-        elapsedSec: this.run.elapsedSec,
-        shots: this.run.tracker.shots,
-        hits: this.run.tracker.hits,
-        accuracy: this.run.tracker.accuracy,
-        kills: this.run.tracker.kills,
-      },
       settings: { ...this.settings.get() },
       locked: this.input.locked,
     };
+    for (const [key, fn] of this.snapshotSections) {
+      if (key in snap) throw new Error(`snapshot section '${key}' shadows a core field`);
+      snap[key] = fn();
+    }
+    return snap;
   }
 
   /** A fresh deep copy of the tunables, for what-if experiments. */

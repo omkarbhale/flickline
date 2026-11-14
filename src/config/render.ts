@@ -59,3 +59,10 @@ export const render: RenderTunables = {
   grid: { minor: 1, major: 5, minorWeight: 0.1, majorWeight: 0.28, tickWeight: 0.5, lineWidthPx: 1, tickFadeNear: 4, tickFadeFar: 9 },
   blob: { capacity: 96, opacity: 0.7, echoScale: 1.5, pillarMaxFootprint: 2, pillarMinHeight: 1.8 },
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { render };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}

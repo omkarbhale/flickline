@@ -1,10 +1,45 @@
 import type { EventSink } from '../core/eventBus';
 import { clamp, DEG2RAD } from '../core/math';
 import { TICK_DT } from '../core/time';
-import { vec3 } from '../core/vec3';
+import { vec3, type Vec3 } from '../core/vec3';
 import type { PlayerTunables } from '../config/player';
 import type { SweepTunables } from '../config/sweep';
 import type { HitZone, PlayerHealth, PlayerState, SimEvents } from './types';
+
+/** Events the player's health emits (part of `SimEvents`). */
+export interface HealthEvents {
+  /**
+   * The player took damage (design §14.3). `dir` is the unit direction to the shooter in the
+   * player's yaw frame, camera-local like everything else: +X right, +Y up, -Z straight ahead, so
+   * the on-screen angle clockwise from "up the screen" is `atan2(dir.x, -dir.z)`. `yaw` is the
+   * player's yaw at the hit, so a presenter can keep the arc on the shooter while the view turns.
+   */
+  playerDamaged: {
+    tick: number;
+    t: number;
+    /** HP lost (floats, never rounded in the sim). */
+    amount: number;
+    /** HP left after the hit (0 when it killed). */
+    hp: number;
+    maxHp: number;
+    zone: HitZone;
+    dir: Vec3;
+    yaw: number;
+    /** Who fired (enemy id), or -1 (debug, environment). */
+    sourceId: number;
+    killed: boolean;
+  };
+  /** The tagging slow was started or refreshed by a hit (spec §4.3). */
+  playerSlowed: { tick: number; t: number; factor: number; durationMs: number };
+  /** HP reached 0. The mode runner ends the run with reason `death`. */
+  playerDied: { tick: number; t: number; sourceId: number };
+  /** HP was restored (kill-heal, design §4.8). `amount` is what was actually added (after the cap). */
+  playerHealed: { tick: number; t: number; amount: number; hp: number; maxHp: number; source: 'kill' };
+}
+
+declare module './types' {
+  interface SimEvents extends HealthEvents {}
+}
 
 export function createPlayerHealth(maxHp: number): PlayerHealth {
   return {

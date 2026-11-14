@@ -70,6 +70,17 @@ describe('EventBus', () => {
     bus.emit('b', { s: '' });
     expect(got).toContain('late');
   });
+  it('onAny sees every type after its listeners, events nested in them first', () => {
+    const bus = new EventBus<E>();
+    const got: string[] = [];
+    bus.on('a', () => bus.emit('b', { s: 'nested' }));
+    const off = bus.onAny((type) => got.push(type));
+    bus.emit('a', { n: 1 });
+    bus.emit('b', { s: '' });
+    off();
+    bus.emit('a', { n: 2 });
+    expect(got).toEqual(['b', 'a', 'b']);
+  });
 });
 
 describe('Rng', () => {

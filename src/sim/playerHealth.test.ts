@@ -5,7 +5,7 @@ import { DEG2RAD } from '../core/math';
 import { TICK_DT, TICK_RATE } from '../core/time';
 import { testRoom } from './levels';
 import { tagSpeedScale, tagTotalSec, yawFrameDirection } from './playerHealth';
-import { createTickInput, SIM_EVENT_TYPES, type SimEvents, type TickInput } from './types';
+import { createTickInput, type SimEvents, type TickInput } from './types';
 import { World } from './world';
 
 function setup(patch?: (t: Tunables) => void, seed = 1) {
@@ -14,9 +14,7 @@ function setup(patch?: (t: Tunables) => void, seed = 1) {
   const world = new World({ level: testRoom, tunables: tun, seed });
   const bus = new EventBus<SimEvents>();
   const log: { type: keyof SimEvents; tick: number; data: unknown }[] = [];
-  for (const t of SIM_EVENT_TYPES) {
-    bus.on(t, (e) => log.push({ type: t, tick: world.tick, data: JSON.parse(JSON.stringify(e)) }));
-  }
+  bus.onAny((type, e) => log.push({ type, tick: world.tick, data: JSON.parse(JSON.stringify(e)) }));
   const input = createTickInput();
   const run = (n: number, patchInput: Partial<TickInput> = {}): void => {
     Object.assign(input, patchInput);

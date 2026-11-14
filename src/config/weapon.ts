@@ -214,3 +214,10 @@ export const weaponRules: WeaponRules = {
   heldFireIntervals: 1.5, // spec §3.3 model: `interval <= 1.5 * fire_interval`
   defaultLoadout: ['kestrel', 'pace'],
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { weapon, weaponRules };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}

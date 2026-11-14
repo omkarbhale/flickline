@@ -212,164 +212,17 @@ export interface LevelDef {
 }
 
 /**
- * Events the simulation emits. Payloads are read-only and valid only during the callback (the
- * weapon reuses its payload objects). `t` is sim seconds since the world was reset.
+ * Events the simulation emits: an open interface. Each sim area declares its own map next to the
+ * code that emits it (`PlayerEvents` in movement.ts, `WeaponEvents` in weapon.ts, `TargetEvents`
+ * in targets.ts, `HealthEvents` in playerHealth.ts, ...) and merges it in with
+ * `declare module './types' { interface SimEvents extends XEvents {} }`. Payloads are read-only and valid only during the callback (the weapon reuses its
+ * payload objects). `t` is sim seconds since the world was reset.
  */
-export interface SimEvents {
-  /** A bullet left the gun (design §14.3). `dir` already includes recoil and spread. */
-  shotFired: {
-    tick: number;
-    t: number;
-    shotId: number;
-    weapon: WeaponId;
-    origin: Vec3;
-    dir: Vec3;
-    /** Horizontal speed above the weapon's accuracy deadzone, or airborne (design §3). */
-    moving: boolean;
-    /** Horizontal speed, m/s. */
-    speed: number;
-    airborne: boolean;
-    crouching: boolean;
-    /** Total spread half-angle this shot was drawn from, degrees. */
-    spreadDeg: number;
-    /** 0-based bullet index in the spray (recoil pattern row). */
-    recoilIndex: number;
-    /** Recoil aim offset this bullet was fired with, degrees (pitch + = up, yaw + = right). */
-    recoilPitchDeg: number;
-    recoilYawDeg: number;
-    /** Rounds left in the magazine after this shot. */
-    ammo: number;
-    /** View angles at the tick (the crosshair, radians); `dir` adds recoil and spread. */
-    yaw: number;
-    pitch: number;
-    /** Nearest visible live target to the view ray (-1 none) and the angle to its head, radians. */
-    aimTargetId: number;
-    aimErr: number;
-    /** Head-centre angles minus view angles for that target, radians. */
-    aimDYaw: number;
-    aimDPitch: number;
-  };
-  /**
-   * Where a shot ended: emitted once per shot that hit a surface or a target, right after its
-   * `shotFired` (a shot into empty space past `weaponRules.rangeM` has no impact).
-   */
-  shotImpact: {
-    tick: number;
-    t: number;
-    shotId: number;
-    result: 'hit' | 'miss';
-    /** Target and zone struck, or -1 / null. */
-    targetId: number;
-    zone: HitZone | null;
-    /** Damage dealt (0 on a miss) and whether it killed. */
-    damage: number;
-    killed: boolean;
-    point: Vec3;
-    normal: Vec3;
-    onTarget: boolean;
-    distance: number;
-  };
-  /** A target was added to the field (spawn call, level placement or respawn). */
-  targetSpawned: { tick: number; t: number; targetId: number; kind: TargetKind; pos: Vec3; tags: readonly string[] };
-  /** First tick the target is in the view frustum and unoccluded from the eye. Once per spawn. */
-  targetVisible: {
-    tick: number;
-    t: number;
-    targetId: number;
-    /** Angle between the view ray and the target's head centre at that tick, radians (pre-aim error). */
-    preAim: number;
-    /** Head-centre angles minus view angles at that tick, radians: the flick vector. */
-    dYaw: number;
-    dPitch: number;
-  };
-  targetHit: {
-    tick: number;
-    t: number;
-    targetId: number;
-    kind: TargetKind;
-    zone: HitZone;
-    point: Vec3;
-    damage: number;
-    hpLeft: number;
-    distance: number;
-    killed: boolean;
-  };
-  targetKilled: {
-    tick: number;
-    t: number;
-    targetId: number;
-    kind: TargetKind;
-    zone: HitZone;
-    point: Vec3;
-    distance: number;
-    /** First shot at the target to its death, ms. 0 when the first bullet killed it. */
-    ttkMs: number;
-    /** From the target becoming visible to the first shot aimed within 5 degrees of it, ms. */
-    rtMs: number;
-    /** The very first bullet fired at it killed it. */
-    firstBullet: boolean;
-    /** Bullets fired at it, including the killing one. */
-    bullets: number;
-    /** No missed shot at it and no moving shot at it. */
-    clean: boolean;
-  };
-  /** A target left the field without being killed (lifetime ran out, or despawned by the mode). */
-  targetExpired: { tick: number; t: number; targetId: number; kind: TargetKind };
-  /** A level-placed target came back after a kill. Also announced by `targetSpawned`. */
-  targetRespawned: { tick: number; targetId: number };
-  /** Aim ray entered (`on`) or left the padded hit volume of a visible target (edge events). */
-  aimOnTarget: { tick: number; on: boolean; id: number };
-  /** Vertical angle (radians) between the aim ray and head-centre height, sampled while moving with no enemy visible. */
-  headHeightSampled: { tick: number; err: number };
-  /** Horizontal speed first fell to the accuracy threshold after a stop or counter-strafe input. */
-  playerStopped: { tick: number; latencyMs: number };
-  playerJumped: { tick: number };
-  playerLanded: { tick: number; impactSpeed: number };
-  footstep: { tick: number; crouching: boolean; walking: boolean };
-  /** A reload began (manual, or automatic on an empty magazine). */
-  reloadStarted: { tick: number; weapon: WeaponId; durationSec: number };
-  reloadCompleted: { tick: number; weapon: WeaponId; ammo: number; reserve: number };
-  /** A reload was cancelled by a weapon swap; the magazine keeps what it had. */
-  reloadCancelled: { tick: number; weapon: WeaponId };
-  /** A swap began; the weapon can fire after `equipSec`. */
-  weaponSwitched: { tick: number; weapon: WeaponId; slot: number; equipSec: number };
-  /**
-   * The player took damage (design §14.3). `dir` is the unit direction to the shooter in the
-   * player's yaw frame, camera-local like everything else: +X right, +Y up, -Z straight ahead, so
-   * the on-screen angle clockwise from "up the screen" is `atan2(dir.x, -dir.z)`. `yaw` is the
-   * player's yaw at the hit, so a presenter can keep the arc on the shooter while the view turns.
-   */
-  playerDamaged: {
-    tick: number;
-    t: number;
-    /** HP lost (floats, never rounded in the sim). */
-    amount: number;
-    /** HP left after the hit (0 when it killed). */
-    hp: number;
-    maxHp: number;
-    zone: HitZone;
-    dir: Vec3;
-    yaw: number;
-    /** Who fired (enemy id), or -1 (debug, environment). */
-    sourceId: number;
-    killed: boolean;
-  };
-  /** The tagging slow was started or refreshed by a hit (spec §4.3). */
-  playerSlowed: { tick: number; t: number; factor: number; durationMs: number };
-  /** HP reached 0. The mode runner ends the run with reason `death`. */
-  playerDied: { tick: number; t: number; sourceId: number };
-  /** HP was restored (kill-heal, design §4.8). `amount` is what was actually added (after the cap). */
-  playerHealed: { tick: number; t: number; amount: number; hp: number; maxHp: number; source: 'kill' };
+export interface SimEvents {}
+
+declare module '../core/gameEvents' {
+  interface GameEvents extends SimEvents {}
 }
 
 /** Everything the simulation and the run machinery put on the bus. */
 export type RunAndSimEvents = SimEvents & RunEvents;
-
-/** Every SimEvents key, for loggers and tests. */
-export const SIM_EVENT_TYPES: readonly (keyof SimEvents)[] = [
-  'shotFired', 'shotImpact', 'targetSpawned', 'targetVisible', 'targetHit', 'targetKilled',
-  'targetExpired', 'targetRespawned', 'playerJumped', 'playerLanded', 'footstep',
-  'reloadStarted', 'reloadCompleted', 'reloadCancelled', 'weaponSwitched',
-  'playerDamaged', 'playerSlowed', 'playerDied', 'playerHealed',
-  'aimOnTarget', 'headHeightSampled', 'playerStopped',
-];

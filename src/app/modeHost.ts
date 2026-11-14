@@ -10,7 +10,7 @@ import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
 import type { MapDef } from '../sim/mapTypes';
 import type { World } from '../sim/world';
-import type { GameEvents } from './events';
+import type { GameEvents } from '../core/gameEvents';
 
 /** The registered modes. Individual modes (#23, #46, ...) add themselves here. */
 export const MODES: Readonly<Record<string, ModeDef<never>>> = { test: testMode as ModeDef<never> };
