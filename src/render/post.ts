@@ -125,6 +125,28 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
+/**
+ * An extra full-screen effect appended after the composite (a Surge glow, say): a ShaderMaterial
+ * with a `tDiffuse` sampler, one native-resolution pass each, so it counts against the preset's
+ * full-screen budget (`config/post.ts`); its fragment shader ends with `#include <colorspace_fragment>`. Prefer a few ALU ops inside the composite shader. Runs
+ * only while the preset has a post stack at all.
+ */
+export interface PostEffect {
+  name: string;
+  enabled: boolean;
+  material: ShaderMaterial;
+  /**
+   * The effect is a flash or pulse (the Surge frame glow): the pipeline skips it while **Reduce
+   * flashing** is on (design section 11, section 13.3). Steady effects leave this unset.
+   */
+  flashing?: boolean;
+}
+
+/** Whether the pipeline runs `fx` this frame. */
+function runs(fx: PostEffect, reduceFlashing: boolean): boolean {
+  return fx.enabled && !(reduceFlashing && fx.flashing === true);
+}
+
 /** A second scene drawn over the world with its own camera (the viewmodel pass). */
 export interface Overlay {
   scene: Scene;
@@ -147,8 +169,12 @@ function pass(vertexShader: string, fragmentShader: string, uniforms: Record<str
 type TexUniform = IUniform<Texture | null>;
 
 export class PostPipeline {
+  /** Extra passes after the composite (empty today). */
+  readonly effects: PostEffect[] = [];
   /** What the current preset draws (counts for the overlay and the info panel). */
   plan: PostPlan = planPost({ bloom: false, blur: false, vignette: false, chromatic: false });
+  /** Reduce flashing (a setting): the damage and chromatic pulses are drawn as 0 whatever else asks for them. */
+  reduceFlashing = false;
   /** Optional GPU timing of the post passes (debug only; null = off, no cost). */
   timer: GpuTimer | null = null;
 
@@ -156,6 +182,8 @@ export class PostPipeline {
   private sceneRt: WebGLRenderTarget | null = null;
   private bloomA: WebGLRenderTarget | null = null;
   private bloomB: WebGLRenderTarget | null = null;
+  private fxA: WebGLRenderTarget | null = null;
+  private fxB: WebGLRenderTarget | null = null;
   private readonly quadScene = new Scene();
   private readonly quadCamera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly quad: Mesh;
@@ -229,14 +257,22 @@ export class PostPipeline {
     return this.plan.active;
   }
 
+  /** Extra effects that run this frame (zero unless something added one and the preset has a post stack). */
+  get runningExtras(): number {
+    if (!this.plan.active) return 0;
+    let n = 0;
+    for (let i = 0; i < this.effects.length; i++) if (runs(this.effects[i]!, this.reduceFlashing)) n++;
+    return n;
+  }
+
   /** Damage vignette envelope 0..1 (only drawn where the preset has the vignette). */
   setDamage(v: number): void {
-    this.cu.damage!.value = v;
+    this.cu.damage!.value = this.reduceFlashing ? 0 : v;
   }
 
   /** Chromatic pulse envelope 0..1 (only drawn where the preset allows it). */
   setChroma(v: number): void {
-    this.cu.chroma!.value = v;
+    this.cu.chroma!.value = this.reduceFlashing ? 0 : v;
   }
 
   setSize(width: number, height: number, samples: number): void {
@@ -318,7 +354,28 @@ export class PostPipeline {
       this.cu.tBloom!.value = bloomA.texture;
     }
     this.cu.tScene!.value = sceneRt.texture;
-    this.run(renderer, this.composite, null);
+    const extras = this.runningExtras;
+    if (extras === 0) {
+      this.run(renderer, this.composite, null);
+    } else {
+      // The composite writes an intermediate target and the extras chain ping-pong, the last onto the canvas.
+      if (!this.fxA) this.fxA = new WebGLRenderTarget(this.width, this.height, { type: HalfFloatType, depthBuffer: false });
+      if (extras > 1 && !this.fxB) this.fxB = new WebGLRenderTarget(this.width, this.height, { type: HalfFloatType, depthBuffer: false });
+      let read = this.fxA;
+      let write = this.fxB;
+      this.run(renderer, this.composite, read);
+      let remaining = extras;
+      for (let i = 0; i < this.effects.length; i++) {
+        const fx = this.effects[i]!;
+        if (!runs(fx, this.reduceFlashing)) continue;
+        remaining--;
+        fx.material.uniforms.tDiffuse!.value = read.texture;
+        this.run(renderer, fx.material, remaining === 0 ? null : write);
+        const t = read;
+        read = write!;
+        write = t;
+      }
+    }
     this.timer?.end();
     renderer.autoClear = autoClear;
     this.timer?.poll();
@@ -333,12 +390,14 @@ export class PostPipeline {
     this.sceneRt?.dispose();
     this.bloomA?.dispose();
     this.bloomB?.dispose();
-    this.sceneRt = this.bloomA = this.bloomB = null;
+    this.fxA?.dispose();
+    this.fxB?.dispose();
+    this.sceneRt = this.bloomA = this.bloomB = this.fxA = this.fxB = null;
   }
 
   /** Render targets currently allocated (0 whenever the pipeline is off). */
   get allocatedTargets(): number {
-    return (this.sceneRt ? 1 : 0) + (this.bloomA ? 1 : 0) + (this.bloomB ? 1 : 0);
+    return (this.sceneRt ? 1 : 0) + (this.bloomA ? 1 : 0) + (this.bloomB ? 1 : 0) + (this.fxA ? 1 : 0) + (this.fxB ? 1 : 0);
   }
 
   dispose(): void {
@@ -347,5 +406,6 @@ export class PostPipeline {
     this.extract.dispose();
     this.blur.dispose();
     this.composite.dispose();
+    for (const fx of this.effects) fx.material.dispose();
   }
 }

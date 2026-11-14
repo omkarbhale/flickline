@@ -1,5 +1,6 @@
 import { defineFeature } from '../app/feature';
 import { TICK_DT } from '../core/time';
+import { resolveQuality } from '../settings/graphics';
 import { GpuTimer } from '../render/gpuTimer';
 import { PostFxState } from '../render/postFxState';
 import { PostLayer } from '../render/postLayer';
@@ -35,13 +36,15 @@ export const feature = defineFeature({
     const sync = (): void => {
       const s = game.settings.get();
       state.setReduceFlashing(s.reduceFlashing);
-      state.setChromaticEnabled(s.chromaticPulse && game.tunables.render.quality[s.quality].post.chromatic);
+      // The preset with the player's Post effects switch laid over it (the renderer resolves the same way).
+      const flags = resolveQuality(game.tunables.render.quality[s.quality], { postEffects: s.postEffects, enemyOutline: s.enemyOutline }).post;
+      state.setChromaticEnabled(s.chromaticPulse && flags.chromatic);
       // Where the post vignette runs it is the damage vignette; the HUD's CSS one covers the other presets.
-      game.damage.setCssVignette(!game.tunables.render.quality[s.quality].post.vignette);
+      game.damage.setCssVignette(!flags.vignette);
     };
     sync();
     game.bus.on('settingsChanged', ({ changed }) => {
-      if (changed.includes('reduceFlashing') || changed.includes('chromaticPulse') || changed.includes('quality')) sync();
+      if (changed.includes('reduceFlashing') || changed.includes('chromaticPulse') || changed.includes('quality') || changed.includes('postEffects')) sync();
     });
     game.bus.on('playerDamaged', () => state.hurt());
     game.bus.on('targetKilled', (e) => state.kill(e.tick * TICK_DT));
@@ -64,8 +67,8 @@ export const feature = defineFeature({
         const t = post.timer;
         return {
           quality: q,
-          flags: { ...game.tunables.render.quality[q].post },
-          passes: { fullScreen: post.plan.fullScreenPasses, quarter: post.plan.quarterPasses },
+          flags: { ...game.renderer.activeQuality.post },
+          passes: { fullScreen: post.plan.fullScreenPasses + post.runningExtras, quarter: post.plan.quarterPasses },
           targets: { planned: post.plan.targets, allocated: post.allocatedTargets },
           damage: state.damage,
           chroma: state.chroma,
