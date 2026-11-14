@@ -3,6 +3,7 @@ import { DEG2RAD } from '../core/math';
 import { TICK_DT, secondsToTicks } from '../core/time';
 import { vec3, type Vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
+import { createAimInfo, measureAim, yawOf, type AimInfo } from './aim';
 import { rayBox } from './collision';
 import { BEHAVIOURS } from './enemies';
 import { fsmStart, fsmStep, createFsm, type BehaviourContext } from './fsm';
@@ -56,7 +57,7 @@ function createSlot(): TargetState {
 
 // Event payloads are reused (valid only during the callback; see the architecture's event rules).
 const spawnedPayload = { tick: 0, t: 0, targetId: 0, kind: 'beacon' as TargetKind, pos: vec3(), tags: [] as readonly string[] };
-const visiblePayload = { tick: 0, t: 0, targetId: 0 };
+const visiblePayload = { tick: 0, t: 0, targetId: 0, preAim: 0, dYaw: 0, dPitch: 0 };
 const hitPayload = {
   tick: 0, t: 0, targetId: 0, kind: 'beacon' as TargetKind, zone: 'head' as HitZone,
   point: vec3(), damage: 0, hpLeft: 0, distance: 0, killed: false,
@@ -70,6 +71,8 @@ const respawnedPayload = { tick: 0, targetId: 0 };
 
 const scratchA = vec3();
 const scratchB = vec3();
+const scratchC = vec3();
+const scratchAim: AimInfo = createAimInfo();
 
 /**
  * The target registry. A fixed set of preallocated slots (no allocation in the tick), unique
@@ -83,7 +86,7 @@ export class TargetField {
   private nextId = 0;
   private readonly zoneHit: ZoneHit = createZoneHit();
 
-  constructor(private readonly tunables: Tunables) {
+  constructor(readonly tunables: Tunables) {
     for (let i = 0; i < tunables.targets.maxTargets; i++) this.slots.push(createSlot());
   }
 
@@ -176,6 +179,27 @@ export class TargetField {
     if (!t) return false;
     this.expire(t, tick, events);
     return true;
+  }
+
+  /**
+   * Announce every living target with `targetSpawned` (the run went live: level-placed targets
+   * are placed silently on reset, so the run layer announces them) and forget any earlier sighting.
+   */
+  announceAll(tick: number, events: EventSink<SimEvents>): void {
+    const tt = this.tunables.targets;
+    for (let i = 0; i < this.slots.length; i++) {
+      const t = this.slots[i]!;
+      if (!t.alive) continue;
+      t.visibleTick = -1;
+      const p = spawnedPayload;
+      p.tick = tick;
+      p.t = tick * TICK_DT;
+      p.targetId = t.id;
+      p.kind = t.kind;
+      p.pos = t.pos;
+      p.tags = tt.kinds[t.kind].tags;
+      events.emit('targetSpawned', p);
+    }
   }
 
   /** Place a level's spawn points and spawn their targets silently (reset / load). */
@@ -271,7 +295,7 @@ export class TargetField {
         const dist = Math.sqrt(vx * vx + vy * vy + vz * vz);
         const inv = 1 / dist;
         if (this.lineBlocked(boxes, ex, ey, ez, vx * inv, vy * inv, vz * inv, dist)) continue;
-        this.markVisible(t, tick, events);
+        this.markVisible(t, tick, ex, ey, ez, p.yaw, p.pitch, fx, fy, fz, events);
         break;
       }
     }
@@ -289,12 +313,26 @@ export class TargetField {
     return false;
   }
 
-  private markVisible(t: TargetState, tick: number, events: EventSink<SimEvents>): void {
+  /**
+   * Announce a target as visible, with how well the player was pre-aimed: the angle to its head
+   * centre (an orb's centre) and the head-centre angles minus the view angles (the flick vector).
+   */
+  private markVisible(
+    t: TargetState, tick: number,
+    ox: number, oy: number, oz: number, yaw: number, pitch: number, dx: number, dy: number, dz: number,
+    events: EventSink<SimEvents>,
+  ): void {
     t.visibleTick = tick;
+    const tt = this.tunables.targets;
+    const h = zoneCentre(scratchC, t, tt.hit, tt.kinds[t.kind], 'head');
+    measureAim(ox, oy, oz, yaw, pitch, dx, dy, dz, h.x, h.y, h.z, scratchAim);
     const p = visiblePayload;
     p.tick = tick;
     p.t = tick * TICK_DT;
     p.targetId = t.id;
+    p.preAim = scratchAim.err;
+    p.dYaw = scratchAim.dYaw;
+    p.dPitch = scratchAim.dPitch;
     events.emit('targetVisible', p);
   }
 
@@ -348,7 +386,9 @@ export class TargetField {
       const t = this.slots[i]!;
       if (!t.alive) continue;
       const isHit = t.id === hitId;
-      if (isHit && t.visibleTick < 0) this.markVisible(t, tick, events);
+      if (isHit && t.visibleTick < 0) {
+        this.markVisible(t, tick, ox, oy, oz, yawOf(dx, dz), Math.asin(dy), dx, dy, dz, events);
+      }
       if (t.visibleTick < 0) continue;
       const def = tt.kinds[t.kind];
       // Best (largest) cosine to any zone centre: a shot near any part of it is "at" it.

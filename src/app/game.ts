@@ -12,7 +12,8 @@ import { PerfStats } from '../debug/perfStats';
 import { SessionStats } from '../feedback/sessionStats';
 import { applySettingsToOptions, createFeedbackOptions } from '../feedback/options';
 import { ShotCues } from '../feedback/shotCues';
-import type { ModeEvents } from '../modes/contracts';
+import type { ModeEvents, RunEndReason } from '../modes/contracts';
+import { RunController, type StartRunOptions } from '../modes/runController';
 import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
@@ -59,6 +60,8 @@ export class Game {
   readonly overlay: DebugOverlay;
   readonly perf = new PerfStats();
   readonly session = new SessionStats();
+  /** Run lifecycle, event log and stats (follows the mode runner's runs too). */
+  readonly run: RunController;
   /** Per-shot effect cues (pure model; the renderer draws them). */
   readonly cues: ShotCues;
   /** Feedback-related settings, shared (live) with the cue model and the HUD. */
@@ -77,6 +80,10 @@ export class Game {
   freezeFx = false;
   menuHidden = false;
   readonly eventLog: LoggedEvent[] = [];
+  /** Debug timing of the last instant restart: synchronous reset cost, and press-to-next-frame. */
+  lastRestartMs = -1;
+  lastRestartToFrameMs = -1;
+  private restartStartedAt = -1;
 
   private readonly tickInput = createTickInput();
   private readonly scriptInput = createTickInput();
@@ -124,6 +131,7 @@ export class Game {
     this.session.attach(this.bus);
     // The mode runner is a feedback producer too: it emits `streakUpdated` before the kill chime reads it.
     this.modes = new ModeHost(this.world, this.bus, this.map, this.tunables);
+    this.run = new RunController(this.world, this.bus, this.tunables);
     attachSfx(this.bus, this.audio, this.tunables.audio);
     attachUiSounds(document, this.audio);
 
@@ -274,8 +282,7 @@ export class Game {
       ticks = this.stepper.advance(dt);
       for (let i = 0; i < ticks; i++) {
         const t0 = performance.now();
-        this.world.step(inp, this.bus);
-        this.modes.tick();
+        if (this.run.step(inp)) this.modes.tick();
         this.perf.recordTick(performance.now() - t0);
         // One-shot inputs apply to the first tick of the frame only.
         inp.jump = false;
@@ -291,6 +298,10 @@ export class Game {
     this.perf.ticksLastFrame = ticks;
 
     this.drawFrame(this.stepper.alpha, dt);
+    if (this.restartStartedAt >= 0) {
+      this.lastRestartToFrameMs = performance.now() - this.restartStartedAt;
+      this.restartStartedAt = -1;
+    }
     this.perf.endFrame();
     this.overlay.update(ts);
   };
@@ -324,8 +335,7 @@ export class Game {
     for (let i = 0; i < n; i++) {
       s.yaw = this.input.yaw;
       s.pitch = this.input.pitch;
-      this.world.step(s, this.bus);
-      this.modes.tick();
+      if (this.run.step(s)) this.modes.tick();
       s.jump = false;
       s.reload = false;
     }
@@ -403,14 +413,49 @@ export class Game {
     return true;
   }
 
+  /** Abandon any run and reset the world (free play). */
   resetWorld(seed?: number): void {
     this.modes.stop();
-    this.world.reset(seed);
+    this.run.cancel(seed);
+    this.afterRunReset();
+  }
+
+  /** Begin a plain run (seeded reset -> ready); replaces a mode run in progress. */
+  startRun(opts: StartRunOptions): void {
+    const t0 = performance.now();
+    this.modes.stop();
+    this.run.startRun(opts);
+    this.afterRunReset();
+    this.noteRestart(t0);
+  }
+
+  /** Instant restart of the current plain run from its seed (or a new one). False if there is none. */
+  restartRun(seed?: number): boolean {
+    const t0 = performance.now();
+    if (!this.run.restartRun(seed)) return false;
+    this.afterRunReset();
+    this.noteRestart(t0);
+    return true;
+  }
+
+  /** End the current run, whoever times it. */
+  endRun(reason: RunEndReason): void {
+    if (this.run.isSelfDriven) this.run.endRun(reason);
+    else this.modes.stop();
+  }
+
+  private afterRunReset(): void {
     this.session.reset();
     this.cues.clear();
     this.hud.refresh();
     this.input.setLook(this.world.player.yaw, 0);
     this.stepper.reset();
+  }
+
+  private noteRestart(t0: number): void {
+    this.lastRestartMs = performance.now() - t0;
+    this.lastRestartToFrameMs = -1;
+    this.restartStartedAt = t0;
   }
 
   private debugLines(): string {
@@ -423,8 +468,19 @@ export class Game {
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
       `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}\n` +
       `fx latency max ${this.cues.latency.max} frame(s) over ${this.cues.latency.samples} cues, ${this.cues.latency.late} late` +
+      this.runLine() +
       this.modeLine()
     );
+  }
+
+  private runLine(): string {
+    const r = this.run;
+    if (r.state === 'idle') return '';
+    const tr = r.tracker;
+    const acc = tr.accuracy === null ? '--' : `${(tr.accuracy * 100).toFixed(0)}%`;
+    const dur = r.info?.durationSec != null ? `/${r.info.durationSec}s` : '';
+    const rs = this.lastRestartMs >= 0 ? `  restart ${this.lastRestartMs.toFixed(1)} ms` : '';
+    return `\nrun ${r.state} ${r.elapsedSec.toFixed(1)}${dur}  acc ${acc} (${tr.hits}/${tr.shots})${rs}`;
   }
 
   private modeLine(): string {
@@ -459,6 +515,15 @@ export class Game {
           visible: t.visibleTick >= 0, bullets: t.bullets,
         })),
       session: { shots: this.session.shots, hits: this.session.hits, kills: this.session.kills },
+      run: {
+        state: this.run.state,
+        info: this.run.info ? { ...this.run.info } : null,
+        elapsedSec: this.run.elapsedSec,
+        shots: this.run.tracker.shots,
+        hits: this.run.tracker.hits,
+        accuracy: this.run.tracker.accuracy,
+        kills: this.run.tracker.kills,
+      },
       settings: { ...this.settings.get() },
       locked: this.input.locked,
     };
