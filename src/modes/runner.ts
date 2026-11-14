@@ -7,9 +7,8 @@ import type { Tunables } from '../config/tunables';
 import type { EnemyKind } from '../config/scoring';
 import { createScoreBreakdown, scoreKill, type ScoreBreakdown } from '../feedback/scoring';
 import { StreakTracker } from '../feedback/streaks';
-import type { SprayEvents } from '../sim/runEvents';
 import type {
-  AnchorSource, AxisValues, DialSource, ModeEvents, PlayerSourceEvents, PlayerView, RunEndReason, SkillId, SourceEvents,
+  AnchorSource, AxisValues, DialSource, ModeEvents, MotionView, PlayerSourceEvents, RunEndReason, SkillId, SourceEvents,
   TargetSpawner, WeaponSourceEvents,
 } from './contracts';
 import { effectiveDial } from './itemDifficulty';
@@ -17,11 +16,11 @@ import type { AwardOptions, ModeContext, ModeDef, ModeEvent, ResolveOptions, Run
 import { AnchorIndex, SpawnScheduler } from './scheduler';
 
 export interface RunnerDeps {
-  events: EventSink<ModeEvents & SprayEvents>;
+  events: EventSink<ModeEvents>;
   tunables: Tunables;
   dial: DialSource;
   spawner: TargetSpawner;
-  player: PlayerView;
+  player: MotionView;
   /** Move the player (the host places the sim's player and re-syncs the view). Absent: `placePlayer` does nothing. */
   placePlayer?: (x: number, y: number, z: number, yaw: number) => void;
 }
@@ -78,13 +77,15 @@ export class ModeRunner implements ModeContext<unknown> {
   refusedSpawns = 0;
 
   readonly tunables: Tunables;
-  readonly player: PlayerView;
+  readonly player: MotionView;
   private readonly streaks: StreakTracker;
   private readonly records: TargetRecord[] = [];
   private readonly killEv: ModeEvent & { type: 'targetKilled' };
   private readonly expiredEv: ModeEvent & { type: 'targetExpired' };
   private readonly impactEv: ModeEvent & { type: 'shotImpact' };
-  private readonly firedEv: WeaponEvent & { type: 'shotFired' };
+  private readonly firedEv: ModeEvent & { type: 'shotFired' };
+  private readonly stoppedEv: ModeEvent & { type: 'playerStopped' };
+  private readonly weaponFiredEv: WeaponEvent & { type: 'shotFired' };
   private readonly reloadStartedEv: WeaponEvent & { type: 'reloadStarted' };
   private readonly reloadCompletedEv: WeaponEvent & { type: 'reloadCompleted' };
   private readonly trialEv: ModeEvents['skillTrial'] = { tick: 0, t: 0, skill: 'precision', itemDifficulty: 0, success: false };
@@ -96,7 +97,6 @@ export class ModeRunner implements ModeContext<unknown> {
   private readonly endEv = { tick: 0, t: 0, reason: 'timer' as RunEndReason };
   private readonly beatEv = { tick: 0, t: 0, beat: 0, dial: 0 };
   private pinDial: number | undefined;
-  /** The sim tick of the latest `tick()` / fact (what the events of a mode carry as `tick`). */
   simTick = 0;
   private liveStartSimTick = 0;
   private readyTicksLeft = 0;
@@ -123,11 +123,13 @@ export class ModeRunner implements ModeContext<unknown> {
     this.expiredEv = { type: 'targetExpired', payload: null as never };
     this.impactEv = { type: 'shotImpact', payload: null as never };
     this.firedEv = { type: 'shotFired', payload: null as never };
+    this.stoppedEv = { type: 'playerStopped', payload: null as never };
+    this.weaponFiredEv = { type: 'shotFired', payload: null as never };
     this.reloadStartedEv = { type: 'reloadStarted', payload: null as never };
     this.reloadCompletedEv = { type: 'reloadCompleted', payload: null as never };
   }
 
-  get events(): EventSink<SprayEvents> {
+  get events(): EventSink<ModeEvents> {
     return this.deps.events;
   }
 
@@ -156,7 +158,11 @@ export class ModeRunner implements ModeContext<unknown> {
       bus.on('targetKilled', (e) => this.onKilled(e)),
       bus.on('targetExpired', (e) => this.onExpired(e)),
       bus.on('shotImpact', (e) => this.onImpact(e)),
-      bus.on('shotFired', (e) => this.onFired(e)),
+      bus.on('shotFired', (e) => {
+        this.onFired(e);
+        this.onWeaponFired(e);
+      }),
+      bus.on('playerStopped', (e) => this.onStopped(e)),
       bus.on('reloadStarted', (e) => this.onReload(this.reloadStartedEv, e)),
       bus.on('reloadCompleted', (e) => this.onReload(this.reloadCompletedEv, e)),
       bus.on('playerDied', () => this.end('death')),
@@ -397,16 +403,28 @@ export class ModeRunner implements ModeContext<unknown> {
     this.mode.onEvent(this, this.impactEv);
   }
 
-  private onFired(e: WeaponSourceEvents['shotFired']): void {
+  private onFired(e: SourceEvents['shotFired']): void {
     if (this.phase !== 'live') return;
     this.firedEv.payload = e;
-    this.mode.onWeapon?.(this, this.firedEv);
+    this.mode.onEvent(this, this.firedEv);
+  }
+
+  private onWeaponFired(e: WeaponSourceEvents['shotFired']): void {
+    if (this.phase !== 'live') return;
+    this.weaponFiredEv.payload = e;
+    this.mode.onWeapon?.(this, this.weaponFiredEv);
   }
 
   private onReload(wrap: WeaponEvent & { type: 'reloadStarted' | 'reloadCompleted' }, e: { tick: number }): void {
     if (this.phase !== 'live') return;
     wrap.payload = e;
     this.mode.onWeapon?.(this, wrap);
+  }
+
+  private onStopped(e: SourceEvents['playerStopped']): void {
+    if (this.phase !== 'live') return;
+    this.stoppedEv.payload = e;
+    this.mode.onEvent(this, this.stoppedEv);
   }
 
   // ---- internals ---------------------------------------------------------------------------

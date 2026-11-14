@@ -1,6 +1,8 @@
 import type { Vec3 } from '../core/vec3';
 import type { EnemyKind } from '../config/scoring';
 import type { StreakEvents } from '../feedback/streaks';
+import type { SprayEvents } from '../sim/runEvents';
+import type { MapEvents } from '../sim/mapEvents';
 
 /**
  * Everything the mode framework needs from the rest of the game, as typed contracts: the sim's
@@ -94,6 +96,14 @@ export interface PlayerView {
   readonly eyeHeight: number;
 }
 
+/** What a mode may read about the player's movement (Stop & Pop arms on the sideways speed). */
+export interface MotionView extends PlayerView {
+  /** Velocity, m/s. */
+  readonly vel: Vec3;
+  readonly crouching: boolean;
+  readonly grounded: boolean;
+}
+
 export type TrialExtra = Readonly<Record<string, number>>;
 
 /**
@@ -115,16 +125,16 @@ export interface SourceEvents {
   /** A target left the field unkilled (lifetime, or removed by the mode). */
   targetExpired: { tick: number; targetId: number };
   /** One bullet landed. The sim's payload carries more (`zone`, `point`, ...); `targetId` is -1 on a miss. */
-  shotImpact: {
-    tick: number;
-    onTarget: boolean;
-    targetId?: number;
-    zone?: 'head' | 'body' | 'leg' | null;
-    /** The shot this impact belongs to (matches `shotFired.shotId`); absent in the framework's tests. */
-    shotId?: number;
-  };
+  shotImpact: { tick: number; onTarget: boolean; targetId?: number; zone?: 'head' | 'body' | 'leg' | null; shotId?: number };
+  /**
+   * A bullet left the gun, with the player's movement state at that tick (the sim's payload carries
+   * more). Emitted right before its `shotImpact`, same `shotId`. `moving` = above the accuracy
+   * deadzone or airborne (design §3).
+   */
+  shotFired: { tick: number; shotId: number; moving: boolean; speed: number; airborne: boolean; crouching: boolean };
+  /** Horizontal speed first fell to the accuracy threshold; `counterStrafe`: the stop began with the opposite key, not a release. */
+  playerStopped: { tick: number; latencyMs: number; counterStrafe: boolean };
 }
-
 
 /**
  * Weapon facts for modes that judge bullets and magazines (Spray Wall). They arrive through
@@ -160,7 +170,7 @@ export interface PlayerSourceEvents {
 }
 
 /** Events the framework emits. §14.3 names and payloads, plus `beatStarted` and `scoreAwarded`. */
-export interface ModeEvents extends StreakEvents {
+export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents {
   /** The run moved the player (a mode with several stand points, Spray Wall): the view should face `yaw` again. */
   playerPlaced: { tick: number; x: number; y: number; z: number; yaw: number };
   runReady: { tick: number; mode: ModeId; seed: number; dial: number };

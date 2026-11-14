@@ -1,5 +1,5 @@
 import { HeadlessGame } from './headless';
-import { listModes, playMode, FREEPLAY, type BotReport, type BotRunOptions } from './play';
+import { listModes, mapForMode, playMode, FREEPLAY, type BotReport, type BotRunOptions } from './play';
 import type { BotParams } from './skill';
 
 /**
@@ -31,7 +31,7 @@ export const SUITE_SEEDS = [1, 2, 3];
 export const RUN_BUDGET_MS = 5000;
 
 function play(opts: BotRunOptions, reports?: BotReport[]): BotReport {
-  const r = playMode(new HeadlessGame({ seed: opts.seed ?? 1 }), opts);
+  const r = playMode(new HeadlessGame({ seed: opts.seed ?? 1, map: mapForMode(opts.mode) }), opts);
   reports?.push(r);
   return r;
 }

@@ -81,7 +81,7 @@ class Log {
     return this;
   }
   stop(tick: number, latencyMs: number): this {
-    this.events.push({ type: 'playerStopped', data: { tick, latencyMs } });
+    this.events.push({ type: 'playerStopped', data: { tick, latencyMs, counterStrafe: false } });
     return this;
   }
   finish(reason: 'timer' | 'quit' = 'timer'): RunLog {

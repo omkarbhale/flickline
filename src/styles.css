@@ -218,6 +218,7 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .dmg-root { position: absolute; inset: 0; pointer-events: none; }
 .dmg-vignette { position: absolute; inset: -6%; opacity: 0; will-change: transform, opacity;
   background: radial-gradient(ellipse at center, rgba(255,61,90,0) 42%, rgba(255,61,90,.16) 68%, rgba(120,10,28,.62) 100%); }
+.dmg-root.gl-vignette .dmg-vignette { display: none; }
 .dmg-vignette.hit { animation: dmg-vignette var(--dmg-vignette-ms, 320ms) ease-out; }
 @keyframes dmg-vignette { 0% { opacity: 0; transform: scale(1.18); } 25% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.1); } }
 .dmg-desat { position: absolute; inset: 0; opacity: 0; -webkit-backdrop-filter: saturate(var(--dmg-desat-to, .35)); backdrop-filter: saturate(var(--dmg-desat-to, .35)); }

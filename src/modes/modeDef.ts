@@ -5,10 +5,9 @@ import type { Tunables } from '../config/tunables';
 import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import type {
-  AxisId, AxisValues, ModeId, ModeRef, PlayerView, RunEndReason, SkillId, SourceEvents, TrialExtra, WaveCurve, WeaponSourceEvents,
+  AxisId, AxisValues, ModeEvents, ModeId, ModeRef, MotionView, RunEndReason, SkillId, SourceEvents, TrialExtra, WaveCurve, WeaponSourceEvents,
 } from './contracts';
 import type { SpawnScheduler } from './scheduler';
-import type { SprayEvents } from '../sim/runEvents';
 
 /**
  * What the app does to the player when the run is readied (design §4.1, §4.2). Declarative: the
@@ -131,16 +130,21 @@ export interface ModeContext<S = unknown> {
   /** The run's seeded stream: use it for every random choice, never `Math.random`. */
   readonly rng: Rng;
   readonly tunables: Tunables;
-  readonly player: PlayerView;
+  readonly player: MotionView;
+  /**
+   * Where a mode announces facts about its own state for presentation to draw (the Lane's armed
+   * stripe, a stance ring). Payloads are read-only and valid only during the call.
+   */
+  readonly events: EventSink<ModeEvents>;
   /** Anchor picker bound to the run's rng and the player. */
   readonly scheduler: SpawnScheduler;
   state: S;
 
   readonly phase: RunPhase;
+  /** The sim tick of the call in progress: the `tick` of the events a mode emits. */
+  readonly simTick: number;
   /** Live ticks completed before this one (0 on the first live tick). */
   readonly liveTick: number;
-  /** The sim's tick counter, for the `tick` field of events the mode emits. */
-  readonly simTick: number;
   /** Seconds since the run went live. */
   readonly timeSec: number;
   readonly remainingSec: number;
@@ -177,8 +181,6 @@ export interface ModeContext<S = unknown> {
   awardScore(id: number, opts: AwardOptions): number;
   /** Stand the player at a feet position facing `yaw` (radians), at rest, and tell the view to follow (`playerPlaced`). */
   placePlayer(x: number, y: number, z: number, yaw: number): void;
-  /** The bus's sink for the events a mode owns (`sprayStarted`, ...): modes never import the bus itself. */
-  readonly events: EventSink<SprayEvents>;
   /** Surge multiplier hook (the meter itself is the Sweep work). */
   setSurge(on: boolean): void;
   /** End the run (`death`, `complete`, `quit`; the timer ends it by itself). */

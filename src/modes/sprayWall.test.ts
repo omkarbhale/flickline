@@ -30,7 +30,7 @@ let shotId = 0;
 function bullet(h: Harness, postId: number, zone: 'head' | 'body' | 'leg' | null, weapon = 'kestrel'): void {
   shotId++;
   h.bus.emit('shotFired', {
-    tick: h.simTick, shotId, weapon, dir: vec3(0, 0, -1), yaw: 0, pitch: 0, recoilPitchDeg: 0, recoilYawDeg: 0, spreadDeg: 0.2, ammo: 0,
+    tick: h.simTick, shotId, moving: false, speed: 0, airborne: false, crouching: false, weapon, dir: vec3(0, 0, -1), yaw: 0, pitch: 0, recoilPitchDeg: 0, recoilYawDeg: 0, spreadDeg: 0.2, ammo: 0,
   });
   h.bus.emit('shotImpact', { tick: h.simTick, shotId, onTarget: zone !== null, targetId: zone ? postId : -1, zone });
 }
@@ -239,7 +239,7 @@ describe('a spray is one trial', () => {
   it('a shot fired before the Post is up is not part of any spray, and a spent magazine caps the burst', () => {
     const h = start(80);
     h.bus.emit('shotFired', {
-      tick: h.simTick, shotId: 900, weapon: 'kestrel', dir: vec3(0, 0, -1), yaw: 0, pitch: 0, recoilPitchDeg: 0, recoilYawDeg: 0, spreadDeg: 0.2, ammo: 22,
+      tick: h.simTick, shotId: 900, moving: false, speed: 0, airborne: false, crouching: false, weapon: 'kestrel', dir: vec3(0, 0, -1), yaw: 0, pitch: 0, recoilPitchDeg: 0, recoilYawDeg: 0, spreadDeg: 0.2, ammo: 22,
     });
     untilPost(h);
     expect(h.events('sprayStarted')[0]).toMatchObject({ burst: 22 }); // 8 rounds went before the Post: the full magazine is 22 now
