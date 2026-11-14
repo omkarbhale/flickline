@@ -34,7 +34,7 @@ export interface SectorSource {
   readonly mapId: string;
   readonly id: string;
   readonly roles: readonly string[];
-  /** Feet position the player is placed at, and the yaw he faces. */
+  /** Feet position the player is placed at, and the yaw the player faces. */
   readonly entry: Vec3;
   readonly entryYaw: number;
   readonly exit: Vec3;
@@ -179,19 +179,24 @@ function along(a: Vec3, dx: number, dz: number, t: number): Vec3 {
 
 /**
  * How far from `from` an Echo can go along the unit direction (`dx`, `dz`), up to `maxM`, with every
- * sample hidden from `eye` and the path walkable: metres (0 = not at all).
+ * sample hidden from `eye` and the path walkable: metres (0 = not at all). One sample step is kept
+ * back from the first visible sample, as a margin: between two hidden samples a sliver can show.
  */
 export function hiddenReach(s: SectorSource, eye: Vec3, from: Vec3, crouched: boolean, dx: number, dz: number, maxM: number, stepM: number): number {
   let ok = 0;
   for (let t = stepM; t <= maxM + 1e-9; t += stepM) {
     const p = along(from, dx, dz, t);
-    if (s.visible(eye, p, crouched) || !s.walkable(from, p)) break;
+    if (s.visible(eye, p, crouched) || !s.walkable(from, p)) return Math.max(0, ok - stepM);
     ok = t;
   }
   return ok;
 }
 
-/** Highest share (0..1) of a peek path, from its hold end, whose every sample is hidden from `eye`. */
+/**
+ * Highest share (0..1) of a peek path, from its hold end, whose every sample is hidden from `eye`
+ * (with one sample step of margin before the first visible one, as `hiddenReach`); -1 when the hold
+ * itself shows.
+ */
 export function hiddenPeekShare(s: SectorSource, eye: Vec3, peek: NonNullable<SectorSpot['peek']>, crouched: boolean, stepM: number): number {
   const len = Math.hypot(peek.out.x - peek.hold.x, peek.out.y - peek.hold.y, peek.out.z - peek.hold.z);
   if (s.visible(eye, peek.hold, crouched)) return -1;
@@ -203,7 +208,7 @@ export function hiddenPeekShare(s: SectorSource, eye: Vec3, peek: NonNullable<Se
   for (let i = 1; i <= n; i++) {
     const u = i / n;
     const p = { x: peek.hold.x + (peek.out.x - peek.hold.x) * u, y: peek.hold.y + (peek.out.y - peek.hold.y) * u, z: peek.hold.z + (peek.out.z - peek.hold.z) * u };
-    if (s.visible(eye, p, crouched)) break;
+    if (s.visible(eye, p, crouched)) return Math.max(0, ok - 1 / n);
     ok = u;
   }
   return ok;

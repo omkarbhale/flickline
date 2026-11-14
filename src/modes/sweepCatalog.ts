@@ -12,8 +12,8 @@ import type { SectorSource, SectorSpot } from './sweepDirector';
  */
 
 /** Sample grid laid over an Echo's body for "is any part of it visible" (finer than the lint's three points). */
-const SIGHT_COLUMNS = 5;
-const SIGHT_ROWS = 6;
+const SIGHT_COLUMNS = 7;
+const SIGHT_ROWS = 8;
 /** Heights above the feet a walking body must pass at (shins, waist, chest). */
 const WALK_HEIGHTS = [0.3, 0.9, 1.3];
 

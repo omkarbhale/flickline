@@ -6,6 +6,7 @@ import { MAPS, rangeMap } from '../../sim/mapLoader';
 import { createTickInput } from '../../sim/types';
 import { Bot, type BotStats } from './bot';
 import { FootworkBot } from './footwork';
+import { SweepBot } from './sweepBot';
 import type { BotGame } from './headless';
 import { clampSkill, resolveParams, type BotParams } from './skill';
 
@@ -14,6 +15,8 @@ export const FREEPLAY = 'freeplay';
 const FREEPLAY_SEC = 30;
 /** Never simulate longer than this (a run that does not end is a bug the report names). */
 const MAX_SIM_SEC = 180;
+/** A Sweep run has no clock: it ends at death or the last exit. A bot stuck longer than this is a bug the report names. */
+const MAX_RUN_SEC = 600;
 
 export interface BotRunOptions {
   /** A registered mode id (`test`, `coldStart`, ...; case and dashes are ignored, so `cold-start` works) or `freeplay`. */
@@ -144,9 +147,10 @@ export function playMode(game: BotGame, opts: BotRunOptions): BotReport {
 
   const aimer = new Bot(params, botSeed, game.tunables);
   // Stop & Pop needs feet: the footwork bot strafes, counter-strafes, takes the ring's stance, then lets the aimer fire.
-  const bot = id === 'stopAndPop' ? new FootworkBot(aimer, game, botSeed) : aimer;
+  // Sweep needs feet too: the sweep bot walks each sector entry to exit and stops to fight what it sees.
+  const bot = id === 'stopAndPop' ? new FootworkBot(aimer, game, botSeed) : id === 'sweep' ? new SweepBot(aimer, game) : aimer;
   const input = createTickInput();
-  const maxTicks = secondsToTicks(opts.maxSeconds ?? MAX_SIM_SEC);
+  const maxTicks = secondsToTicks(opts.maxSeconds ?? (id === 'sweep' ? MAX_RUN_SEC : MAX_SIM_SEC));
   const startTick = game.world.tick;
   let ticks = 0;
   while (ticks < maxTicks && game.run.state !== 'result') {

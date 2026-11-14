@@ -1,7 +1,7 @@
 import type { Vec3 } from '../core/vec3';
 import type { EnemyKind } from '../config/scoring';
 import type { StreakEvents } from '../feedback/streaks';
-import type { SprayEvents } from '../sim/runEvents';
+import type { RunEvents, SectorEvents, SprayEvents } from '../sim/runEvents';
 import type { MapEvents } from '../sim/mapEvents';
 
 /**
@@ -251,7 +251,7 @@ export interface PlayerSourceEvents {
 }
 
 /** Events the framework emits. §14.3 names and payloads, plus `beatStarted` and `scoreAwarded`. */
-export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents {
+export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents, SectorEvents, Pick<RunEvents, 'contactSettled'> {
   /** The run moved the player (a mode with several stand points, Spray Wall): the view should face `yaw` again. */
   playerPlaced: { tick: number; x: number; y: number; z: number; yaw: number };
   runReady: { tick: number; mode: ModeId; seed: number; dial: number };

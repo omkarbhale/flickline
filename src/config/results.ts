@@ -19,7 +19,9 @@ export type MetricId =
   | 'headHeight'
   | 'bestChain'
   | 'cleanKills'
-  | 'cleanStreak';
+  | 'cleanStreak'
+  | 'depth'
+  | 'contacts';
 
 export interface FixCopy {
   title: string;
@@ -64,7 +66,7 @@ export interface ResultsTunables {
   /** Badge colour per tier, lowest first (design §8.4: Chalk, Brass, Steel, Cobalt, Neon, Prism, Zenith). The badge always carries the tier name too. */
   tierColours: readonly string[];
   /** Why the run ended, shown above the mode name. */
-  endLabels: Record<'timer' | 'death' | 'complete' | 'quit', string>;
+  endLabels: Record<'timer' | 'death' | 'complete' | 'quit' | 'left', string>;
   /** Display names of the skills the rating row names (`line` = the mean of all seven). */
   skillLabels: Record<string, string>;
   /** Display names of medal ids (design §8.4); unknown ids are title-cased. */
@@ -109,13 +111,13 @@ export const results: ResultsTunables = {
     strafeTrack: ['timeOnTarget', 'leadError'],
     stopAndPop: ['stopLatency', 'cleanKills'],
     cornerClear: ['preAimError', 'headHeight'],
-    sweep: ['bestChain', 'preAimError'],
+    sweep: ['depth', 'contacts'],
   },
   defaultKeyMetrics: ['firstShotRate', 'preAimError'],
   oneBulletModes: ['coldStart', 'orbit', 'placement'],
   oneBulletTile: 'cleanStreak',
   tierColours: ['#aab4c2', '#d9a35a', '#9fb4cc', '#5b8cff', '#38e8ff', '#c792ff', '#ffd23f'],
-  endLabels: { timer: "Time's up", death: 'Eliminated', complete: 'Run complete', quit: 'Run ended early' },
+  endLabels: { timer: "Time's up", death: 'Eliminated', complete: 'Run complete', quit: 'Run ended early', left: 'Made it out' },
   skillLabels: {
     precision: 'Precision', flick: 'Flick', track: 'Tracking', footwork: 'Footwork', spray: 'Spray control',
     switch: 'Target switching', angles: 'Angles', line: 'Line rating',

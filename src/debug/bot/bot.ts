@@ -97,6 +97,13 @@ export class Bot {
   private readonly giveUpTicks: number;
   private readonly clickTicks: number;
 
+  /**
+   * Only targets the player has seen count (`visibleTick`): no search turn towards one that has never
+   * been in view. A drill's targets appear in the open, so the drills leave it off; a run where Echoes
+   * hold behind cover (Sweep) turns it on, or the bot would know where they are through walls.
+   */
+  visibleOnly = false;
+
   constructor(
     readonly params: BotParams,
     seed: number,
@@ -166,6 +173,16 @@ export class Bot {
     }
   }
 
+  /** No engagement in progress (nothing picked, or the last one is over). */
+  get idle(): boolean {
+    return this.phase === IDLE;
+  }
+
+  /** Id of the target being engaged, -1 when idle. */
+  get target(): number {
+    return this.targetId;
+  }
+
   /** With nothing to shoot at, a player tops up a part-empty magazine (Spray Wall asks for it after every spray). */
   private wantsReload(world: World): boolean {
     const w = world.weapon;
@@ -196,6 +213,7 @@ export class Bot {
       const t = slots[i]!;
       if (!t.alive) continue;
       const visible = t.visibleTick >= 0;
+      if (this.visibleOnly && !visible) continue;
       if (bestVisible && !visible) continue;
       targetAimPoint(t, this.tunables.targets, this.aimPoint);
       const vx = this.aimPoint.x - ex;
