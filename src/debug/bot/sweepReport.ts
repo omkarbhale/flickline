@@ -124,14 +124,18 @@ export function sweepReport(
   return { rows, runs: all };
 }
 
+/** Sectors in a run of the shipped tunables: the "of N" of the depth columns. */
+const SECTORS = cloneTunables().sweep.sectors;
+
 /** The report as a Markdown table (posted on the issue). */
 export function formatSweepReport(rows: readonly SweepSkillRow[]): string[] {
+  const exits = Array.from({ length: SECTORS }, (_, k) => k);
   const out = [
-    '| Bot skill | Runs | Contact win rate | Fights / run | Depth reached (of 4) | Made it out | HP+shield at exit 1 / 2 / 3 / 4 | Run length (live s) | Score |',
+    `| Bot skill | Runs | Contact win rate | Fights / run | Depth reached (of ${SECTORS}) | Made it out | HP+shield at exit ${exits.map((k) => k + 1).join(' / ')} | Run length (live s) | Score |`,
     '|---|---|---|---|---|---|---|---|---|',
   ];
   for (const r of rows) {
-    const ehp = [0, 1, 2, 3].map((k) => (r.exitsSeen[k] ? `${r.meanEhpAtExit[k]!.toFixed(0)} (n ${r.exitsSeen[k]})` : '—')).join(' / ');
+    const ehp = exits.map((k) => (r.exitsSeen[k] ? `${r.meanEhpAtExit[k]!.toFixed(0)} (n ${r.exitsSeen[k]})` : '—')).join(' / ');
     out.push(
       `| ${r.skill} | ${r.runs} | ${(r.contactWinRate * 100).toFixed(0)} % | ${r.contactsPerRun.toFixed(1)} | ${r.meanReached.toFixed(2)} | ${(r.finishedShare * 100).toFixed(0)} % | ${ehp} | ${r.meanLiveSec.toFixed(1)} | ${r.meanScore.toFixed(0)} |`,
     );
@@ -282,7 +286,7 @@ export function gatePolicyReport(
 
 export function formatGatePolicyReport(rows: readonly GatePolicyRow[]): string[] {
   const out = [
-    '| Bot skill | Policy | Runs | Score | Depth (of 4) | Made it out | vs first policy: score (± s.e.) | vs first policy: depth | Doors taken: shield / arms / hot / plain |',
+    `| Bot skill | Policy | Runs | Score | Depth (of ${SECTORS}) | Made it out | vs first policy: score (± s.e.) | vs first policy: depth | Doors taken: shield / arms / hot / plain |`,
     '|---|---|---|---|---|---|---|---|---|',
   ];
   for (const r of rows) {
@@ -627,7 +631,7 @@ export function leanAb(o: LeanAbOptions): { off: LeanArm; on: LeanArm; rows: Lea
 export function formatLeanAb(rows: readonly LeanAbRow[]): string[] {
   const pct = (v: number): string => `${(v * 100).toFixed(1)} %`;
   const out = [
-    '| Lean | Fights in the planted cards / run | Fights / run | Moving-shot share, runs 1–5 | Last 5 runs | Change | Weakness left after the last run | Runs flagged "moving shots" by the stub | Runs dealt a lean | Depth (of 4) |',
+    `| Lean | Fights in the planted cards / run | Fights / run | Moving-shot share, runs 1–5 | Last 5 runs | Change | Weakness left after the last run | Runs flagged "moving shots" by the stub | Runs dealt a lean | Depth (of ${SECTORS}) |`,
     '|---|---|---|---|---|---|---|---|---|---|',
   ];
   for (const r of rows) {
