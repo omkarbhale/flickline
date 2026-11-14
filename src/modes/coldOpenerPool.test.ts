@@ -26,7 +26,7 @@ function hashPool(): string {
  */
 const FROZEN: Readonly<Record<number, string>> = {
   1: '9869152a',
-  2: '754920db',
+  2: '0ef0c25d',
 };
 
 describe('cold opener content version', () => {

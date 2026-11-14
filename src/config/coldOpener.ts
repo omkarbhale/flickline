@@ -1,4 +1,4 @@
-import type { SweepCard } from './sweep';
+import type { TakeCard } from './sweep';
 
 /**
  * The cold opener (design §8.5, `docs/research/transfer.md` §5, #209): Flickline's learning
@@ -47,7 +47,7 @@ export interface ColdEcho {
 export interface ColdContact {
   readonly map: string;
   readonly sector: string;
-  readonly card: SweepCard;
+  readonly card: TakeCard;
   /** The anchors the card puts in play (a `clear` has two, one of them empty). */
   readonly spots: readonly string[];
   readonly echoes: readonly ColdEcho[];
@@ -79,7 +79,7 @@ export interface ColdOpenerTunables {
    * stored variant per slot, the order shuffled), so two days' item statistics are identical (#209).
    * Only the Opener's cards: crossfire never opens a run (design §4.4).
    */
-  slots: readonly SweepCard[];
+  slots: readonly TakeCard[];
   /**
    * Take sectors (`<map>/<sector>`) the pool never uses: a sector whose exit can be reached without
    * meeting its Echoes would let a measured contact pass unplayed. `elbow/elbow-take-west`: its exit sits

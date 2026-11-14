@@ -45,6 +45,8 @@
     {"kind":"peek","id":"peek-corner","tags":["elbow","corner"],"cover":"arm-west-wall-b","hold":[-7.2,0,4.8],"out":[-7.2,0,6.4],"pattern":"jiggle"},
     {"kind":"peek","id":"peek-crate","tags":["west-arm","low-cover"],"cover":"crate-w-low","hold":[-9.75,0,-7.6],"out":[-9.75,0,-7.6],"pattern":"hop"},
     {"kind":"peek","id":"peek-deck","tags":["west-arm","elevated"],"cover":"deck-crate","hold":[-11.75,1.2,-12.3],"out":[-10.2,1.2,-12.3],"pattern":"shoulder"},
+    {"kind":"peek","id":"peek-door-hub","tags":["hub","door"],"cover":"arm-south-wall-b","hold":[4,0,4],"out":[4,0,6.2],"pattern":"wide"},
+    {"kind":"peek","id":"peek-hub-door","tags":["hub","pocket"],"cover":"hub-north-wall-b","hold":[4.5,0,-5],"out":[4.5,0,-2.9],"pattern":"wide"},
     {"kind":"peek","id":"peek-pocket","tags":["pocket","door"],"cover":"hub-north-wall-b","hold":[7,0,-6],"out":[4.5,0,-7.2],"pattern":"wide"},
     {"kind":"hold","id":"hold-door-a","tags":["sector-door","behind-wall"],"pos":[-3.2,0,4.6],"yaw":-1.893},
     {"kind":"hold","id":"hold-door-b","tags":["sector-door","behind-wall"],"pos":[-0.8,0,4.6],"yaw":-1.95},
@@ -116,7 +118,13 @@
   },
   "lanes": [
     {"id":"approach-arm-north","start":[-8.5,0,-9],"end":[-9.5,0,6],"width":4},
-    {"id":"approach-arm-east","start":[3,0,9.5],"end":[-7,0,9.5],"width":3}
+    {"id":"approach-arm-east","start":[3,0,9.5],"end":[-7,0,9.5],"width":3},
+    {"id":"approach-door-west","start":[-8,0,9.5],"end":[6.5,0,9.5],"width":4},
+    {"id":"approach-door-hub","start":[4.2,0,1.5],"end":[4.2,0,7.2],"width":2.5},
+    {"id":"approach-hub-south","start":[4,0,8.6],"end":[4.2,0,1.5],"width":2.5},
+    {"id":"approach-hub-west","start":[-8.5,0,2.5],"end":[-4.4,0,-1.5],"width":3},
+    {"id":"approach-west-hub","start":[-3.5,0,-1.5],"end":[-9,0,1],"width":3},
+    {"id":"approach-west-south","start":[-9.5,0,8.5],"end":[-9.5,0,1],"width":3}
   ],
   "checkpoints": [
     {"id":"cp-01","pos":[10.5,0,7],"angleAnchors":["peek-stack"]},
@@ -131,12 +139,12 @@
     {"id":"cp-10","pos":[10.5,0,11.5],"angleAnchors":["peek-stack"]}
   ],
   "sectors": [
-    {"id":"elbow-take-door","role":["take"],"region":{"min":[-5.5,0,3.5],"max":[13,4.5,13]},"entry":[11.5,0,9.5],"exit":[4,0,5.75],
-      "holdAnchors":["peek-door-south","hold-door-a","hold-door-b","hold-door-c"]},
-    {"id":"elbow-take-hub","role":["take"],"region":{"min":[-6,0,-11.5],"max":[8.5,4.5,3.5]},"entry":[-5,0,-1.5],"exit":[5,0,-10.3],
-      "holdAnchors":["peek-pocket","hold-pocket-a","hold-pocket-b","hold-pocket-c","hold-pocket-d"]},
+    {"id":"elbow-take-door","role":["take","hold"],"region":{"min":[-5.5,0,3.5],"max":[13,4.5,13]},"entry":[11.5,0,9.5],"exit":[4,0,5.75],
+      "holdAnchors":["peek-door-south","peek-door-hub","hold-door-a","hold-door-b","hold-door-c"],"approaches":["approach-door-west","approach-door-hub"]},
+    {"id":"elbow-take-hub","role":["take","hold"],"region":{"min":[-6,0,-11.5],"max":[8.5,4.5,3.5]},"entry":[-5,0,-1.5],"exit":[5,0,-10.3],
+      "holdAnchors":["peek-pocket","peek-hub-door","hold-pocket-a","hold-pocket-b","hold-pocket-c","hold-pocket-d"],"approaches":["approach-hub-south","approach-hub-west"]},
     {"id":"elbow-take-west","role":["take"],"region":{"min":[-13,0,-13],"max":[-6,4.5,4.2]},"entry":[-6.7,0,-1.5],"exit":[-9.5,0,3.8],
-      "holdAnchors":["peek-deck","hold-west-crate"]},
+      "holdAnchors":["peek-deck","hold-west-crate"],"approaches":["approach-west-hub","approach-west-south"]},
     {"id":"elbow-hold-corner","role":["hold"],"region":{"min":[-13,0,4.2],"max":[-6,4.5,13]},"entry":[-9,0,8.5],"exit":[-6.5,0,10],
       "holdAnchors":["peek-corner","peek-stack","hold-elbow-nw","hold-elbow-e"],"approaches":["approach-arm-north","approach-arm-east"]}
   ],

@@ -1,6 +1,6 @@
 import { axes } from '../adaptive/dial';
 import type { ColdContact, ColdEcho, ColdLevelPool, ColdPool, ColdProfile, ColdV3 } from '../config/coldOpener';
-import type { SweepCard } from '../config/sweep';
+import type { TakeCard } from '../config/sweep';
 import type { Tunables } from '../config/tunables';
 import { Rng } from '../core/rng';
 import type { Vec3 } from '../core/vec3';
@@ -55,7 +55,7 @@ function slotSeed(seed: number, level: number, slot: number): number {
 }
 
 /** Take sectors that can hold `card` unseen (enough hidden anchors), in a stable order that alternates maps. */
-export function eligibleSectors(catalog: readonly SectorSource[], body: PlanBody, card: SweepCard, exclude: readonly string[] = []): SectorSource[] {
+export function eligibleSectors(catalog: readonly SectorSource[], body: PlanBody, card: TakeCard, exclude: readonly string[] = []): SectorSource[] {
   const ok = catalog
     .filter((s) => s.roles.includes('take') && !exclude.includes(`${s.mapId}/${s.id}`) && hiddenSpots(s, body).length >= cardSpots(card))
     .sort((a, b) => (a.mapId + '/' + a.id < b.mapId + '/' + b.id ? -1 : 1));
@@ -73,7 +73,7 @@ export function eligibleSectors(catalog: readonly SectorSource[], body: PlanBody
 }
 
 /** One stored contact of `card` in sector `s`, drawn from `rng` with the director's placement rules. */
-function contactIn(rng: Rng, t: Tunables, s: SectorSource, body: PlanBody, card: SweepCard): ColdContact {
+function contactIn(rng: Rng, t: Tunables, s: SectorSource, body: PlanBody, card: TakeCard): ColdContact {
   const free = hiddenSpots(s, body);
   const spots = [];
   for (let k = 0; k < cardSpots(card); k++) spots.push(free.splice(rng.int(free.length), 1)[0]!);

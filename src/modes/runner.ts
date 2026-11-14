@@ -14,6 +14,7 @@ import type {
 } from './contracts';
 import { effectiveDial } from './itemDifficulty';
 import type { AwardOptions, ModeContext, ModeDef, ModeEvent, ResolveOptions, RunPhase, RunStats, SpawnOptions, TrialOptions, WeaponEvent } from './modeDef';
+import { mindSkillFor } from './modeDef';
 import { AnchorIndex, SpawnScheduler } from './scheduler';
 
 export interface RunnerDeps {
@@ -168,6 +169,10 @@ export class ModeRunner implements ModeContext<unknown> {
 
   get events(): EventSink<ModeEvents> {
     return this.deps.events;
+  }
+
+  get mindSkill(): number {
+    return mindSkillFor(this.mode, this.dial);
   }
 
   get timeSec(): number {
@@ -392,7 +397,7 @@ export class ModeRunner implements ModeContext<unknown> {
       return -1;
     }
     const scale = Math.max(opts?.scale ?? 1, fl.minTargetScale);
-    const echo = opts && (opts.peek || opts.fire || opts.crouched) ? opts : undefined;
+    const echo = opts && (opts.peek || opts.fire || opts.crouched || opts.arrive) ? opts : undefined;
     const id = this.deps.spawner.spawn(kind, pos, scale, opts?.strafe, opts?.durable, echo);
     if (id < 0) {
       this.refusedSpawns++;
