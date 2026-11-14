@@ -21,9 +21,12 @@ import type { BoxDef, PlayerState, SimEvents, TargetState } from './types';
  *  - F8 (`shotFired.aimDir`) lives with the weapon that fires the shot.
  *
  * It owns no gameplay state: nothing here feeds back into the simulation, so the world's `hash()`
- * is unchanged. No enemy mind exists yet: until #89's perception is installed (`perception`),
- * `exposedTo` is 0 and no `enemySawPlayer` is emitted, and the enemy body (#87) calls the sound
- * emitters below when it steps, stamping each sound with `audibleToPlayer`.
+ * is unchanged. No full enemy mind exists yet (#89): until it does, `World` installs the sight rule
+ * the shooting Echoes already use (`enemyFire.seesPlayer`: range and an unoccluded line from the
+ * muzzle to the player's eye, no field-of-view test) for enemies that fire, and drill targets that
+ * never fire are never "exposed". The enemy body (#87) and #99 call the sound emitters below when
+ * an enemy steps, lands or reloads, stamping each sound with `audibleToPlayer`; `enemyFired`
+ * already carries it.
  */
 
 /**

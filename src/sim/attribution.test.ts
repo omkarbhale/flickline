@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { cloneTunables, tunables as defaultTunables } from '../config/tunables';
 import { EventBus } from '../core/eventBus';
 import { directionFromAngles, vec3 } from '../core/vec3';
+import { axes } from '../adaptive/dial';
 import { createSightPerception } from './attribution';
+import { fireParams, straferParams } from './enemyParams';
 import { createTickInput, type BoxDef, type LevelDef, type SimEvents, type TickInput } from './types';
 import { World } from './world';
 
@@ -233,6 +235,48 @@ describe('first-sight initiator (F6)', () => {
     expect(s.of('enemySawPlayer')).toHaveLength(0);
     expect(s.of('targetVisible')).toHaveLength(1);
     expect(s.of('targetVisible')[0]!.initiator).toBe('enemy'); // it was simply there already
+  });
+});
+
+describe('a real firing enemy (#32 Strafer) on the default perception', () => {
+  function duel(extra: BoxDef[] = []) {
+    const s = setup([floor, ...extra], 0);
+    s.world.placePlayer(0, 0, 20, 0);
+    s.world.enemiesFire = true;
+    const ax = axes(50);
+    s.world.spawnTarget('strafer', 0, 0, 5, s.bus, {
+      strafe: { ...straferParams(ax), laneA: vec3(-6, 0, 5), laneB: vec3(6, 0, 5) },
+      fire: fireParams(ax),
+    });
+    const keepAlive = (): void => { s.world.health.alive = true; s.world.health.hp = s.world.health.maxHp; };
+    for (let i = 0; i < 128 * 12; i++) { keepAlive(); s.run(1); }
+    return s;
+  }
+
+  it('its shots carry audibleToPlayer (15 m is well inside the shot radius), its first sight is announced once, and its hits report exposedTo 1', () => {
+    const s = duel();
+    const fired = s.of('enemyFired');
+    expect(fired.length).toBeGreaterThan(0);
+    expect(fired.every((e) => e.audibleToPlayer === true)).toBe(true);
+    expect(s.of('enemySawPlayer')).toHaveLength(1);
+    const dmg = s.of('playerDamaged');
+    expect(dmg.length).toBeGreaterThan(0);
+    expect(dmg.every((e) => e.exposedTo === 1)).toBe(true);
+  });
+
+  it('a shot from beyond the shot radius is not audible', () => {
+    const s = setup();
+    s.world.placePlayer(0, 0, 100, 0);
+    expect(s.world.soundAudible('shot', 0, 100 - defaultTunables.attribution.soundRadiusM.shot - 1)).toBe(false);
+    expect(s.world.soundAudible('shot', 0, 100 - defaultTunables.attribution.soundRadiusM.shot + 1)).toBe(true);
+  });
+
+  it('a drill target that does not fire is never reported as exposing the player', () => {
+    const s = setup();
+    s.world.spawnTarget('post', 0, 0, -10, s.bus);
+    s.world.damagePlayer(5, 'body', 0, 1.5, -10, -1, s.bus);
+    expect(s.of('playerDamaged')[0]!.exposedTo).toBe(0);
+    expect(s.of('enemySawPlayer')).toHaveLength(0);
   });
 });
 

@@ -10,6 +10,9 @@ import { CrosshairView } from './crosshairView';
 import { LiveHud, type LiveHudDeps } from './liveHud';
 import { restartAnimation } from './restartAnimation';
 import { formatRtTtk, hitmarkerKind, provisionalKillScore, type HitmarkerKind } from '../feedback/hitFeedback';
+import type { CueTunables } from '../config/cues';
+import { tunables as allTunables } from '../config/tunables';
+import { damageNumbersShown, movingCueShown, readoutShown } from '../feedback/cueGate';
 import type { FeedbackOptions } from '../feedback/options';
 import { PulseBudget } from '../feedback/pulseBudget';
 
@@ -19,6 +22,10 @@ export interface HudFeedbackDeps {
   cfg: FeedbackTunables;
   /** World point -> CSS pixels (false if behind the camera). Must not allocate. */
   project: (x: number, y: number, z: number, out: { x: number; y: number }) => boolean;
+  /** Cue-fading thresholds (design §7.4); defaults to the tunables. */
+  cues?: CueTunables;
+  /** The run's median time to shot in ms (NaN with none), for the readout's bandwidth rule. */
+  medianRtMs?: () => number;
 }
 
 const MARKER_CLASSES = ['hm-body', 'hm-leg', 'hm-head', 'hm-kill', 'hm-headkill'] as const;
@@ -52,6 +59,7 @@ export class Hud {
   /** The live readouts (design §7.2, §13.1): timer, score, counters, stat strip, ghost-pace, edge meter, ammo. */
   readonly live: LiveHud;
   readonly root: HTMLElement;
+  private readonly cues: CueTunables;
   /** The crosshair canvas; redraws only on change (see `CrosshairView`). */
   readonly crosshair: CrosshairView;
 
@@ -63,6 +71,7 @@ export class Hud {
     private readonly fx: HudFeedbackDeps,
   ) {
     this.root = root;
+    this.cues = fx.cues ?? allTunables.cues;
     const cfg = fx.cfg;
     root.style.setProperty('--hm-body', `${cfg.hitmarker.bodyMs}ms`);
     root.style.setProperty('--hm-leg', `${cfg.hitmarker.legMs}ms`);
@@ -108,18 +117,18 @@ export class Hud {
     });
     bus.on('shotFired', (e) => {
       if (e.moving) this.crosshair.pulse();
-      if (e.moving && fx.options.coachingCues) this.restart(this.moveGlyph, 'show');
+      if (e.moving && movingCueShown(fx.options, this.cues, e.speed, e.airborne)) this.restart(this.moveGlyph, 'show');
     });
     bus.on('targetHit', (e) => {
       const kind = hitmarkerKind(e.zone, e.killed);
       this.showMarker(kind);
-      if (!e.killed && fx.options.damageNumbers) this.floatNumber(e.point.x, e.point.y, e.point.z, e.damage, e.zone, false);
+      if (!e.killed && damageNumbersShown(fx.options, this.cues)) this.floatNumber(e.point.x, e.point.y, e.point.z, e.damage, e.zone, false);
     });
     bus.on('targetKilled', (e) => {
       if (!fx.options.reduceFlashing && this.budget.tryAcquire(e.tick * TICK_DT)) this.restart(this.pulse, 'show');
       this.floatNumber(e.point.x, e.point.y, e.point.z, provisionalKillScore(e.zone, fx.cfg), e.zone, true);
       const text = formatRtTtk(e.rtMs, e.ttkMs);
-      if (text !== null) {
+      if (text !== null && readoutShown(fx.options, this.cues, e.rtMs ?? NaN, fx.medianRtMs?.() ?? NaN)) {
         this.rtFloat.textContent = text;
         this.restart(this.rtFloat, 'show');
       }

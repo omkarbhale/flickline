@@ -6,7 +6,11 @@ import type { Tunables } from '../config/tunables';
 import { shieldAbsorbed } from './damage';
 import { createAimInfo, measureAim, yawOf, type AimInfo } from './aim';
 import { lineBlocked } from './collision';
+import { createEnemyAi, resetEnemyAi, type FireParams, type PeekParams, type StrafeParams } from './enemyAi';
+import { fireInit } from './enemyFire';
 import { BEHAVIOURS } from './enemies';
+import { peekInit } from './peeker';
+import { strafeInit } from './strafer';
 import { fsmStart, fsmStep, createFsm, type BehaviourContext } from './fsm';
 import { createZoneHit, traceTarget, zoneCentre, type ZoneHit } from './hitZones';
 import type { BoxDef, HitZone, PlayerState, SimEvents, TargetKind, TargetState } from './types';
@@ -103,6 +107,15 @@ export interface SpawnOptions {
   scale?: number;
   /** Humanoids only: shield points at spawn (spec §4.1). Default: the field's `enemyShield`. Orbs never carry one. */
   shield?: number;
+  /** Strafer: the dial's speed, leg and stand-still and the lane it runs (defaults: the dial-50 values, a line square to the player). */
+  strafe?: StrafeParams;
+  /** Peeker: the anchor and pattern (default: a shoulder peek one metre to the right of where it spawned). */
+  peek?: PeekParams;
+  /**
+   * Strafer and Peeker: this enemy shoots back (the world's `enemiesFire` flag must also be on, so
+   * drills never see a shot). Absent = it never fires.
+   */
+  fire?: FireParams;
 }
 
 function createSlot(): TargetState {
@@ -112,6 +125,7 @@ function createSlot(): TargetState {
     spawner: -1,
     home: vec3(),
     pos: vec3(),
+    prevPos: vec3(),
     crouched: false,
     radius: 0,
     boundsY: 0,
@@ -128,6 +142,7 @@ function createSlot(): TargetState {
     prevSway: 0,
     swayTarget: 0,
     fsm: createFsm(),
+    ai: createEnemyAi(),
     visibleTick: -1,
     firstShotTick: -1,
     reactionShotTick: -1,
@@ -247,6 +262,11 @@ export class TargetField {
     t.bullets = 0;
     t.missedShot = false;
     t.movingShot = false;
+    t.prevPos.x = x; t.prevPos.y = y; t.prevPos.z = z;
+    resetEnemyAi(t.ai);
+    if (def.behaviour === 'strafer') strafeInit(t, ctx, opts?.strafe);
+    else if (def.behaviour === 'peeker') peekInit(t, opts?.peek);
+    if (def.behaviour === 'strafer' || def.behaviour === 'peeker') fireInit(t, ctx, opts?.fire);
     fsmStart(BEHAVIOURS[def.behaviour], t, ctx);
     if (events) {
       const p = spawnedPayload;
@@ -308,6 +328,7 @@ export class TargetField {
       const t = this.slots[i]!;
       if (!t.alive) continue;
       t.prevSway = t.sway;
+      t.prevPos.x = t.pos.x; t.prevPos.y = t.pos.y; t.prevPos.z = t.pos.z;
       if (t.expireTick >= 0 && tick >= t.expireTick) {
         this.expire(t, tick, ctx.events);
         continue;
@@ -584,6 +605,10 @@ export class TargetField {
       if (!t.alive) continue;
       mix(t.id); mix(t.hp); mix(t.shield); mix(t.pos.x); mix(t.pos.y); mix(t.pos.z); mix(t.sway);
       mix(t.fsm.state); mix(t.fsm.timerTicks);
+      if (t.kind === 'strafer' || t.kind === 'peeker') {
+        const a = t.ai;
+        mix(a.s); mix(a.vel); mix(a.u); mix(a.phase); mix(a.burstLeft); mix(t.crouched ? 1 : 0);
+      }
     }
     for (let i = 0; i < this.spawners.length; i++) mix(this.spawners[i]!.respawnTick);
   }

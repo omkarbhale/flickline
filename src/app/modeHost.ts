@@ -26,13 +26,13 @@ export const MODES: Readonly<Record<string, ModeDef<never>>> = {
   placement: placement as ModeDef<never>,
 };
 
-/** The sim's target registry as the framework's spawner (#15). Only the kinds the sim has yet. */
+/** The sim's target registry as the framework's spawner (#15). Only the kinds the sim has yet (Rusher, Bulwark and Gnat: #33). */
 class WorldSpawner implements TargetSpawner {
   constructor(private readonly world: World, private readonly bus: EventBus<GameEvents>) {}
 
   /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. */
   spawn(kind: EnemyKind, pos: Vec3, scale: number): number {
-    if (kind !== 'post' && kind !== 'beacon') return -1;
+    if (kind !== 'post' && kind !== 'beacon' && kind !== 'strafer' && kind !== 'peeker') return -1;
     return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, { scale });
   }
 
@@ -135,6 +135,7 @@ export class ModeHost {
     this.world.movementLocked = false;
     this.world.swapLocked = false;
     this.world.setShields(0, 0);
+    this.world.enemiesFire = false;
     this.active = null;
   }
 
@@ -196,6 +197,9 @@ export class ModeHost {
     w.movementLocked = setup?.lockMovement ?? false;
     const level = mode.economy ? economyShield(mode.economy, this.tunables.economy, this.tunables.player.shield) : 0;
     w.setShields(level, level);
+    // A mode with an economy is a mode where enemies shoot back (design §5.3); drills never have one.
+    w.enemiesFire = mode.economy !== undefined;
+    if (mode.economy) w.enemyWeapon = this.tunables.economy.levels[mode.economy].enemyWeapon;
   }
 
   /** Line of sight between two points through the level's collision boxes. */
