@@ -7,7 +7,7 @@
  *    releases the pointer, and that opens the pause menu. `Enter` on the result card is the card's
  *    (`ui/resultsCard.ts`): it starts the next run through `Game.playAgain`.
  *  - Pause menu: `Esc`/`Enter` resume, `Backspace` restarts, `S` settings, `M` menu, `K` skips the session step.
- *  - Main menu: `Enter` plays today's session, `1`-`9` start that card, `S` settings, `K` skips.
+ *  - Main menu: `Enter` plays today's session, `D` the Daily Route (design §4.8), `1`-`9` start that card, `S` settings, `K` skips.
  *  - Settings: `Esc` goes back. Nothing is a trap: every screen has a way back or on, one key away.
  */
 export type Screen = 'firstRun' | 'main' | 'pause' | 'settings';
@@ -16,6 +16,7 @@ export type RunPhase = 'idle' | 'ready' | 'live' | 'result';
 
 export type NavAction =
   | { type: 'playSession' }
+  | { type: 'playDaily' }
   | { type: 'resume' }
   | { type: 'restart' }
   | { type: 'openSettings' }
@@ -38,6 +39,7 @@ export interface NavState {
 }
 
 const PLAY_SESSION: NavAction = { type: 'playSession' };
+const PLAY_DAILY: NavAction = { type: 'playDaily' };
 const RESUME: NavAction = { type: 'resume' };
 const RESTART: NavAction = { type: 'restart' };
 const OPEN_SETTINGS: NavAction = { type: 'openSettings' };
@@ -85,6 +87,7 @@ export function resolveKey(code: string, st: NavState, keys: NavKeys = DEFAULT_N
       return null;
     case 'main': {
       if (confirm && !st.onButton) return PLAY_SESSION;
+      if (code === 'KeyD') return PLAY_DAILY;
       if (code === 'KeyS') return OPEN_SETTINGS;
       if (code === 'KeyK' && st.sessionActive) return SKIP_STEP;
       const m = DIGIT.exec(code);

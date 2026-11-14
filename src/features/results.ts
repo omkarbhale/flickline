@@ -81,7 +81,8 @@ export const feature = defineFeature({
     let fakeCause: string | null = null;
     const runModes = game.tunables.progress.runModes;
     game.bus.on('runReady', (e) => {
-      before = runModes.includes(e.mode) ? (game.progress.bestRun(e.dial)?.score ?? null) : null;
+      // The Daily Route compares with the day best instead of the run best (design §4.8, §8.2).
+      before = !runModes.includes(e.mode) ? null : game.dailyKey !== null ? (game.progress.dailyBest(game.dailyKey)?.score ?? null) : (game.progress.bestRun(e.dial)?.score ?? null);
     });
     // The run's story (route strip, fights by situation) is folded from the run director's facts (#201, design §14.3:
     // `sectorEntered`, `sectorEnded`, `contactSettled` with its card, `runBanked`) and the player's health events. The
@@ -109,6 +110,7 @@ export const feature = defineFeature({
       },
       onNewRun: () => card.hide(),
       isClean: () => clean,
+      dailyDate: () => game.dailyKey,
       firstRating: (mode) => mode === PLACEMENT_MODE,
     });
     game.onReset(() => {

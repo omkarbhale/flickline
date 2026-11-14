@@ -34,6 +34,8 @@
 .session-actions { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 300px; }
 .session-actions .fl-btn--primary { min-height: 52px; font-size: 18px; }
 .session-actions .fl-btn--ghost { justify-content: flex-start; min-height: 38px; }
+.session-actions .daily-btn { min-height: 44px; }
+.session-actions .fl-btn-sub { font: 500 12px/1 var(--font-num); letter-spacing: .02em; color: var(--dim); white-space: nowrap; }
 
 .modes-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
 .modes-head .fl-panel-title { margin: 0; }

@@ -21,6 +21,12 @@ import { SettingsPanel, type SettingsHost, type SettingsTab } from './settingsPa
  */
 export type MenuMode = 'firstRun' | 'main' | 'pause';
 
+/** What the Daily Route button shows: today's date ("Sun 15 Nov") and the day best score so far. */
+export interface DailyView {
+  label: string;
+  best: number | null;
+}
+
 /** What the menu asks of the game, and what it reads from it. */
 export interface MenuHost extends SettingsHost {
   /** First run: enter the game (and take pointer lock); needs a user gesture. */
@@ -33,6 +39,8 @@ export interface MenuHost extends SettingsHost {
   toMenu(): void;
   /** Start Today's session (its first step, or the next one when it is under way). */
   playSession(): void;
+  /** Start today's Daily Route (design §4.8): Sweep on the date's seed. */
+  playDaily(): void;
   /** Skip the current step of the session. */
   skipStep(): void;
   /** Start one mode from its card. */
@@ -43,6 +51,8 @@ export interface MenuHost extends SettingsHost {
   cards(): CardModel[];
   /** Today's session: the plan, or the progress through it. */
   session(): SessionView;
+  /** The Daily Route of today: its date label and the day best so far (null before the first scoring run of the day). */
+  daily(): DailyView;
   /** Name of the mode in progress ("Orbit") for the pause title, or null. */
   runLabel(): string | null;
 }
@@ -78,6 +88,8 @@ export class Menu {
   private cardEls: HTMLButtonElement[] = [];
   private playBtn!: HTMLButtonElement;
   private skipBtn!: HTMLButtonElement;
+  private dailyBtn!: HTMLButtonElement;
+  private dailyNote!: HTMLElement;
 
   constructor(
     root: HTMLElement,
@@ -123,9 +135,13 @@ export class Menu {
     // --- Main ---
     this.sessionEl = h('div', { class: 'session-steps' });
     this.playBtn = button("Play today's session", { variant: 'primary', icon: 'play', key: 'Enter', onClick: () => host.playSession() });
+    this.dailyBtn = button('Daily Route', { variant: 'secondary', icon: 'play', key: 'D', onClick: () => host.playDaily() });
+    this.dailyNote = h('span', { class: 'fl-btn-sub' });
+    this.dailyBtn.querySelector('.fl-btn-label')!.after(this.dailyNote);
+    this.dailyBtn.classList.add('daily-btn');
     this.skipBtn = button('Skip step', { variant: 'ghost', icon: 'skip', key: 'K', onClick: () => host.skipStep() });
     const settingsBtn = button('Settings', { variant: 'ghost', icon: 'settings', key: 'S', onClick: () => this.openSettings() });
-    this.mainButtons = h('div', { class: 'session-actions' }, [this.playBtn, this.skipBtn]);
+    this.mainButtons = h('div', { class: 'session-actions' }, [this.playBtn, this.dailyBtn, this.skipBtn]);
     const sessionPanel = panel({ title: "Today's session", class: 'session-panel' });
     sessionPanel.body.append(this.sessionEl, this.mainButtons);
     this.cardsEl = h('div', { class: 'cards', attrs: { role: 'group', 'aria-label': 'Modes' } });
@@ -318,6 +334,8 @@ export class Menu {
     this.renderSteps(this.sessionEl, view);
     this.playBtn.querySelector('.fl-btn-label')!.textContent = view.active ? 'Continue today’s session' : 'Play today’s session';
     this.skipBtn.hidden = !view.active;
+    const daily = this.host.daily();
+    this.dailyNote.textContent = `${daily.label} · ${daily.best === null ? 'no run yet' : `day best ${daily.best.toLocaleString('en-US')}`}`;
   }
 
   private renderSteps(into: HTMLElement, view: SessionView): void {
@@ -403,6 +421,9 @@ export class Menu {
     switch (a.type) {
       case 'playSession':
         this.host.playSession();
+        break;
+      case 'playDaily':
+        this.host.playDaily();
         break;
       case 'resume':
         this.host.resume();

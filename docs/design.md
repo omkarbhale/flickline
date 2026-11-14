@@ -189,7 +189,7 @@ After the Finale the exit gate offers **Leave** (the run ends and every point is
 
 ### 4.8 The Daily Route
 
-One seed per calendar date (local time) gives every player the same route, cards, Echo personalities and doors that day (only the dial differs, because Echo profiles follow each player's own skill). The Daily Route is on the **Play** menu next to **Play**; its best score for the day is kept separately. No backend is needed and nothing is sent anywhere; online leaderboards stay *Later* (section 15).
+One seed per calendar date (local time) gives every player the same route, cards, Echo personalities and doors that day (only the dial differs, because Echo profiles follow each player's own skill). The Daily Route is on the **Play** menu next to **Play**; its best score for the day is kept separately. No backend is needed and nothing is sent anywhere; online leaderboards stay *Later* (section 15). As built (#208): the seed is `1 + fmix32(fnv1a32("flickline.daily.v1:YYYY-MM-DD")) mod 0x7fffffff` (`modes/dailyRoute.ts`; `daily.seedVersion` is bumped, with the golden seeds in its test, if a date would ever get a different route). The **Daily Route** button (key `D`) sits under **Play** on the main menu with the date and the day best; the run is Sweep on that seed, attempts are unlimited, **Enter** on its results card starts today's route again (a new date after midnight is a new route), the results card and the pace bar compare with the day best instead of the run best, and the best is stored per date in `dailyBests` (the newest 60 dates), so it survives a reload and a new local date starts empty.
 
 ### 4.9 Run end and scoring summary
 

@@ -33,6 +33,8 @@ import type { MapDef } from '../sim/mapTypes';
 import { MAPS, rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
 import { nextSeed } from '../feedback/results';
+import { dailyLabel, dailySeed, isDateKey, localDateKey } from '../modes/dailyRoute';
+import { SWEEP_MODE } from '../modes/sweep';
 import { Menu } from '../ui/menu';
 import { buildCards, titleFromId, type CardModel } from '../ui/menuModel';
 import { tier } from '../adaptive/dial';
@@ -167,6 +169,13 @@ export class Game {
   private hintWanted = false;
   /** `?seed=N` from the URL: every run uses it (shareable, replayable), else each run draws its own. */
   private readonly urlSeed: number | null;
+  /**
+   * The local date (`YYYY-MM-DD`) of the Daily Route now playing (design §4.8), null for every other run. It is set
+   * before the run's seed is applied, so listeners of `runReady` and `runEnded` read it as the run's own.
+   */
+  private dailyDate: string | null = null;
+  /** A playtest's stand-in for today's date (`daily.setDate`); null reads the clock. */
+  private dateOverride: string | null = null;
 
   constructor(canvas: HTMLCanvasElement, hudRoot: HTMLElement, menuRoot: HTMLElement, debugRoot: HTMLElement) {
     let storage: Storage | null = null;
@@ -252,6 +261,8 @@ export class Game {
       restart: () => this.restartCurrent(),
       toMenu: () => this.toMenu(),
       playSession: () => this.playSession(),
+      playDaily: () => this.launchDailyRoute(),
+      daily: () => this.dailyView(),
       skipStep: () => this.skipStep(),
       launchMode: (id) => {
         this.todaysSession.abandon();
@@ -449,10 +460,59 @@ export class Game {
     return this.urlSeed ?? (Math.floor(Math.random() * 0x7fffffff) + 1);
   }
 
-  /** Start `id` from a seed (a fresh one by default), reset the run state and take the pointer lock. */
-  launchMode(id: string, seed: number = this.newSeed()): void {
+  /** The local date the Daily Route is for right now (`YYYY-MM-DD`); it changes at local midnight. */
+  today(): string {
+    return this.dateOverride ?? localDateKey(new Date());
+  }
+
+  /** The date of the Daily Route now playing, or null when the run is not one. */
+  get dailyKey(): string | null {
+    return this.dailyDate;
+  }
+
+  /** Playtests only: the run about to be started straight on the mode host (the bot's) is the Daily Route of `key` (null: not one). */
+  markDailyRun(key: string | null): void {
+    this.dailyDate = key;
+  }
+
+  /** Playtests only: pretend today is `key` (null: the clock), to look at the day best across midnight. */
+  setToday(key: string | null): void {
+    if (key !== null && !isDateKey(key)) return;
+    this.dateOverride = key;
+    this.menu.refresh();
+  }
+
+  /** Start a run of `id`, saying whether it is the Daily Route of `daily` (a date key) or not. False for an unknown mode. */
+  private startModeRun(id: string, seed: number, daily: string | null): boolean {
+    if (!MODES[id]) return false;
+    this.modes.stop(); // the run being left ends as what it was, before the new run's date applies
+    const was = this.dailyDate;
+    this.dailyDate = daily;
+    if (this.modes.start(id, { seed })) return true;
+    this.dailyDate = was;
+    return false;
+  }
+
+  /** The Daily Route button: Sweep on the seed of today's date (unlimited attempts), pointer lock taken. */
+  launchDailyRoute(): void {
+    this.todaysSession.abandon();
+    const date = this.today();
+    this.launchMode(SWEEP_MODE, dailySeed(date, this.tunables.daily), date);
+  }
+
+  /** What the menu shows for the Daily Route: today's date and the day best so far. */
+  dailyView(): { label: string; best: number | null } {
+    const date = this.today();
+    return { label: dailyLabel(date), best: this.progress.dailyBest(date)?.score ?? null };
+  }
+
+  /**
+   * Start `id` from a seed (a fresh one by default), reset the run state and take the pointer lock. `daily` is the date
+   * key when the run is the Daily Route (see `dailyKey`).
+   */
+  launchMode(id: string, seed: number = this.newSeed(), daily: string | null = null): void {
     const t0 = performance.now();
-    if (!this.modes.start(id, { seed })) return;
+    if (!this.startModeRun(id, seed, daily)) return;
     this.dismissHint();
     this.afterRunReset();
     this.noteRestart(t0);
@@ -466,7 +526,7 @@ export class Game {
   restartCurrent(): void {
     const id = this.modes.modeId;
     if (id !== null) {
-      this.launchMode(id, this.modes.runner.seed);
+      this.launchMode(id, this.modes.runner.seed, this.dailyDate);
       return;
     }
     if (!this.restartRun()) this.resetWorld();
@@ -730,6 +790,7 @@ export class Game {
    */
   startMode(id: string, opts: { seed?: number; pinDial?: number } = {}): boolean {
     const t0 = performance.now();
+    this.dailyDate = null;
     if (!this.modes.start(id, opts)) return false;
     this.afterRunReset();
     this.noteRestart(t0);
@@ -740,6 +801,7 @@ export class Game {
   /** Abandon any run and reset the world (free play). */
   resetWorld(seed?: number): void {
     this.modes.stop();
+    this.dailyDate = null;
     this.run.cancel(seed);
     this.afterRunReset();
   }
@@ -772,6 +834,15 @@ export class Game {
   playAgain(pressedAt: number = performance.now()): boolean {
     const info = this.run.info;
     if (!info || this.run.state !== 'result') return false;
+    if (this.dailyDate !== null && !this.run.isSelfDriven) {
+      // The Daily Route again: unlimited attempts at today's route (a new date after midnight is a new route).
+      const date = this.today();
+      if (!this.startModeRun(info.mode, dailySeed(date, this.tunables.daily), date)) return false;
+      this.afterRunReset();
+      this.noteRestart(pressedAt);
+      if (!this.input.locked) this.play();
+      return true;
+    }
     // In Today's session the next run is the session's next step (it advanced when this run ended).
     // After the Placement run it is the first step of a new session: the next click is the real game (design 13.4).
     const next = this.run.isSelfDriven ? null : info.mode === PLACEMENT_MODE ? this.todaysSession.start() : this.todaysSession.next();
@@ -779,7 +850,7 @@ export class Game {
     if (this.run.isSelfDriven) {
       if (!this.run.restartRun(seed)) return false;
     } else {
-      if (!this.modes.start(next ?? info.mode, { seed })) return false;
+      if (!this.startModeRun(next ?? info.mode, seed, null)) return false;
     }
     this.afterRunReset();
     this.noteRestart(pressedAt);
@@ -797,7 +868,7 @@ export class Game {
     if (!info || this.run.state !== 'result') return false;
     if (this.run.isSelfDriven) {
       if (!this.run.restartRun(info.seed)) return false;
-    } else if (!this.modes.start(info.mode, { seed: info.seed })) return false;
+    } else if (!this.startModeRun(info.mode, info.seed, this.dailyDate)) return false;
     this.afterRunReset();
     this.noteRestart(pressedAt);
     if (!this.input.locked) this.play();
@@ -806,6 +877,7 @@ export class Game {
 
   /** What the results card's primary button says: the session's next step, or null for plain "Play again". */
   nextRunLabel(): string | null {
+    if (this.dailyDate !== null) return 'Daily Route again';
     const info = this.run.info;
     const next = this.run.isSelfDriven
       ? null

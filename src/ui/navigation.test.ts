@@ -37,6 +37,10 @@ describe('pause menu', () => {
 });
 
 describe('main menu', () => {
+  it('D plays the Daily Route, but not while typing', () => {
+    expect(act('KeyD')).toBe('playDaily');
+    expect(act('KeyD', { typing: true })).toBeUndefined();
+  });
   it('Enter plays today’s session unless a button has focus', () => {
     expect(act('Enter')).toBe('playSession');
     expect(act('Enter', { onButton: true })).toBeUndefined();
