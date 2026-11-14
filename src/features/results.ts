@@ -1,8 +1,10 @@
 import { defineFeature } from '../app/feature';
 import { MODES } from '../app/modeHost';
+import { scriptedRun } from '../debug/scriptedSweep';
 import { PLACEMENT_MODE } from '../modes/placement';
 import '../feedback/cuePlanner'; // declares the cueScheduleSet event
 import { ResultsRecorder, type CardModel, type RatedSkill } from '../feedback/results';
+import { RunStoryTracker, storyConfigFrom } from '../feedback/runStory';
 import { keyLabel } from '../settings/keys';
 import { ResultsCard } from '../ui/resultsCard';
 
@@ -18,6 +20,13 @@ declare module '../debug/hook' {
       state(): { open: boolean; card: CardModel | null; buildMs: number; appearMs: number; restartToFrameMs: number; budgetMs: number };
       playAgain(): boolean;
       pb(score: number | null): void;
+      /**
+       * Play a scripted, seeded Sweep run (sectors, contacts with their cards, kills, damage) through the event bus and
+       * end it, so the card can be looked at without a playthrough. `reason` is how it ends (default `death`);
+       * `cause` stands in for the death cause line (#123) until the attribution engine provides one.
+       * Returns the sectors entered and the points scored.
+       */
+      demo(opts?: { seed?: number; sectors?: number; reason?: string; cause?: string; damageScale?: number }): { sectors: number; score: number };
     };
   }
 }
@@ -40,6 +49,7 @@ export const feature = defineFeature({
   setup(game) {
     const card = new ResultsCard(document.body, {
       onPlayAgain: (pressedAt) => void game.playAgain(pressedAt),
+      onReplay: (pressedAt) => void game.replaySeed(pressedAt),
       onMenu: () => game.openMenu(),
       blocked: () => game.menu.isOpen,
       isConfirm: (code) => game.settings.get().keys.confirm.includes(code),
@@ -67,13 +77,25 @@ export const feature = defineFeature({
     let before: number | null = null;
     // A playtest's fake best (`results.pb`); undefined = the real one.
     let fake: number | null | undefined;
+    // A playtest's stand-in death cause line (`results.demo`), until the attribution engine (#123) provides one.
+    let fakeCause: string | null = null;
     const noBest = game.tunables.progress.noBestModes;
     game.bus.on('runReady', (e) => {
       before = noBest.includes(e.mode) ? null : (game.progress.bestAt(e.mode, e.dial)?.score ?? null);
     });
+    // The run's story (route strip, fights by situation) is folded from the run's events. `sectorEntered`,
+    // `sectorEnded`, `runBanked` and the card on `contactSettled` come from the run director (#201, design §14.3);
+    // until their declarations are merged into `GameEvents` the bus is read through the story's own structural
+    // event map, so nothing here depends on the director's code.
+    const story = new RunStoryTracker(storyConfigFrom(game.tunables.player, game.tunables.results.run.routeSectors, game.tunables.results.run.maxSectors));
+    game.bus.onAny((type, payload) => {
+      if (RunStoryTracker.reads(type)) story.ingest(type, payload as never);
+    });
     const recorder = new ResultsRecorder({
+      story,
       bus: game.bus,
       run: game.run,
+      deathCause: () => fakeCause,
       ratings: game.modes.skills,
       skillOf,
       pb: { best: () => (fake === undefined ? before : fake), keepsBest: (mode) => !noBest.includes(mode) },
@@ -108,6 +130,17 @@ export const feature = defineFeature({
         playAgain: () => game.playAgain(performance.now()),
         pb(score) {
           fake = score;
+        },
+        demo(opts = {}) {
+          fakeCause = opts.cause ?? null;
+          const { events, expect } = scriptedRun(opts.seed ?? 7, opts.sectors ?? 6, opts.reason ?? 'death', game.world.tick, opts.damageScale);
+          const score = expect.kills * 150;
+          for (const e of events) {
+            // The scripted events are in the run's own vocabulary; `scoreAwarded` is the mode framework's total.
+            if (e.type === 'runEnded') game.bus.emit('scoreAwarded' as never, { total: score } as never);
+            game.bus.emit(e.type as never, e.data as never);
+          }
+          return { sectors: expect.sectors.length, score };
         },
       },
     });

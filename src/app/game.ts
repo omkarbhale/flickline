@@ -777,6 +777,23 @@ export class Game {
     return true;
   }
 
+  /**
+   * The results card's `R` (design §8.2): the same mode, dial and seed again, straight back to `ready`.
+   * Inside Today's session (the mode host drives the run) a replay starts the finished mode again on its own
+   * seed without touching the session's plan. False when there is no finished run to replay.
+   */
+  replaySeed(pressedAt: number = performance.now()): boolean {
+    const info = this.run.info;
+    if (!info || this.run.state !== 'result') return false;
+    if (this.run.isSelfDriven) {
+      if (!this.run.restartRun(info.seed)) return false;
+    } else if (!this.modes.start(info.mode, { seed: info.seed })) return false;
+    this.afterRunReset();
+    this.noteRestart(pressedAt);
+    if (!this.input.locked) this.play();
+    return true;
+  }
+
   /** What the results card's primary button says: the session's next step, or null for plain "Play again". */
   nextRunLabel(): string | null {
     const info = this.run.info;
