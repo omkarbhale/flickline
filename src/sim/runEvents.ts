@@ -32,3 +32,7 @@ export interface RunEvents {
   surgeEnded: { tick: number };
   medalAwarded: { tick: number; id: string };
 }
+
+declare module '../core/gameEvents' {
+  interface GameEvents extends RunEvents {}
+}

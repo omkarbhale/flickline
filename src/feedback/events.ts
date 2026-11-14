@@ -2,6 +2,9 @@
  * Events produced by the feedback layer (streaks, chains, medals), read by presentation (audio,
  * HUD). Declared here so consumers can code against the contract before the producer lands
  * (design 14.3). Payloads are read-only and valid only during the callback.
+ *
+ * This is the consumers' view: the producer's own map (`StreakEvents` in feedback/streaks.ts, a
+ * superset payload, registered through `ModeEvents`) is what puts these events on `GameEvents`.
  */
 export interface FeedbackEvents {
   /**

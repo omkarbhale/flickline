@@ -7,7 +7,7 @@ import { Rng } from '../core/rng';
 import { TICK_RATE } from '../core/time';
 import { directionFromAngles, vec3, type Vec3 } from '../core/vec3';
 import { testRoom } from './levels';
-import { createTickInput, SIM_EVENT_TYPES, type LevelDef, type SimEvents, type TickInput } from './types';
+import { createTickInput, type LevelDef, type SimEvents, type TickInput } from './types';
 import {
   applyRecoilKick,
   damageFor,
@@ -30,9 +30,7 @@ function setup(level: LevelDef = testRoom, seed = 1) {
   const world = new World({ level, tunables: cloneTunables(), seed });
   const bus = new EventBus<SimEvents>();
   const log: { type: keyof SimEvents; tick: number; data: unknown }[] = [];
-  for (const t of SIM_EVENT_TYPES) {
-    bus.on(t, (e) => log.push({ type: t, tick: world.tick, data: JSON.parse(JSON.stringify(e)) }));
-  }
+  bus.onAny((type, e) => log.push({ type, tick: world.tick, data: JSON.parse(JSON.stringify(e)) }));
   const input = createTickInput();
   /** Run n ticks; `jump`, `reload` and `switchTo` apply to the first tick only. */
   const run = (n: number, patch: Partial<TickInput> = {}): void => {

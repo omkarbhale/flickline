@@ -34,3 +34,10 @@ export const player: PlayerTunables = {
   tag: { speedScale: 0.275, rampInSec: 0.1, releaseSec: 0.5 },
   flinch: { strength: 1, pitchHeadDeg: 2.0, pitchBodyDeg: 0.6, pitchLegDeg: 0.3, recoverySec: 0.25, maxDeg: 4 },
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { player };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}

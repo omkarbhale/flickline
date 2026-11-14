@@ -50,3 +50,10 @@ export const scoring: ScoringTunables = {
   chainWindowSec: 1.5,
   missBreaksStreak: true,
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { scoring };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}

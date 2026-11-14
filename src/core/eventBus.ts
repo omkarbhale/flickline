@@ -5,6 +5,9 @@ export interface EventSink<E> {
 
 type Listener<T> = (payload: T) => void;
 
+/** Sees every event of a bus: `type` and its payload (same lifetime rules as a listener's). */
+export type Tap<E> = <K extends keyof E>(type: K, payload: E[K]) => void;
+
 /** Read side of a bus: what presentation code depends on (so any superset bus fits). */
 export interface Subscribable<E> {
   on<K extends keyof E>(type: K, fn: Listener<E[K]>): () => void;
@@ -22,6 +25,7 @@ export interface Subscribable<E> {
  */
 export class EventBus<E> implements EventSink<E>, Subscribable<E> {
   private listeners = new Map<keyof E, Listener<never>[]>();
+  private taps: Tap<E>[] = [];
 
   on<K extends keyof E>(type: K, fn: Listener<E[K]>): () => void {
     const prev = this.listeners.get(type) ?? [];
@@ -38,13 +42,26 @@ export class EventBus<E> implements EventSink<E>, Subscribable<E> {
     );
   }
 
+  /**
+   * Subscribe to every event type (event logs, test recorders). A tap runs after the type's
+   * listeners, so events those listeners emit are seen first. Copy-on-write like `on`.
+   */
+  onAny(fn: Tap<E>): () => void {
+    this.taps = [...this.taps, fn];
+    return () => {
+      this.taps = this.taps.filter((t) => t !== fn);
+    };
+  }
+
   emit<K extends keyof E>(type: K, payload: E[K]): void {
     const list = this.listeners.get(type) as Listener<E[K]>[] | undefined;
-    if (!list) return;
-    for (let i = 0; i < list.length; i++) list[i]!(payload);
+    if (list) for (let i = 0; i < list.length; i++) list[i]!(payload);
+    const taps = this.taps;
+    for (let i = 0; i < taps.length; i++) taps[i]!(type, payload);
   }
 
   clear(): void {
     this.listeners.clear();
+    this.taps = [];
   }
 }

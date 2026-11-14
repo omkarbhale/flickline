@@ -38,3 +38,10 @@ export const hud: HudTunables = {
   chainLabels: ['', '', 'PAIR', 'TRIPLE', 'QUAD', 'SURGE CHAIN'],
   timerTenthsBelowSec: 10,
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { hud };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}

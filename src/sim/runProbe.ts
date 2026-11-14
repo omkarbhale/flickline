@@ -7,6 +7,20 @@ import { createZoneHit } from './hitZones';
 import type { TargetField } from './targets';
 import type { PlayerState, SimEvents, TickInput, WeaponState } from './types';
 
+/** Measurement events the run probe emits (part of `SimEvents`). */
+export interface ProbeEvents {
+  /** Aim ray entered (`on`) or left the padded hit volume of a visible target (edge events). */
+  aimOnTarget: { tick: number; on: boolean; id: number };
+  /** Vertical angle (radians) between the aim ray and head-centre height, sampled while moving with no enemy visible. */
+  headHeightSampled: { tick: number; err: number };
+  /** Horizontal speed first fell to the accuracy threshold after a stop or counter-strafe input. */
+  playerStopped: { tick: number; latencyMs: number };
+}
+
+declare module './types' {
+  interface SimEvents extends ProbeEvents {}
+}
+
 /**
  * Measurement facts the stat definitions need that no other system produces: when the aim ray
  * enters/leaves a target, head-height crosshair samples while moving, and how long a stop takes.

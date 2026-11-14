@@ -45,3 +45,10 @@ export const movement: MovementTunables = {
   maxPitchDeg: 89,
   footstepStride: 2.2,
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { movement };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}

@@ -12,3 +12,10 @@ export interface ProfileTunables {
 export const profile: ProfileTunables = {
   chipLabels: { new: 'New', some: 'Some', experienced: 'Experienced', competitive: 'Competitive' },
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { profile };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}

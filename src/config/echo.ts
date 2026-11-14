@@ -80,3 +80,10 @@ export const echo: EchoTunables = {
   beacon: { segments: 12, rings: 8 },
   gnat: { radius: 0.11, stretch: 1.35, spinRadPerSec: 6, tiltRad: 0.5 },
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { echo };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}

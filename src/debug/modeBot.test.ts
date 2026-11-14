@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ModeHost } from '../app/modeHost';
-import type { GameEvents } from '../app/events';
+import type { GameEvents } from '../core/gameEvents';
 import { cloneTunables } from '../config/tunables';
 import { EventBus } from '../core/eventBus';
 import { zoneCentre } from '../sim/hitZones';

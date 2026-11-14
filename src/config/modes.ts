@@ -79,3 +79,10 @@ export const modes: ModeTunables = {
     durationSec: 45,
   },
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { modes };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}
