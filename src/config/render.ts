@@ -16,6 +16,8 @@ export interface QualityPreset {
   gridDetail: 0 | 1 | 2;
   /** Faint horizon glow in the sky (and the matching fog colour). */
   skyGlow: boolean;
+  /** Inverted-hull outline on enemies (design section 11: off at Low, on at High). */
+  echoOutline: boolean;
 }
 
 export interface RenderTunables {
@@ -44,9 +46,9 @@ export interface RenderTunables {
 
 export const render: RenderTunables = {
   quality: {
-    low: { pixelRatioCap: 1, antialias: false, postProcessing: false, maxAnisotropy: 1, gridDetail: 0, skyGlow: false },
-    medium: { pixelRatioCap: 1.5, antialias: true, postProcessing: false, maxAnisotropy: 4, gridDetail: 1, skyGlow: true },
-    high: { pixelRatioCap: 2, antialias: true, postProcessing: true, maxAnisotropy: 8, gridDetail: 2, skyGlow: true },
+    low: { pixelRatioCap: 1, antialias: false, postProcessing: false, maxAnisotropy: 1, gridDetail: 0, skyGlow: false, echoOutline: false },
+    medium: { pixelRatioCap: 1.5, antialias: true, postProcessing: false, maxAnisotropy: 4, gridDetail: 1, skyGlow: true, echoOutline: false },
+    high: { pixelRatioCap: 2, antialias: true, postProcessing: true, maxAnisotropy: 8, gridDetail: 2, skyGlow: true, echoOutline: true },
   },
   budget: { frameMs: 1000 / 144, drawCalls: 150, triangles: 500_000, tickMs: 0.5 },
   fogNear: 30,

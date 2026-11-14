@@ -2,10 +2,12 @@ import type { Game } from '../app/game';
 import { MODES } from '../app/modeHost';
 import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
 import type { CueId } from '../config/audio';
+import { ECHO_PRESET_IDS, type EchoPresetId } from '../config/palette';
 import type { RunStats } from '../feedback/statTracker';
 import type { RunState, StartRunOptions } from '../modes/runController';
 import type { RunEndReason } from '../modes/contracts';
 import type { WeaponId } from '../config/weapon';
+import type { ShowcaseItem } from '../render/targetsView';
 import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
 import { zoneCentre } from '../sim/hitZones';
 import { playMode, type BotHost, type BotOptions, type BotResult } from './modeBot';
@@ -107,6 +109,15 @@ export interface FlicklineDebug {
   crosshair(): unknown;
   /** Import a crosshair share code through the real parser; returns `{ok, error?}`. */
   setCrosshairCode(code: string): { ok: boolean; error?: string };
+  /** Enemy colour preset: ember, magenta, lime, amber or contrast. Returns false for an unknown id. */
+  echoPreset(id: EchoPresetId): boolean;
+  /**
+   * Draw display-only enemy props (`look`: echo | beacon | gnat) next to the real targets, for
+   * screenshots and the Gnat (no sim kind yet). `null` clears them. Returns how many were set.
+   */
+  echoShowcase(items: ShowcaseItem[] | null): number;
+  /** Pin the Echo clock (kill shards, Gnat spin) at `sec` seconds, or resume it with null. */
+  echoClock(sec: number | null): void;
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
   /** Run lifecycle (reset-only restart, event log, stats). Runs started by `mode.start` are mirrored here too. */
@@ -349,6 +360,22 @@ export function installDebugHook(game: Game): FlicklineDebug {
       if (!res.ok) return { ok: false, error: res.error };
       game.settings.set({ crosshair: res.params });
       return { ok: true };
+    },
+    echoPreset(id) {
+      if (!(ECHO_PRESET_IDS as readonly string[]).includes(id)) return false;
+      game.renderer.setEchoPreset(id);
+      game.renderNow();
+      return true;
+    },
+    echoShowcase(items) {
+      const view = game.renderer.enemies;
+      if (view) view.showcase = items;
+      game.renderNow();
+      return items?.length ?? 0;
+    },
+    echoClock(sec) {
+      game.renderer.enemies?.setTime(sec);
+      game.renderNow();
     },
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);

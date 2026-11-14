@@ -72,6 +72,36 @@ export const env = {
   platform: scaleLinear(palette.steel, 0.2),
 } as const;
 
+/** Enemy colour presets (design section 11): accessibility and personal visibility. */
+export const ECHO_PRESET_IDS = ['ember', 'magenta', 'lime', 'amber', 'contrast'] as const;
+export type EchoPresetId = (typeof ECHO_PRESET_IDS)[number];
+
+export interface EchoPreset {
+  /** Body colour: flat fill, the colour the 7:1 guarantee is measured on. */
+  color: number;
+  /** Head node colour (always at least as bright as the body, so the head stays the brightest part). */
+  head: number;
+  /** Inverted-hull outline colour. */
+  outline: number;
+  /** Draw the outline even where the quality preset has it off (Contrast is defined by it). */
+  outlineAlways: boolean;
+}
+
+/**
+ * Every body and head colour reaches >= 7:1 against all rendered environment surfaces in `env`
+ * (`palette.test.ts` checks the table). The Echo shader only ever lifts colour towards white
+ * (facets, rim, flash), never darkens it, so these are also the minimum rendered colours.
+ * `ember` is the design default. `contrast` is near-white (so its head node can still be a
+ * brighter white) with a black outline.
+ */
+export const echoPresets: Readonly<Record<EchoPresetId, EchoPreset>> = {
+  ember: { color: palette.ember, head: palette.core, outline: palette.ink, outlineAlways: false },
+  magenta: { color: 0xff6ee6, head: 0xffe3fa, outline: palette.ink, outlineAlways: false },
+  lime: { color: 0x9cff3d, head: 0xf4ffe0, outline: palette.ink, outlineAlways: false },
+  amber: { color: 0xffc21a, head: 0xfff4cc, outline: palette.ink, outlineAlways: false },
+  contrast: { color: 0xdcdcdc, head: 0xffffff, outline: 0x000000, outlineAlways: true },
+};
+
 /** Brightness (linear-light weight of `trim`) added to the sky at the horizon by the glow. */
 export const HORIZON_GLOW = 0.004;
 
