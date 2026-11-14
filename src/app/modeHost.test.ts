@@ -131,4 +131,46 @@ describe('ModeHost on the real sim', () => {
       delete modes['__light'];
     }
   });
+
+  it('keeps benchmark trials out of the matched posterior (a mode with trialSource baseline, design 8.5)', () => {
+    const tunables = cloneTunables();
+    const world = new World({ level: rangeMap, tunables, seed: 5 });
+    const bus = new EventBus<GameEvents>();
+    const host = new ModeHost(world, bus, rangeMap, tunables);
+    const modes = MODES as Record<string, ModeDef<never>>;
+    modes['__bench'] = { ...(testMode as ModeDef<never>), trialSource: 'baseline' };
+    const sources: (string | undefined)[] = [];
+    bus.on('skillTrial', (e) => sources.push(e.source));
+    try {
+      const before = host.skills.rating('precision');
+      expect(host.start('__bench', { seed: 5 })).toBe(true);
+      const input = createTickInput();
+      const c = vec3();
+      for (let i = 0; i < 128 * 8; i++) {
+        input.fire = false;
+        for (const t of world.targets) {
+          if (!t.alive) continue;
+          zoneCentre(c, t, tunables.targets.hit, tunables.targets.kinds[t.kind], 'head');
+          const p = world.player;
+          const dx = c.x - p.pos.x, dy = c.y - (p.pos.y + p.eyeHeight), dz = c.z - p.pos.z;
+          input.yaw = Math.atan2(-dx, -dz);
+          input.pitch = Math.asin(dy / Math.hypot(dx, dy, dz));
+          input.fire = host.runner.phase === 'live' && i % 40 === 0;
+          break;
+        }
+        world.step(input, bus);
+        host.tick();
+      }
+      expect(sources.length).toBeGreaterThan(2);
+      expect(sources.every((x) => x === 'baseline')).toBe(true);
+      expect(host.skills.trialCount('precision')).toBe(0);
+      expect(host.skills.rating('precision')).toBe(before);
+      // A matched trial (any other mode, or no tag) still feeds it.
+      bus.emit('skillTrial', { tick: 1, t: 0, skill: 'precision', itemDifficulty: 40, success: true, source: 'matched' });
+      bus.emit('skillTrial', { tick: 1, t: 0, skill: 'precision', itemDifficulty: 40, success: true });
+      expect(host.skills.trialCount('precision')).toBe(2);
+    } finally {
+      delete modes['__bench'];
+    }
+  });
 });
