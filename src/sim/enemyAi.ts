@@ -33,6 +33,13 @@ export interface StrafeParams {
   /** The line it strafes along (feet height). Default: through the spawn point, square to the player. */
   laneA?: Vec3;
   laneB?: Vec3;
+  /**
+   * A route, not a strafe line (Sweep's meet sectors, design §4.2): the Echo starts at `laneA` and
+   * runs or walks to `laneB` without stopping, keeps moving through its reaction once it sees the
+   * player, then brakes (the spec's braking) and shoots from the stop. After its first stop it strafes
+   * on the line like any Strafer. `speed` is its gait: a walk is silent, a run is heard.
+   */
+  travel?: boolean;
 }
 
 /** Where and how a Peeker peeks (a map's `peek` anchor, design §10.2). */
@@ -80,6 +87,8 @@ export interface EnemyAi {
   standSec: number;
   /** Speed the current stop started from (the braking bands scale with it). */
   brakeFrom: number;
+  /** On its route (`StrafeParams.travel`): still heading for the far end of the lane, before its first stop. */
+  travel: boolean;
 
   // ---- peeker ----------------------------------------------------------------------------------
   pattern: PeekPattern;
@@ -130,7 +139,7 @@ export interface EnemyAi {
 
 export function createEnemyAi(): EnemyAi {
   return {
-    axis: vec3(1, 0, 0), laneOrigin: vec3(), laneLen: 0, s: 0, vel: 0, dir: 1, speed: 0, legSec: 0, standSec: 0, brakeFrom: 0,
+    axis: vec3(1, 0, 0), laneOrigin: vec3(), laneLen: 0, s: 0, vel: 0, dir: 1, speed: 0, legSec: 0, standSec: 0, brakeFrom: 0, travel: false,
     pattern: 'shoulder', hold: vec3(), out: vec3(), u: 0, uTarget: 0, step: 0, stepHoldTicks: 0, wideSec: 0, wideDrawSec: 0,
     crouchedHold: false, windowEndTick: 0,
     fireOn: false, initiator: false, expectation: 'attending', weapon: 'kestrel', tellSec: 0, reactionSec: 0, hitChance: 0,
@@ -143,7 +152,7 @@ export function createEnemyAi(): EnemyAi {
 export function resetEnemyAi(a: EnemyAi): void {
   a.axis.x = 1; a.axis.y = 0; a.axis.z = 0;
   a.laneOrigin.x = a.laneOrigin.y = a.laneOrigin.z = 0;
-  a.laneLen = 0; a.s = 0; a.vel = 0; a.dir = 1; a.speed = 0; a.legSec = 0; a.standSec = 0; a.brakeFrom = 0;
+  a.laneLen = 0; a.s = 0; a.vel = 0; a.dir = 1; a.speed = 0; a.legSec = 0; a.standSec = 0; a.brakeFrom = 0; a.travel = false;
   a.pattern = 'shoulder';
   a.hold.x = a.hold.y = a.hold.z = 0;
   a.out.x = a.out.y = a.out.z = 0;
