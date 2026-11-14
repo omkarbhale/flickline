@@ -1,5 +1,5 @@
 import type { Vec3 } from '../core/vec3';
-import type { Anchor, AnchorKind, AnchorOfKind, MapDef } from './mapTypes';
+import type { Anchor, AnchorKind, AnchorOfKind, MapDef, SectorDef, SectorRole, Stance } from './mapTypes';
 
 /**
  * Anchor lookups for the mode scheduler: "pick anchors by kind, tag and distance band; nothing
@@ -53,9 +53,59 @@ export function enemyFeetOf(anchors: readonly Anchor[]): Vec3[] {
       case 'spray-alcove':
         out.push(a.post);
         break;
+      case 'hold':
+        out.push(a.pos);
+        break;
       default:
         break;
     }
   }
   return out;
+}
+
+// --- sectors (design 4.2, 10.2) --------------------------------------------------------------
+
+export function sectorById(map: MapDef, id: string): SectorDef | undefined {
+  return map.sectors.find((s) => s.id === id);
+}
+
+/** Sectors the run director may give `role` (a sector can list several roles). */
+export function sectorsByRole(map: MapDef, role: SectorRole): SectorDef[] {
+  return map.sectors.filter((s) => s.role.includes(role));
+}
+
+/** Feet position a placed Echo stands at on a hold anchor: a `hold` anchor's `pos`, a `peek` anchor's `hold`; `undefined` for any other kind. */
+export function holdStandPos(a: Anchor): Vec3 | undefined {
+  if (a.kind === 'hold') return a.pos;
+  if (a.kind === 'peek') return a.hold;
+  return undefined;
+}
+
+/** Stance of an Echo placed on a hold anchor (peek holds stand). */
+export function holdStance(a: Anchor): Stance {
+  return a.kind === 'hold' && a.stance === 'crouch' ? 'crouch' : 'stand';
+}
+
+/** The anchors a sector places Echoes on, in the order the sector lists them. */
+export function holdAnchorsOf(map: MapDef, sector: SectorDef): Anchor[] {
+  const out: Anchor[] = [];
+  for (const id of sector.holdAnchors) {
+    const a = anchorById(map, id);
+    if (a !== undefined && holdStandPos(a) !== undefined) out.push(a);
+  }
+  return out;
+}
+
+/** Horizontal distance from the sector's entry to where an Echo on `a` stands, metres. */
+export function distanceFromEntry(sector: SectorDef, a: Anchor): number {
+  const p = holdStandPos(a);
+  return p === undefined ? Infinity : Math.hypot(p.x - sector.entry.x, p.z - sector.entry.z);
+}
+
+/** A sector's hold anchors whose distance from its entry lies in `[min, max]` metres (the director's "close / mid / long" bands). */
+export function holdAnchorsInBand(map: MapDef, sector: SectorDef, min: number, max: number): Anchor[] {
+  return holdAnchorsOf(map, sector).filter((a) => {
+    const d = distanceFromEntry(sector, a);
+    return d >= min && d <= max;
+  });
 }

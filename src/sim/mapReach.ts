@@ -10,6 +10,9 @@ import type { BoxDef } from './types';
  * edge), provided the standing hull fits there. Jumps are not counted: every raised hold must be
  * reachable by walking, so it is reachable by everyone. Used by the map lint; allocates freely
  * (it runs once per map, in the lint CLI and in tests, never in the game).
+ *
+ * With `within`, the fill stays inside that horizontal box (a sector's region): a point is then
+ * reachable only if a walk that never leaves the box gets there.
  */
 export interface WalkReach {
   /** True if a level within `tolY` of `y` was reached in the cell containing (x, z) or one of its neighbours. */
@@ -27,6 +30,7 @@ export function walkReach(
   bounds: { min: Vec3; max: Vec3 },
   start: Vec3,
   mv: MovementTunables,
+  within?: { min: Vec3; max: Vec3 },
 ): WalkReach {
   const hw = mv.hullHalfWidth;
   const step = mv.stepHeight;
@@ -67,6 +71,7 @@ export function walkReach(
         if (jx < 0 || jz < 0 || jx >= nx || jz >= nz) continue;
         const px = cx(jx);
         const pz = cz(jz);
+        if (within !== undefined && (px < within.min.x || px > within.max.x || pz < within.min.z || pz > within.max.z)) continue;
         const floor = supportBelow(boxes, px, pz, hw, y + step);
         if (floor === -Infinity) continue; // nothing to stand on
         if (hullBlocked(boxes, px, floor, pz, hw, mv.standHeight)) continue;
