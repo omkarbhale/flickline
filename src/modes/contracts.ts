@@ -108,6 +108,12 @@ export interface SourceEvents {
   shotImpact: { tick: number; onTarget: boolean; targetId?: number; zone?: 'head' | 'body' | 'leg' | null };
 }
 
+/** Run-level facts about the player the runner listens to (not mode events: modes never see them). */
+export interface PlayerSourceEvents {
+  /** The player's HP reached 0: the run ends with reason `death` (design §14.3). */
+  playerDied: { tick: number };
+}
+
 /** Events the framework emits. §14.3 names and payloads, plus `beatStarted` and `scoreAwarded`. */
 export interface ModeEvents extends StreakEvents {
   runReady: { tick: number; mode: ModeId; seed: number; dial: number };
