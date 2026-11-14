@@ -1,7 +1,8 @@
 import { EventBus } from '../core/eventBus';
 import { FixedStepper } from '../core/fixedStep';
-import { TICK_DT } from '../core/time';
+import { TICK_DT, TICK_RATE } from '../core/time';
 import { cloneTunables, tunables as liveTunables, type Tunables } from '../config/tunables';
+import type { WeaponId } from '../config/weapon';
 import { AudioEngine } from '../audio/audioEngine';
 import { attachSfx } from '../audio/sfx';
 import { DebugOverlay } from '../debug/overlay';
@@ -11,16 +12,11 @@ import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
 import { SettingsStore } from '../settings/settings';
-import { createTickInput, type SimEvents, type TickInput } from '../sim/types';
+import { createTickInput, SIM_EVENT_TYPES, type SimEvents, type TickInput } from '../sim/types';
 import { testRoom } from '../sim/levels';
 import { World } from '../sim/world';
 import { Menu } from '../ui/menu';
 import type { GameEvents } from './events';
-
-const SIM_EVENT_TYPES: (keyof SimEvents)[] = [
-  'shotFired', 'shotImpact', 'targetHit', 'targetKilled', 'targetRespawned',
-  'playerJumped', 'playerLanded', 'footstep',
-];
 
 export interface LoggedEvent {
   type: keyof SimEvents;
@@ -52,7 +48,7 @@ export class Game {
   /** Debug: tick in real time even without pointer lock. */
   forceRun = false;
   /** Debug: sticky scripted input merged over live input on every frame. */
-  override: Partial<Pick<TickInput, 'moveX' | 'moveZ' | 'jump' | 'crouch' | 'walk' | 'fire'>> | null = null;
+  override: Partial<Pick<TickInput, 'moveX' | 'moveZ' | 'jump' | 'crouch' | 'walk' | 'fire' | 'reload' | 'switchTo'>> | null = null;
   menuHidden = false;
   readonly eventLog: LoggedEvent[] = [];
 
@@ -89,7 +85,7 @@ export class Game {
     attachSfx(this.bus, this.audio);
     this.session.attach(this.bus);
 
-    this.hud = new Hud(hudRoot, this.bus, this.session);
+    this.hud = new Hud(hudRoot, this.bus, this.session, this.world.weapon, this.tunables.weapon);
     this.menu = new Menu(menuRoot, this.settings, this.tunables, () => this.play());
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
@@ -153,6 +149,8 @@ export class Game {
       if (o.crouch !== undefined) inp.crouch = o.crouch;
       if (o.walk !== undefined) inp.walk = o.walk;
       if (o.fire !== undefined) inp.fire = inp.fire || o.fire;
+      if (o.reload !== undefined) inp.reload = inp.reload || o.reload;
+      if (o.switchTo !== undefined) inp.switchTo = o.switchTo;
     }
 
     let ticks = 0;
@@ -164,6 +162,7 @@ export class Game {
         this.perf.recordTick(performance.now() - t0);
         // One-shot inputs apply to the first tick of the frame only.
         inp.jump = false;
+        inp.reload = false;
         inp.fire = this.input.fireHeld || (o?.fire ?? false);
       }
     } else {
@@ -198,6 +197,8 @@ export class Game {
     s.crouch = partial.crouch ?? false;
     s.walk = partial.walk ?? false;
     s.fire = partial.fire ?? false;
+    s.reload = partial.reload ?? false;
+    s.switchTo = partial.switchTo ?? -1;
     if (partial.yaw !== undefined || partial.pitch !== undefined) {
       this.input.setLook(partial.yaw ?? this.input.yaw, partial.pitch ?? this.input.pitch);
     }
@@ -206,8 +207,54 @@ export class Game {
       s.pitch = this.input.pitch;
       this.world.step(s, this.bus);
       s.jump = false;
+      s.reload = false;
     }
     this.renderNow();
+  }
+
+  /**
+   * Debug: fire exactly one shot of `id` with deterministic stepping. Switches to the weapon and
+   * waits out its equip, reload and cooldown as the sim requires (so back-to-back calls with an
+   * automatic weapon are a held spray at the real fire rate; a semi-auto gets a fresh press each
+   * call). Returns copies of that shot's `shotFired` and `shotImpact` (null if it hit nothing).
+   */
+  fireOnce(id: WeaponId): { shot: unknown; impact: unknown } {
+    const w = this.world.weapon;
+    const slot = w.slots.findIndex((sl) => sl.id === id);
+    if (slot < 0) throw new Error(`weapon '${id}' is not in the loadout (${w.slots.map((sl) => sl.id).join(', ')})`);
+    const s = this.scriptInput;
+    s.moveX = s.moveZ = 0;
+    s.jump = s.crouch = s.walk = s.reload = false;
+    s.yaw = this.input.yaw;
+    s.pitch = this.input.pitch;
+    s.switchTo = slot;
+    s.fire = false;
+    if (w.active !== slot) this.world.step(s, this.bus); // start the swap
+    const before = w.shots;
+    let shot: unknown = null;
+    let impact: unknown = null;
+    const off1 = this.bus.on('shotFired', (e) => {
+      shot = JSON.parse(JSON.stringify(e));
+    });
+    const off2 = this.bus.on('shotImpact', (e) => {
+      if (impact === null) impact = JSON.parse(JSON.stringify(e));
+    });
+    const semi = this.tunables.weapon[id].fireMode === 'semi';
+    try {
+      const maxTicks = TICK_RATE * 10;
+      for (let i = 0; i < maxTicks && w.shots === before; i++) {
+        // A semi-auto press during equip/reload/cooldown is spent, so release and press again.
+        s.fire = !semi || !s.fire;
+        this.world.step(s, this.bus);
+      }
+    } finally {
+      off1();
+      off2();
+      s.switchTo = -1;
+    }
+    this.renderNow();
+    if (w.shots === before) throw new Error(`weapon '${id}' did not fire within 10 s`);
+    return { shot, impact };
   }
 
   resetWorld(seed?: number): void {
@@ -245,7 +292,7 @@ export class Game {
         grounded: p.grounded, crouching: p.crouching,
         eyeHeight: p.eyeHeight, height: p.height,
       },
-      weapon: { ...w.weapon },
+      weapon: { ...w.weapon, slots: w.weapon.slots.map((sl) => ({ ...sl })) },
       targets: w.targets.map((t) => ({ id: t.id, pos: { ...t.pos }, hp: t.hp, alive: t.alive, radius: t.radius })),
       session: { shots: this.session.shots, hits: this.session.hits, kills: this.session.kills },
       settings: { ...this.settings.get() },

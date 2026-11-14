@@ -4,7 +4,15 @@ import { TICK_DT } from '../core/time';
 import { copy, vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
 import { levelTargetsReset } from './targetsInit';
-import { createTraceResult, stepWeapon, type TraceResult } from './weapon';
+import type { WeaponId } from '../config/weapon';
+import {
+  createWeaponScratch,
+  createWeaponState,
+  resetWeaponState,
+  stepWeapon,
+  type WeaponScratch,
+  type WeaponWorld,
+} from './weapon';
 import { stepPlayer } from './movement';
 import type { LevelDef, PlayerState, SimEvents, TargetState, TickInput, WeaponState } from './types';
 
@@ -12,6 +20,8 @@ export interface WorldOptions {
   level: LevelDef;
   tunables: Tunables;
   seed?: number;
+  /** Weapons by slot (primary, sidearm). Default: `tunables.weaponRules.defaultLoadout`. */
+  loadout?: WeaponId[];
 }
 
 /**
@@ -27,14 +37,26 @@ export class World {
   tick = 0;
   readonly player: PlayerState;
   readonly targets: TargetState[] = [];
-  readonly weapon: WeaponState = { cooldown: 0, shots: 0 };
-  private readonly trace: TraceResult = createTraceResult();
+  readonly loadout: readonly WeaponId[];
+  readonly weapon: WeaponState;
+  private readonly weaponWorld: WeaponWorld;
+  private readonly weaponScratch: WeaponScratch = createWeaponScratch();
 
   constructor(opts: WorldOptions) {
     this.level = opts.level;
     this.tunables = opts.tunables;
     this.seed = opts.seed ?? 1;
     this.rng = new Rng(this.seed);
+    this.loadout = [...(opts.loadout ?? opts.tunables.weaponRules.defaultLoadout)];
+    this.weapon = createWeaponState(this.loadout, opts.tunables.weapon);
+    this.weaponWorld = {
+      boxes: this.level.boxes,
+      targets: this.targets,
+      table: opts.tunables.weapon,
+      rules: opts.tunables.weaponRules,
+      targetTunables: opts.tunables.targets,
+      rng: this.rng,
+    };
     const m = opts.tunables.movement;
     this.player = {
       pos: vec3(),
@@ -69,8 +91,7 @@ export class World {
     p.height = m.standHeight;
     p.eyeHeight = p.prevEyeHeight = m.standEyeHeight;
     p.stepAccum = 0;
-    this.weapon.cooldown = 0;
-    this.weapon.shots = 0;
+    resetWeaponState(this.weapon, this.loadout, this.tunables.weapon);
     levelTargetsReset(this.targets, this.level, this.tunables.targets);
   }
 
@@ -79,10 +100,7 @@ export class World {
     this.tick++;
     const t = this.tunables;
     stepPlayer(this.player, input, this.level.boxes, t.movement, TICK_DT, this.tick, events);
-    stepWeapon(
-      this.weapon, input.fire, this.player, this.level.boxes, this.targets,
-      t.weapon, t.targets, this.tick, events, this.trace,
-    );
+    stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, events, this.weaponScratch);
     this.stepTargets(events);
   }
 
@@ -122,7 +140,12 @@ export class World {
     mix(p.vel.x); mix(p.vel.y); mix(p.vel.z);
     mix(p.yaw); mix(p.pitch);
     mix(p.grounded ? 1 : 0); mix(p.crouching ? 1 : 0); mix(p.eyeHeight);
-    mix(this.weapon.shots);
+    const w = this.weapon;
+    mix(w.shots); mix(w.active); mix(w.cooldown); mix(w.equipLeft); mix(w.reloadLeft);
+    mix(w.sprayCount); mix(w.recoilIndex); mix(w.recoilPitch); mix(w.recoilYaw); mix(w.yawSign);
+    for (let i = 0; i < w.slots.length; i++) {
+      mix(w.slots[i]!.mag); mix(w.slots[i]!.reserve);
+    }
     for (let i = 0; i < this.targets.length; i++) {
       const t = this.targets[i]!;
       mix(t.hp); mix(t.alive ? 1 : 0); mix(t.pos.x); mix(t.pos.y);

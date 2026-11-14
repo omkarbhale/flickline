@@ -37,7 +37,7 @@ export class Menu {
           <label>Graphics<select data-k="quality" name="quality" id="set-quality">${QUALITY_LEVELS.map((q) => `<option value="${q}">${q}</option>`).join('')}</select></label>
         </div>
         <p class="note"></p>
-        <p class="keys">WASD move · Space jump · Ctrl/C crouch · Shift walk · LMB shoot · \` debug overlay</p>
+        <p class="keys">WASD move · Space jump · Ctrl/C crouch · Shift walk · LMB shoot · R reload · \` debug overlay</p>
       </div>`;
     const q = <T extends HTMLElement>(k: string): T => root.querySelector(`[data-k="${k}"]`) as T;
     this.sens = q('sens');
