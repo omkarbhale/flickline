@@ -124,6 +124,7 @@ export class Game {
 
   private readonly tickHooks: (() => void)[] = [];
   private readonly frameHooks: ((dt: number) => void)[] = [];
+  private readonly frameEndHooks: (() => void)[] = [];
   private readonly resetHooks: (() => void)[] = [];
   private readonly overlayLines: (() => string)[] = [];
   private readonly snapshotSections = new Map<string, () => unknown>();
@@ -287,6 +288,11 @@ export class Game {
   /** Run once per rendered frame, after that frame's ticks and before drawing. Must not allocate. */
   onFrame(fn: (dt: number) => void): void {
     this.frameHooks.push(fn);
+  }
+
+  /** Run once per rendered frame, after the frame has been drawn (debug timing probes). Must not allocate. */
+  onFrameEnd(fn: () => void): void {
+    this.frameEndHooks.push(fn);
   }
 
   /** Run whenever the world is reset or a run restarts, after the reset (clear per-run state). */
@@ -516,6 +522,7 @@ export class Game {
     this.hud.update();
     this.drawFrame(this.stepper.alpha, dt);
     this.damage.update();
+    for (let i = 0; i < this.frameEndHooks.length; i++) this.frameEndHooks[i]!();
     if (this.restartStartedAt >= 0) {
       this.lastRestartToFrameMs = performance.now() - this.restartStartedAt;
       this.restartStartedAt = -1;
