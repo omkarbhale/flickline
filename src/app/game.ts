@@ -8,6 +8,8 @@ import type { FlicklineDebug } from '../debug/hook';
 import { DebugOverlay } from '../debug/overlay';
 import { Timeline } from '../debug/timeline';
 import { PerfStats } from '../debug/perfStats';
+import { EdgeMeter } from '../feedback/edgeMeter';
+import { TrackerHudStats } from '../feedback/hudStats';
 import { SessionStats } from '../feedback/sessionStats';
 import { applySettingsToOptions, createFeedbackOptions } from '../feedback/options';
 import { ShotCues } from '../feedback/shotCues';
@@ -15,6 +17,7 @@ import type { RunEndReason } from '../modes/contracts';
 import { RunController, type StartRunOptions } from '../modes/runController';
 import { DamageView } from '../hud/damageView';
 import { Hud } from '../hud/hud';
+import type { HudClock } from '../hud/liveHud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
 import { ProfileStore } from '../settings/profile';
@@ -79,6 +82,9 @@ export class Game {
   /** Feedback-related settings, shared (live) with the cue model and the HUD. */
   readonly feedbackOptions: ReturnType<typeof createFeedbackOptions>;
   readonly timeline = new Timeline();
+  /** The stat strip's view of the run's stat tracker (the HUD never computes a stat). */
+  readonly hudStats: TrackerHudStats;
+  readonly edge: EdgeMeter;
   readonly modes: ModeHost;
   readonly stepper = new FixedStepper(TICK_DT, 8);
 
@@ -152,11 +158,24 @@ export class Game {
     this.applyAudioSettings(s);
     // Feedback producers (stats, later streaks) subscribe before presentation (attachSfx), so the kill chime reads the updated streak.
     this.session.attach(this.bus);
+    this.edge = new EdgeMeter(this.tunables.hud);
+    this.edge.attach(this.bus);
     // The mode runner is a feedback producer too: it emits `streakUpdated` before the kill chime reads it.
     this.modes = new ModeHost(this.world, this.bus, this.map, this.tunables);
     this.run = new RunController(this.world, this.bus, this.tunables);
+    this.hudStats = new TrackerHudStats(this.run);
+    this.hudStats.attach(this.bus);
 
-    this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair, this.world.weapon, this.tunables.weapon, {
+    this.hud = new Hud(hudRoot, this.bus, s.crosshair, {
+      stats: this.hudStats,
+      edge: this.edge,
+      clock: this.hudClock(),
+      hud: this.tunables.hud,
+      streakCap: this.tunables.scoring.streakCap,
+      settings: s.hud,
+      weapon: this.world.weapon,
+      weapons: this.tunables.weapon,
+    }, {
       options: this.feedbackOptions,
       cfg: this.tunables.feedback,
       project: (x, y, z, out) => this.renderer.projectToScreen(x, y, z, out),
@@ -380,6 +399,7 @@ export class Game {
     this.input.endFrame(ticks);
     this.perf.ticksLastFrame = ticks;
 
+    this.hud.update();
     this.drawFrame(this.stepper.alpha, dt);
     this.damage.update();
     if (this.restartStartedAt >= 0) {
@@ -445,6 +465,25 @@ export class Game {
     this.renderNow();
   }
 
+  /**
+   * The run clock for the HUD timer: the run controller's state and elapsed time, with the duration
+   * from whoever times the run (the controller for plain runs, the mode runner for mode runs).
+   */
+  private hudClock(): HudClock {
+    const run = this.run;
+    const modes = this.modes;
+    return {
+      get phase() { return run.state; },
+      get modeId() { return run.info?.mode ?? null; },
+      get timeSec() { return run.elapsedSec; },
+      get remainingSec() {
+        const d = run.info?.durationSec ?? null;
+        if (d !== null) return Math.max(0, d - run.elapsedSec);
+        return modes.running || run.state !== 'idle' ? modes.remainingSec : Infinity;
+      },
+    };
+  }
+
   /** Abandon any run and reset the world (free play). */
   resetWorld(seed?: number): void {
     this.modes.stop();
@@ -478,6 +517,8 @@ export class Game {
 
   private afterRunReset(): void {
     this.session.reset();
+    this.hudStats.invalidate();
+    this.edge.reset();
     this.damage.reset();
     this.cues.clear();
     this.hud.refresh();

@@ -5,6 +5,7 @@ import type { Tunables } from '../config/tunables';
 import type { ProfileStore } from '../settings/profile';
 import type { Settings, SettingsStore } from '../settings/settings';
 import { CrosshairEditor } from './crosshairEditor';
+import { HudSettingsPanel } from './hudSettings';
 
 /**
  * - `firstRun`: a new player (design 13.4): compact bottom-centre panel over the live Range with
@@ -40,6 +41,7 @@ export class Menu {
   private readonly chips: HTMLButtonElement[];
   private mode: MenuMode = 'main';
   private readonly crosshair: CrosshairEditor;
+  private readonly hudPanel: HudSettingsPanel;
 
   constructor(
     root: HTMLElement,
@@ -73,7 +75,8 @@ export class Menu {
           <label class="check"><input data-k="reduceFlashing" type="checkbox" /> Reduce flashing (no screen pulses)</label>
           <label>Hit flinch<select data-k="flinch" name="flinch" id="set-flinch"><option value="0">off</option><option value="0.5">half</option><option value="1">normal</option><option value="2">strong</option></select></label>
         </div>
-                <details class="ch-editor not-first"><summary>Crosshair</summary><div data-k="crosshair"></div></details>
+        <details class="ch-editor not-first"><summary>Crosshair</summary><div data-k="crosshair"></div></details>
+        <details class="ch-editor not-first"><summary>HUD</summary><div data-k="hud"></div></details>
         <p class="note not-first"></p>
         <p class="keys not-first">WASD move · Space jump · Ctrl/C crouch · Shift walk · LMB shoot · R reload · \` debug overlay</p>
       </div>`;
@@ -85,6 +88,7 @@ export class Menu {
     this.quality = q('quality');
     this.flinch = q('flinch');
     this.crosshair = new CrosshairEditor(q('crosshair'), store);
+    this.hudPanel = new HudSettingsPanel(q('hud'), store);
     this.title = root.querySelector('[data-title]') as HTMLElement;
     this.play = root.querySelector('.play') as HTMLButtonElement;
     this.raw = root.querySelector('[data-raw]') as HTMLElement;
@@ -163,6 +167,7 @@ export class Menu {
     const picked = this.profile.get().selfReport;
     for (const chip of this.chips) chip.setAttribute('aria-pressed', String(chip.dataset.chip === picked));
     this.crosshair.sync();
+    this.hudPanel.sync();
   }
 
   setMode(mode: MenuMode): void {
