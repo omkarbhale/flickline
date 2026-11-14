@@ -1,7 +1,7 @@
 import { clamp, moveTowards, DEG2RAD } from '../core/math';
 import type { EventSink } from '../core/eventBus';
 import type { MovementTunables } from '../config/movement';
-import { hullBlocked, moveAxis } from './collision';
+import { hullBlocked, moveAxis, moveAxisStep, snapDown } from './collision';
 import type { BoxDef, PlayerState, SimEvents, TickInput } from './types';
 
 /** Events the player movement emits (part of `SimEvents`). */
@@ -104,18 +104,33 @@ export function stepPlayer(
   const wasGrounded = p.grounded;
   const preLandVy = p.vel.y;
 
+  // A grounded hull steps up ledges and rides ramps (jumping, `p.grounded` false, does not).
   const x0 = p.pos.x;
   const z0 = p.pos.z;
-  if (moveAxis(boxes, p.pos, 'x', p.vel.x * dt, hw, p.height)) p.vel.x = 0;
-  if (moveAxis(boxes, p.pos, 'z', p.vel.z * dt, hw, p.height)) p.vel.z = 0;
-
-  const dy = p.vel.y * dt;
-  const blockedY = moveAxis(boxes, p.pos, 'y', dy, hw, p.height);
-  if (blockedY) {
-    p.grounded = dy < 0;
-    p.vel.y = 0;
+  if (wasGrounded) {
+    if (moveAxisStep(boxes, p.pos, 'x', p.vel.x * dt, hw, p.height, m.stepHeight)) p.vel.x = 0;
+    if (moveAxisStep(boxes, p.pos, 'z', p.vel.z * dt, hw, p.height, m.stepHeight)) p.vel.z = 0;
+    // Stay on the ground when it falls away by no more than a step (stairs, ramps down).
+    if (snapDown(boxes, p.pos, hw, p.height, m.stepHeight)) {
+      p.grounded = true;
+      p.vel.y = 0;
+    } else {
+      p.grounded = false;
+    }
   } else {
-    p.grounded = false;
+    if (moveAxis(boxes, p.pos, 'x', p.vel.x * dt, hw, p.height)) p.vel.x = 0;
+    if (moveAxis(boxes, p.pos, 'z', p.vel.z * dt, hw, p.height)) p.vel.z = 0;
+  }
+
+  if (!p.grounded) {
+    const dy = p.vel.y * dt;
+    const blockedY = moveAxis(boxes, p.pos, 'y', dy, hw, p.height);
+    if (blockedY) {
+      p.grounded = dy < 0;
+      p.vel.y = 0;
+    } else {
+      p.grounded = false;
+    }
   }
 
   if (p.grounded && !wasGrounded && preLandVy < -2) {

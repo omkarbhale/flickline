@@ -186,7 +186,7 @@ export class World {
     stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, relay, this.weaponScratch);
     this.stepTargets(relay);
     relay.target = NULL_SINK;
-    stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events);
+    stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events, this.level);
   }
 
   /**

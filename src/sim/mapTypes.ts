@@ -150,6 +150,8 @@ export interface MapLintOptions {
 }
 
 export interface MapDef extends LevelDef {
+  /** Derived from `anchors` by the loader. */
+  enemyFeet: readonly Vec3[];
   schema: typeof MAP_SCHEMA_VERSION;
   id: string;
   /** Playable volume. Everything a player or an anchor can occupy lies inside. */

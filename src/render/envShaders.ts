@@ -90,7 +90,9 @@ export function createBoxMaterial(u: EnvUniforms): ShaderMaterial {
       void main() {
         mat4 m = modelMatrix * instanceMatrix;
         vec4 wp = m * vec4(position, 1.0);
-        vec3 n = normalize(mat3(m) * normal);
+        // Inverse-transpose of the instance's rotation and (non-uniform) scale, so sloped faces shade correctly.
+        vec3 sc = vec3(length(m[0].xyz), length(m[1].xyz), length(m[2].xyz));
+        vec3 n = normalize(mat3(m) * (normal / (sc * sc)));
         float shade = uLight.x + uLight.y * max(dot(n, uLightDir), 0.0);
         float g = mix(uGrad.x, 1.0, clamp(wp.y / uGrad.y, 0.0, 1.0));
         vColor = instanceColor * (shade * g);
