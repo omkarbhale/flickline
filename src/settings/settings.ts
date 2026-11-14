@@ -22,6 +22,10 @@ export interface Settings {
   viewmodel: ViewmodelMode;
   /** Amber moving-shot tracer, `⇆` glyph (design §13.3 "Coaching cues"). */
   coachingCues: boolean;
+  /** Fade the coaching cues and enemy tells as the skill rating improves (design §7.4); off keeps them at full forever. */
+  cueFading: boolean;
+  /** One cue-free run per session, the cold-open benchmark (design §7.4). */
+  cleanRun: boolean;
   /** Ghost ring where the nearest target's head was, after a miss. */
   missGhost: boolean;
   /** Floating damage numbers on hits. */
@@ -49,6 +53,8 @@ export const DEFAULT_SETTINGS: Settings = {
   quality: 'medium',
   viewmodel: DEFAULT_VIEWMODEL_MODE,
   coachingCues: true,
+  cueFading: true,
+  cleanRun: true,
   missGhost: true,
   damageNumbers: true,
   reduceFlashing: false,
@@ -96,6 +102,8 @@ export function sanitizeSettings(raw: unknown): Settings {
   }
   const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
   out.coachingCues = bool(r.coachingCues, out.coachingCues);
+  out.cueFading = bool(r.cueFading, out.cueFading);
+  out.cleanRun = bool(r.cleanRun, out.cleanRun);
   out.missGhost = bool(r.missGhost, out.missGhost);
   out.damageNumbers = bool(r.damageNumbers, out.damageNumbers);
   out.reduceFlashing = bool(r.reduceFlashing, out.reduceFlashing);

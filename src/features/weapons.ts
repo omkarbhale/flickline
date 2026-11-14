@@ -15,6 +15,12 @@ declare module '../debug/hook' {
     fire(weaponId: string): { shot: unknown; impact: unknown };
     /** `n` shots of `weaponId` back to back (a held spray for automatic weapons). */
     spray(weaponId: string, n: number): { shot: unknown; impact: unknown }[];
+    /**
+     * The loadout, by slot. With `{primary, sidearm}` (e.g. `{primary: 'rill', sidearm: 'pace'}`)
+     * it first tries `world.setLoadout`: full ammo, primary in hand. An invalid pair changes
+     * nothing and comes back as `{ok: false, reason, message}`.
+     */
+    loadout(req?: { primary: string; sidearm: string }): { ok: boolean; reason?: string; message?: string; slots: string[] };
     /** Weapon options used by drills; persist across reset(). Returns the current options. */
     weaponOptions(opts?: { infiniteMagazine?: boolean; infiniteReserve?: boolean }): {
       infiniteMagazine: boolean;
@@ -39,7 +45,13 @@ function fireOnce(game: Game, s: TickInput, id: WeaponId): { shot: unknown; impa
   s.pitch = game.input.pitch;
   s.switchTo = slot;
   s.fire = false;
-  if (w.active !== slot) game.world.step(s, game.bus); // start the swap
+  if (w.active !== slot) {
+    // Debug shooting may use any loadout weapon, even in a mode that locks the swap keys.
+    const locked = game.world.swapLocked;
+    game.world.swapLocked = false;
+    game.world.step(s, game.bus); // start the swap
+    game.world.swapLocked = locked;
+  }
   const before = w.shots;
   let shot: unknown = null;
   let impact: unknown = null;
@@ -81,6 +93,12 @@ export const feature = defineFeature({
         const out: { shot: unknown; impact: unknown }[] = [];
         for (let i = 0; i < n; i++) out.push(fireOnce(game, input, weaponId as WeaponId));
         return out;
+      },
+      loadout(req) {
+        const r = req ? game.world.setLoadout(req) : null;
+        if (r?.ok) game.hud.refresh();
+        const slots = [...game.world.loadout];
+        return r && !r.ok ? { ok: false, reason: r.reason, message: r.message, slots } : { ok: true, slots };
       },
       weaponOptions(opts = {}) {
         const w = game.world.weapon;

@@ -200,6 +200,8 @@ export class Game {
       options: this.feedbackOptions,
       cfg: this.tunables.feedback,
       project: (x, y, z, out) => this.renderer.projectToScreen(x, y, z, out),
+      cues: this.tunables.cues,
+      medianRtMs: () => this.hudStats.medianRtMs,
     });
     this.damage = new DamageView(
       hudRoot, this.bus, this.tunables.damageFx, this.world.health, s.reduceFlashing,

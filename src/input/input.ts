@@ -1,6 +1,7 @@
 import type { EventSink } from '../core/eventBus';
 import { clamp, DEG2RAD } from '../core/math';
 import { degreesPerCount } from '../core/sensitivity';
+import { SLOT_INDEX } from '../sim/loadout';
 import type { TickInput } from '../sim/types';
 import { defaultBindings, type Bindings } from './bindings';
 
@@ -41,6 +42,8 @@ export class InputManager {
   private fireEdge = false;
   private jumpEdge = false;
   private reloadEdge = false;
+  /** Loadout slot of the last swap key pressed since a tick consumed it, or -1. */
+  private switchEdge = -1;
   private readonly codeToAction = new Map<string, keyof Bindings>();
   onToggleDebug: (() => void) | null = null;
 
@@ -153,7 +156,7 @@ export class InputManager {
     out.walk = this.locked && this.isDown('walk');
     out.fire = this.mouseFire || this.fireEdge;
     out.reload = this.reloadEdge;
-    out.switchTo = -1;
+    out.switchTo = this.switchEdge;
   }
 
   /** Call after the frame's ticks: edges are cleared only if a tick consumed them. */
@@ -162,6 +165,7 @@ export class InputManager {
       this.jumpEdge = false;
       this.fireEdge = false;
       this.reloadEdge = false;
+      this.switchEdge = -1;
     }
   }
 
@@ -205,6 +209,8 @@ export class InputManager {
     this.down.add(e.code);
     if (action === 'jump') this.jumpEdge = true;
     if (action === 'reload') this.reloadEdge = true;
+    if (action === 'slotPrimary') this.switchEdge = SLOT_INDEX.primary;
+    if (action === 'slotSidearm') this.switchEdge = SLOT_INDEX.sidearm;
   };
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {

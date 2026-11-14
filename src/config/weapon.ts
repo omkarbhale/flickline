@@ -8,8 +8,11 @@
  * Recoil yaw is in screen terms: positive = the shot goes to the RIGHT of the crosshair.
  */
 
-/** Flickline weapon ids. Add an id here and an entry in `weapon` to add a weapon (#30). */
-export type WeaponId = 'pace' | 'kestrel';
+/** Flickline weapon ids. Add an id here and an entry in `weapon` to add a weapon. */
+export type WeaponId = 'pace' | 'kestrel' | 'vane' | 'rill';
+
+/** Which loadout slot a weapon belongs in (design §4.8): slot 0 holds a primary, slot 1 a sidearm. */
+export type WeaponSlotClass = 'primary' | 'sidearm';
 
 export type FireMode = 'auto' | 'semi';
 
@@ -29,6 +32,8 @@ export interface WeaponDef {
   name: string;
   /** Spec archetype the numbers come from (spec §0.3). */
   archetype: string;
+  /** Loadout slot class (design §6 / §4.8); `setLoadout` rejects a weapon in the wrong slot. */
+  slotClass: WeaponSlotClass;
   fireMode: FireMode;
 
   // --- Handling (spec §3.1, §7.2) ---
@@ -110,7 +115,7 @@ export interface WeaponRules {
   centreBiasPowerMoving: number;
   /** A shot within this many fire intervals of the previous one counts as held fire (spec §3.3). */
   heldFireIntervals: number;
-  /** Weapons in the default loadout, slot order (primary, sidearm). #30 adds the loadout API. */
+  /** Weapons in the default loadout, slot order (primary, sidearm). `World.setLoadout` changes it. */
   defaultLoadout: WeaponId[];
 }
 
@@ -126,6 +131,7 @@ export const weapon: WeaponTable = {
   pace: {
     name: 'Pace',
     archetype: 'pistol_accurate',
+    slotClass: 'sidearm',
     fireMode: 'semi', // spec §3.1
     fireRateHz: 6.75, // spec §7.2
     magazine: 13, // spec §7.2
@@ -165,6 +171,7 @@ export const weapon: WeaponTable = {
   kestrel: {
     name: 'Kestrel',
     archetype: 'rifle_spray',
+    slotClass: 'primary',
     fireMode: 'auto', // spec §3.1
     fireRateHz: 11, // spec §7.2
     magazine: 30, // spec §7.2
@@ -198,6 +205,89 @@ export const weapon: WeaponTable = {
     recoilReturnDelaySec: 0.35, // spec §3.5: returns once the gun recovery time has elapsed
     recoilReturnDegPerSec: 8, // spec §3.5 (PLACEHOLDER)
     recoilMovingPitchMult: 1.8, // spec §3.5 (PN 6.11, vertical while running, rifles)
+    recoilMovingYawMult: 1.5, // spec §3.5 (PN 4.0)
+    recoilCrouchYawMult: 0.85, // spec §3.5 (PN 0.50)
+  },
+  /** Vane: one-tap rifle, high damage with no falloff, punishes spraying. Archetype `rifle_precise`. */
+  vane: {
+    name: 'Vane',
+    archetype: 'rifle_precise',
+    slotClass: 'primary',
+    fireMode: 'auto', // spec §3.1
+    fireRateHz: 9.75, // spec §7.2
+    magazine: 25, // spec §7.2
+    reserve: 50, // spec §3.1
+    reloadSec: 2.5, // spec §7.2
+    equipSec: 1.0, // spec §7.2
+    runSpeedMps: 5.4, // spec §7.2 (0.80 x 6.75)
+    spreadFirstDeg: 0.25, // spec §7.3
+    spreadMaxDeg: 1.0, // spec §7.3
+    crouchSpreadMult: 0.85, // spec §7.3
+    recoverySec: 0.375, // spec §7.3 (OFFICIAL, PN 0.50)
+    tapEfficiency: 6, // spec §7.3 (OFFICIAL, PN 0.50)
+    spreadRampBullets: 8, // spec §7.3 (ESTIMATE 30%)
+    errCrouchMoveDeg: 0.8, // spec §7.3
+    errWalkDeg: 3, // spec §7.3
+    errRunDeg: 6, // spec §7.3
+    errAirDeg: 10, // spec §7.3
+    deadzoneFraction: 0.275, // spec §7.3 / §2.4
+    damageBands: [
+      { upToM: 50, head: 160, body: 40, leg: 34 }, // spec §7.4: no falloff
+    ],
+    penetration: 'medium', // spec §7.4
+    // spec §3.5 `rifle_precise` PLACEHOLDER: 0.35 deg up for bullets 1-9, then 0.08.
+    recoilPitchDeg: [...times(9, 0.35), 0.08],
+    // spec §3.5: 0.18 deg sideways after the 6 protected bullets, none before.
+    recoilYawDeg: [...times(6, 0), 0.18],
+    recoilProtectedBullets: 6, // spec §3.5 (PN 11.08)
+    recoilFlipChance: 0.1, // spec §3.5 (PN 11.08)
+    recoilFlipTimeSec: 0.6, // spec §3.5 (PN 11.08)
+    recoilReturnDelaySec: 0.375, // spec §3.5: returns once the gun recovery time has elapsed
+    recoilReturnDegPerSec: 8, // spec §3.5 (PLACEHOLDER)
+    recoilMovingPitchMult: 1.8, // spec §3.5 (PN 6.11, vertical while running)
+    recoilMovingYawMult: 1.5, // spec §3.5 (PN 4.0)
+    recoilCrouchYawMult: 0.85, // spec §3.5 (PN 0.50)
+  },
+
+  /** Rill: close-range full-auto SMG, fast on its feet, low recoil. Archetype `smg`. */
+  rill: {
+    name: 'Rill',
+    archetype: 'smg',
+    slotClass: 'primary',
+    fireMode: 'auto', // spec §3.1
+    fireRateHz: 13.333, // spec §7.2
+    magazine: 30, // spec §7.2
+    reserve: 90, // spec §3.1
+    reloadSec: 2.25, // spec §7.2
+    equipSec: 0.75, // spec §7.2
+    runSpeedMps: 5.7375, // spec §7.2 (0.85 x 6.75)
+    spreadFirstDeg: 0.4, // spec §7.3
+    spreadMaxDeg: 1.3, // spec §7.3 (patch note 11.08 over the wiki's 1.4; spec §3.3 disagreement)
+    crouchSpreadMult: 0.85, // spec §7.3
+    recoverySec: 0.25, // spec §7.3 (ESTIMATE 35%)
+    tapEfficiency: 3, // spec §7.3 (OFFICIAL, PN 11.08)
+    spreadRampBullets: 6, // spec §7.3 (ESTIMATE 30%)
+    errCrouchMoveDeg: 0.15, // spec §7.3
+    errWalkDeg: 1, // spec §7.3
+    errRunDeg: 2.5, // spec §7.3
+    errAirDeg: 10, // spec §7.3
+    deadzoneFraction: 0.275, // spec §7.3 / §2.4
+    damageBands: [
+      { upToM: 15, head: 78, body: 26, leg: 22.1 }, // spec §7.4
+      { upToM: 30, head: 66, body: 22, leg: 18.7 }, // spec §7.4
+      { upToM: 50, head: 60, body: 20, leg: 17 }, // spec §7.4
+    ],
+    penetration: 'low', // spec §7.4
+    // spec §3.5 `smg` PLACEHOLDER: 0.22 deg up for bullets 1-8, then 0.06.
+    recoilPitchDeg: [...times(8, 0.22), 0.06],
+    // spec §3.5: 0.12 deg sideways after the 5 protected bullets, none before.
+    recoilYawDeg: [...times(5, 0), 0.12],
+    recoilProtectedBullets: 5, // spec §3.5 (PN 11.08)
+    recoilFlipChance: 0.1, // spec §3.5 (ASSUMED: PN 11.08 states no chance for the smg)
+    recoilFlipTimeSec: 0.28, // spec §3.5 (PN 11.08)
+    recoilReturnDelaySec: 0.25, // spec §3.5: returns once the gun recovery time has elapsed
+    recoilReturnDegPerSec: 8, // spec §3.5 (PLACEHOLDER)
+    recoilMovingPitchMult: 1.8, // spec §3.5 (PN 6.11, vertical while running, also the SMG)
     recoilMovingYawMult: 1.5, // spec §3.5 (PN 4.0)
     recoilCrouchYawMult: 0.85, // spec §3.5 (PN 0.50)
   },

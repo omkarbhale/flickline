@@ -1,6 +1,7 @@
 import type { Vec3 } from '../core/vec3';
 import type { WeaponId } from '../config/weapon';
 import type { RunEvents } from './runEvents';
+import type { EnemyAi } from './enemyAi';
 
 /** Per-tick player command. The only way input reaches the simulation. Angles in radians. */
 export interface TickInput {
@@ -80,8 +81,8 @@ export interface PlayerHealth {
 /** The three humanoid damage zones (design §5.1). Orbs are a single `head` zone. */
 export type HitZone = 'head' | 'body' | 'leg';
 
-/** Roster kinds (design §5.2). More arrive with #32/#33. */
-export type TargetKind = 'post' | 'beacon';
+/** Roster kinds (design §5.2). Rusher, Bulwark and Gnat arrive with #33. */
+export type TargetKind = 'post' | 'beacon' | 'strafer' | 'peeker';
 
 /** Allocation-free finite-state-machine cursor (see `sim/fsm.ts`). */
 export interface FsmState {
@@ -106,6 +107,8 @@ export interface TargetState {
   spawner: number;
   home: Vec3;
   pos: Vec3;
+  /** Position at the start of the latest tick (the renderer interpolates between it and `pos`). */
+  prevPos: Vec3;
   /** Humanoid pose: hit zones follow it. */
   crouched: boolean;
   /** Bounding sphere around (`pos.x`, `pos.y + boundsY`, `pos.z`): a cheap early-out for hitscan. */
@@ -131,6 +134,8 @@ export interface TargetState {
   /** Where the sway is easing towards. */
   swayTarget: number;
   fsm: FsmState;
+  /** Strafer / Peeker motion and shooting state (`sim/enemyAi.ts`); unused by Post and Beacon. */
+  ai: EnemyAi;
   // --- bookkeeping for the kill event (design §3 stat definitions) ---
   /** First tick the target was in view and unoccluded; -1 until `targetVisible` fired. */
   visibleTick: number;
