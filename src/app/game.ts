@@ -9,6 +9,7 @@ import { attachUiSounds } from '../audio/uiSounds';
 import { DebugOverlay } from '../debug/overlay';
 import { PerfStats } from '../debug/perfStats';
 import { SessionStats } from '../feedback/sessionStats';
+import type { ModeEvents } from '../modes/contracts';
 import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
@@ -21,11 +22,16 @@ import { rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
 import { Menu } from '../ui/menu';
 import type { GameEvents } from './events';
+import { ModeHost } from './modeHost';
+
+const MODE_EVENT_TYPES: (keyof ModeEvents)[] = [
+  'runReady', 'runStarted', 'runEnded', 'beatStarted', 'skillTrial', 'scoreAwarded', 'chainUpdated', 'streakUpdated',
+];
 
 const AIM_SCRATCH = { x: 0, y: 0, z: 0 };
 
 export interface LoggedEvent {
-  type: keyof SimEvents;
+  type: keyof SimEvents | keyof ModeEvents;
   data: unknown;
 }
 
@@ -48,6 +54,7 @@ export class Game {
   readonly overlay: DebugOverlay;
   readonly perf = new PerfStats();
   readonly session = new SessionStats();
+  readonly modes: ModeHost;
   readonly stepper = new FixedStepper(TICK_DT, 8);
 
   /** Debug: never auto-tick (deterministic stepping only via step()). */
@@ -91,6 +98,8 @@ export class Game {
     this.applyAudioSettings(s);
     // Feedback producers (stats, later streaks) subscribe before presentation (attachSfx), so the kill chime reads the updated streak.
     this.session.attach(this.bus);
+    // The mode runner is a feedback producer too: it emits `streakUpdated` before the kill chime reads it.
+    this.modes = new ModeHost(this.world, this.bus, this.map, this.tunables);
     attachSfx(this.bus, this.audio, this.tunables.audio);
     attachUiSounds(document, this.audio);
 
@@ -99,7 +108,7 @@ export class Game {
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
 
-    for (const type of SIM_EVENT_TYPES) {
+    for (const type of [...SIM_EVENT_TYPES, ...MODE_EVENT_TYPES]) {
       this.bus.on(type, (e) => {
         this.eventLog.push({ type, data: JSON.parse(JSON.stringify(e)) });
         if (this.eventLog.length > 256) this.eventLog.shift();
@@ -176,6 +185,7 @@ export class Game {
       for (let i = 0; i < ticks; i++) {
         const t0 = performance.now();
         this.world.step(inp, this.bus);
+        this.modes.tick();
         this.perf.recordTick(performance.now() - t0);
         // One-shot inputs apply to the first tick of the frame only.
         inp.jump = false;
@@ -225,6 +235,7 @@ export class Game {
       s.yaw = this.input.yaw;
       s.pitch = this.input.pitch;
       this.world.step(s, this.bus);
+      this.modes.tick();
       s.jump = false;
       s.reload = false;
     }
@@ -303,6 +314,7 @@ export class Game {
   }
 
   resetWorld(seed?: number): void {
+    this.modes.stop();
     this.world.reset(seed);
     this.session.reset();
     this.hud.refresh();
@@ -318,7 +330,17 @@ export class Game {
       `pos ${f(p.pos.x)} ${f(p.pos.y)} ${f(p.pos.z)}  speed ${f(speed)} m/s\n` +
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
-      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}`
+      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}` +
+      this.modeLine()
+    );
+  }
+
+  private modeLine(): string {
+    const m = this.modes.status();
+    if (m.mode === null) return '';
+    return (
+      `\nmode ${m.mode} ${m.phase}  beat ${m.beat} dial ${m.dial.toFixed(0)}  ${m.timeSec.toFixed(1)}s\n` +
+      `score ${m.score}  kills ${m.kills}  trials ${m.trialsWon}/${m.trials}  streak ${m.streak}  chain ${m.chain}`
     );
   }
 
