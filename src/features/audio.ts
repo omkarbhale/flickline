@@ -2,6 +2,7 @@ import { defineFeature } from '../app/feature';
 import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
 import { attachDamageAudio } from '../audio/damageAudio';
 import { attachSfx } from '../audio/sfx';
+import { movingCueShown } from '../feedback/cueGate';
 import { attachUiSounds } from '../audio/uiSounds';
 import type { CueId } from '../config/audio';
 
@@ -21,7 +22,9 @@ export const feature = defineFeature({
   id: 'audio',
   stage: 'presentation',
   setup(game) {
-    attachSfx(game.bus, game.audio, game.tunables.audio);
+    attachSfx(game.bus, game.audio, game.tunables.audio, (e) =>
+      movingCueShown(game.feedbackOptions, game.tunables.cues, e.speed, e.airborne),
+    );
     attachUiSounds(document, game.audio);
     attachDamageAudio(game.bus, game.audio);
     game.addDebug({

@@ -72,6 +72,8 @@ export class Menu {
         </div>
         <div class="grid toggles not-first">
           <label class="check"><input data-k="coachingCues" type="checkbox" /> Coaching cues (amber moving-shot tracer, ⇆)</label>
+          <label class="check"><input data-k="cueFading" type="checkbox" /> Fade cues as I improve (they step back as your rating rises)</label>
+          <label class="check"><input data-k="cleanRun" type="checkbox" /> One clean run per session (no cues, like the reference game)</label>
           <label class="check"><input data-k="missGhost" type="checkbox" /> Miss ghost ring</label>
           <label class="check"><input data-k="damageNumbers" type="checkbox" /> Damage numbers</label>
           <label class="check"><input data-k="reduceFlashing" type="checkbox" /> Reduce flashing (no screen pulses)</label>
@@ -149,7 +151,7 @@ export class Menu {
     this.quality.addEventListener('change', () => {
       this.store.set({ quality: this.quality.value as 'low' | 'medium' | 'high' });
     });
-    for (const key of ['coachingCues', 'missGhost', 'damageNumbers', 'reduceFlashing'] as const) {
+    for (const key of ['coachingCues', 'cueFading', 'cleanRun', 'missGhost', 'damageNumbers', 'reduceFlashing'] as const) {
       const el = q<HTMLInputElement>(key);
       this.toggles.push([key, el]);
       el.addEventListener('change', () => this.store.set({ [key]: el.checked }));

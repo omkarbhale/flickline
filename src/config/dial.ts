@@ -84,6 +84,17 @@ export interface ModeDialDef {
   targetSuccess: number;
 }
 
+/**
+ * The tell-cue axis (design §5.3, §7.4, issue #129): how loud the *added* tell cues (head-node flare,
+ * laser line, rising tone) are, 1 = full, 0 = gone. Full up to `fullBelow`, then a straight ramp to
+ * nothing at `goneAbove`. Above that only the true cues remain (weapon raise, stop, muzzle flash), as
+ * in the reference game. It scales the cues only, never the tell *duration* (`tellSec`, floored).
+ */
+export interface TellCueAxis {
+  fullBelow: number;
+  goneAbove: number;
+}
+
 export interface DialTunables {
   /** Grid posterior resolution: points from 0 to 100 inclusive (201 = 0.5 dial steps). */
   gridPoints: number;
@@ -130,6 +141,7 @@ export interface DialTunables {
   waves: { drill: number[]; sweep: number[]; flat: number[] };
   modes: Record<string, ModeDialDef>;
   axes: DialAxesTunables;
+  tellCue: TellCueAxis;
   floors: FairnessFloors;
   /** Ascending by `from`; first must start at 0 (design §8.4). */
   tiers: TierDef[];
@@ -188,6 +200,8 @@ export const dial: DialTunables = {
     enemyHitChance: { at0: 0.15, at100: 0.6, curve: 'linear' },
     density: { at0: 1, at100: 6, curve: 'step' },
   },
+  // HYPOTHESIS (#129): tells fade over Steel-Cobalt; the settling experiment moves these.
+  tellCue: { fullBelow: 35, goneAbove: 60 },
   // #12 proposes tell >= 0.25 s, exposure floors per mode, and spawn rules of no visible target
   // closer than 4 m where enemies shoot and none in the view cone closer than 5 m.
   floors: {

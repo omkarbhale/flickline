@@ -18,7 +18,13 @@ type SfxEvents = SimEvents & FeedbackEvents;
  *
  * Cues are layered on top of each other on the audio clock; nothing here allocates.
  */
-export function attachSfx(bus: Subscribable<SfxEvents>, audio: CuePlayer, t: AudioTunables): () => void {
+export function attachSfx(
+  bus: Subscribable<SfxEvents>,
+  audio: CuePlayer,
+  t: AudioTunables,
+  /** Whether the moving-shot tock plays for this shot (cue fading, design §7.4); default: always. */
+  movingTock: (e: SfxEvents['shotFired']) => boolean = () => true,
+): () => void {
   let streak = 0;
   const shotCue = (weapon: string | undefined): CueId =>
     (weapon !== undefined ? t.weaponCues[weapon] : undefined) ?? t.defaultShotCue;
@@ -26,7 +32,7 @@ export function attachSfx(bus: Subscribable<SfxEvents>, audio: CuePlayer, t: Aud
   const offs = [
     bus.on('shotFired', (e) => {
       audio.play(shotCue(e.weapon));
-      if (e.moving === true) audio.play('movingShot');
+      if (e.moving === true && movingTock(e)) audio.play('movingShot');
     }),
     bus.on('shotImpact', (e) => {
       if (!e.onTarget) audio.play('miss', { position: e.point });
