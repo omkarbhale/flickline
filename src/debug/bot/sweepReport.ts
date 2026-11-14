@@ -29,6 +29,15 @@ export interface SweepRunFacts {
   cards: string[];
   /** Stakes of the sectors entered through a door, in order (design §4.5). */
   stakes: string[];
+  /** Every first sighting (`enemySawPlayer`, once per Echo): horizontal distance player to Echo and the Echo's feet above the player's, metres (#249). */
+  sights: FirstSight[];
+}
+
+/** One first sighting of an Echo (#249): how far, and how far up or down. */
+export interface FirstSight {
+  distM: number;
+  /** Echo feet minus player feet, metres: positive = the Echo is above. */
+  dy: number;
 }
 
 export interface SweepSkillRow {
@@ -46,6 +55,48 @@ export interface SweepSkillRow {
   exitsSeen: number[];
   meanLiveSec: number;
   meanScore: number;
+  /** The first-sight distribution of every Echo fought at this skill (#249). */
+  sight: SightStats;
+}
+
+/** First-sight distance and height facts over a set of sightings (#249; design §9.4's distance axis, §10's bands). */
+export interface SightStats {
+  n: number;
+  /** Horizontal distance percentiles, metres (10th, 25th, 50th, 75th, 90th); 0 when there are none. */
+  p10: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p90: number;
+  /** Share of sightings beyond `LONG_M` metres. */
+  beyond20: number;
+  /** Share with a height difference above `HEIGHT_DIFF_M` metres (either way). */
+  heightDiff: number;
+}
+
+/** "Long" starts here (design §10, #249: the target is a share of fights beyond 20 m). */
+export const LONG_M = 20;
+/** A height difference above this counts as a fight across levels (#249). */
+export const HEIGHT_DIFF_M = 1;
+
+/** The `q` quantile (0..1) of an ascending-sorted list, linear between ranks; 0 for an empty list. */
+export function quantile(sorted: readonly number[], q: number): number {
+  if (sorted.length === 0) return 0;
+  const at = (sorted.length - 1) * Math.min(1, Math.max(0, q));
+  const lo = Math.floor(at), hi = Math.ceil(at);
+  return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (at - lo);
+}
+
+/** The distribution of a list of sightings. */
+export function sightStats(sights: readonly FirstSight[]): SightStats {
+  const d = sights.map((x) => x.distM).sort((a, b) => a - b);
+  const n = sights.length;
+  return {
+    n,
+    p10: quantile(d, 0.1), p25: quantile(d, 0.25), p50: quantile(d, 0.5), p75: quantile(d, 0.75), p90: quantile(d, 0.9),
+    beyond20: n ? sights.filter((x) => x.distM > LONG_M).length / n : 0,
+    heightDiff: n ? sights.filter((x) => Math.abs(x.dy) > HEIGHT_DIFF_M).length / n : 0,
+  };
 }
 
 /** One seeded run at one skill, with the sweep facts taken from the bus. */
@@ -53,7 +104,7 @@ export function sweepRun(skill: number, seed: number, pinDial?: number, gatePoli
   const g = new HeadlessGame({ seed });
   const f: SweepRunFacts = {
     seed, endReason: null, reached: 0, sectors: 0, ehpAtExit: [], contacts: { cleared: 0, disengaged: 0, avoided: 0, died: 0 },
-    liveSec: 0, score: 0, kills: 0, cards: [], stakes: [],
+    liveSec: 0, score: 0, kills: 0, cards: [], stakes: [], sights: [],
   };
   g.bus.on('sectorEntered', (e) => {
     f.reached = e.index + 1;
@@ -66,6 +117,12 @@ export function sweepRun(skill: number, seed: number, pinDial?: number, gatePoli
   g.bus.on('contactSettled', (e) => {
     f.contacts[e.outcome]++;
     if (e.card) f.cards.push(e.card);
+  });
+  g.bus.on('enemySawPlayer', (e) => {
+    const t = g.world.targetField.byId(e.targetId);
+    if (!t) return;
+    const p = g.world.player.pos;
+    f.sights.push({ distM: Math.hypot(t.pos.x - p.x, t.pos.z - p.z), dy: t.pos.y - p.y });
   });
   const r = playMode(g, { mode: 'sweep', skill, seed, pinDial, gatePolicy });
   f.endReason = r.stats.endReason;
@@ -108,6 +165,7 @@ export function sweepReport(skills: readonly number[], runs: number, firstSeed =
       exitsSeen: ehpN.map((v) => v ?? 0),
       meanLiveSec: live / n,
       meanScore: score / n,
+      sight: sightStats(list.flatMap((f) => f.sights)),
     });
   }
   return { rows, runs: all };
@@ -124,6 +182,23 @@ export function formatSweepReport(rows: readonly SweepSkillRow[]): string[] {
     out.push(
       `| ${r.skill} | ${r.runs} | ${(r.contactWinRate * 100).toFixed(0)} % | ${r.contactsPerRun.toFixed(1)} | ${r.meanReached.toFixed(2)} | ${(r.finishedShare * 100).toFixed(0)} % | ${ehp} | ${r.meanLiveSec.toFixed(1)} | ${r.meanScore.toFixed(0)} |`,
     );
+  }
+  return out;
+}
+
+/**
+ * The first-sight block of the report (#249): per bot skill, how far away the Echoes were when they first saw the player
+ * (`enemySawPlayer`, horizontal), and the shares beyond `LONG_M` metres and across more than `HEIGHT_DIFF_M` metres of height.
+ */
+export function formatSightReport(rows: readonly SweepSkillRow[]): string[] {
+  const pct = (x: number): string => `${(x * 100).toFixed(0)} %`;
+  const out = [
+    `| Bot skill | First sights | 10th / 25th / 50th / 75th / 90th percentile (m) | Beyond ${LONG_M} m | Height difference above ${HEIGHT_DIFF_M} m |`,
+    '|---|---|---|---|---|',
+  ];
+  for (const r of rows) {
+    const s = r.sight;
+    out.push(`| ${r.skill} | ${s.n} | ${[s.p10, s.p25, s.p50, s.p75, s.p90].map((v) => v.toFixed(1)).join(' / ')} | ${pct(s.beyond20)} | ${pct(s.heightDiff)} |`);
   }
   return out;
 }

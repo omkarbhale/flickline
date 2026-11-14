@@ -127,6 +127,31 @@ export interface SweepTunables {
     clearPeekerShare: number;
     /** Share of `take-unaware` Echoes that walk a lane rather than stand (`unaware` and moving: it is busy elsewhere). */
     unawareMoverShare: number;
+    /**
+     * Where an Echo stands is drawn by distance (design §9.4, #249): each free hold anchor of a sector is weighted by how near
+     * its **first-sight distance** (how far the player is from it when the walk entry to exit first shows it, `sim/mapSight.ts`)
+     * is to `targetM`, on a log scale with a spread of `distanceSigma` (a natural-log width: 0.5 = within a factor of 1.65 either
+     * way gets about 60% of the peak weight). The card still decides what kind of Echo stands there.
+     */
+    /** The distance the dial asks for, metres (design §9.4: 5 at dial 0, 35 at dial 100, geometric). The run overlays it per plan from the dial; this default is the dial-50 value. */
+    targetM: number;
+    distanceSigma: number;
+    /** Weight (of a peak 1) of an anchor the walk never shows: a fight the player only has by leaving the route. */
+    offRouteWeight: number;
+    /** Floor of every weight, so no anchor is ever impossible. */
+    weightFloor: number;
+    /**
+     * Bands of a first sight (design §10, #249): below `closeToM` is **close**, from `longFromM` **long**, in between **mid**.
+     * The map lint wants every take sector to offer all three.
+     */
+    closeToM: number;
+    longFromM: number;
+    /** An anchor at least this far above (or below) the player's feet at its first sight is **off the floor plane** (#249; the report's "height difference above 1 m"). */
+    levelM: number;
+    /** An Echo whose body the player sees less than this share of at its first sight holds **from cover** (over a wall, past a frame). */
+    coverExposureMax: number;
+    /** Spacing of the walk's sample points for the first-sight search, metres. */
+    walkStepM: number;
   };
   /**
    * A new profile's first Opener (design §9.2): instead of one or two contacts it is a chain of short
@@ -213,6 +238,15 @@ export const sweep: SweepTunables = {
     sampleStepM: 0.25,
     clearPeekerShare: 0.6,
     unawareMoverShare: 0.7,
+    targetM: 13.2,
+    distanceSigma: 0.5,
+    offRouteWeight: 0.05,
+    weightFloor: 0.02,
+    closeToM: 10,
+    longFromM: 20,
+    levelM: 1,
+    coverExposureMax: 0.75,
+    walkStepM: 0.5,
   },
   // `hold` is gentle too, and joins the list with hold sectors (#204).
   opener: { contactsMin: 4, contactsMax: 6, maxSectors: 9, cards: ['take-unaware', 'clear'], winMaxShieldLoss: 0.5 },

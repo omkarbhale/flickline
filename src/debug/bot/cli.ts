@@ -2,7 +2,7 @@ import { HeadlessGame } from './headless';
 import { listModes, mapForMode, playMode, type BotReport, type BotRunOptions } from './play';
 import { BOT_PARAM_KEYS, type BotParams } from './skill';
 import { runSuite } from './suite';
-import { formatGatePolicyReport, formatLeanAb, formatMeetReport, formatSweepReport, formatTrialReport, gatePolicyReport, leanAb, meetReport, sweepReport, trialReport } from './sweepReport';
+import { formatGatePolicyReport, formatLeanAb, formatMeetReport, formatSightReport, formatSweepReport, formatTrialReport, gatePolicyReport, leanAb, meetReport, sweepReport, trialReport } from './sweepReport';
 import { auditAllocations, formatAudit } from './allocAudit';
 import { cloneTunables } from '../../config/tunables';
 import { formatHarness, harnessRow, selfReportFor, type HarnessRow } from '../skillHarness';
@@ -160,6 +160,8 @@ export function main(argv: string[], log: (s: string) => void = console.log): nu
     if (args.json) log(JSON.stringify(r.rows, null, 2));
     else {
       for (const line of formatSweepReport(r.rows)) log(line);
+      log('');
+      for (const line of formatSightReport(r.rows)) log(line);
       log(`${r.runs.length} runs, ${(performance.now() - t0).toFixed(0)} ms`);
     }
     return 0;

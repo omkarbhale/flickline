@@ -1,9 +1,11 @@
 import { movement as defaultMovement, type MovementTunables } from '../config/movement';
 import { vec3, type Vec3 } from '../core/vec3';
 import { hullBlocked, hullOverlaps, restHeight, rayBox, supportBelow } from './collision';
+import { sweep as defaultSweep, type SweepTunables } from '../config/sweep';
 import { targets as defaultTargets, type HitTunables } from '../config/targets';
 import { holdStance, holdStandPos } from './mapQuery';
 import { walkReach } from './mapReach';
+import { bandOf, firstSight, routePoints, type SightBand } from './mapSight';
 import type { Anchor, MapDef, SectorDef, SectorRole, Stance } from './mapTypes';
 import type { BoxDef } from './types';
 
@@ -21,8 +23,11 @@ import type { BoxDef } from './types';
  * Sectors (design 4.2, 10.2): entry and exit reachable from each other on foot without leaving the
  * region, every hold anchor inside the region, and in a take sector every hold anchor out of
  * sight of the entry at standing eye height (an Echo is never visible when the sector opens),
- * every approach lane reaching the region on foot, regions that do not overlap; the report gives
- * each sector's longest sightline.
+ * every approach lane reaching the region on foot; the report gives each sector's longest sightline.
+ * A take sector also has to offer the fights the design asks for (#249): walking from its entry to its exit, the
+ * anchors first show at close, mid and long range, one of them off the floor plane (a raised or sunken position),
+ * one from cover and one crouched; see `sim/mapSight.ts` for what "first shows" means. Sectors may share ground
+ * (a map is a venue and a sector a route through it), so regions are allowed to overlap.
  */
 
 export type LintSeverity = 'error' | 'warning';
@@ -52,12 +57,27 @@ export interface SightlineReport {
   spawnForward: number;
 }
 
+/** One hold anchor of a take sector as the walk from its entry to its exit first shows it (#249). */
+export interface AnchorSight {
+  id: string;
+  /** Horizontal distance to the player at the first sight, metres; null when the walk never shows the anchor. */
+  distM: number | null;
+  band: SightBand | null;
+  /** Anchor feet minus the player's feet at the first sight, metres (positive: the Echo is above). */
+  dy: number | null;
+  /** Share of the Echo's body seen at the first sight (0..1). */
+  exposure: number | null;
+  crouched: boolean;
+}
+
 export interface SectorReport {
   id: string;
   role: SectorRole[];
   holdAnchors: number;
   /** Longest unobstructed horizontal sightline at eye height inside the region, from the entry, the exit, a hold anchor or a nav node in it. */
   longest: { length: number; from: string; bearingDeg: number };
+  /** Take sectors: each hold anchor's first sight along the walk from the entry to the exit (empty for other sectors). */
+  sights: AnchorSight[];
 }
 
 export interface LintReport {
@@ -72,6 +92,8 @@ export interface LintOptions {
   movement?: MovementTunables;
   /** Humanoid hit zones: the body points of a placed Echo that must stay hidden from a take sector's entry. */
   hit?: HitTunables;
+  /** The bands, off-plane and cover thresholds of a take sector's first sights (`sweep.place`). */
+  place?: SweepTunables['place'];
 }
 
 const EPS = 1e-6;
@@ -86,8 +108,6 @@ const RAISED_TOLERANCE = 0.25;
 const BIN_EDGES = [5, 10, 20, 30, 40];
 /** A take sector wants at least this many hold anchors (a lighter sector is a warning, none an error). */
 const MIN_HOLD_ANCHORS = 2;
-/** Regions closer than this on an axis count as touching, not overlapping. */
-const REGION_EPS = 1e-6;
 
 const _n = vec3();
 
@@ -382,7 +402,7 @@ export function lintMap(map: MapDef, opts: LintOptions = {}): LintReport {
   }
 
   // --- sectors ------------------------------------------------------------------------------------
-  const sectorReports = lintSectors(map, mv, opts.hit ?? defaultTargets.hit, add, buried);
+  const sectorReports = lintSectors(map, mv, opts.hit ?? defaultTargets.hit, opts.place ?? defaultSweep.place, add, buried);
 
   // --- sightlines -------------------------------------------------------------------------------
   const sources = map.nav.nodes.length > 0 ? map.nav.nodes : [{ id: 'spawn', pos: map.spawn.pos }];
@@ -458,6 +478,7 @@ function lintSectors(
   map: MapDef,
   mv: MovementTunables,
   hit: HitTunables,
+  place: SweepTunables['place'],
   add: (severity: LintSeverity, check: string, where: string, message: string) => void,
   buried: (p: Vec3) => boolean,
 ): SectorReport[] {
@@ -543,23 +564,57 @@ function lintSectors(
       }
     }
 
-    reports.push({ id: sector.id, role: sector.role, holdAnchors: holds, longest: sectorSightline(map, sector, eye) });
-  }
-
-  // regions never overlap (touching is fine); regions that differ in height may share a footprint
-  for (let i = 0; i < map.sectors.length; i++) {
-    const a = map.sectors[i]!.region;
-    for (let j = i + 1; j < map.sectors.length; j++) {
-      const b = map.sectors[j]!.region;
-      const ox = Math.min(a.max.x, b.max.x) - Math.max(a.min.x, b.min.x);
-      const oy = Math.min(a.max.y, b.max.y) - Math.max(a.min.y, b.min.y);
-      const oz = Math.min(a.max.z, b.max.z) - Math.max(a.min.z, b.min.z);
-      if (ox > REGION_EPS && oy > REGION_EPS && oz > REGION_EPS) {
-        add('error', 'sector-overlap', `sectors ${map.sectors[i]!.id} / ${map.sectors[j]!.id}`, `regions overlap by ${round(ox)} x ${round(oz)} m on the floor plan`);
-      }
-    }
+    const sights = isTake && gatesOk ? sectorSights(map, sector, eye, hit, place) : [];
+    if (isTake && gatesOk) lintBands(sector, sights, place, add);
+    reports.push({ id: sector.id, role: sector.role, holdAnchors: holds, longest: sectorSightline(map, sector, eye), sights });
   }
   return reports;
+}
+
+/** Each hold anchor of a take sector, as the walk from the sector's entry to its exit first shows it (#249). */
+function sectorSights(map: MapDef, sector: SectorDef, eye: number, hit: HitTunables, place: SweepTunables['place']): AnchorSight[] {
+  const walk = routePoints(map, sector.entry, sector.exit, place.walkStepM);
+  const out: AnchorSight[] = [];
+  for (const id of sector.holdAnchors) {
+    const a = map.anchors.find((x) => x.id === id);
+    const pos = a === undefined ? undefined : holdStandPos(a);
+    if (a === undefined || pos === undefined) continue;
+    const crouched = holdStance(a) === 'crouch';
+    const stands = a.kind === 'peek' ? [pos, a.out] : [pos];
+    const f = firstSight(map.boxes, hit, eye, walk, stands, crouched, place.walkStepM);
+    out.push({
+      id, crouched,
+      distM: f ? f.distM : null,
+      band: f ? bandOf(f.distM, place.closeToM, place.longFromM) : null,
+      dy: f ? f.dy : null,
+      exposure: f ? f.exposure : null,
+    });
+  }
+  return out;
+}
+
+/** What a take sector has to offer (#249): all three distance bands, something off the floor plane, from cover and crouched. */
+function lintBands(
+  sector: SectorDef, sights: readonly AnchorSight[], place: SweepTunables['place'],
+  add: (severity: LintSeverity, check: string, where: string, message: string) => void,
+): void {
+  const where = `sector ${sector.id}`;
+  const seen = sights.filter((x) => x.distM !== null);
+  for (const band of ['close', 'mid', 'long'] as const) {
+    if (!seen.some((x) => x.band === band)) {
+      const range = band === 'close' ? `under ${place.closeToM} m` : band === 'mid' ? `${place.closeToM} to ${place.longFromM} m` : `${place.longFromM} m or more`;
+      add('error', 'sector-bands', where, `no hold anchor first shows ${range} from the player walking from the entry to the exit (the ${band} band); a take sector has to offer fights at close, mid and long range`);
+    }
+  }
+  if (!seen.some((x) => Math.abs(x.dy!) >= place.levelM)) {
+    add('error', 'sector-bands', where, `no hold anchor stands ${place.levelM} m or more above or below the player where it first shows; a take sector needs one fight off the floor plane`);
+  }
+  if (!seen.some((x) => x.exposure! < place.coverExposureMax)) {
+    add('error', 'sector-bands', where, `no hold anchor holds from cover (every one first shows more than ${Math.round(place.coverExposureMax * 100)}% of the body); a take sector needs one over a wall or past a frame`);
+  }
+  if (!sights.some((x) => x.crouched)) add('error', 'sector-bands', where, 'no hold anchor is crouched; a take sector needs a low position');
+  const unseen = sights.filter((x) => x.distM === null).map((x) => x.id);
+  if (unseen.length > 0) add('warning', 'sector-bands', where, `the walk from the entry to the exit never shows ${unseen.join(', ')}: an Echo there is met only by leaving the route`);
 }
 
 /** Longest horizontal eye-height ray, cut off where it leaves the region, from the sector's gates, hold anchors and nav nodes. */
@@ -608,6 +663,9 @@ export function formatLintReport(report: LintReport): string[] {
   out.push(`  longest per node: ${top.map((n) => `${n.id} ${round(n.longest)} m`).join(', ')}`);
   for (const sec of report.sectors) {
     out.push(`  sector ${sec.id} [${sec.role.join('+')}]: ${sec.holdAnchors} hold anchors, longest sightline ${round(sec.longest.length)} m from ${sec.longest.from} at bearing ${sec.longest.bearingDeg} deg`);
+    if (sec.sights.length > 0) {
+      out.push(`    first sights: ${sec.sights.map((x) => (x.distM === null ? `${x.id} never` : `${x.id} ${round(x.distM)} m ${x.band}${Math.abs(x.dy!) >= 1 ? (x.dy! > 0 ? ' above' : ' below') : ''}${x.crouched ? ' crouched' : ''} ${Math.round(x.exposure! * 100)}%`)).join(', ')}`);
+    }
   }
   out.push(`  ${errors} error(s), ${warnings} warning(s)`);
   return out;

@@ -2,6 +2,7 @@ import { Rng } from '../core/rng';
 import type { Economy } from '../config/economy';
 import type { Vec3 } from '../core/vec3';
 import type { GateStake, HeardBucket, SectorRole, SweepCard, SweepTunables } from '../config/sweep';
+import type { FirstSight } from '../sim/mapSight';
 import type { PeekPattern } from '../sim/mapTypes';
 import type { Expectation } from '../sim/enemyTiming';
 
@@ -35,6 +36,12 @@ export interface SectorSpot {
   readonly peek?: { readonly hold: Vec3; readonly out: Vec3; readonly pattern: PeekPattern };
   /** Posts: the direction the anchor faces (radians, architecture §6 convention), for a lane across it. */
   readonly yaw?: number;
+  /**
+   * Where the anchor first shows to a player walking the sector from its entry to its exit (`sim/mapSight.ts`, #249): the
+   * distance the fight starts at. `null`: the walk never shows it (the player meets it only by leaving the route);
+   * absent: not known (a hand-made source), drawn as if every distance were as good as another.
+   */
+  readonly sight?: FirstSight | null;
 }
 
 /** One sector of a map, with what the director needs to place Echoes in it. */
@@ -351,6 +358,32 @@ export function entryEye(s: SectorSource, body: PlanBody): Vec3 {
   return { x: s.entry.x, y: s.entry.y + body.standEyeHeight, z: s.entry.z };
 }
 
+/**
+ * How much a spot is wanted for the distance the plan asks for (`cfg.place.targetM`, from the dial: design §9.4, #249): a
+ * bell on the log of its first-sight distance, floored so no anchor is impossible. A spot the walk never shows weighs
+ * `offRouteWeight`; a spot with no first-sight data weighs 1.
+ */
+export function spotWeight(cfg: SweepTunables, spot: SectorSpot): number {
+  const p = cfg.place;
+  if (spot.sight === undefined) return 1;
+  if (spot.sight === null) return Math.max(p.weightFloor, p.offRouteWeight);
+  const z = Math.log(Math.max(1, spot.sight.distM) / p.targetM) / p.distanceSigma;
+  return Math.max(p.weightFloor, Math.exp(-0.5 * z * z));
+}
+
+/** Index of the spot drawn from `free`, weighted by `spotWeight` (one draw, always). */
+export function pickSpot(rng: Rng, cfg: SweepTunables, free: readonly SectorSpot[]): number {
+  const u = rng.next();
+  let total = 0;
+  for (const s of free) total += spotWeight(cfg, s);
+  let x = u * total;
+  for (let i = 0; i < free.length; i++) {
+    x -= spotWeight(cfg, free[i]!);
+    if (x < 0) return i;
+  }
+  return free.length - 1;
+}
+
 /** The spots of a sector an Echo can stand on unseen from its entry (an anchor in view is skipped, never used). */
 export function hiddenSpots(s: SectorSource, body: PlanBody): SectorSpot[] {
   const eye = entryEye(s, body);
@@ -536,7 +569,7 @@ export function buildSector(
       if (!card) break;
       recent.push(card);
       const spots: SectorSpot[] = [];
-      for (let k = 0; k < cardSpots(card); k++) spots.push(free.splice(rng.int(free.length), 1)[0]!);
+      for (let k = 0; k < cardSpots(card); k++) spots.push(free.splice(pickSpot(rng, cfg, free), 1)[0]!);
       const echoes: EchoPlan[] = [];
       if (card === 'clear') {
         // Two possible spots, one of them occupied (design §4.4).
