@@ -7,11 +7,12 @@ import type { AnchorLike } from './contracts';
 import { ringAnchors } from './testHarness';
 import { AnchorIndex, angleBetweenDeg, createSpawnQuery, SpawnScheduler } from './scheduler';
 
-const cfg = cloneTunables().modes;
+const tun = cloneTunables();
+const cfg = tun.modes;
 const player = { pos: vec3(0, 0, 0), yaw: 0, pitch: 0, eyeHeight: 1.62 };
 
 function make(anchors: AnchorLike[], seed = 1, bounds?: { min: ReturnType<typeof vec3>; max: ReturnType<typeof vec3> }) {
-  return new SpawnScheduler(cfg, new Rng(seed), new AnchorIndex({ anchors, bounds }), player);
+  return new SpawnScheduler(cfg, tun.dial.floors, new Rng(seed), new AnchorIndex({ anchors, bounds }), player);
 }
 
 describe('pickAnchor', () => {

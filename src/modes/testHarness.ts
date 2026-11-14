@@ -78,11 +78,11 @@ export function makeHarness(table: Record<string, AxisRange> = TEST_MODE_AXES, b
     },
     kill(id, o = {}) {
       bus.emit('targetKilled', {
-        tick: h.simTick, id, kind: 'post', zone: 'head', ttkMs: 400, rtMs: 250, firstBullet: true, bullets: 1, clean: true, ...o,
+        tick: h.simTick, targetId: id, kind: 'post', zone: 'head', ttkMs: 400, rtMs: 250, firstBullet: true, bullets: 1, clean: true, ...o,
       });
     },
     miss() {
-      bus.emit('shotImpact', { tick: h.simTick, result: 'miss' });
+      bus.emit('shotImpact', { tick: h.simTick, onTarget: false });
     },
     events: (type) => log.filter((l) => l.type === type).map((l) => l.data),
   };

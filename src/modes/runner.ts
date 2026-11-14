@@ -96,7 +96,9 @@ export class ModeRunner implements ModeContext<unknown> {
   private beatTicks = Infinity;
   private manualBeats = false;
   private recordsUsed = 0;
-  private readonly expiredPayload = { tick: 0, id: 0 };
+  private readonly expiredPayload = { tick: 0, targetId: 0 };
+  /** Id of a target the runner is removing itself (its `targetExpired` is not a new fact). */
+  private quietId = -1;
   /** Stand-in record for a target beyond the pool capacity, so its trial is still emitted. */
   private readonly overflow: TargetRecord = {
     active: false, id: -1, skill: 'precision', dial: 0, itemDifficulty: 0, expireTick: -1, resolved: false, rtMs: -1,
@@ -150,7 +152,7 @@ export class ModeRunner implements ModeContext<unknown> {
     this.seed = opts.seed;
     this.rng = new Rng((opts.seed ^ 0x9e3779b9) >>> 0);
     this.pinDial = opts.pinDial;
-    this.scheduler = new SpawnScheduler(m, this.rng, new AnchorIndex(opts.anchors ?? null), this.player);
+    this.scheduler = new SpawnScheduler(m, this.tunables.dial.floors, this.rng, new AnchorIndex(opts.anchors ?? null), this.player);
     this.streaks.reset();
     const s = this.stats;
     s.score = s.kills = s.headshotKills = s.misses = s.trials = s.trialsWon = 0;
@@ -162,7 +164,7 @@ export class ModeRunner implements ModeContext<unknown> {
     this.liveTick = 0;
     this.durationTicks = Number.isFinite(mode.durationSec) ? secondsToTicks(mode.durationSec) : Infinity;
     this.manualBeats = mode.beatSec === null;
-    this.beatTicks = this.manualBeats ? Infinity : secondsToTicks(mode.beatSec ?? m.beatSec);
+    this.beatTicks = this.manualBeats ? Infinity : secondsToTicks(mode.beatSec ?? this.tunables.dial.beat.drillSec);
     this.readyTicksLeft = secondsToTicks(m.readySec);
     this.phase = 'ready';
     this.applyBeat(0);
@@ -216,13 +218,13 @@ export class ModeRunner implements ModeContext<unknown> {
   }
 
   spawn(kind: EnemyKind, pos: Vec3, opts?: SpawnOptions): number {
-    const fl = this.tunables.modes.floors;
+    const fl = this.tunables.dial.floors;
     const eye = this.scheduler.eyePosition();
-    if (distance(eye, pos) < this.tunables.modes.spawnMinDistance || this.recordsUsed >= MAX_TARGETS) {
+    if (distance(eye, pos) < fl.spawnMinDistance || this.recordsUsed >= MAX_TARGETS) {
       this.refusedSpawns++;
       return -1;
     }
-    const scale = Math.max(opts?.scale ?? 1, fl.minHeadScale);
+    const scale = Math.max(opts?.scale ?? 1, fl.minTargetScale);
     const id = this.deps.spawner.spawn(kind, pos, scale);
     if (id < 0) {
       this.refusedSpawns++;
@@ -232,14 +234,21 @@ export class ModeRunner implements ModeContext<unknown> {
     rec.skill = opts?.skill ?? this.mode.skills[0]!;
     if (opts?.difficulty !== undefined) rec.itemDifficulty = opts.difficulty;
     if (opts?.lifetimeSec !== undefined) {
-      rec.expireTick = this.liveTick + secondsToTicks(Math.max(opts.lifetimeSec, fl.minExposureSec));
+      rec.expireTick = this.liveTick + secondsToTicks(Math.max(opts.lifetimeSec, fl.exposureSec));
     }
     return id;
   }
 
   despawn(id: number): void {
-    this.deps.spawner.despawn(id);
     this.release(id);
+    this.removeQuietly(id);
+  }
+
+  /** Remove a target from the sim without the `targetExpired` it announces being counted again. */
+  private removeQuietly(id: number): void {
+    this.quietId = id;
+    this.deps.spawner.despawn(id);
+    this.quietId = -1;
   }
 
   resolveTrial(id: number, success: boolean, opts?: ResolveOptions): boolean {
@@ -269,7 +278,7 @@ export class ModeRunner implements ModeContext<unknown> {
     if (this.phase !== 'live') return;
     if (e.tick > this.simTick) this.simTick = e.tick;
     const t = (e.tick - this.liveStartSimTick) * TICK_DT;
-    const rec = this.find(e.id) ?? this.adopt(e.id);
+    const rec = this.find(e.targetId) ?? this.adopt(e.targetId);
     rec.rtMs = e.rtMs;
     const cfg = this.tunables.scoring;
     // Score with the streak earned going into this kill, then update the counters.
@@ -292,7 +301,7 @@ export class ModeRunner implements ModeContext<unknown> {
     const a = this.scoreEv;
     a.tick = e.tick;
     a.t = t;
-    a.targetId = e.id;
+    a.targetId = e.targetId;
     a.kind = e.kind;
     a.points = kill.total;
     a.total = s.score;
@@ -305,22 +314,23 @@ export class ModeRunner implements ModeContext<unknown> {
     this.deps.events.emit('scoreAwarded', a);
     this.killEv.payload = e;
     this.mode.onEvent(this, this.killEv);
-    this.resolveTrial(e.id, true);
-    this.release(e.id);
+    this.resolveTrial(e.targetId, true);
+    this.release(e.targetId);
   }
 
   private onExpired(e: SourceEvents['targetExpired']): void {
     if (this.phase !== 'live') return;
     if (e.tick > this.simTick) this.simTick = e.tick;
-    this.resolveTrial(e.id, false);
-    this.release(e.id);
+    if (e.targetId === this.quietId) return; // we removed it ourselves and already accounted for it
+    this.resolveTrial(e.targetId, false);
+    this.release(e.targetId);
     this.expiredEv.payload = e;
     this.mode.onEvent(this, this.expiredEv);
   }
 
   private onImpact(e: SourceEvents['shotImpact']): void {
     if (this.phase !== 'live') return;
-    if (e.result === 'miss') {
+    if (!e.onTarget) {
       this.stats.misses++;
       if (this.tunables.scoring.missBreaksStreak) this.streaks.onBreak(e.tick, (e.tick - this.liveStartSimTick) * TICK_DT);
     }
@@ -333,7 +343,7 @@ export class ModeRunner implements ModeContext<unknown> {
   /** Beat boundary: the one place the dial module is asked and axis values change. */
   private applyBeat(index: number): void {
     this.beat = index;
-    const d = clamp(this.pinDial ?? this.deps.dial.dialFor(this.mode, index, this.mode.waveCurve ?? FLAT_WAVE), 0, 100);
+    const d = clamp(this.pinDial ?? this.deps.dial.dialFor(this.mode.id, index, this.mode.waveCurve ?? this.tunables.dial.waves.drill), 0, 100);
     this.dial = d;
     const next: AxisValues = this.deps.dial.axes(d);
     for (const k in next) this.axes[k] = next[k]!;
@@ -351,12 +361,12 @@ export class ModeRunner implements ModeContext<unknown> {
       const r = this.records[i]!;
       if (!r.active || r.expireTick < 0 || lt < r.expireTick) continue;
       const id = r.id;
-      this.deps.spawner.despawn(id);
+      this.removeQuietly(id);
       this.resolveTrial(id, false);
       this.release(id);
       const p = this.expiredPayload;
       p.tick = this.simTick;
-      p.id = id;
+      p.targetId = id;
       this.expiredEv.payload = p;
       this.mode.onEvent(this, this.expiredEv);
     }
@@ -407,5 +417,3 @@ export class ModeRunner implements ModeContext<unknown> {
     this.recordsUsed--;
   }
 }
-
-const FLAT_WAVE = (): number => 0;

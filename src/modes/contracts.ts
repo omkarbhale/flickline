@@ -3,10 +3,10 @@ import type { EnemyKind } from '../config/scoring';
 import type { StreakEvents } from '../feedback/streaks';
 
 /**
- * Everything the mode framework needs from the rest of the game, as typed contracts. The pieces
- * on the other side (#13 run state and events, #15 enemies, #16 maps, #17 skill model) land in
- * parallel; when they do they only have to satisfy these interfaces. If a landed type differs,
- * adapt it HERE (this is the single seam), not in the framework.
+ * Everything the mode framework needs from the rest of the game, as typed contracts: the sim's
+ * spawn/despawn and events (#15), the map's anchors (#16), the skill model's dial (#17). The app
+ * adapts the real modules to these (`app/modeHost.ts`); the framework and its tests never import
+ * them. If a type on the other side changes, adapt it HERE, not in the framework.
  */
 
 export type { EnemyKind };
@@ -28,24 +28,22 @@ export type AxisValues = Readonly<Record<AxisId, number>>;
 export interface ModeRef {
   readonly id: ModeId;
   readonly skills: readonly SkillId[];
-  /** Target success rate for the dial (design §9.3: 0.70 by default, Cold Start 0.55). */
-  readonly targetSuccess?: number;
 }
 
-/** Pre-planned dial offset (in dial points) for a beat: warm-up, build, peak, breather (§4.8, §9.3). */
-export type WaveCurve = (beatIndex: number) => number;
+/** Pre-planned dial offsets (dial points) per beat: warm-up, build, peak, breather (§4.8, §9.3); see `config/dial.ts` `waves`. */
+export type WaveCurve = readonly number[];
 
 /** The skill model's side of beat scheduling (#17: `SkillState.dialFor`, `axes`). */
 export interface DialSource {
-  /** Dial (0-100) for the next stretch; called exactly once per beat, at its boundary. */
-  dialFor(mode: ModeRef, beatIndex: number, curve: WaveCurve): number;
+  /** Dial (0-100) for the beat; called exactly once per beat, at its boundary. `mode` is a key of `tunables.dial.modes`. */
+  dialFor(mode: ModeId, beatIndex: number, curve: WaveCurve): number;
   /** Concrete axis values for a dial value (fairness floors already applied). */
   axes(dial: number): AxisValues;
 }
 
 /** The enemy sim's side (#15): create and remove targets. */
 export interface TargetSpawner {
-  /** Create a target; `scale` is ×real head size. Returns its id, or -1 when it could not be created. */
+  /** Create a target (humanoid: feet position; orb: centre); `scale` is ×real head size. Returns its id, or -1 when it could not be created. */
   spawn(kind: EnemyKind, pos: Vec3, scale: number): number;
   despawn(id: number): void;
 }
@@ -84,13 +82,13 @@ export interface PlayerView {
 export type TrialExtra = Readonly<Record<string, number>>;
 
 /**
- * The facts the framework reads from the sim, shaped as design §14.3 (extra fields are fine).
- * Until #13/#15 land, `app/modeBridge.ts` derives them from the foundation's events.
+ * The facts the framework reads from the sim: the subset of `SimEvents` (design §14.3) it needs,
+ * so the game bus satisfies `Subscribable<SourceEvents>` directly.
  */
 export interface SourceEvents {
   targetKilled: {
     tick: number;
-    id: number;
+    targetId: number;
     kind: EnemyKind;
     zone: 'head' | 'body' | 'leg';
     ttkMs: number;
@@ -99,8 +97,9 @@ export interface SourceEvents {
     bullets: number;
     clean: boolean;
   };
-  targetExpired: { tick: number; id: number };
-  shotImpact: { tick: number; result: 'hit' | 'miss' };
+  /** A target left the field unkilled (lifetime, or removed by the mode). */
+  targetExpired: { tick: number; targetId: number };
+  shotImpact: { tick: number; onTarget: boolean };
 }
 
 /** Events the framework emits. §14.3 names and payloads, plus `beatStarted` and `scoreAwarded`. */

@@ -10,7 +10,7 @@ import { testMode } from './testMode';
 /** A bare mode: no targets of its own, the test spawns and resolves them by hand. */
 function bareMode(over: Partial<ModeDef<null>> = {}): ModeDef<null> {
   return {
-    id: 'bare', skills: ['flick', 'precision'], map: 'range', weapon: 'pace', durationSec: 20, axes: ['exposure', 'distance'],
+    id: 'bare', skills: ['flick', 'precision'], map: 'range', weapon: 'pace', durationSec: 20, axes: ['exposureSec', 'distance'], waveCurve: [0],
     setup: () => null, tick: () => undefined, onEvent: () => undefined, ...over,
   };
 }
@@ -79,7 +79,7 @@ describe('beats and the dial', () => {
     const axesSeen: number[] = [];
     let bump = 0;
     h.runner.begin(
-      bareMode({ durationSec: 35, beatSec: 10, waveCurve: (b) => b * 10, tick: (c) => { axesSeen.push(c.axes.exposure!); bump++; } }),
+      bareMode({ durationSec: 35, beatSec: 10, waveCurve: [0, 10, 20, 30], tick: (c) => { axesSeen.push(c.axes.exposureSec!); bump++; } }),
       { seed: 1 },
     );
     expect(h.dialCalls).toEqual([0]); // beat 0 is applied when the run is readied
@@ -111,7 +111,7 @@ describe('beats and the dial', () => {
 
   it('manual beats (Sweep-style): only advanceBeat() moves the dial', () => {
     const h = makeHarness();
-    h.runner.begin(bareMode({ beatSec: null, durationSec: 60, waveCurve: (b) => -5 * b }), { seed: 1 });
+    h.runner.begin(bareMode({ beatSec: null, durationSec: 60, waveCurve: [0, -5] }), { seed: 1 });
     h.step(READY + 30 * 128);
     expect(h.runner.beat).toBe(0);
     h.runner.advanceBeat();
@@ -131,23 +131,23 @@ describe('beats and the dial', () => {
 
   it('clamps the dial to 0..100', () => {
     const h = makeHarness();
-    h.runner.begin(bareMode({ waveCurve: () => 500 }), { seed: 1 });
+    h.runner.begin(bareMode({ waveCurve: [500] }), { seed: 1 });
     expect(h.runner.dial).toBe(100);
   });
 
-  it('uses the mode wave curve default (flat) and the default beat length', () => {
+  it('defaults to the drill wave curve and the dial module beat length', () => {
     const h = makeHarness();
-    h.runner.begin(bareMode({ beatSec: undefined, durationSec: 25 }), { seed: 1 });
+    h.runner.begin(bareMode({ beatSec: undefined, waveCurve: undefined, durationSec: 25 }), { seed: 1 });
     h.step(READY + 21 * 128);
     expect(h.events('beatStarted').map((b) => b.beat)).toEqual([0, 1, 2]);
-    expect(h.events('beatStarted').every((b) => b.dial === 50)).toBe(true);
+    expect(h.events('beatStarted').map((b) => b.dial)).toEqual([42, 47, 50]); // base 50 + drill [-8, -3, 0]
   });
 });
 
 describe('skillTrial per resolved target', () => {
   it('a kill is a success; difficulty is derived from the axes in force', () => {
     const h = makeHarness();
-    h.runner.begin(bareMode({ axes: ['exposure', 'distance'] }), { seed: 1, pinDial: 70 });
+    h.runner.begin(bareMode({ axes: ['exposureSec', 'distance'] }), { seed: 1, pinDial: 70 });
     h.step(READY);
     const id = h.runner.spawn('post', far());
     h.kill(id, { rtMs: 231 });
@@ -167,7 +167,7 @@ describe('skillTrial per resolved target', () => {
 
   it('an item keeps the difficulty of the beat it spawned in', () => {
     const h = makeHarness();
-    h.runner.begin(bareMode({ beatSec: 10, waveCurve: (b) => 20 * b }), { seed: 1 });
+    h.runner.begin(bareMode({ beatSec: 10, waveCurve: [0, 20] }), { seed: 1 });
     h.step(READY);
     const id = h.runner.spawn('post', far());
     h.step(10 * 128); // next beat: dial 70
@@ -180,7 +180,7 @@ describe('skillTrial per resolved target', () => {
   it('lifetime expiry despawns, fails the trial and tells the mode', () => {
     const h = makeHarness();
     const told: number[] = [];
-    h.runner.begin(bareMode({ onEvent: (_c, ev) => { if (ev.type === 'targetExpired') told.push(ev.payload.id); } }), { seed: 1 });
+    h.runner.begin(bareMode({ onEvent: (_c, ev) => { if (ev.type === 'targetExpired') told.push(ev.payload.targetId); } }), { seed: 1 });
     h.step(READY);
     const id = h.runner.spawn('post', far(), { lifetimeSec: 1 });
     h.step(128); // up for exactly 1 s of ticks
@@ -197,14 +197,14 @@ describe('skillTrial per resolved target', () => {
     h.runner.begin(bareMode(), { seed: 1 });
     h.step(READY);
     const id = h.runner.spawn('post', far());
-    h.bus.emit('targetExpired', { tick: h.simTick, id });
+    h.bus.emit('targetExpired', { tick: h.simTick, targetId: id });
     expect(h.events('skillTrial')).toMatchObject([{ success: false }]);
   });
 
   it('a mode can decide the trial itself, once, with its own skill and extra data', () => {
     const h = makeHarness();
     h.runner.begin(
-      bareMode({ onEvent: (c, ev) => { if (ev.type === 'targetKilled') c.resolveTrial(ev.payload.id, ev.payload.firstBullet, { extra: { flickErrorDeg: -1.5 } }); } }),
+      bareMode({ onEvent: (c, ev) => { if (ev.type === 'targetKilled') c.resolveTrial(ev.payload.targetId, ev.payload.firstBullet, { extra: { flickErrorDeg: -1.5 } }); } }),
       { seed: 1 },
     );
     h.step(READY);

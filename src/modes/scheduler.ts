@@ -2,6 +2,7 @@ import { DEG2RAD } from '../core/math';
 import type { Rng } from '../core/rng';
 import { secondsToTicks } from '../core/time';
 import { directionFromAngles, set, vec3, type Vec3 } from '../core/vec3';
+import type { FairnessFloors } from '../config/dial';
 import type { ModeTunables } from '../config/modes';
 import type { AnchorLike, AnchorSource, PlayerView } from './contracts';
 
@@ -11,7 +12,7 @@ import type { AnchorLike, AnchorSource, PlayerView } from './contracts';
  *
  * Everything is deterministic under the run's Rng and allocation-free after construction (queries
  * and results are caller-owned scratch objects). The fairness floor is unconditional: nothing is
- * ever placed closer than `spawnMinDistance` (3 m) to the player's eye, whatever the query says.
+ * ever placed closer than the dial floor `spawnMinDistance` (3 m) to the player's eye, whatever the query says.
  */
 
 /** What to pick. Reuse one query object per mode and mutate it. */
@@ -80,6 +81,7 @@ export class SpawnScheduler {
 
   constructor(
     private readonly cfg: ModeTunables,
+    private readonly floors: FairnessFloors,
     private readonly rng: Rng,
     private readonly index: AnchorIndex,
     private readonly player: PlayerView,
@@ -120,7 +122,7 @@ export class SpawnScheduler {
     const c = this.cfg;
     const eye = this.eyePosition();
     const ref = this.resolveRef(q);
-    const rLo = Math.max(shell.rMin ?? 0, q.minDist, c.spawnMinDistance);
+    const rLo = Math.max(shell.rMin ?? 0, q.minDist, this.floors.spawnMinDistance);
     const rHi = Math.min(shell.rMax ?? Infinity, q.maxDist);
     if (rHi < rLo) return false;
     const pitch0 = Math.asin(Math.max(-1, Math.min(1, ref.y)));
@@ -153,7 +155,7 @@ export class SpawnScheduler {
   }
 
   private reservoir(list: readonly AnchorLike[], q: SpawnQuery, useAngle: boolean, useDist: boolean, out: Vec3): AnchorLike | null {
-    const floor = this.cfg.spawnMinDistance;
+    const floor = this.floors.spawnMinDistance;
     const eye = this.eye;
     let chosen: AnchorLike | null = null;
     let seen = 0;

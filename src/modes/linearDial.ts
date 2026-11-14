@@ -1,5 +1,6 @@
 import { clamp } from '../core/math';
-import type { AxisValues, DialSource, ModeRef, WaveCurve } from './contracts';
+import { waveOffset } from '../adaptive/skillModel';
+import type { AxisValues, DialSource, ModeId, WaveCurve } from './contracts';
 
 /** One axis end-point pair: the value at dial 0 and at dial 100; `geometric` interpolates by ratio. */
 export interface AxisRange {
@@ -17,8 +18,8 @@ export interface AxisRange {
 export function createLinearDial(table: Readonly<Record<string, AxisRange>>, baseDial = 50): DialSource & { baseDial: number } {
   const src = {
     baseDial,
-    dialFor(_mode: ModeRef, beatIndex: number, curve: WaveCurve): number {
-      return clamp(src.baseDial + curve(beatIndex), 0, 100);
+    dialFor(_mode: ModeId, beatIndex: number, curve: WaveCurve): number {
+      return clamp(src.baseDial + waveOffset(curve, beatIndex), 0, 100);
     },
     axes(dial: number): AxisValues {
       const f = clamp(dial, 0, 100) / 100;

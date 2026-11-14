@@ -23,9 +23,9 @@ export interface ModeDef<S = unknown> extends ModeRef {
   readonly durationSec: number;
   /** Difficulty axes (design §9.4 ids) this mode uses; they define each item's difficulty. */
   readonly axes: readonly AxisId[];
-  /** Beat length in seconds (default `tunables.modes.beatSec`); `null` = the mode calls `ctx.advanceBeat()`. */
+  /** Beat length in seconds (default `tunables.dial.beat.drillSec`); `null` = the mode calls `ctx.advanceBeat()`. */
   readonly beatSec?: number | null;
-  /** Pre-planned dial offsets per beat (warm-up, peaks, breathers); default flat. */
+  /** Pre-planned dial offsets per beat (warm-up, peaks, breathers); default `tunables.dial.waves.drill`. */
   readonly waveCurve?: WaveCurve;
   /** Par time in seconds for the speed term of a kill (default `scoring.defaultParSec`). */
   parSec?(kind: EnemyKind, axes: AxisValues): number;
@@ -42,9 +42,9 @@ export interface ModeDef<S = unknown> extends ModeRef {
 export type ModeEvent = { [K in keyof SourceEvents]: { type: K; payload: SourceEvents[K] } }[keyof SourceEvents];
 
 export interface SpawnOptions {
-  /** ×real head size (default 1). Floored at `modes.floors.minHeadScale`. */
+  /** ×real head size (default 1). Floored at `dial.floors.minTargetScale`. */
   scale?: number;
-  /** Seconds until the target leaves unkilled (a failed trial). Floored at `modes.floors.minExposureSec`. */
+  /** Seconds until the target leaves unkilled (a failed trial). Floored at `dial.floors.exposureSec`. */
   lifetimeSec?: number;
   /** Skill of the trial this target produces (default `mode.skills[0]`). */
   skill?: SkillId;
