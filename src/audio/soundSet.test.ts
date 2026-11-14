@@ -62,6 +62,14 @@ describe('sound set', () => {
     }
   });
 
+  it('keeps every kill chime below the headshot tink band so a high kill never sounds like a headshot', () => {
+    for (const v of set.kill.variants) {
+      expect(dominantHz(v, SR)).toBeLessThan(1500);
+      expect(energyAbove(v, SR, 1500)).toBeLessThan(0.03);
+    }
+    expect(dominantHz(set.kill.variants[0]!, SR)).toBeGreaterThan(400);
+  });
+
   it('moving-shot tock is flat, low and has no energy where the headshot lives', () => {
     expect(energyAbove(one('movingShot'), SR, 1500)).toBeLessThan(0.05);
     expect(dominantHz(one('movingShot'), SR)).toBeLessThan(250);

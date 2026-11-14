@@ -87,7 +87,7 @@ export class Game {
 
     this.audio = new AudioEngine(this.tunables.audio);
     this.applyAudioSettings(s);
-    // Producers of feedback events (streaks) must subscribe before attachSfx so the kill chime sees the new streak.
+    // Feedback producers (stats, later streaks) subscribe before presentation (attachSfx), so the kill chime reads the updated streak.
     this.session.attach(this.bus);
     attachSfx(this.bus, this.audio, this.tunables.audio);
     attachUiSounds(document, this.audio);

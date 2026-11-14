@@ -181,9 +181,10 @@ export interface LadderTunables {
   rootHz: number;
   /** Semitone offsets from the root, one per step (length = max step). */
   semitones: readonly number[];
-  /** The chime resolves up a fifth this many ms after the first note. */
-  resolveMs: number;
+  /** Length of each chime note. */
   noteMs: number;
+  /** Frequency ratio of the detuned twin partial that gives the chime its shimmer. */
+  shimmer: number;
   /** Octave sparkle (headshot kills): ms of a short high partial layered on top. */
   sparkleMs: number;
   peakDb: number;
@@ -216,10 +217,10 @@ export interface AudioTunables {
 export const audio: AudioTunables = {
   masterGain: 0.5,
   ladder: {
-    rootHz: 880,
+    rootHz: 440,
     semitones: [0, 2, 4, 7, 9, 12, 14, 16],
-    resolveMs: 45,
-    noteMs: 170,
+    noteMs: 200,
+    shimmer: 1.005,
     sparkleMs: 90,
     peakDb: -12,
     sparklePeakDb: -18,

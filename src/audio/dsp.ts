@@ -82,22 +82,38 @@ function addTone(out: Float32Array, sr: number, l: ToneLayer, k: number): void {
   const start = Math.round((l.startMs / 1000) * sr);
   const n = Math.round((l.durMs / 1000) * sr);
   const attackN = Math.round((l.attackMs / 1000) * sr);
-  // Exponential sweep as a per-sample multiplier (no pow per sample).
-  const step = l.endHz === undefined ? 1 : Math.pow(l.endHz / l.hz, 1 / n);
   const decay = Math.exp(-k / n); // per-sample multiplier: the envelope falls `decayDb` over the layer
   let env = 1;
+  const last = Math.min(n, out.length - start);
+
+  if (l.wave === 'sine' && l.endHz === undefined) {
+    // Constant sine: two-term recurrence s[n+1] = 2cos(w) s[n] - s[n-1] (no trig per sample).
+    const w = (2 * Math.PI * l.hz) / sr;
+    const c = 2 * Math.cos(w);
+    let s1 = 0;
+    let s0 = -Math.sin(w);
+    for (let i = 0; i < last; i++) {
+      const s = c * s1 - s0;
+      s0 = s1;
+      s1 = s;
+      out[start + i] += l.gain * attackGain(i, attackN) * env * s;
+      env *= decay;
+    }
+    return;
+  }
+
+  // Exponential sweep as a per-sample multiplier (no pow per sample).
+  const step = l.endHz === undefined ? 1 : Math.pow(l.endHz / l.hz, 1 / n);
   let hz = l.hz;
   let phase = 0;
-  for (let i = 0; i < n; i++) {
-    const idx = start + i;
-    if (idx >= out.length) break;
+  for (let i = 0; i < last; i++) {
     hz *= step;
     phase += hz / sr;
     phase -= Math.floor(phase);
     const w = l.wave === 'sine'
       ? Math.sin(2 * Math.PI * phase)
       : 4 * Math.abs(phase - 0.5) - 1; // triangle
-    out[idx] += l.gain * attackGain(i, attackN) * env * w;
+    out[start + i] += l.gain * attackGain(i, attackN) * env * w;
     env *= decay;
   }
 }

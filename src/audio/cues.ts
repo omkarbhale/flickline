@@ -22,26 +22,27 @@ function hashId(id: string): number {
 
 const hzAt = (rootHz: number, semitones: number): number => rootHz * Math.pow(2, semitones / 12);
 
-/** Kill chime for a ladder step: root note, then a fifth above (a rising resolve), bell-ish partial on top. */
+/**
+ * Kill chime for a ladder step: a sine note with a slightly detuned twin for a bell-like shimmer.
+ * The whole ladder (root 440 Hz, top step about 1.1 kHz) stays below the headshot tink (1.9 kHz),
+ * so a high kill never sounds like a headshot (docs/research/cues.md section 3.4).
+ */
 export function killLayers(step: number, t: AudioTunables): Layer[] {
-  const { rootHz, semitones, resolveMs, noteMs } = t.ladder;
+  const { rootHz, semitones, noteMs } = t.ladder;
   const f0 = hzAt(rootHz, semitones[step - 1]!);
-  const f1 = f0 * Math.pow(2, 7 / 12);
   return [
     { kind: 'tone', wave: 'sine', startMs: 0, durMs: noteMs, hz: f0, attackMs: 1.5, gain: 1.0 },
-    { kind: 'tone', wave: 'sine', startMs: 0, durMs: noteMs * 0.5, hz: f0 * 2.76, attackMs: 1, gain: 0.18 },
-    { kind: 'tone', wave: 'sine', startMs: resolveMs, durMs: noteMs, hz: f1, attackMs: 1.5, gain: 0.85 },
+    { kind: 'tone', wave: 'sine', startMs: 0, durMs: noteMs, hz: f0 * t.ladder.shimmer, attackMs: 1.5, gain: 0.55 },
   ];
 }
 
-/** Headshot-kill top layer: a short octave-up sparkle (two detuned partials two octaves above the step note). */
+/** Headshot-kill top layer: a short octave-up sparkle (two detuned triangles an octave above the step note). */
 export function sparkleLayers(step: number, t: AudioTunables): Layer[] {
-  const { rootHz, semitones, sparkleMs, resolveMs } = t.ladder;
+  const { rootHz, semitones, sparkleMs } = t.ladder;
   const f = hzAt(rootHz, semitones[step - 1]!) * 2;
   return [
     { kind: 'tone', wave: 'triangle', startMs: 0, durMs: sparkleMs, hz: f, attackMs: 0.8, gain: 1.0 },
     { kind: 'tone', wave: 'triangle', startMs: 0, durMs: sparkleMs, hz: f * 1.006, attackMs: 0.8, gain: 0.7 },
-    { kind: 'tone', wave: 'sine', startMs: resolveMs, durMs: sparkleMs, hz: f * 1.5, attackMs: 0.8, gain: 0.5 },
   ];
 }
 

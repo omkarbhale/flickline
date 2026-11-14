@@ -1,6 +1,5 @@
 import type { Game } from '../app/game';
-import type { PlayLogEntry, PlayOptions } from '../audio/audioEngine';
-import type { SoundSetStats } from '../audio/audioEngine';
+import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
 import type { CueId } from '../config/audio';
 import type { TickInput } from '../sim/types';
 
