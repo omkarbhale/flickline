@@ -1,11 +1,12 @@
 import {
+  AmbientLight,
   Color,
   DirectionalLight,
   Fog,
-  HemisphereLight,
   InstancedMesh,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
   MeshLambertMaterial,
   PerspectiveCamera,
   BoxGeometry,
@@ -16,12 +17,16 @@ import {
 import type { Subscribable } from '../core/eventBus';
 import { lerp } from '../core/math';
 import { REFERENCE_ASPECT, verticalFovDeg } from '../core/view';
+import { env, palette } from '../config/palette';
 import { QUALITY_LEVELS, type QualityLevel } from '../config/render';
 import type { Tunables } from '../config/tunables';
 import type { SimEvents } from '../sim/types';
 import type { World } from '../sim/world';
 import { ShotEffects } from './effects';
+import { BlobShadows } from './blobShadows';
+import { applyEnvQuality, createEnvUniforms, horizonColor, type EnvUniforms } from './envShaders';
 import { buildLevelMesh, type LevelMesh } from './levelMesh';
+import { Sky } from './sky';
 import { PostPipeline, createVignetteEffect } from './post';
 
 export interface RenderStats {
@@ -31,7 +36,7 @@ export interface RenderStats {
   textures: number;
 }
 
-const BASE_TARGET_COLOR = 0xff6a3d;
+const BASE_TARGET_COLOR = palette.ember;
 const FLASH_TICKS = 14;
 
 /**
@@ -49,6 +54,10 @@ export class GameRenderer {
 
   private quality: QualityLevel;
   private level: LevelMesh | null = null;
+  private readonly envUniforms: EnvUniforms;
+  private readonly sky: Sky;
+  private readonly blobs: BlobShadows;
+  private readonly fog: Fog;
   private targetMesh: InstancedMesh | null = null;
   private readonly effects: ShotEffects;
   private readonly viewmodel: Mesh;
@@ -80,18 +89,27 @@ export class GameRenderer {
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera);
 
+    // Lightline environment: shared procedural-shader uniforms, sky dome, blob decals, fog.
     const r = tunables.render;
-    this.scene.background = new Color(r.skyColor);
-    this.scene.fog = new Fog(r.skyColor, r.fogNear, r.fogFar);
-    this.scene.add(new HemisphereLight(0xffffff, 0x56606e, 2.4));
-    const sun = new DirectionalLight(0xfff0dc, 2.6);
-    sun.position.set(6, 12, 4);
+    this.envUniforms = createEnvUniforms(r, env);
+    this.scene.background = new Color(palette.ink);
+    this.fog = new Fog(palette.ink, r.fogNear, r.fogFar);
+    this.scene.fog = this.fog;
+    this.sky = new Sky(this.envUniforms, v.far);
+    this.scene.add(this.sky.mesh);
+    this.blobs = new BlobShadows(r.blob);
+    this.scene.add(this.blobs.mesh);
+    // The one directional light (plus ambient) for lit-material objects; the environment shaders
+    // use the same direction from the shared uniforms.
+    this.scene.add(new AmbientLight(0xffffff, r.light.objectAmbient));
+    const sun = new DirectionalLight(0xffffff, r.light.objectSun);
+    sun.position.set(...r.light.dir).multiplyScalar(12);
     this.scene.add(sun);
 
     this.effects = new ShotEffects(this.scene, bus);
 
     // Placeholder first-person weapon model, parented to the camera.
-    this.viewmodel = new Mesh(new BoxGeometry(0.05, 0.07, 0.36), new MeshLambertMaterial({ color: 0x3b4452 }));
+    this.viewmodel = new Mesh(new BoxGeometry(0.05, 0.07, 0.36), new MeshLambertMaterial({ color: palette.steel }));
     this.viewmodel.position.set(0.15, -0.14, this.viewmodelBaseZ);
     this.camera.add(this.viewmodel);
 
@@ -109,7 +127,8 @@ export class GameRenderer {
     const p = this.tunables.render.quality[this.quality];
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, p.pixelRatioCap));
     this.post.enabled = p.postProcessing;
-    this.level?.setAnisotropy(Math.min(p.maxAnisotropy, this.renderer.capabilities.getMaxAnisotropy()));
+    applyEnvQuality(this.envUniforms, p);
+    horizonColor(this.envUniforms, this.fog.color); // fog fades to the sky's horizon colour
     this.resize(this.width, this.height);
   }
 
@@ -128,18 +147,25 @@ export class GameRenderer {
   loadLevel(world: World): void {
     this.level?.dispose();
     if (this.level) this.scene.remove(this.level.root);
-    this.level = buildLevelMesh(world.level);
+    this.level = buildLevelMesh(world.level, this.envUniforms, this.tunables.render);
     this.scene.add(this.level.root);
+    this.blobs.setLevel(world.level.boxes);
     this.applyQuality();
 
     if (this.targetMesh) {
       this.scene.remove(this.targetMesh);
       this.targetMesh.geometry.dispose();
-      (this.targetMesh.material as MeshLambertMaterial).dispose();
+      (this.targetMesh.material as MeshBasicMaterial).dispose();
       this.targetMesh.dispose();
     }
     const n = Math.max(1, world.targets.length);
-    this.targetMesh = new InstancedMesh(new SphereGeometry(1, 24, 16), new MeshLambertMaterial({ color: 0xffffff }), n);
+    // Unlit and unfogged on purpose: an Echo stays the highest-contrast thing on screen at any
+    // distance (design section 11). The Echo shader (#18) replaces this material.
+    this.targetMesh = new InstancedMesh(
+      new SphereGeometry(1, 24, 16),
+      new MeshBasicMaterial({ color: 0xffffff, fog: false }),
+      n,
+    );
     this.targetMesh.count = world.targets.length;
     this.targetMesh.frustumCulled = false;
     for (let i = 0; i < world.targets.length; i++) this.targetMesh.setColorAt(i, this.color.setHex(BASE_TARGET_COLOR));
@@ -162,10 +188,12 @@ export class GameRenderer {
     );
     this.camera.rotation.set(pitch, yaw, 0);
 
+    this.sky.follow(this.camera);
     this.effects.update(dt);
     this.viewmodel.position.z = this.viewmodelBaseZ + this.effects.kick * 0.04;
     this.viewmodel.rotation.x = this.effects.kick * 0.06;
     this.updateTargets(world);
+    this.blobs.update(world.targets);
 
     this.renderer.info.reset();
     this.post.render(this.renderer, this.scene, this.camera);
@@ -201,6 +229,8 @@ export class GameRenderer {
     this.effects.dispose();
     this.post.dispose();
     this.level?.dispose();
+    this.sky.dispose();
+    this.blobs.dispose();
     this.renderer.dispose();
   }
 }
