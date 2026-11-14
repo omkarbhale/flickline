@@ -4,7 +4,7 @@ import { weapon as weaponTable, weaponRules, type WeaponDef, type WeaponId } fro
 import { EventBus } from '../core/eventBus';
 import { RAD2DEG } from '../core/math';
 import { Rng } from '../core/rng';
-import { TICK_RATE } from '../core/time';
+import { TICK_DT, TICK_RATE } from '../core/time';
 import { directionFromAngles, vec3, type Vec3 } from '../core/vec3';
 import { createTickInput, type LevelDef, type SimEvents, type TickInput } from './types';
 import { applyRecoilKick, damageFor, patternAt, sprayAccumDeg, sprayIncrement, type RecoilState } from './weaponModel';
@@ -280,18 +280,41 @@ describe('recoil of the new weapons as data (spec §3.5)', () => {
     }
   });
 
-  it('the aim offset returns after each weapon recovery time (Rill 0.25 s, Vane 0.375 s)', () => {
-    for (const id of ['rill', 'vane'] as const) {
+  it('a shot fired once the gun recovery time has passed is a centred first shot, after any burst (#191)', () => {
+    for (const id of ['pace', 'kestrel', 'vane', 'rill'] as const) {
       const def = weaponTable[id];
-      const s = setup(id);
-      const w = s.world.weapon;
-      while (w.shots < 6) s.run(1, { fire: true });
-      const peak = w.recoilPitch;
-      expect(peak).toBeGreaterThan(0);
-      s.run(Math.floor((def.recoverySec - 0.01) * TICK_RATE), { fire: false });
-      expect(w.recoilPitch).toBe(peak);
-      s.run(Math.ceil((peak / def.recoilReturnDegPerSec) * TICK_RATE) + 8, { fire: false });
-      expect(w.recoilPitch).toBe(0);
+      for (const burst of [1, 3, 10, 30]) {
+        const s = setup(id === 'pace' ? 'kestrel' : id);
+        const w = s.world.weapon;
+        w.infiniteMagazine = true; // no reload between the burst and the tap
+        if (id === 'pace') s.run(Math.ceil(def.equipSec * TICK_RATE) + 2, { switchTo: 1 });
+        expect(s.world.weapon.slots[w.active]!.id).toBe(id);
+        // Fire as fast as the gun allows (semi-auto: a fresh press every other tick).
+        for (let i = 0; i < TICK_RATE * 10 && w.shots < burst; i++) {
+          s.run(1, { fire: def.fireMode === 'auto' || i % 2 === 0 });
+        }
+        expect(w.shots).toBe(burst);
+        expect(w.recoilPitch).toBeGreaterThan(0);
+        // Release and fire on the first tick the reset allows.
+        let k = 0;
+        while ((k + 1) * TICK_DT < def.recoverySec - 1e-9) {
+          s.run(1, { fire: false });
+          k++;
+        }
+        s.run(1, { fire: true });
+        const shots = s.all('shotFired');
+        const tap = shots[shots.length - 1]!;
+        expect(shots.length, `${id} burst ${burst}`).toBe(burst + 1);
+        expect([tap.recoilIndex, tap.recoilPitchDeg, tap.recoilYawDeg], `${id} burst ${burst}`).toEqual([0, 0, 0]);
+        expect(tap.spreadDeg, `${id} burst ${burst}`).toBeCloseTo(def.spreadFirstDeg, 9);
+      }
+    }
+  });
+
+  it('every weapon holds its aim offset for less than its recovery time, and autos through held fire', () => {
+    for (const def of Object.values(weaponTable)) {
+      expect(def.recoilReturnDelaySec, def.name).toBeLessThan(def.recoverySec);
+      if (def.fireMode === 'auto') expect(def.recoilReturnDelaySec, def.name).toBeGreaterThan(1 / def.fireRateHz);
     }
   });
 });
