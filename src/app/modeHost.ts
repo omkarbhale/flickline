@@ -10,6 +10,7 @@ import type { AnchorSource, AxisValues, DialSource, TargetSpawner } from '../mod
 import type { ModeDef } from '../modes/modeDef';
 import { orbit } from '../modes/orbit';
 import { placement, type PlacementState } from '../modes/placement';
+import { stopAndPop } from '../modes/stopAndPop';
 import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
 import { economyShield } from '../sim/damage';
@@ -24,15 +25,16 @@ export const MODES: Readonly<Record<string, ModeDef<never>>> = {
   coldStart: coldStart as ModeDef<never>,
   orbit: orbit as ModeDef<never>,
   placement: placement as ModeDef<never>,
+  stopAndPop: stopAndPop as ModeDef<never>,
 };
 
-/** The sim's target registry as the framework's spawner (#15). Only the kinds the sim has yet. */
+/** The sim's target registry as the framework's spawner (#15). Only the kinds the sim has yet (Rusher, Bulwark and Gnat: #33). */
 class WorldSpawner implements TargetSpawner {
   constructor(private readonly world: World, private readonly bus: EventBus<GameEvents>) {}
 
   /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. */
   spawn(kind: EnemyKind, pos: Vec3, scale: number): number {
-    if (kind !== 'post' && kind !== 'beacon') return -1;
+    if (kind !== 'post' && kind !== 'beacon' && kind !== 'strafer' && kind !== 'peeker') return -1;
     return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, { scale });
   }
 
@@ -90,6 +92,8 @@ export class ModeHost {
   /** Result of the last finished Placement run, or null. */
   placementOutcome: PlacementOutcome | null = null;
   private active: ModeDef<never> | null = null;
+  /** The player's difficulty pin for a mode (setting `difficultyPin`), or undefined for matched difficulty. */
+  pinFor: (modeId: string) => number | undefined = () => undefined;
   private readonly anchors: AnchorSource;
   private priorInfiniteMagazine = false;
   private readonly ray = vec3();
@@ -123,7 +127,7 @@ export class ModeHost {
     this.clearField();
     this.applyPlayerSetup(mode);
     this.active = mode;
-    this.runner.begin(mode, { seed, pinDial: opts.pinDial, anchors: opts.anchors ?? this.anchors });
+    this.runner.begin(mode, { seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors });
     return true;
   }
 
@@ -135,6 +139,7 @@ export class ModeHost {
     this.world.movementLocked = false;
     this.world.swapLocked = false;
     this.world.setShields(0, 0);
+    this.world.enemiesFire = false;
     this.active = null;
   }
 
@@ -196,6 +201,9 @@ export class ModeHost {
     w.movementLocked = setup?.lockMovement ?? false;
     const level = mode.economy ? economyShield(mode.economy, this.tunables.economy, this.tunables.player.shield) : 0;
     w.setShields(level, level);
+    // A mode with an economy is a mode where enemies shoot back (design §5.3); drills never have one.
+    w.enemiesFire = mode.economy !== undefined;
+    if (mode.economy) w.enemyWeapon = this.tunables.economy.levels[mode.economy].enemyWeapon;
   }
 
   /** Line of sight between two points through the level's collision boxes. */

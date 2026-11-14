@@ -54,9 +54,13 @@ never touches sim state. One engagement is the two-submovement model of aimed mo
 A target that is not in view yet (behind the player in Orbit) is turned to at `searchDegPerSec`.
 
 **Not modelled** (so a mode that needs them is not playable by this bot yet): leading moving
-targets (it trails them with its follow lag), movement of any kind (it stands still), crouching,
+targets (it trails them with its follow lag), movement of any kind except Stop & Pop's footwork (below; elsewhere it stands still), crouching outside Stop & Pop,
 jumping, weapon swaps and reloads (the sim reloads an empty magazine by itself), taking cover,
 and enemies shooting back.
+
+### Stop & Pop footwork (`footwork.ts`)
+
+Stop & Pop is the one mode with movement, and it is played on its own map (`mapForMode`: Lane). `FootworkBot` wraps the aiming `Bot`: it strafes along the Lane (arming it), and when a target appears waits its reaction time, taps the opposite key until its speed is under the accuracy threshold, lets go, takes the ring's stance (crouch for a blue ring) and only then lets the aimer fire. A weak bot reacts late and runs out of exposure; a strong one does not.
 
 ### The skill model (`skill.ts`)
 

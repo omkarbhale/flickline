@@ -5,11 +5,18 @@ import { vec3, type Vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
 import { shieldAbsorbed } from './damage';
 import { createAimInfo, measureAim, yawOf, type AimInfo } from './aim';
-import { rayBox } from './collision';
+import { lineBlocked } from './collision';
+import { createEnemyAi, resetEnemyAi, type FireParams, type PeekParams, type StrafeParams } from './enemyAi';
+import { fireInit } from './enemyFire';
 import { BEHAVIOURS } from './enemies';
+import { peekInit } from './peeker';
+import { strafeInit } from './strafer';
 import { fsmStart, fsmStep, createFsm, type BehaviourContext } from './fsm';
 import { createZoneHit, traceTarget, zoneCentre, type ZoneHit } from './hitZones';
 import type { BoxDef, HitZone, PlayerState, SimEvents, TargetKind, TargetState } from './types';
+
+/** Who created a first line of sight: the player's movement or the enemy's (`targetVisible`, `enemySawPlayer`). */
+export type FirstSightInitiator = 'player' | 'enemy';
 
 /** Events the target registry emits (part of `SimEvents`). */
 export interface TargetEvents {
@@ -25,6 +32,14 @@ export interface TargetEvents {
     /** Head-centre angles minus view angles at that tick, radians: the flick vector. */
     dYaw: number;
     dPitch: number;
+    /**
+     * Whose movement created this line of sight (`fight-attribution.md` F6), by one re-cast: the
+     * sight ray from the player's eye at the previous tick. Blocked there means the player's
+     * movement opened it (`'player'`, he peeked); open there means it was already open, so the
+     * enemy's movement, or its appearance, did (`'enemy'`). Only the player's own movement is
+     * undone, so a turn of the view onto an enemy that was already exposed reads `'enemy'`.
+     */
+    initiator: FirstSightInitiator;
   };
   targetHit: {
     tick: number;
@@ -92,6 +107,15 @@ export interface SpawnOptions {
   scale?: number;
   /** Humanoids only: shield points at spawn (spec §4.1). Default: the field's `enemyShield`. Orbs never carry one. */
   shield?: number;
+  /** Strafer: the dial's speed, leg and stand-still and the lane it runs (defaults: the dial-50 values, a line square to the player). */
+  strafe?: StrafeParams;
+  /** Peeker: the anchor and pattern (default: a shoulder peek one metre to the right of where it spawned). */
+  peek?: PeekParams;
+  /**
+   * Strafer and Peeker: this enemy shoots back (the world's `enemiesFire` flag must also be on, so
+   * drills never see a shot). Absent = it never fires.
+   */
+  fire?: FireParams;
 }
 
 function createSlot(): TargetState {
@@ -101,6 +125,7 @@ function createSlot(): TargetState {
     spawner: -1,
     home: vec3(),
     pos: vec3(),
+    prevPos: vec3(),
     crouched: false,
     radius: 0,
     boundsY: 0,
@@ -117,6 +142,7 @@ function createSlot(): TargetState {
     prevSway: 0,
     swayTarget: 0,
     fsm: createFsm(),
+    ai: createEnemyAi(),
     visibleTick: -1,
     firstShotTick: -1,
     reactionShotTick: -1,
@@ -128,7 +154,7 @@ function createSlot(): TargetState {
 
 // Event payloads are reused (valid only during the callback; see the architecture's event rules).
 const spawnedPayload = { tick: 0, t: 0, targetId: 0, kind: 'beacon' as TargetKind, pos: vec3(), tags: [] as readonly string[] };
-const visiblePayload = { tick: 0, t: 0, targetId: 0, preAim: 0, dYaw: 0, dPitch: 0 };
+const visiblePayload = { tick: 0, t: 0, targetId: 0, preAim: 0, dYaw: 0, dPitch: 0, initiator: 'enemy' as FirstSightInitiator };
 const hitPayload = {
   tick: 0, t: 0, targetId: 0, kind: 'beacon' as TargetKind, zone: 'head' as HitZone,
   point: vec3(), damage: 0, absorbed: 0, hpLeft: 0, shieldLeft: 0, distance: 0, killed: false,
@@ -141,7 +167,6 @@ const expiredPayload = { tick: 0, t: 0, targetId: 0, kind: 'beacon' as TargetKin
 const respawnedPayload = { tick: 0, targetId: 0 };
 
 const scratchA = vec3();
-const scratchB = vec3();
 const scratchC = vec3();
 const scratchAim: AimInfo = createAimInfo();
 
@@ -237,6 +262,11 @@ export class TargetField {
     t.bullets = 0;
     t.missedShot = false;
     t.movingShot = false;
+    t.prevPos.x = x; t.prevPos.y = y; t.prevPos.z = z;
+    resetEnemyAi(t.ai);
+    if (def.behaviour === 'strafer') strafeInit(t, ctx, opts?.strafe);
+    else if (def.behaviour === 'peeker') peekInit(t, opts?.peek);
+    if (def.behaviour === 'strafer' || def.behaviour === 'peeker') fireInit(t, ctx, opts?.fire);
     fsmStart(BEHAVIOURS[def.behaviour], t, ctx);
     if (events) {
       const p = spawnedPayload;
@@ -298,6 +328,7 @@ export class TargetField {
       const t = this.slots[i]!;
       if (!t.alive) continue;
       t.prevSway = t.sway;
+      t.prevPos.x = t.pos.x; t.prevPos.y = t.pos.y; t.prevPos.z = t.pos.z;
       if (t.expireTick >= 0 && tick >= t.expireTick) {
         this.expire(t, tick, ctx.events);
         continue;
@@ -372,21 +403,29 @@ export class TargetField {
         if (Math.abs(vx * ux + vy * uy + vz * uz) > depth * tanV) continue;
         const dist = Math.sqrt(vx * vx + vy * vy + vz * vz);
         const inv = 1 / dist;
-        if (this.lineBlocked(boxes, ex, ey, ez, vx * inv, vy * inv, vz * inv, dist)) continue;
-        this.markVisible(t, tick, ex, ey, ez, p.yaw, p.pitch, fx, fy, fz, events);
+        if (lineBlocked(boxes, ex, ey, ez, vx * inv, vy * inv, vz * inv, dist)) continue;
+        this.markVisible(t, tick, ex, ey, ez, p.yaw, p.pitch, fx, fy, fz, p, boxes, events);
         break;
       }
     }
   }
 
-  private lineBlocked(
-    boxes: readonly BoxDef[],
-    ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, dist: number,
-  ): boolean {
-    const limit = dist - 0.001;
-    for (let i = 0; i < boxes.length; i++) {
-      const hit = rayBox(ox, oy, oz, dx, dy, dz, boxes[i]!, limit, scratchB);
-      if (hit >= 0 && hit < limit) return true;
+  /**
+   * Whether any sample of the target (head centre, and body centre for a humanoid) has an
+   * unoccluded line to the point (`ex`, `ey`, `ez`): the same samples `updateVisibility` tests, so
+   * "open from there" means "it would have been seen from there, ignoring the view direction".
+   */
+  hasLineOfSightFrom(t: TargetState, ex: number, ey: number, ez: number, boxes: readonly BoxDef[]): boolean {
+    const tt = this.tunables.targets;
+    const def = tt.kinds[t.kind];
+    const samples = def.shape === 'orb' ? 1 : 2;
+    for (let s = 0; s < samples; s++) {
+      const c = zoneCentre(scratchA, t, tt.hit, def, s === 0 ? 'head' : 'body');
+      const vx = c.x - ex, vy = c.y - ey, vz = c.z - ez;
+      const dist = Math.sqrt(vx * vx + vy * vy + vz * vz);
+      if (dist < 1e-6) return true;
+      const inv = 1 / dist;
+      if (!lineBlocked(boxes, ex, ey, ez, vx * inv, vy * inv, vz * inv, dist)) return true;
     }
     return false;
   }
@@ -398,7 +437,7 @@ export class TargetField {
   private markVisible(
     t: TargetState, tick: number,
     ox: number, oy: number, oz: number, yaw: number, pitch: number, dx: number, dy: number, dz: number,
-    events: EventSink<SimEvents>,
+    pl: PlayerState, boxes: readonly BoxDef[], events: EventSink<SimEvents>,
   ): void {
     t.visibleTick = tick;
     const tt = this.tunables.targets;
@@ -411,6 +450,7 @@ export class TargetField {
     p.preAim = scratchAim.err;
     p.dYaw = scratchAim.dYaw;
     p.dPitch = scratchAim.dPitch;
+    p.initiator = initiatorOf(this.hasLineOfSightFrom(t, pl.prevPos.x, pl.prevPos.y + pl.prevEyeHeight, pl.prevPos.z, boxes));
     events.emit('targetVisible', p);
   }
 
@@ -451,11 +491,13 @@ export class TargetField {
    * Book-keep one fired shot against every visible target: which ones it was "at" (hit, or
    * landed within `shotAtDeg`), whether it missed them, whether it was a moving shot, and the
    * first shot aimed within `reactionAimDeg` (reaction time). `hitId` is the target struck or -1.
-   * A hit on a target that has not been announced visible announces it first.
+   * A hit on a target that has not been announced visible announces it first (`pl` and `boxes`
+   * give that announcement its initiator: the player's previous eye and the level's collision).
    */
   registerShot(
     ox: number, oy: number, oz: number, dx: number, dy: number, dz: number,
-    hitId: number, moving: boolean, tick: number, events: EventSink<SimEvents>,
+    hitId: number, moving: boolean, tick: number, pl: PlayerState, boxes: readonly BoxDef[],
+    events: EventSink<SimEvents>,
   ): void {
     const tt = this.tunables.targets;
     const cosAt = Math.cos(tt.shotAtDeg * DEG2RAD);
@@ -465,7 +507,7 @@ export class TargetField {
       if (!t.alive) continue;
       const isHit = t.id === hitId;
       if (isHit && t.visibleTick < 0) {
-        this.markVisible(t, tick, ox, oy, oz, yawOf(dx, dz), Math.asin(dy), dx, dy, dz, events);
+        this.markVisible(t, tick, ox, oy, oz, yawOf(dx, dz), Math.asin(dy), dx, dy, dz, pl, boxes, events);
       }
       if (t.visibleTick < 0) continue;
       const def = tt.kinds[t.kind];
@@ -563,9 +605,18 @@ export class TargetField {
       if (!t.alive) continue;
       mix(t.id); mix(t.hp); mix(t.shield); mix(t.pos.x); mix(t.pos.y); mix(t.pos.z); mix(t.sway);
       mix(t.fsm.state); mix(t.fsm.timerTicks);
+      if (t.kind === 'strafer' || t.kind === 'peeker') {
+        const a = t.ai;
+        mix(a.s); mix(a.vel); mix(a.u); mix(a.phase); mix(a.burstLeft); mix(t.crouched ? 1 : 0);
+      }
     }
     for (let i = 0; i < this.spawners.length; i++) mix(this.spawners[i]!.respawnTick);
   }
+}
+
+/** The one-ray initiator test (`fight-attribution.md` F6): a line that was already open at the player's previous position was not opened by the player. */
+export function initiatorOf(openFromPreviousPosition: boolean): FirstSightInitiator {
+  return openFromPreviousPosition ? 'enemy' : 'player';
 }
 
 const HUMANOID_ZONES: readonly HitZone[] = ['head', 'body', 'leg'];

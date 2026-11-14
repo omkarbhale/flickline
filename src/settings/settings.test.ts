@@ -67,6 +67,9 @@ describe('settings', () => {
 
   it('sanitises Reduce flashing and the flinch strength', () => {
     expect(DEFAULT_SETTINGS.reduceFlashing).toBe(false);
+    expect(DEFAULT_SETTINGS.chromaticPulse).toBe(false); // optional: off until the player opts in (design section 11)
+    expect(sanitizeSettings({ chromaticPulse: 'yes' }).chromaticPulse).toBe(false);
+    expect(sanitizeSettings({ chromaticPulse: true }).chromaticPulse).toBe(true);
     expect(DEFAULT_SETTINGS.flinchStrength).toBe(1);
     const s = sanitizeSettings({ reduceFlashing: 'yes', flinchStrength: 9 });
     expect(s.reduceFlashing).toBe(false);
@@ -103,5 +106,67 @@ describe('hud settings', () => {
     expect(seen.length).toBe(1);
     expect(new SettingsStore(new EventBus<SettingsEvents>(), st).get().hud.show.rt).toBe(false);
     expect(DEFAULT_SETTINGS.hud.show.rt).toBe(true);
+  });
+});
+
+describe('settings menu fields (design §13.3)', () => {
+  it('defaults', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      invertY: false, rawInput: true, hitSoundStyle: 'standard', monoAudio: false, tellVolume: 1,
+      renderScale: 1, fpsCap: 0, showFps: false, postEffects: 'auto', enemyOutline: 'auto', echoPreset: 'ember',
+      coachingCues: true, missGhost: true, damageNumbers: true, reduceFlashing: false,
+    });
+    expect(DEFAULT_SETTINGS.difficultyPin).toEqual({});
+  });
+
+  it('keeps FPS cap to the four options', () => {
+    for (const c of [0, 60, 144, 240]) expect(sanitizeSettings({ fpsCap: c }).fpsCap).toBe(c);
+    for (const bad of [30, 100, -1, '60', null]) expect(sanitizeSettings({ fpsCap: bad }).fpsCap).toBe(DEFAULT_SETTINGS.fpsCap);
+  });
+
+  it('clamps render scale and the tell volume, and rejects unknown options', () => {
+    expect(sanitizeSettings({ renderScale: 0.1 }).renderScale).toBe(0.5);
+    expect(sanitizeSettings({ renderScale: 3 }).renderScale).toBe(1);
+    expect(sanitizeSettings({ tellVolume: 2 }).tellVolume).toBe(1);
+    const s = sanitizeSettings({ postEffects: 'maybe', enemyOutline: 'on', echoPreset: 'neon', hitSoundStyle: 'loud' });
+    expect(s.postEffects).toBe('auto');
+    expect(s.enemyOutline).toBe('on');
+    expect(s.echoPreset).toBe('ember');
+    expect(s.hitSoundStyle).toBe('standard');
+  });
+
+  it('has no field of view setting: the sim FOV can not be changed from here', () => {
+    expect(Object.keys(DEFAULT_SETTINGS).filter((k) => /fov|fieldofview/i.test(k))).toEqual([]);
+    const s = sanitizeSettings({ fov: 140, hfov: 140, fieldOfView: 140 }) as unknown as Record<string, unknown>;
+    expect(Object.keys(s).filter((k) => /fov|fieldofview/i.test(k))).toEqual([]);
+  });
+
+  it('persists and reloads key bindings, rejecting a conflicting save', () => {
+    const st = memoryStorage();
+    const store = new SettingsStore(new EventBus<SettingsEvents>(), st);
+    store.set({ keys: { ...store.get().keys, jump: ['KeyF'] } });
+    expect(new SettingsStore(new EventBus<SettingsEvents>(), st).get().keys.jump).toEqual(['KeyF']);
+    const dup = memoryStorage({ [SETTINGS_KEY]: JSON.stringify({ keys: { jump: ['KeyW'] } }) });
+    const keys = new SettingsStore(new EventBus<SettingsEvents>(), dup).get().keys;
+    expect(keys.forward).toContain('KeyW');
+    expect(keys.jump).not.toContain('KeyW');
+  });
+
+  it('names changed keys, including the nested ones, and ignores no-op sets', () => {
+    const bus = new EventBus<SettingsEvents>();
+    const seen: string[][] = [];
+    bus.on('settingsChanged', (e) => seen.push([...e.changed]));
+    const store = new SettingsStore(bus, memoryStorage());
+    store.set({ keys: { ...store.get().keys } }); // same value
+    store.set({ keys: { ...store.get().keys, reload: ['KeyT'] } });
+    store.set({ difficultyPin: { orbit: 40 } });
+    store.set({ difficultyPin: { orbit: 40 } });
+    store.set({ fpsCap: 144, showFps: true });
+    expect(seen).toEqual([['keys'], ['difficultyPin'], ['fpsCap', 'showFps']]);
+  });
+
+  it('sanitises difficulty pins: dial range, mode id shape, count', () => {
+    const p = sanitizeSettings({ difficultyPin: { orbit: 150, coldStart: -5, 'bad id!': 3, strafeTrack: 'x', ok_1: 40.6 } }).difficultyPin;
+    expect(p).toEqual({ orbit: 100, coldStart: 0, ok_1: 41 });
   });
 });

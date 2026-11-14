@@ -10,13 +10,14 @@ import {
 import { TargetField } from './targets';
 import type { SimEvents, TargetState } from './types';
 import { World } from './world';
+import { createStubEnemyWorld } from './enemyStub';
 import { testRoom } from './levels';
 
 const tun = cloneTunables();
 
 function rig(seed = 1) {
   const field = new TargetField(tun);
-  const ctx: BehaviourContext = { tick: 0, rng: new Rng(seed), tunables: tun, events: new EventBus<SimEvents>() };
+  const ctx: BehaviourContext = { tick: 0, rng: new Rng(seed), tunables: tun, events: new EventBus<SimEvents>(), world: createStubEnemyWorld() };
   field.spawn('post', 0, 0, -10, ctx, null);
   const t: TargetState = field.slots[0]!;
   return { t, ctx };
