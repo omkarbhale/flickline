@@ -95,7 +95,8 @@ Every stat is computed from the event log (section 14), never from UI state.
 - **Flick error** = for a flick, signed overshoot or undershoot (in degrees, along the flick axis) at the first shot relative to the target centre.
 - **Spray trace** = for a burst, the ordered list of per-bullet impact offsets (in degrees, relative to the aim point at the first bullet) and the player's per-bullet mouse pull. **Ideal trace** = the same burst with the spec's recoil pattern perfectly countered (every bullet at the first bullet's offset plus only the spec's random spread). The comparison drawn is between required pull and actual pull per bullet index.
 - **Clean kill** = a kill on that target with no missed shot at it and no moving shot.
-- **Chain** = kills within 1.5 s of the previous kill. **Clean streak** = consecutive clean kills. (Two different counters; both shown.)
+- **Chain** = isolated kills within 1.5 s of the previous one; a kill made while another live enemy had the player in sight from a second angle (more than 30° away) gets no chain credit (#132). **Clean streak** = consecutive clean kills. (Two different counters; both shown.)
+- **Contact** = one Sweep contact or one Corner Clear angle, from the first information either side has to every enemy dead, the player dead, or 2 s with no line of sight either way (`docs/research/fight-attribution.md` §3.1). **Health kept** = 1 − health+shield lost in the contact ÷ health+shield at its start (kill-heal does not reduce the loss).
 
 ---
 
@@ -163,6 +164,7 @@ All modes have `ready` → `live` → `result`; weapon per mode is the default b
 - **Trial**: one angle = one trial; success = every Peeker killed and no damage taken.
 - **Dial axes**: exposure, enemy reaction and tell length, enemy accuracy, density, distance.
 - **Key metrics shown**: pre-aim error, head-height discipline, over-peek count (damage taken while you were exposed more than 0.5 s without firing), damage per angle.
+- **Contact settle**: each angle settles as a contact (section 8.1): cleared, disengaged alive or died.
 
 ### 4.8 Sweep — the flagship  (first release)
 
@@ -170,10 +172,10 @@ Sweep is a game, not a drill: you move through a compact arena that fights back,
 
 - **Map/weapons**: Foundry. At the start of a run pick a primary (Kestrel or Rill) and the sidearm is always Pace. `1`/`2` swap, `R` reloads, magazines are real.
 - **Rule**: the **Sweep Director** (section 9) sends a continuous stream of **contacts** from six spawn gates: a contact is one to four enemies of mixed types arriving by different routes with staggered timing. You have health (spec values) and the default heavy shield (50, as do the enemies), slow-on-hit applies, there is no passive regeneration and a spent shield does not come back. **Kills heal**: a body kill restores 5 HP, a headshot kill 10 HP (tunable), capped at maximum and never restoring shield, so playing cleanly sustains you and sloppy play drains you.
-- **Surge**: chain and clean-streak progress fills a meter (never time). When full it triggers an 8-second Surge: score ×2, enemy tells are drawn brighter (more readable), the HUD frame glows. Surge changes no mechanic.
+- **Surge**: chain and clean-streak progress fills a meter (never time). Only isolated kills build chains (section 3), so swinging into a crossfire never fills Surge. When full it triggers an 8-second Surge: score ×2, enemy tells are drawn brighter (more readable), the HUD frame glows. Surge changes no mechanic.
 - **Run end**: 0 HP or 5:00. A typical run for a matched player lasts about 3:00.
 - **Waves of intent** (director pacing, not difficulty): warm-up 0:00–0:20 at dial −8; build to the player's dial by 1:00; two *peaks* (+6 dial) around 2:00 and 4:00 each lasting 20 s; a short *breather* (−6) after each peak.
-- **Scoring/rating**: standard table; contributes to all seven skill ratings through the trials it contains.
+- **Scoring/rating**: standard table, including the contact settle (section 8.1): every contact pays for how it ended and the health you kept, so leaving a fight you are losing is rewarded and swinging into every fight is not. Contributes to all seven skill ratings through the trials it contains.
 - **Key metrics shown**: all of the above plus damage taken per contact and the single biggest HP loss ("you lost 40 HP to Rushers while reloading").
 
 ### Mode phasing
@@ -268,6 +270,7 @@ Rule: every event the player causes is answered **in the same frame** with at le
 | **Chain** (kill within 1.5 s of previous) | Counter above the crosshair: "×2", "×3", "×4", "×5+", pulsing once. | An extra layered chime step. | Chain count. |
 | **Clean streak** | Streak number under the score, fills a ring around it; multiplier shown (×1.0 → ×3.0). | The chime pitch ladder above. | Multiplier. |
 | **Streak break** | Ring empties with a short desaturate; no shake. | A soft falling interval (never harsh). | — |
+| **Contact settled** (Sweep, Corner Clear) | `+score` under the score with one word: **Clean** (cleared untouched), **Clear** (cleared, hurt), **Reset** (left a losing fight alive). Nothing for died or left unhurt. Hidden while an enemy is visible or a tell runs. | A short soft resolve, brighter for Clean. | The settle points. |
 | **Medal earned** (*FR*) | Toast at the upper centre for 1.2 s, then stored in the results card. | Short fanfare phrase (section 12). | Medal name and what earned it. |
 | **Surge ready/active** (*FR*) | Frame glow, brighter tells. | Rising whoosh; sustained shimmer. | Timer. |
 | **Taking damage** (Corner Clear, Sweep) | Directional red arc towards the shooter, brief screen vignette narrowing, desaturation for 150 ms, slow-on-hit applies exactly as in the spec. | Low, dry thud in the player's ear with a 300 ms low-pass dip. | HP bar flashes. |
@@ -285,6 +288,7 @@ In-world: stance rings (Stop & Pop), checkpoint marks (Corner Clear), the wall d
 ### 7.3 Rewards (mechanics-derived only)
 
 - **Streak multiplier** (clean streak ×1.0 → ×3.0 at 20).
+- **Contact settle** (Sweep, Corner Clear): pays for surviving a fight, scaled by the health kept (section 8.1).
 - **Chain callouts**: `Pair` ×2, `Triple` ×3, `Quad` ×4, `Surge chain` ×5+.
 - **Medals** (named in section 8) with thresholds designed to be reachable by the matched player: they are awarded relative to the dial and the run's context, not to account age.
 - **Personal bests** per mode and difficulty dial band, per skill; the live ghost-pace bar compares against them.
@@ -308,6 +312,18 @@ Per kill: `score = base(enemy) × precision × speed × streak × difficulty`.
 | `difficulty` | `2^((dial − 50)/25)`, so dial 75 = ×2 and dial 25 = ×0.5 (score is comparable across ability; adapting the dial never gives free points or takes them away) |
 
 No negative scores: missing costs you the clean streak, the first-shot bonus and time, never points directly. Surge doubles the total.
+
+`speed` uses TTK, which starts at the first shot, so it pays for killing efficiently once committed and never for rushing into a fight; it applies on every card, holding cards included (#132).
+
+**Contact settle** (Sweep and Corner Clear, #132; research and settling experiment: `docs/research/survival-rewards.md`). Kills alone would pay "take every fight, fast", the over-aggression the reference game punishes; there survival is the currency. So when a contact ends (section 3) it pays once, on top of its kill points:
+
+| Outcome | Settle |
+|---|---|
+| Cleared (every enemy dead, player alive) | `2 × kill × kept` |
+| Disengaged alive (lost ≥ 30% of the contact's starting health+shield, then left and lived) | `1.5 × kill × kept` |
+| Left unhurt, or died | 0 |
+
+`kill` = the mean `base` of the contact's enemies × `difficulty`; `kept` = health kept (section 3). A clear always pays more than a disengage at the same health, and leaving unhurt pays nothing, so the settle cannot be farmed by peeking and leaving. A CI test (`npm run reward-experiment`) checks that this table ranks "isolate angles and disengage when losing" above "always swing", and "back off at the first hit" below both, at every dial.
 
 ### 8.2 End-of-run results card
 
@@ -574,6 +590,7 @@ targetExpired { id }                      targetShielded { id }   (Bulwark plate
 enemyTell { id, durationMs }              enemyFired { id, hit: boolean, dir }
 playerDamaged { amount (HP lost), absorbed, hp, shield, dir, sourceId }   playerSlowed { factor, durationMs }   playerDied { }
 chainUpdated { count }                    streakUpdated { streak, mult }   surgeStarted { }  surgeEnded { }
+contactSettled { contactId, outcome: 'cleared'|'disengaged'|'avoided'|'died', kept, points }
 medalAwarded { id }                       skillTrial { skill, itemDifficulty, success, rtMs?, extra }
 ```
 
