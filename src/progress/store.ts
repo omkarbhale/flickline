@@ -4,9 +4,11 @@ import { progress as progressCfg, type ProgressTunables } from '../config/progre
 import type { SkillSnapshot } from '../adaptive/skillModel';
 import type { StorageLike } from '../settings/settings';
 import { bandOf } from './bests';
+import { JournalWriter, type PlayJournal } from './journal';
 import type { ColdLevelState, ColdOpenerRecord } from './coldOpeners';
 import { stepRank } from './ranks';
 import { applyRunRecord, recordContacts, situationStats, type ApplyResult, type RunRecord, type SituationStats } from './runRecords';
+import type { RunEndReason } from '../sim/runEvents';
 import { defaultProgress, readProgress, sanitizeProgress, SAVE_VERSION, toSave, type BandRecords, type ProgressData, type RunBest, type RunSummary } from './save';
 
 /**
@@ -39,6 +41,7 @@ const NO_RESULT: RecordResult = { newBest: false, previousBest: null, newDeepest
 
 export class ProgressStore {
   private data: ProgressData = defaultProgress();
+  private journalWriter: JournalWriter;
   private state: Persistence;
   private dirty = false;
   private batching = 0;
@@ -49,6 +52,7 @@ export class ProgressStore {
     private readonly cfg: ProgressTunables = progressCfg,
   ) {
     this.state = storage === null ? 'memory' : 'ok';
+    this.journalWriter = new JournalWriter(this.data.journal, cfg.journal);
     if (storage === null) return;
     let text: string | null = null;
     try {
@@ -61,6 +65,7 @@ export class ProgressStore {
     const r = readProgress(text, cfg);
     if (r.ok) {
       this.data = r.data;
+      this.journalWriter = new JournalWriter(this.data.journal, cfg.journal);
       if (r.from < SAVE_VERSION) this.dirty = true; // migrated: written back in the current version on the next commit
     } else if (r.newer) {
       this.state = 'newer';
@@ -139,6 +144,11 @@ export class ProgressStore {
   /** The primary picked last on the Sweep `ready` screen, or '' before the first pick (design §4.1). */
   get lastPrimary(): string {
     return this.data.lastPrimary;
+  }
+
+  /** The play journal (read-only view; `journalReady` and the other journal writes are the only writers). */
+  get journal(): Readonly<PlayJournal> {
+    return this.data.journal;
   }
 
   medalCount(id: string): number {
@@ -246,6 +256,32 @@ export class ProgressStore {
     return true;
   }
 
+  // ---- the play journal (#251): all deferred, like a medal: a run's events must not write storage in the middle of a
+  //      fight, so `commit()` (the run's end, `pagehide`) writes them ---------------------------------------------------
+
+  /** A run was readied at `nowMs` (epoch ms). */
+  journalReady(nowMs: number): void {
+    this.journalWriter.ready(nowMs);
+    this.dirty = true;
+  }
+
+  /** The run went live. */
+  journalStarted(nowMs: number): void {
+    this.journalWriter.started(nowMs);
+    this.dirty = true;
+  }
+
+  /** A sector was entered (0-based `index`): the run's depth. */
+  journalSector(index: number): void {
+    this.journalWriter.sector(index);
+  }
+
+  /** The run ended after `liveSec` seconds live. */
+  journalEnded(nowMs: number, liveSec: number, reason: RunEndReason): void {
+    this.journalWriter.ended(nowMs, liveSec, reason);
+    this.dirty = true;
+  }
+
   setFlaggedSkill(skill: SkillId | null): void {
     if (this.data.flaggedSkill === skill) return;
     this.data.flaggedSkill = skill;
@@ -262,6 +298,7 @@ export class ProgressStore {
   /** Replace everything with `data` (an imported save, already through `readProgress`), persisted. */
   replace(data: ProgressData): void {
     this.data = sanitizeProgress(JSON.parse(JSON.stringify(data)), this.cfg);
+    this.journalWriter = new JournalWriter(this.data.journal, this.cfg.journal);
     this.state = this.storage === null ? 'memory' : 'ok'; // an explicit import may overwrite a newer build's save
     this.changed(null);
   }

@@ -158,6 +158,8 @@ Each line names the finding and where the design applies it.
 | R6 | Carried health and death ending the run raise stakes without making players quit. | Quits right after a death against restarts; frustration answers; HP at death. | High quit-after-death: add a second life at the Finale gate, or soften with more Shield doors. |
 | R7 | No XP, streaks or unlocks still gives enough long-term pull. | Day-3 and day-7 return of testers who were not asked to return. | Low return with good in-session fun: add a mechanical-only long goal (for example, a per-card mastery ladder) before considering any reward for time. |
 
+R1, R6 and R7 are read from the local play journal (`docs/playtests/play-journal.md`, #251), not from recall: `npm run journal -- <export>...`.
+
 ---
 
 ## 8. Sources

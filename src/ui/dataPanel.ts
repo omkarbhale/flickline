@@ -9,6 +9,10 @@ export interface DataHost {
   importSave(parts: SaveParts): void;
   /** Reset progress (profile and the progress save); settings are kept. */
   resetProgress(): void;
+  /** The play journal's one line ("4 sessions this week, 11 runs, 7 started straight after the last"). */
+  journalLine(): string;
+  /** The play journal alone as compact JSON text, for pasting on a playtest (#214). */
+  exportJournal(): string;
 }
 
 /**
@@ -23,6 +27,7 @@ export class DataPanel {
   private readonly paste: HTMLTextAreaElement;
   private readonly resetBtn: HTMLButtonElement;
   private readonly confirmRow: HTMLElement;
+  private readonly journalNote: HTMLElement;
 
   constructor(private readonly host: DataHost, private readonly reload: () => void = () => window.location.reload()) {
     this.status = h('p', { class: 'set-status', attrs: { role: 'status', 'aria-live': 'polite' } });
@@ -31,6 +36,10 @@ export class DataPanel {
     download.dataset.k = 'export';
     const copy = button('Copy save', { variant: 'ghost', onClick: () => void this.copy() });
     copy.dataset.k = 'copy';
+
+    const copyJournal = button('Copy play journal', { variant: 'ghost', onClick: () => void this.copyJournal() });
+    copyJournal.dataset.k = 'copyJournal';
+    this.journalNote = h('p', { class: 'note', attrs: { 'data-k': 'journalLine' } });
 
     const file = h('input', { attrs: { type: 'file', accept: 'application/json,.json', 'data-k': 'importFile', id: 'set-import-file', 'aria-label': 'Import a save file' } });
     file.addEventListener('change', () => {
@@ -56,11 +65,16 @@ export class DataPanel {
       no,
     ]);
     this.confirmRow.hidden = true;
+    this.refresh();
 
     this.el = h('div', { class: 'set-section' }, [
       h('h3', { class: 'set-group', text: 'Save' }),
       h('p', { class: 'note', text: 'Your settings, profile and personal bests, as one file you can keep or move to another browser.' }),
       h('div', { class: 'set-actions' }, [download, copy]),
+      h('h3', { class: 'set-group', text: 'Play journal' }),
+      h('p', { class: 'note', text: 'A record of when you played, kept on this device and in your save. Nothing is sent anywhere and nothing is earned by it.' }),
+      this.journalNote,
+      h('div', { class: 'set-actions' }, [copyJournal]),
       h('h3', { class: 'set-group', text: 'Import' }),
       h('div', { class: 'set-actions' }, [file]),
       this.paste,
@@ -70,6 +84,11 @@ export class DataPanel {
       this.confirmRow,
       this.status,
     ]);
+  }
+
+  /** Read the journal line again (the tab is shown, or a run just ended). */
+  refresh(): void {
+    this.journalNote.textContent = this.host.journalLine();
   }
 
   /** Leaving the tab disarms the reset. */
@@ -110,6 +129,18 @@ export class DataPanel {
       this.paste.value = this.host.exportSave();
       this.paste.select();
       this.say('Could not use the clipboard; the save is in the box below, copy it from there.', true);
+    }
+  }
+
+  private async copyJournal(): Promise<void> {
+    const text = this.host.exportJournal();
+    try {
+      await navigator.clipboard.writeText(text);
+      this.say('Play journal copied to the clipboard.');
+    } catch {
+      this.paste.value = text;
+      this.paste.select();
+      this.say('Could not use the clipboard; the journal is in the box below, copy it from there.', true);
     }
   }
 
