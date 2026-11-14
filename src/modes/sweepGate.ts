@@ -235,8 +235,8 @@ export function commitGate(plan: RunPlan, gate: GatePlan, door: 0 | 1): SectorPl
  * The whole route a seed gives when `choose` picks the door at every gate: for tests, the bot report
  * and the debug hook. `choose` sees the gate and the plan so far.
  */
-export function planRoute(seed: number, env: GateEnv, choose: (gate: GatePlan, plan: RunPlan) => 0 | 1): RunPlan {
-  const plan = planRun(seed, env.catalog, env.cfg, env.body);
+export function planRoute(seed: number, env: GateEnv, choose: (gate: GatePlan, plan: RunPlan) => 0 | 1, placing = false): RunPlan {
+  const plan = planRun(seed, env.catalog, env.cfg, env.body, placing);
   while (plan.sectors.length < env.cfg.sectors) {
     const gate = planGate(plan, env);
     commitGate(plan, gate, choose(gate, plan));
