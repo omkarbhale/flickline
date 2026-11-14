@@ -8,7 +8,7 @@ A free, single-player first-person shooter in the browser whose gunplay and move
 
 ## Who it is for and what it promises
 
-Players of the reference game who want better mechanics: aiming, shooting, moving, winning fights. The one promise: **you get mechanically better at the reference game faster here than by playing it.** Anything that serves neither this nor the fun that keeps people practising needs a strong reason to exist.
+Players of the reference game who want better mechanics: aiming, shooting, moving, winning fights. The one promise: **you get mechanically better at the reference game faster here than by playing it.** Anything that serves neither this nor the fun that keeps people coming back needs a strong reason to exist.
 
 ## Principles
 
@@ -16,21 +16,21 @@ Transfer comes first because it is the owner's stated reason for Flickline. The 
 
 ### 1. Transfer first
 
-Skill earned here must carry over. Gunplay, movement, walking speed, shooting, taking damage, slowdown on hit and field of view match the reference game. A drill that builds a habit that fails there is a bug, however fun.
+Skill earned here must carry over. Gunplay, movement, walking speed, shooting, taking damage, slowdown on hit and field of view match the reference game. A situation or reward that builds a habit that fails there is a bug, however fun.
 
-*Currently:* every number comes from `docs/mechanics-spec.md`; no aim assist or hitbox inflation (design §1). Transfer is its own quality track ([#149](https://github.com/omkarbhale/flickline/issues/149)): a habit review of every mode, a cold Daily Baseline that tells learning from warm-up, and a transfer pilot against the reference game's own practice (design §8.5, `docs/research/transfer.md`).
+*Currently:* every number comes from `docs/mechanics-spec.md`; no aim assist or hitbox inflation (design §1). Transfer is its own quality track ([#149](https://github.com/omkarbhale/flickline/issues/149)): a habit review of every situation the game presents, a cold opener (the day's first sector, played reference-like) that tells learning from warm-up, and a transfer pilot against the reference game's own practice (design §8.5, `docs/research/transfer.md`).
 
 ### 2. Mechanically fun on its own
 
 Playing must be extremely fun for its mechanics, not a chore endured for the improvement. Practice that never happens transfers nothing.
 
-*Currently:* 60-second drills with near-instant restart, and Sweep, a flagship mode that must play like a game (design §2, §4.8).
+*Currently:* one game, Sweep: a run through sectors of fights against enemies that think, with near-instant restart (design §2, §4).
 
 ### 3. Instant feedback and reward drive improvement
 
 This is how Flickline beats the reference game as practice. Every shot gets an immediate, specific answer and every kill a reward, so the player learns what worked and what to fix while the moment is fresh.
 
-*Currently:* same-frame sight, sound and number for every shot; one thing to fix on each results card; rewards from mechanics only, never time played (design §7, §8); the cues fade with the skill rating so the feedback never becomes a crutch, and one run per session is cue-free (design §7.4).
+*Currently:* same-frame sight, sound and number for every shot; one thing to fix on each results card; rewards from mechanics only, never time played (design §7, §8); the cues fade with the skill rating so the feedback never becomes a crutch, and the first sector of each session is cue-free (design §7.4).
 
 ### 4. Numbers, feel and fun are separate qualities
 
@@ -42,7 +42,7 @@ Do the numbers match? Does it *feel* like the reference game (recoil, gun and ki
 
 A new player and an expert should both be challenged and both improving. Matching is a design problem that shapes targets, enemies, fights, rewards and feedback, not a difficulty slider bolted on.
 
-*Currently:* a skill model measured in the first minute, a ~70% success target, difficulty that moves only at planned beats, enemy profiles on the same dial (design §9).
+*Currently:* a skill model measured inside play from the first run's opening sector, a ~70% success target, difficulty that moves only between sectors, enemy profiles on the same dial (design §9).
 
 ### 6. Enemies behave like real players
 
@@ -68,8 +68,15 @@ Flickline runs at 144 frames per second or more and still looks strong, custom s
 
 *Currently:* a 6.94 ms frame budget, procedural art with quality presets, a release performance pass ([#55](https://github.com/omkarbhale/flickline/issues/55); design §14.1).
 
+### 10. A game you replay, not drills
+
+Flickline is not an aim trainer in the general sense. There are no drills. A routine you have to do over and over, like a drill, is not enjoyable, so Flickline never asks for one. It is a game people come back to because they want to: repeat enjoyment, not one-time or zero-time enjoyment. The practice that makes players better lives inside the play, in situations that differ every time, never in a routine beside it.
+
+*Currently:* every run is a different route of fights, drawn from a seed, with enemy minds, information and stakes that change, and choices the player makes; skill measurement, the one thing to fix and the learning check all happen inside runs (design §2, §4, §8.5; [#188](https://github.com/omkarbhale/flickline/issues/188), `docs/research/replay-not-drills.md`).
+
 ## What Flickline is not
 
+- **Not an aim trainer, and not drills:** no menu of exercises, no fixed routine to repeat, no test to sit before you play. If it would feel like a drill done for the improvement, it does not belong (principle 10).
 - **Not the reference game's match:** no rounds, sides, spike or other objective, and none of the slow-paced structure around them.
 - **Not a copy:** only mechanics and feel are modelled. Names, weapons, maps, enemies, art, sounds and interface are Flickline's own; nothing is taken from any game's names, characters, abilities, maps, art, audio, logos or interface look (design §16).
 - **Not multiplayer:** you play alone against Flickline's enemies.

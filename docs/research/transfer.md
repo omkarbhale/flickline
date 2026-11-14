@@ -104,6 +104,8 @@ Not confirmed: the shooting test's exact end-screen wording, whether its bot ord
 
 ## 5. The Daily Baseline
 
+> **Changed by #187 (design §8.5).** Under vision principle 10 the Baseline no longer runs as a separate fixed run: it is the **cold opener**, the first sector of the day's first run, drawn from a calibrated pool of fights per level. The rules below (timing, levels, flat-prior estimate, noise band, verdict, guards) still apply to it; where they name trials of Orbit and Cold Start, read the trials of the cold opener's contacts. `docs/research/replay-not-drills.md` §7 R5 states how the change is checked.
+
 ### 5.1 When it runs
 
 - A Baseline is **due** when the player has not finished any Flickline run in the last **8 hours**. Retention tests in research use at least 24 hours (section 3.1), but for a player who practises daily that would make the benchmark skip every other day; 8 hours makes it "the first run of the day" (HYPOTHESIS: long enough for the previous session's warm-up to be gone). The save records the gap before every Baseline, so H1 (section 9) can test 8 hours against 24 from real data and raise the gap if needed.
@@ -229,6 +231,8 @@ If the pilot is feasible, the same protocol runs with enough testers to detect a
 ---
 
 ## 8. Practice schedule: interleaving today's session
+
+> **Dropped by #187.** There are no single-skill runs to interleave: every Sweep run mixes all seven skills by construction, and the applied-setting evidence for scheduled interleaving is weak (`docs/research/replay-not-drills.md` §4). Mix runs (#157) and the practice-schedule experiment (#159) are closed.
 
 ### 8.1 Today
 
