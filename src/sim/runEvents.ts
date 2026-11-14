@@ -143,6 +143,9 @@ export interface RunEvents extends SprayEvents, SectorEvents {
      */
     stopFirst?: 'player' | 'echo' | 'both' | 'neither';
   };
+
+  /** A Leave gate banked the run (design §4.7, §14.3; Overtime and its gates arrive with #204, so nothing emits this yet): `points` includes the Overtime points that were at risk (design §4.7). */
+  runBanked: { tick: number; t: number; points: number; overtimeSectors: number };
 }
 
 declare module '../core/gameEvents' {

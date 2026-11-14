@@ -9,15 +9,14 @@ function progress(): ProgressData {
   p.plays = { orbit: 3 };
   p.flaggedSkill = 'flick';
   p.medals = { needle: { count: 2, last: '2026-01-01T00:00:00.000Z' } };
-  p.bests = {
-    orbit: {
-      neon: {
-        score: 1200, seed: 7, date: '2026-01-01T00:00:00.000Z', dial: 61,
-        stats: { shots: 40, hits: 30, headHits: 12, kills: 28, movingShots: 1, accuracy: 0.75, headshotRate: 0.4, medianRtMs: 480, medianTtkMs: 120, maxChain: 5, cleanKills: 20 },
-        curve: [0, 100, 250, 400],
-      },
-    },
+  const best = {
+    score: 1200, depth: 7, cleared: 6, seed: 7, date: '2026-01-01T00:00:00.000Z', dial: 61,
+    strip: [{ index: 1, role: 'take', condition: 'full', stake: 'plain', won: 2, lost: 0, hpIn: 150, hpOut: 120, cleared: true, flawless: true }],
+    pace: [400, 800, 1200],
   };
+  p.runBests = { neon: { best, deepest: best, finalesCleared: 1 } };
+  p.dailyBests = { '2026-01-01': best };
+  p.situations = { clear: [{ won: true, kept: 0.8 }, { won: false, kept: 0.1 }] };
   return p;
 }
 
@@ -55,7 +54,7 @@ describe('save file', () => {
   it('rejects a truncated file and a part with the wrong shape (the whole file, not half of it)', () => {
     const text = buildSave(parts(), 'x');
     expect(parseSave(text.slice(0, text.length >> 1)).ok).toBe(false);
-    for (const [k, v] of [['history', 'x'], ['bests', []], ['plays', 5], ['ratings', { v: 1 }], ['medals', 'no']] as const) {
+    for (const [k, v] of [['history', 'x'], ['runBests', []], ['situations', 'x'], ['plays', 5], ['ratings', { v: 1 }], ['medals', 'no']] as const) {
       const j = { ...JSON.parse(text), [k]: v };
       const r = parseSave(JSON.stringify(j));
       expect(r.ok, k).toBe(false);
@@ -100,6 +99,7 @@ describe('save file', () => {
     expect(r.parts.progress?.plays).toEqual({ orbit: 4, coldStart: 2 });
     expect(r.parts.progress?.flaggedSkill).toBe('track');
     // the old per-mode bests had no dial, so they are not placed into a band
-    expect(r.parts.progress?.bests).toEqual({});
+    expect(r.parts.progress?.runBests).toEqual({});
+    expect(r.parts.progress?.drillBests).toEqual({});
   });
 });

@@ -6,6 +6,7 @@ import { results as defaultResults, type FixCopy, type MetricId, type ResultsTun
 import { tunables } from '../config/tunables';
 import type { RunEndReason } from '../sim/runEvents';
 import type { RunLog } from './eventLog';
+import type { RunStory, SectorTile, SituationRow } from './runStory';
 import type { RunStats } from './statTracker';
 
 /**
@@ -74,6 +75,47 @@ export interface MedalView {
   count: number;
 }
 
+/** A route-strip tile, formatted. */
+export interface RouteTileView {
+  number: number;
+  role: string;
+  roleId: string;
+  /** Condition and stake words; empty when the sector had none (a full-shield, plain sector). */
+  condition: string;
+  stake: string;
+  /** `won` and `lost` contacts, e.g. "2 won · 1 lost"; "no fights" when the sector had none. */
+  fights: string;
+  won: number;
+  lost: number;
+  hpIn: number;
+  hpOut: number;
+  /** "82 → 61". */
+  hp: string;
+  hpTone: Tone;
+  flawless: boolean;
+  overtime: boolean;
+  /** `cleared` (every Echo dead), `left` (walked out with Echoes alive), `fell` (the run ended in it, by death or quitting). */
+  outcome: 'cleared' | 'left' | 'fell';
+  /** One sentence for a screen reader. */
+  label: string;
+}
+
+/** A "fights by situation" row, formatted. */
+export interface SituationView {
+  id: string;
+  label: string;
+  played: number;
+  won: number;
+  lost: number;
+  /** "2 of 3 won", or "avoided" when none was fought. */
+  summary: string;
+  /** Win-rate share this run, 0..1 (null when nothing was fought). */
+  rate: number | null;
+  /** The running win rate over recent contacts ("67% over 18"), empty when the history is not known. */
+  recent: string;
+  tone: Tone;
+}
+
 export interface CardModel {
   mode: string;
   modeLabel: string;
@@ -96,6 +138,16 @@ export interface CardModel {
   pbKind: 'first' | 'beat' | 'none';
   /** The line the card prints under the score ("New personal best", "−655 vs personal best"); empty when there is nothing to say. */
   pbLabel: string;
+  /** Header (design §8.2 section 1): how deep the run got ("Sector 5 of 6", "Finale cleared", "Overtime 2"); empty without sectors. */
+  depth: string;
+  /** The death cause line (#123) when the run ended in a death and one is known, else null. */
+  deathLine: string | null;
+  /** Overtime points shown apart from the score (#206); null when the run never entered Overtime. */
+  overtime: { points: string; state: 'banked' | 'lost' } | null;
+  /** The route strip (design §8.2 section 2): one tile per sector entered; empty for a run without sectors. */
+  route: RouteTileView[];
+  /** Fights by situation (design §8.2 section 3): the scenario cards fought this run; empty without cards. */
+  situations: SituationView[];
   /** Null when the run does not move a rating (a plain run). */
   rating: RatingView | null;
   stats: StatCell[];
@@ -121,6 +173,12 @@ export interface ResultsInput {
   /** Personal best score for this mode and dial band before this run, or null. */
   pb: number | null;
   medals: readonly string[];
+  /** The sector run's story (route strip, fights by situation); omitted for a run without sectors. */
+  story?: RunStory;
+  /** The death cause line (#123), when known. */
+  deathCause?: string | null;
+  /** The player's recent win rate per scenario card (#104/#217), or null when unknown. */
+  situationHistory?(card: string): { won: number; played: number } | null;
   /** The run was a clean run (default false). */
   clean?: boolean;
   /** Whether the mode keeps personal bests at all (default true; the Placement run does not). */
@@ -322,25 +380,111 @@ function metricCell(id: MetricId, s: RunStats): StatCell {
   }
 }
 
-/** The headline stats of design §8.2 section 3, then the mode's two key metrics (design §4). */
+/** Median time to kill is meaningless when kills are one bullet (first shot to death rounds to 0 ms, #175). */
+function ttkCell(s: RunStats, cfg: ResultsTunables): StatCell {
+  const oneBullet = cfg.oneBulletModes.includes(s.mode) || (s.medianTtkMs !== null && Math.round(s.medianTtkMs) <= 0);
+  return oneBullet ? metricCell(cfg.oneBulletTile, s) : { id: 'ttk', label: 'Time to kill', value: formatMs(s.medianTtkMs), hint: 'median' };
+}
+
+/**
+ * The headline stats of design §8.2 section 5, then (drill modes) the mode's two key metrics (design §4). A sector
+ * run shows exactly the design's six (`cfg.run.headline`): Accuracy, HS rate, median time to shot, median TTK,
+ * moving shots and stop latency.
+ */
 export function statCells(s: RunStats, cfg: ResultsTunables = defaultResults): StatCell[] {
   const keys = cfg.keyMetrics[s.mode] ?? cfg.defaultKeyMetrics;
   const movingShare = s.shots > 0 ? s.movingShots / s.shots : null;
+  const accuracy: StatCell = { id: 'accuracy', label: 'Accuracy', value: formatPercent(s.accuracy), hint: s.shots > 0 ? `${s.hits} of ${s.shots} shots` : 'no shots' };
+  const headshotRate: StatCell = { id: 'headshotRate', label: 'HS rate', value: formatPercent(s.headshotRate), hint: s.hits > 0 ? `${s.headHits} of ${s.hits} hits` : '' };
+  // Research P1 (docs/research/human-performance.md): this is visible-to-shot, which includes the aim movement,
+  // so the player-facing name is "time to shot", never "reaction time".
+  const timeToShot: StatCell = { id: 'timeToShot', label: 'Time to shot', value: formatMs(s.medianRtMs), hint: 'median' };
+  const movingShots: StatCell = { id: 'movingShots', label: 'Moving shots', value: s.shots > 0 ? String(s.movingShots) : DASH, hint: movingShare === null ? '' : `${formatPercent(movingShare)} of shots` };
+  if (cfg.run.modes.includes(s.mode)) {
+    const byId: Record<string, StatCell> = { accuracy, headshotRate, timeToShot, ttk: ttkCell(s, cfg), movingShots, stopLatency: metricCell('stopLatency', s) };
+    return cfg.run.headline.map((id) => byId[id] ?? metricCell(id as MetricId, s));
+  }
   return [
-    { id: 'accuracy', label: 'Accuracy', value: formatPercent(s.accuracy), hint: s.shots > 0 ? `${s.hits} of ${s.shots} shots` : 'no shots' },
-    { id: 'headshotRate', label: 'Headshots', value: formatPercent(s.headshotRate), hint: s.hits > 0 ? `${s.headHits} of ${s.hits} hits` : '' },
-    // Research P1 (docs/research/human-performance.md): this is visible-to-shot, which includes the aim movement,
-    // so the player-facing name is "time to shot", never "reaction time".
-    { id: 'timeToShot', label: 'Time to shot', value: formatMs(s.medianRtMs), hint: 'median' },
-    // One-bullet modes have no time to kill to speak of (first shot to death is ~0 ms): another tile takes its place.
-    cfg.oneBulletModes.includes(s.mode)
-      ? metricCell(cfg.oneBulletTile, s)
-      : { id: 'ttk', label: 'Time to kill', value: formatMs(s.medianTtkMs), hint: 'median' },
-    { id: 'movingShots', label: 'Moving shots', value: s.shots > 0 ? String(s.movingShots) : DASH, hint: movingShare === null ? '' : `${formatPercent(movingShare)} of shots` },
+    accuracy,
+    headshotRate,
+    timeToShot,
+    ttkCell(s, cfg),
+    movingShots,
     { id: 'kills', label: 'Kills', value: String(s.kills), hint: s.kills > 0 ? `${s.cleanKills} clean` : '' },
     metricCell(keys[0], s),
     metricCell(keys[1], s),
   ];
+}
+
+// ---------------------------------------------------------------- the route and the fights (design §8.2 sections 1-3)
+
+function word(map: Readonly<Record<string, string>>, id: string): string {
+  return id in map ? map[id]! : titleCase(id);
+}
+
+/** The header's depth line for a story ("Sector 5 of 6", "Finale cleared", "Overtime 2"); empty without sectors. */
+export function depthLabel(story: RunStory, endReason: string | null, cfg: ResultsTunables = defaultResults): string {
+  const n = story.sectors.length;
+  if (n === 0) return '';
+  const c = cfg.depthCopy;
+  const finale = cfg.run.routeSectors;
+  if (n > finale) return fill(c.overtime, { k: n - finale });
+  const last = story.sectors[n - 1]!;
+  // A route as long as the design's (six sectors, the last the Finale) is told in the design's words; a shorter
+  // one (the run director's first version) is "n of total", and leaving at its end is clearing it.
+  const total = story.total ?? finale;
+  if (total >= finale) {
+    if (n === finale) return endReason === 'death' ? c.finaleDied : last.cleared || endReason === 'left' ? c.finale : fill(c.sector, { n, total });
+    return fill(c.sector, { n, total });
+  }
+  if (endReason === 'left' && n >= total) return fill(c.routeDone, { n });
+  return fill(c.sector, { n, total });
+}
+
+function tileView(t: SectorTile, cfg: ResultsTunables): RouteTileView {
+  const role = word(cfg.roleLabels, t.role);
+  const condition = word(cfg.conditionLabels, t.condition);
+  const stake = word(cfg.stakeLabels, t.stake);
+  const fights = t.won + t.lost === 0 ? 'no fights' : `${t.won} won · ${t.lost} lost`;
+  const dHp = Math.round(t.hpOut) - Math.round(t.hpIn);
+  const hpIn = Math.round(t.hpIn);
+  const hpOut = Math.round(t.hpOut);
+  return {
+    number: t.number,
+    role,
+    roleId: t.role,
+    condition: t.condition in cfg.conditionLabels || t.condition === '' ? condition : titleCase(t.condition),
+    stake,
+    fights,
+    won: t.won,
+    lost: t.lost,
+    hpIn,
+    hpOut,
+    hp: `${hpIn} → ${hpOut}`,
+    hpTone: dHp > 0 ? 'good' : dHp <= -cfg.run.hurtHp ? 'bad' : 'even',
+    flawless: t.flawless,
+    overtime: t.overtime,
+    outcome: t.fell ? 'fell' : t.cleared ? 'cleared' : 'left',
+    label:
+      `Sector ${t.number}${t.overtime ? ' (Overtime)' : ''}: ${role}${condition ? `, ${condition}` : ''}${stake ? `, ${stake}` : ''}. ` +
+      `${fights}. Health ${hpIn} to ${hpOut}.${t.flawless ? ' Flawless.' : ''}`,
+  };
+}
+
+function situationView(r: SituationRow, history: ResultsInput['situationHistory'], cfg: ResultsTunables): SituationView {
+  const fought = r.won + r.lost;
+  const recent = history?.(r.card) ?? null;
+  return {
+    id: r.card,
+    label: word(cfg.cardLabels, r.card),
+    played: r.played,
+    won: r.won,
+    lost: r.lost,
+    summary: fought === 0 ? 'avoided' : `${r.won} of ${fought} won`,
+    rate: fought === 0 ? null : r.won / fought,
+    recent: recent && recent.played > 0 ? `${formatPercent(recent.won / recent.played)} over ${recent.played}` : '',
+    tone: fought === 0 ? 'none' : r.won * 2 > fought ? 'good' : r.won * 2 < fought ? 'bad' : 'even',
+  };
 }
 
 // ---------------------------------------------------------------- the card
@@ -373,24 +517,26 @@ function ratingView(r: NonNullable<ResultsInput['rating']>, cfg: ResultsTunables
 
 /**
  * The personal-best line. A run sets a best when it scores above the old one (or there is none), mirroring
- * `beatsBest`; a run quit early is not recorded, so it never claims one. The first score on a board is a reward
+ * the run records (a new best is a higher score on its band); a run quit early is not recorded, so it never claims one. The first score on a board is a reward
  * moment of its own (design §7.3), so it says so instead of a dash (#175).
  */
-function pbView(input: ResultsInput, endReason: RunEndReason | null): Pick<CardModel, 'pbText' | 'pbTone' | 'pbKind' | 'pbLabel'> {
+function pbView(input: ResultsInput, endReason: string | null, noun: string): Pick<CardModel, 'pbText' | 'pbTone' | 'pbKind' | 'pbLabel'> {
   const none = { pbText: DASH, pbTone: 'none' as Tone, pbKind: 'none' as const, pbLabel: '' };
   if (input.score === null || input.keepsBest === false) return none;
   const recorded = endReason !== 'quit' && Math.round(input.score) > 0;
   if (input.pb === null) {
-    return recorded ? { pbText: DASH, pbTone: 'good', pbKind: 'first', pbLabel: 'New personal best' } : none;
+    return recorded ? { pbText: DASH, pbTone: 'good', pbKind: 'first', pbLabel: `New ${noun}` } : none;
   }
   const d = input.score - input.pb;
   const text = formatDelta(d);
-  if (recorded && Math.round(input.score) > input.pb) return { pbText: text, pbTone: 'good', pbKind: 'beat', pbLabel: `New personal best ${text}` };
-  return { pbText: text, pbTone: toneOf(d), pbKind: 'none', pbLabel: `${text} vs personal best` };
+  if (recorded && Math.round(input.score) > input.pb) return { pbText: text, pbTone: 'good', pbKind: 'beat', pbLabel: `New ${noun} ${text}` };
+  return { pbText: text, pbTone: toneOf(d), pbKind: 'none', pbLabel: `${text} vs ${noun}` };
 }
 
-export function buildCard(input: ResultsInput, cfg: ResultsTunables = defaultResults): CardModel {
-  const s = input.stats;
+export function buildCard(rawInput: ResultsInput, cfg: ResultsTunables = defaultResults): CardModel {
+  const s = rawInput.stats;
+  // A sector run always scores: with nothing earned yet (no kill, settle or clear paid) it scored 0, not "no score".
+  const input = rawInput.score === null && cfg.run.modes.includes(s.mode) ? { ...rawInput, score: 0 } : rawInput;
   const medals = new Map<string, MedalView>();
   for (const id of input.medals) {
     const m = medals.get(id);
@@ -398,19 +544,32 @@ export function buildCard(input: ResultsInput, cfg: ResultsTunables = defaultRes
     else medals.set(id, { id, label: cfg.medalLabels[id] ?? titleCase(id), count: 1 });
   }
 
-  const pb = pbView(input, s.endReason);
+  const isRun = cfg.run.modes.includes(s.mode);
+  const story = input.story ?? null;
+  const pb = pbView(input, s.endReason, isRun ? 'best run' : 'personal best');
+  const reason: string | null = s.endReason;
+  const overtimeTiles = story ? story.sectors.filter((t) => t.overtime) : [];
+  const overtimePoints = overtimeTiles.reduce((n, t) => n + t.points, 0);
 
   return {
     mode: s.mode,
     modeLabel: cfg.modeLabels[s.mode] ?? titleCase(s.mode || 'run'),
     seed: s.seed,
     endReason: s.endReason,
-    endLabel: s.endReason ? cfg.endLabels[s.endReason] : '',
+    endLabel: reason ? (cfg.endLabels[reason] ?? titleCase(reason)) : '',
     empty: s.shots === 0,
     clean: input.clean === true,
     score: input.score === null ? DASH : formatThousands(input.score),
     scoreValue: input.score,
     ...pb,
+    depth: story ? depthLabel(story, reason, cfg) : '',
+    deathLine: reason === 'death' ? (input.deathCause ?? null) : null,
+    overtime:
+      overtimeTiles.length === 0
+        ? null
+        : { points: formatThousands(overtimePoints), state: reason === 'death' ? 'lost' : 'banked' },
+    route: story ? story.sectors.map((t) => tileView(t, cfg)) : [],
+    situations: story ? story.situations.map((r) => situationView(r, input.situationHistory, cfg)) : [],
     rating: input.rating ? ratingView(input.rating, cfg) : null,
     stats: statCells(s, cfg),
     medals: Array.from(medals.values()),
@@ -450,6 +609,12 @@ export interface ResultsRecorderDeps {
   isClean?(): boolean;
   /** True for a mode whose result is the player's first rating (the Placement run): shown without a delta. */
   firstRating?(mode: string): boolean;
+  /** The run's story (`RunStoryTracker`): route strip and fights by situation. Omit for a run without sectors. */
+  story?: { snapshot(): RunStory };
+  /** The death cause line (#123) for the run that just ended, if the attribution engine has one. */
+  deathCause?(): string | null;
+  /** The player's recent win rate per scenario card (#104 / #217), if the progress record has one. */
+  situationHistory?(card: string): { won: number; played: number } | null;
 }
 
 /**
@@ -499,6 +664,9 @@ export class ResultsRecorder {
         pb: this.pbSource.best(stats.mode, stats.dial),
         keepsBest: this.pbSource.keepsBest?.(stats.mode) !== false,
         medals: this.medals,
+        story: this.deps.story?.snapshot(),
+        deathCause: this.deps.deathCause?.() ?? null,
+        situationHistory: this.deps.situationHistory,
         clean: this.deps.isClean?.() === true,
       },
       this.cfg,

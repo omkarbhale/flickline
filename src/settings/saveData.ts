@@ -35,7 +35,10 @@ export function buildSave(parts: Required<SaveParts>, exportedAt: string): strin
 export type ParseResult = { ok: true; parts: SaveParts } | { ok: false; error: string };
 
 /** The save object's own keys: a file carries progress when it has any of them. */
-const PROGRESS_KEYS = ['ratings', 'ranks', 'bests', 'medals', 'history', 'plays', 'flaggedSkill', 'baselines', 'baselineLevels', 'checkins'] as const;
+const PROGRESS_KEYS = [
+  'ratings', 'ranks', 'runBests', 'dailyBests', 'situations', 'drillBests', 'medals', 'history', 'plays', 'flaggedSkill',
+  'coldOpeners', 'coldOpenerLevels', 'checkins',
+] as const;
 
 /**
  * Read a save file. Every part is validated and clamped (`sanitize*`), so a hand-edited file can not
