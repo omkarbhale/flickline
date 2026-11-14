@@ -1,7 +1,7 @@
 import type { HitZone } from '../sim/types';
 
 /**
- * The spray trace of design §3 (Spray Wall, #48), as plain data and pure helpers. The stat tracker
+ * The spray trace of design §3 (from the retired Spray Wall mode, #48), as plain data and pure helpers. The stat tracker
  * cuts a run's shots into sprays and fills these records; the results card (#39) draws them.
  *
  * Conventions, all in degrees and in screen terms (right and up are positive), measured from the

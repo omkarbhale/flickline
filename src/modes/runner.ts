@@ -10,10 +10,10 @@ import { createScoreBreakdown, scoreKill, type ScoreBreakdown } from '../feedbac
 import { StreakTracker } from '../feedback/streaks';
 import type {
   AnchorSource, AxisValues, DialSource, ModeEvents, MotionView, PlayerSourceEvents, RunEndReason, SkillId, SourceEvents,
-  TargetSpawner, VitalsView, WeaponSourceEvents,
+  TargetSpawner, VitalsView,
 } from './contracts';
 import { effectiveDial } from './itemDifficulty';
-import type { AwardOptions, ModeContext, ModeDef, ModeEvent, ResolveOptions, RunPhase, RunStats, SpawnOptions, TrialOptions, WeaponEvent } from './modeDef';
+import type { ModeContext, ModeDef, ModeEvent, ResolveOptions, RunPhase, RunStats, SpawnOptions, TrialOptions } from './modeDef';
 import { mindSkillFor } from './modeDef';
 import { AnchorIndex, SpawnScheduler } from './scheduler';
 
@@ -114,15 +114,11 @@ export class ModeRunner implements ModeContext<unknown> {
   private readonly expiredEv: ModeEvent & { type: 'targetExpired' };
   private readonly impactEv: ModeEvent & { type: 'shotImpact' };
   private readonly firedEv: ModeEvent & { type: 'shotFired' };
-  private readonly stoppedEv: ModeEvent & { type: 'playerStopped' };
   private readonly visibleEv: ModeEvent = { type: 'targetVisible', payload: null as never };
   private readonly aimOnEv: ModeEvent = { type: 'aimOnTarget', payload: null as never };
   private readonly sawEv: ModeEvent = { type: 'enemySawPlayer', payload: null as never };
   private readonly enemyFiredEv: ModeEvent = { type: 'enemyFired', payload: null as never };
   private readonly damagedEv: ModeEvent = { type: 'playerDamaged', payload: null as never };
-  private readonly weaponFiredEv: WeaponEvent & { type: 'shotFired' };
-  private readonly reloadStartedEv: WeaponEvent & { type: 'reloadStarted' };
-  private readonly reloadCompletedEv: WeaponEvent & { type: 'reloadCompleted' };
   private readonly trialEv: ModeEvents['skillTrial'] = { tick: 0, t: 0, skill: 'precision', itemDifficulty: 0, success: false };
   private readonly scoreEv: ModeEvents['scoreAwarded'] = {
     tick: 0, t: 0, targetId: 0, kind: 'post', points: 0, total: 0, base: 0, precision: 1, speed: 1, streak: 1, difficulty: 1, surge: 1,
@@ -161,10 +157,6 @@ export class ModeRunner implements ModeContext<unknown> {
     this.expiredEv = { type: 'targetExpired', payload: null as never };
     this.impactEv = { type: 'shotImpact', payload: null as never };
     this.firedEv = { type: 'shotFired', payload: null as never };
-    this.stoppedEv = { type: 'playerStopped', payload: null as never };
-    this.weaponFiredEv = { type: 'shotFired', payload: null as never };
-    this.reloadStartedEv = { type: 'reloadStarted', payload: null as never };
-    this.reloadCompletedEv = { type: 'reloadCompleted', payload: null as never };
   }
 
   get events(): EventSink<ModeEvents> {
@@ -195,23 +187,17 @@ export class ModeRunner implements ModeContext<unknown> {
   }
 
   /** Feed the runner the sim's facts (design §14.3 shape). Returns the unsubscribe function. */
-  attach(bus: Subscribable<SourceEvents & PlayerSourceEvents & WeaponSourceEvents>): () => void {
+  attach(bus: Subscribable<SourceEvents & PlayerSourceEvents>): () => void {
     const offs = [
       bus.on('targetKilled', (e) => this.onKilled(e)),
       bus.on('targetExpired', (e) => this.onExpired(e)),
       bus.on('shotImpact', (e) => this.onImpact(e)),
-      bus.on('shotFired', (e) => {
-        this.onFired(e);
-        this.onWeaponFired(e);
-      }),
-      bus.on('playerStopped', (e) => this.onStopped(e)),
+      bus.on('shotFired', (e) => this.onFired(e)),
       bus.on('targetVisible', (e) => this.forward(this.visibleEv, e)),
       bus.on('aimOnTarget', (e) => this.forward(this.aimOnEv, e)),
       bus.on('enemySawPlayer', (e) => this.forward(this.sawEv, e)),
       bus.on('enemyFired', (e) => this.forward(this.enemyFiredEv, e)),
       bus.on('playerDamaged', (e) => this.forward(this.damagedEv, e)),
-      bus.on('reloadStarted', (e) => this.onReload(this.reloadStartedEv, e)),
-      bus.on('reloadCompleted', (e) => this.onReload(this.reloadCompletedEv, e)),
       bus.on('playerDied', () => this.end('death')),
     ];
     return () => offs.forEach((f) => f());
@@ -227,7 +213,7 @@ export class ModeRunner implements ModeContext<unknown> {
     this.pinDial = opts.pinDial;
     this.newProfile = opts.newProfile ?? false;
     this.lean = opts.lean ?? [];
-    this.scheduler = new SpawnScheduler(m, this.tunables.dial.floors, this.rng, new AnchorIndex(opts.anchors ?? null), this.player);
+    this.scheduler = new SpawnScheduler(this.tunables.dial.floors, this.rng, new AnchorIndex(opts.anchors ?? null), this.player);
     this.streaks.reset();
     const s = this.stats;
     s.score = s.kills = s.headshotKills = s.misses = s.trials = s.trialsWon = 0;
@@ -398,7 +384,7 @@ export class ModeRunner implements ModeContext<unknown> {
     }
     const scale = Math.max(opts?.scale ?? 1, fl.minTargetScale);
     const echo = opts && (opts.peek || opts.fire || opts.crouched || opts.arrive) ? opts : undefined;
-    const id = this.deps.spawner.spawn(kind, pos, scale, opts?.strafe, opts?.durable, echo);
+    const id = this.deps.spawner.spawn(kind, pos, scale, opts?.strafe, echo);
     if (id < 0) {
       this.refusedSpawns++;
       return -1;
@@ -449,35 +435,6 @@ export class ModeRunner implements ModeContext<unknown> {
     if (success) this.stats.trialsWon++;
     else this.streaks.onBreak(this.simTick, t);
     return true;
-  }
-
-  awardScore(id: number, opts: AwardOptions): number {
-    if (this.phase !== 'live') return 0;
-    const rec = this.find(id);
-    const t = this.timeSec;
-    const cfg = this.tunables.scoring;
-    const kind = opts.kind ?? 'post';
-    this.streaks.step(this.simTick, t);
-    const kill = scoreKill(this.lastScore, {
-      kind,
-      headshot: opts.headshot ?? false,
-      firstBullet: opts.firstBullet ?? false,
-      ttkMs: (opts.durationSec ?? 0) * 1000,
-      // No duration given: no speed term (a spray is judged on its bullets, not its clock).
-      parSec: opts.durationSec === undefined ? 0 : this.mode.parSec ? this.mode.parSec(kind, this.axes) : cfg.defaultParSec,
-      cleanStreak: this.streaks.streak,
-      dial: rec?.dial ?? this.dial,
-      surge: this.surge,
-    }, cfg);
-    const w = clamp(opts.weight, 0, 1);
-    kill.base *= w;
-    kill.raw *= w;
-    kill.total = Math.round(kill.raw);
-    this.applyMultiplier(kill);
-    this.streaks.onKill(this.simTick, t, opts.clean ?? true);
-    this.stats.score += kill.total;
-    this.emitScore(this.simTick, t, id, kind, kill);
-    return kill.total;
   }
 
   placePlayer(x: number, y: number, z: number, yaw: number): void {
@@ -568,29 +525,11 @@ export class ModeRunner implements ModeContext<unknown> {
     this.mode.onEvent(this, this.firedEv);
   }
 
-  private onWeaponFired(e: WeaponSourceEvents['shotFired']): void {
-    if (this.phase !== 'live') return;
-    this.weaponFiredEv.payload = e;
-    this.mode.onWeapon?.(this, this.weaponFiredEv);
-  }
-
-  private onReload(wrap: WeaponEvent & { type: 'reloadStarted' | 'reloadCompleted' }, e: { tick: number }): void {
-    if (this.phase !== 'live') return;
-    wrap.payload = e;
-    this.mode.onWeapon?.(this, wrap);
-  }
-
   /** A fact only the mode reads (Sweep's contacts): pass it on while live. */
   private forward(wrap: ModeEvent, e: unknown): void {
     if (this.phase !== 'live') return;
     (wrap as { payload: unknown }).payload = e;
     this.mode.onEvent(this, wrap);
-  }
-
-  private onStopped(e: SourceEvents['playerStopped']): void {
-    if (this.phase !== 'live') return;
-    this.stoppedEv.payload = e;
-    this.mode.onEvent(this, this.stoppedEv);
   }
 
   // ---- internals ---------------------------------------------------------------------------

@@ -319,7 +319,7 @@ export class Game {
     this.refreshChrome();
     this.timeline.mark(this.profile.get().firstRunDone ? 'mainMenuShown' : 'firstRunPanelShown');
 
-    // `?mode=orbit` readies that mode now; it starts ticking when the player clicks Play (the sim only runs with the pointer locked). The menu no longer lists modes (#202); the link is for playtests until the drill code goes (#211).
+    // `?mode=<id>` readies that mode now; it starts ticking when the player clicks Play (the sim only runs with the pointer locked). The menu no longer lists modes (#202); the link is for playtests (`sweep`, `test`).
     const modeParam = new URLSearchParams(window.location.search).get('mode');
     if (modeParam) this.urlModeReadied = this.startMode(modeParam);
   }
@@ -450,7 +450,7 @@ export class Game {
 
   /** The name a mode goes by in the menu (pause title, difficulty pin). */
   private modeName(id: string): string {
-    return this.tunables.menu.modeCards[id]?.name ?? titleFromId(id);
+    return titleFromId(id);
   }
 
   /** The run clock's phase: the mode run's, else the plain run's (`idle` in the Lobby). */

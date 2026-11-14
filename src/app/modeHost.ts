@@ -7,14 +7,8 @@ import type { Economy } from '../config/economy';
 import type { Tunables } from '../config/tunables';
 import type { EnemyKind } from '../config/scoring';
 import type { WeaponId } from '../config/weapon';
-import { coldStart } from '../modes/coldStart';
 import type { AnchorSource, AxisValues, DialSource, EchoSpawn, StrafeSpawn, TargetSpawner } from '../modes/contracts';
 import type { ModeDef } from '../modes/modeDef';
-import { orbit } from '../modes/orbit';
-import { placement, type PlacementState } from '../modes/placement';
-import { sprayWall } from '../modes/sprayWall';
-import { strafeTrack } from '../modes/strafeTrack';
-import { stopAndPop } from '../modes/stopAndPop';
 import { sweep } from '../modes/sweep';
 import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
@@ -28,35 +22,25 @@ import type { SpawnOptions } from '../sim/targets';
 import type { World } from '../sim/world';
 import type { GameEvents } from '../core/gameEvents';
 
-/** The registered modes. Individual modes (#46, ...) add themselves here. */
+/** The registered modes: Sweep, the game, and the framework's test fixture. The drill modes are retired (design §4.10, #211). */
 export const MODES: Readonly<Record<string, ModeDef<never>>> = {
   test: testMode as ModeDef<never>,
-  coldStart: coldStart as ModeDef<never>,
-  orbit: orbit as ModeDef<never>,
-  placement: placement as ModeDef<never>,
-  sprayWall: sprayWall as ModeDef<never>,
-  strafeTrack: strafeTrack as ModeDef<never>,
-  stopAndPop: stopAndPop as ModeDef<never>,
   sweep: sweep as ModeDef<never>,
 };
 
 /** The sidearm of a loadout with a primary pick: always Pace (design §4.1). */
 const SIDEARM: WeaponId = 'pace';
 
-/** A durable target's health: a spray cannot kill it. */
-const DURABLE_HP = 1e6;
-
 /** The sim's target registry as the framework's spawner (#15). Only the kinds the sim has yet (Rusher, Bulwark and Gnat: #33). */
 class WorldSpawner implements TargetSpawner {
   constructor(private readonly world: World, private readonly bus: EventBus<GameEvents>) {}
 
-  /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. `durable` = Spray Wall's Post. */
-  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn, durable?: boolean, echo?: EchoSpawn): number {
+  /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. */
+  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn, echo?: EchoSpawn): number {
     if (kind !== 'post' && kind !== 'beacon' && kind !== 'strafer' && kind !== 'peeker') return -1;
     // A Strafer's numbers and lane, a Peeker's anchor and the shooting numbers go to the sim as given; the sim copies them at spawn.
     const o: SpawnOptions = { scale };
     if (strafe) o.strafe = strafe;
-    if (durable) o.hp = DURABLE_HP;
     if (echo?.peek) o.peek = echo.peek;
     if (echo?.fire) o.fire = echo.fire;
     if (echo?.arrive) o.arrive = echo.arrive;
@@ -104,20 +88,6 @@ export interface ModeStatus {
   timeSec: number;
   remainingSec: number;
   refusedSpawns: number;
-  /** Result of the last finished Placement run, or null. */
-  placement: PlacementOutcome | null;
-  /** Placement run only: the staircase's current dial, step and reversal count. */
-  staircase: { dial: number; step: number; reversals: number } | null;
-}
-
-/** What the Placement run hands the skill model when it ends (design §9.2). */
-export interface PlacementOutcome {
-  /** Posterior mean of each trained skill after the run (dial scale), the staircase bound applied. */
-  flick: number;
-  precision: number;
-  /** Staircase ability estimate (NaN with fewer than 4 reversals) and its reversal count. */
-  staircaseEstimate: number;
-  reversals: number;
 }
 
 /**
@@ -130,8 +100,6 @@ export class ModeHost {
   readonly runner: ModeRunner;
   /** The player's skill state: restored from the progress save when there is one (`features/progress.ts` saves it after every run), else a prior of 'skip' until the self-report sets it. */
   readonly skills: SkillState;
-  /** Result of the last finished Placement run, or null. */
-  placementOutcome: PlacementOutcome | null = null;
   private active: ModeDef<never> | null = null;
   /** The player's difficulty pin for a mode (setting `difficultyPin`), or undefined for matched difficulty. */
   pinFor: (modeId: string) => number | undefined = () => undefined;
@@ -191,9 +159,6 @@ export class ModeHost {
       skills.observeFight(e.difficulty, e.outcome === 'cleared');
     });
     bus.on('runStarted', () => this.releaseReady());
-    bus.on('runEnded', (e) => {
-      if (this.active?.id === 'placement' && e.reason !== 'quit') this.finishPlacement();
-    });
   }
 
   /**
@@ -326,22 +291,8 @@ export class ModeHost {
   private applyPlayerSetup(mode: ModeDef<never>): void {
     const w = this.world;
     const setup = mode.player;
-    const m = this.tunables.movement;
-    let x = w.level.spawn.pos.x;
-    let y = w.level.spawn.pos.y;
-    let z = w.level.spawn.pos.z;
-    let yaw = w.level.spawn.yaw;
-    const anchor = setup?.standAt ? this.map.anchors.find((a) => a.kind === setup.standAt) : undefined;
-    if (anchor) {
-      const p = anchor.kind === 'beacon-shell' ? anchor.centre : 'pos' in anchor ? anchor.pos : undefined;
-      if (p) {
-        x = p.x;
-        y = anchor.kind === 'beacon-shell' ? Math.max(0, p.y - m.standEyeHeight) : p.y;
-        z = p.z;
-        yaw = 0;
-      }
-    }
-    w.placePlayer(x, y, z, yaw);
+    const { pos, yaw } = w.level.spawn;
+    w.placePlayer(pos.x, pos.y, pos.z, yaw);
     this.kit = null;
     if (setup?.pickPrimary) {
       // The run's primary is the pick (the sidearm is always Pace): fresh magazines, primary in hand.
@@ -362,11 +313,11 @@ export class ModeHost {
     w.weapon.infiniteMagazine = setup?.infiniteMagazine ?? this.priorInfiniteMagazine;
     this.priorInfiniteReserve = w.weapon.infiniteReserve;
     w.weapon.infiniteReserve = setup?.infiniteReserve ?? this.priorInfiniteReserve;
-    w.movementLocked = setup?.lockMovement ?? false;
+    w.movementLocked = false;
     const level = mode.economy ? economyShield(mode.economy, this.tunables.economy, this.tunables.player.shield) : 0;
     w.setShields(level, level);
     this.baseShield = level;
-    // A mode with an economy is a mode where enemies shoot back (design §5.3); drills never have one.
+    // A mode with an economy is a mode where enemies shoot back (design §5.3).
     w.enemiesFire = mode.economy !== undefined;
     if (mode.economy) w.enemyWeapon = this.tunables.economy.levels[mode.economy].enemyWeapon;
     // The ready screen of a mode with a primary pick waits for the pick: nothing moves and nothing fires until it is over.
@@ -384,7 +335,7 @@ export class ModeHost {
     this.readyHold = false;
     const w = this.world;
     const setup = this.active.player;
-    w.movementLocked = setup?.lockMovement ?? false;
+    w.movementLocked = false;
     w.swapLocked = !(setup?.allowSwap ?? false) || (this.kit?.holstered ?? false);
     w.enemiesFire = this.active.economy !== undefined;
   }
@@ -470,7 +421,7 @@ export class ModeHost {
     }
   }
 
-  /** A mode moves the player (Spray Wall's alcoves): place the sim's player and tell the view to follow. */
+  /** A mode moves the player (Sweep's sector entries and gates): place the sim's player and tell the view to follow. */
   private placePlayer(x: number, y: number, z: number, yaw: number): void {
     this.world.placePlayer(x, y, z, yaw);
     const e = this.placedEv;
@@ -501,14 +452,6 @@ export class ModeHost {
     return true;
   }
 
-  private finishPlacement(): void {
-    const st = this.runner.state as PlacementState;
-    const sk = this.skills;
-    const flick = sk.finishPlacement('flick', st.staircase);
-    const precision = sk.finishPlacement('precision', st.staircase);
-    this.placementOutcome = { flick, precision, staircaseEstimate: st.staircase.abilityEstimate(), reversals: st.staircase.reversals };
-  }
-
   /** Modes own spawning: remove the level's placed targets and stop them respawning (`World.reset` restores them). */
   private clearField(): void {
     const field = this.world.targetField;
@@ -518,7 +461,6 @@ export class ModeHost {
 
   status(): ModeStatus {
     const r = this.runner;
-    const st = this.active?.id === 'placement' ? (r.state as PlacementState).staircase : null;
     return {
       mode: this.active?.id ?? null,
       phase: this.active ? r.phase : 'idle',
@@ -539,8 +481,6 @@ export class ModeHost {
       timeSec: r.timeSec,
       remainingSec: r.remainingSec,
       refusedSpawns: r.refusedSpawns,
-      placement: this.placementOutcome,
-      staircase: st ? { dial: st.dial, step: st.step, reversals: st.reversals } : null,
     };
   }
 }

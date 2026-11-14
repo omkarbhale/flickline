@@ -98,6 +98,9 @@ export const feature = defineFeature({
     let awaitFrame = false;
     let armed = false;
 
+    // The run moved the player (a sector entry, a gate's far side): the view follows, level, facing where the sector looks.
+    game.bus.on('playerPlaced', (e) => game.input.setLook(e.yaw, 0));
+
     const gateState = (st: SweepState): unknown => ({
       index: st.gate!.plan.index,
       chosen: st.gate!.door,

@@ -6,11 +6,11 @@ import { difficultyMultiplier } from './scoring';
  * The contact settle (design §8.1, #132): the part of the score that pays for surviving.
  *
  * Kill points are paid the instant each enemy dies, as everywhere else. In modes where enemies fire
- * back (Sweep, Corner Clear), each contact also *settles* once when it ends, by outcome and by the
+ * back (Sweep), each contact also *settles* once when it ends, by outcome and by the
  * health the player kept through it. Without it the table pays only for kills and the only cost of a
  * bad fight is health, which kill-heal refunds: the loop would train "take every fight, fast", the
  * over-aggression the reference game punishes. Pure functions of `config/scoring.ts`; the mode that
- * owns contacts (Sweep #51, Corner Clear #50) tracks the facts and calls `settleContact` once.
+ * owns contacts (Sweep, #51) tracks the facts and calls `settleContact` once.
  */
 
 /** How a contact ended. `avoided`: the player left it unhurt (no fight, nothing to pay). */

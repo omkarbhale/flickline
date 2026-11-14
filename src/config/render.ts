@@ -47,8 +47,8 @@ export interface RenderTunables {
   light: { ambient: number; sun: number; dir: [number, number, number]; objectAmbient: number; objectSun: number };
   /** Vertical vertex-colour gradient on boxes: shade at world y = 0 rising to 1 at `height` m. */
   gradient: { low: number; height: number };
-  /** Trim lines: brightness (linear-light weight of `palette.trim`) at the top, and at the base; `marks` = map floor markings (`armedOff`/`armedOn`: the Lane's armed stripe, dim and lit). */
-  trim: { intensity: number; baseIntensity: number; baseHeight: number; marks: { tick: number; major: number; line: number; armedOff: number; armedOn: number } };
+  /** Trim lines: brightness (linear-light weight of `palette.trim`) at the top, and at the base; `marks` = map floor markings. */
+  trim: { intensity: number; baseIntensity: number; baseHeight: number; marks: { tick: number; major: number; line: number } };
   /** Grid floor in metres and shader weights. */
   grid: { minor: number; major: number; minorWeight: number; majorWeight: number; tickWeight: number; lineWidthPx: number; tickFadeNear: number; tickFadeFar: number };
   /** Blob-shadow decals (pooled, fixed capacity). */
@@ -66,7 +66,7 @@ export const render: RenderTunables = {
   fogFar: 110,
   light: { ambient: 0.55, sun: 0.45, dir: [0.45, 0.8, 0.3], objectAmbient: 1.6, objectSun: 2.2 },
   gradient: { low: 0.4, height: 4 },
-  trim: { intensity: 0.5, baseIntensity: 0.22, baseHeight: 3, marks: { tick: 0.18, major: 0.32, line: 0.5, armedOff: 0.1, armedOn: 0.52 } },
+  trim: { intensity: 0.5, baseIntensity: 0.22, baseHeight: 3, marks: { tick: 0.18, major: 0.32, line: 0.5 } },
   grid: { minor: 1, major: 5, minorWeight: 0.1, majorWeight: 0.28, tickWeight: 0.5, lineWidthPx: 1, tickFadeNear: 4, tickFadeFar: 9 },
   blob: { capacity: 96, opacity: 0.7, echoScale: 1.5, pillarMaxFootprint: 2, pillarMinHeight: 1.8 },
 };

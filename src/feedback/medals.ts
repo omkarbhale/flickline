@@ -28,7 +28,7 @@ import type { HitZone } from '../sim/types';
  * Choices where the design table is open to reading (all on #38): *Needle* counts first-bullet
  * headshots in a row and any other shot breaks it; *Cold Open* counts targets, so a target that
  * left unkilled breaks it too; *Planted* is kills in a row with no moving shot fired in between
- * (Stop & Pop's stance check, which the log does not carry, is not applied); *Hairline* measures
+ * (the stance check of the retired Stop & Pop drill, which the log does not carry, is not applied); *Hairline* measures
  * where the bullet went, spread included, and needs the Echo to have been moving when the shot left; *Pendulum*
  * counts only time on a strafing Echo (a Strafer in a leg, not standing); *Thread* awards once the qualifying spray
  * inside one fight reaches its minimum length; *Clean Corner* is cumulative within a run.

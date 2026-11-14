@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { auditAllocations } from './allocAudit';
 
 // Its own file (so its own worker): the audit measures the JIT-compiled sim tick, and runs of the
-// movement-playing bots (Stop & Pop) in the same process change the types the tick has seen.
+// movement-playing bots in the same process change the types the tick has seen.
 describe('allocation audit', () => {
   it('keeps the sim tick under its allocation ceiling and names the sources', () => {
     const a = auditAllocations({ ticks: 30_000, warmupTicks: 40_000 });

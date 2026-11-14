@@ -21,7 +21,7 @@ declare module '../debug/hook' {
      * nothing and comes back as `{ok: false, reason, message}`.
      */
     loadout(req?: { primary: string; sidearm: string }): { ok: boolean; reason?: string; message?: string; slots: string[] };
-    /** Weapon options used by drills; persist across reset(). Returns the current options. */
+    /** Weapon options for playtests; persist across reset(). Returns the current options. */
     weaponOptions(opts?: { infiniteMagazine?: boolean; infiniteReserve?: boolean }): {
       infiniteMagazine: boolean;
       infiniteReserve: boolean;
@@ -79,7 +79,7 @@ function fireOnce(game: Game, s: TickInput, id: WeaponId): { shot: unknown; impa
   return { shot, impact };
 }
 
-/** Debug/playtest shooting: single shots, sprays and drill options. */
+/** Debug/playtest shooting: single shots, sprays and ammo options. */
 export const feature = defineFeature({
   id: 'weapons',
   stage: 'tools',

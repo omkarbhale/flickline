@@ -132,7 +132,7 @@ describe('attachSfx', () => {
     bus.emit('reloadStarted', { tick: 3, weapon: 'kestrel', durationSec: 2.5 });
     bus.emit('reloadCompleted', { tick: 4, weapon: 'kestrel', ammo: 30, reserve: 60 });
     bus.emit('weaponSwitched', { tick: 5, weapon: 'pace', slot: 1, equipSec: 0.5 });
-    bus.emit('runReady', { tick: 6, mode: 'coldStart', seed: 1, dial: 50 });
+    bus.emit('runReady', { tick: 6, mode: 'test', seed: 1, dial: 50 });
     bus.emit('runStarted', { tick: 7 });
     bus.emit('runEnded', { tick: 8, t: 60, reason: 'timer' });
     bus.emit('runEnded', { tick: 9, t: 20, reason: 'death' });
@@ -166,7 +166,7 @@ describe('attachSfx', () => {
   it('does not reset on its own: a streak break needs the streak the run ended with', () => {
     const { bus, cues } = setup();
     bus.emit('streakUpdated', { streak: 5, mult: 1 });
-    bus.emit('runReady', { tick: 1, mode: 'coldStart', seed: 1, dial: 50 }); // a restart clears it silently
+    bus.emit('runReady', { tick: 1, mode: 'test', seed: 1, dial: 50 }); // a restart clears it silently
     bus.emit('streakUpdated', { streak: 0, mult: 1 });
     expect(cues()).toEqual(['uiReady']);
   });
