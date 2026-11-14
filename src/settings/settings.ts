@@ -10,7 +10,20 @@ export interface Settings {
   dpi: number;
   /** Master volume 0..1. */
   volume: number;
+  /** Per-bus volumes 0..1, multiplied with the master volume (audio buses, design 12). */
+  weaponsVolume: number;
+  hitsVolume: number;
+  enemiesVolume: number;
+  uiVolume: number;
   quality: QualityLevel;
+  /** Amber moving-shot tracer, `⇆` glyph (design §13.3 "Coaching cues"). */
+  coachingCues: boolean;
+  /** Ghost ring where the nearest target's head was, after a miss. */
+  missGhost: boolean;
+  /** Floating damage numbers on hits. */
+  damageNumbers: boolean;
+  /** Disables screen pulses and chromatic effects (design §13.3). */
+  reduceFlashing: boolean;
   /** Crosshair appearance (design 13.2). Replaced as a whole by `set`. */
   crosshair: CrosshairParams;
 }
@@ -19,7 +32,15 @@ export const DEFAULT_SETTINGS: Settings = {
   sensitivity: 0.4,
   dpi: 800,
   volume: 0.7,
+  weaponsVolume: 1,
+  hitsVolume: 1,
+  enemiesVolume: 1,
+  uiVolume: 1,
   quality: 'medium',
+  coachingCues: true,
+  missGhost: true,
+  damageNumbers: true,
+  reduceFlashing: false,
   crosshair: DEFAULT_CROSSHAIR,
 };
 
@@ -45,9 +66,18 @@ export function sanitizeSettings(raw: unknown): Settings {
   out.sensitivity = num(r.sensitivity, 0.01, 20, out.sensitivity);
   out.dpi = num(r.dpi, 100, 32000, out.dpi);
   out.volume = num(r.volume, 0, 1, out.volume);
+  out.weaponsVolume = num(r.weaponsVolume, 0, 1, out.weaponsVolume);
+  out.hitsVolume = num(r.hitsVolume, 0, 1, out.hitsVolume);
+  out.enemiesVolume = num(r.enemiesVolume, 0, 1, out.enemiesVolume);
+  out.uiVolume = num(r.uiVolume, 0, 1, out.uiVolume);
   if (typeof r.quality === 'string' && (QUALITY_LEVELS as readonly string[]).includes(r.quality)) {
     out.quality = r.quality as QualityLevel;
   }
+  const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
+  out.coachingCues = bool(r.coachingCues, out.coachingCues);
+  out.missGhost = bool(r.missGhost, out.missGhost);
+  out.damageNumbers = bool(r.damageNumbers, out.damageNumbers);
+  out.reduceFlashing = bool(r.reduceFlashing, out.reduceFlashing);
   out.crosshair = sanitizeCrosshair(r.crosshair);
   return out;
 }

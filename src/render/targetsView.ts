@@ -1,11 +1,9 @@
 import { Group } from 'three';
-import type { Subscribable } from '../core/eventBus';
 import { lerp } from '../core/math';
 import { TICK_DT } from '../core/time';
 import { echoPresets, type EchoPresetId } from '../config/palette';
 import type { QualityPreset } from '../config/render';
 import type { Tunables } from '../config/tunables';
-import type { SimEvents } from '../sim/types';
 import type { World } from '../sim/world';
 import { EnemyBatch } from './echoBatch';
 import {
@@ -13,12 +11,10 @@ import {
   createEchoMaterial,
   createEchoOutlineMaterial,
   createEchoUniforms,
-  createShardMaterial,
   type EchoUniforms,
 } from './echoMaterial';
 import { buildEchoMesh, buildGnatMesh, buildOrbMesh } from './echoModel';
 import { flashAmount, yawTowards } from './echoInstance';
-import { EchoShatter } from './echoShatter';
 
 /** The three enemy looks (design section 5.2): Echo humanoid, Beacon orb, Gnat octahedron. */
 export type EnemyLook = 'echo' | 'beacon' | 'gnat';
@@ -41,8 +37,8 @@ export interface ShowcaseItem {
 
 /**
  * Draws the roster from sim state: Echoes, Beacons and Gnats as one instanced draw per type
- * (capacity = the target registry's, 64), the kill shatter, and the shared Echo shader's
- * uniforms. Reads sim state only; hit detection never looks at these meshes (it uses
+ * (capacity = the target registry's, 64) and the shared Echo shader's uniforms. The kill shatter
+ * itself is the pooled shard effect in `render/effects.ts`; here the killed body dissolves. Reads sim state only; hit detection never looks at these meshes (it uses
  * `sim/hitZones.ts`, and the meshes are built from the same `hit.*` dimensions).
  * `update` allocates nothing.
  */
@@ -52,7 +48,6 @@ export class TargetsView {
   readonly echo: EnemyBatch;
   readonly beacon: EnemyBatch;
   readonly gnat: EnemyBatch;
-  readonly shatter: EchoShatter;
   /** Display-only extras drawn after the sim's targets (null = none). Set by the debug hook. */
   showcase: readonly ShowcaseItem[] | null = null;
 
@@ -63,7 +58,6 @@ export class TargetsView {
 
   constructor(
     private readonly tunables: Tunables,
-    bus: Subscribable<SimEvents>,
     capacity: number,
     quality: QualityPreset,
   ) {
@@ -74,9 +68,7 @@ export class TargetsView {
     const orb = tunables.targets.kinds.beacon.orbRadius;
     this.beacon = new EnemyBatch(buildOrbMesh(orb, e.beacon.segments, e.beacon.rings), createEchoMaterial(u, 'beacon'), createEchoOutlineMaterial(u, 'beacon'), capacity);
     this.gnat = new EnemyBatch(buildGnatMesh(e.gnat.radius, e.gnat.stretch), createEchoMaterial(u, 'gnat'), createEchoOutlineMaterial(u, 'gnat'), capacity);
-    this.shatter = new EchoShatter(e.shatter, createShardMaterial(u), bus, quality.echoShards);
     for (const b of [this.echo, this.beacon, this.gnat]) this.root.add(b.mesh, b.hull);
-    this.root.add(this.shatter.mesh);
     this.setQuality(quality);
   }
 
@@ -91,10 +83,9 @@ export class TargetsView {
     return this.preset;
   }
 
-  /** Quality-dependent flags: outline (Contrast forces it on) and shard count. */
+  /** Quality-dependent flags: the outline (the Contrast preset forces it on). */
   setQuality(q: QualityPreset): void {
     this.qualityOutline = q.echoOutline;
-    this.shatter.setShardCount(q.echoShards);
     this.applyOutline();
   }
 
@@ -110,7 +101,7 @@ export class TargetsView {
     this.uniforms.uViewport.value.set(widthPx, heightPx);
   }
 
-  /** Pin the Echo clock to `sec` (shards, Gnat spin), or resume with null. Debug / screenshots. */
+  /** Pin the Echo clock to `sec` (Gnat spin), or resume with null. Debug / screenshots. */
   setTime(sec: number | null): void {
     if (sec === null) {
       this.frozen = false;
@@ -129,13 +120,13 @@ export class TargetsView {
     return Math.max(0, (world.tick - tick - 1 + alpha) * TICK_DT);
   }
 
-  update(world: World, alpha: number, dt: number, viewX: number, viewY: number, viewZ: number): void {
+  /** `viewX/viewZ` is the camera's horizontal position: Echoes turn their front towards it. */
+  update(world: World, alpha: number, dt: number, viewX: number, viewZ: number): void {
     if (!this.frozen) this.time += dt;
     this.uniforms.uTime.value = this.time;
-    this.shatter.setViewer(viewX, viewY, viewZ);
-    this.shatter.update(this.time);
 
     const e = this.tunables.echo;
+    const flashSec = this.tunables.feedback.targetFlashSec;
     const kinds = this.tunables.targets.kinds;
     this.echo.begin();
     this.beacon.begin();
@@ -147,7 +138,7 @@ export class TargetsView {
       let flash = 0;
       let dissolve = 0;
       if (t.alive) {
-        if (t.lastHitTick >= 0) flash = flashAmount(this.age(world, t.lastHitTick, alpha), e.flashSec);
+        if (t.lastHitTick >= 0) flash = flashAmount(this.age(world, t.lastHitTick, alpha), flashSec);
       } else {
         // A freshly killed target keeps its last pose while its body dissolves (the shards are
         // already flying). Expired or never-hit targets just vanish.
@@ -155,7 +146,7 @@ export class TargetsView {
         const age = this.age(world, t.lastHitTick, alpha);
         if (age >= e.dissolveSec) continue;
         dissolve = age / e.dissolveSec;
-        flash = flashAmount(age, e.flashSec);
+        flash = flashAmount(age, flashSec);
       }
       if (kinds[t.kind].shape === 'orb') {
         this.beacon.add(t.pos.x, t.pos.y, t.pos.z, 0, flash, dissolve, 0, 0);
@@ -189,6 +180,5 @@ export class TargetsView {
     this.echo.dispose();
     this.beacon.dispose();
     this.gnat.dispose();
-    this.shatter.dispose();
   }
 }

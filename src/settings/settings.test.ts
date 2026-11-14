@@ -37,6 +37,24 @@ describe('settings', () => {
     expect(s.volume).toBe(1);
     expect(s.quality).toBe(DEFAULT_SETTINGS.quality);
   });
+  it('keeps feedback toggles as booleans and defaults them for garbage', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({ coachingCues: true, missGhost: true, damageNumbers: true, reduceFlashing: false });
+    const s = sanitizeSettings({ coachingCues: 'yes', missGhost: false, reduceFlashing: true, damageNumbers: 1 });
+    expect(s.coachingCues).toBe(true);
+    expect(s.missGhost).toBe(false);
+    expect(s.reduceFlashing).toBe(true);
+    expect(s.damageNumbers).toBe(true);
+    const store = new SettingsStore(new EventBus<SettingsEvents>(), memoryStorage());
+    store.set({ reduceFlashing: true });
+    expect(store.get().reduceFlashing).toBe(true);
+  });
+  it('clamps the per-bus audio volumes and defaults them to full', () => {
+    const s = sanitizeSettings({ weaponsVolume: -1, hitsVolume: 5, uiVolume: 'loud' });
+    expect(s.weaponsVolume).toBe(0);
+    expect(s.hitsVolume).toBe(1);
+    expect(s.uiVolume).toBe(1);
+    expect(s.enemiesVolume).toBe(1);
+  });
   it('survives corrupt storage and a null storage', () => {
     const bad = memoryStorage({ [SETTINGS_KEY]: '{not json' });
     expect(new SettingsStore(new EventBus<SettingsEvents>(), bad).get()).toEqual(DEFAULT_SETTINGS);

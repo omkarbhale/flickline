@@ -5,14 +5,14 @@ import { TICK_RATE } from '../core/time';
 import { vec3 } from '../core/vec3';
 import { rayBox, raySphere } from './collision';
 import { testRoom } from './levels';
-import { createTickInput, type LevelDef, type SimEvents, type TickInput } from './types';
+import { createTickInput, SIM_EVENT_TYPES, type LevelDef, type SimEvents, type TickInput } from './types';
 import { World } from './world';
 
 function setup(level: LevelDef = testRoom, seed = 1) {
   const world = new World({ level, tunables: cloneTunables(), seed });
   const bus = new EventBus<SimEvents>();
   const log: { type: keyof SimEvents; data: unknown }[] = [];
-  for (const t of ['shotFired', 'shotImpact', 'targetSpawned', 'targetVisible', 'targetHit', 'targetKilled', 'targetExpired', 'targetRespawned', 'playerJumped', 'playerLanded', 'footstep'] as const) {
+  for (const t of SIM_EVENT_TYPES) {
     bus.on(t, (e) => log.push({ type: t, data: JSON.parse(JSON.stringify(e)) }));
   }
   const input = createTickInput();
@@ -220,13 +220,13 @@ describe('hitscan weapon', () => {
     expect(log.some((l) => l.type === 'shotImpact')).toBe(true);
   });
 
-  it('respects the fire interval', () => {
-    const { run, count } = setup();
+  it('fires at the exact spec rate while held (fractional tick carry)', () => {
+    const { world, run, count } = setup();
+    world.weapon.infiniteMagazine = true;
     run(4);
-    run(TICK_RATE, { fire: true, pitch: 0.5 });
-    const expected = Math.ceil(TICK_RATE / Math.round(0.1 * TICK_RATE));
-    expect(count('shotFired')).toBeGreaterThanOrEqual(expected - 1);
-    expect(count('shotFired')).toBeLessThanOrEqual(expected + 1);
+    run(TICK_RATE * 10, { fire: true, pitch: 0.5 });
+    // 11 rps for 10 s: shots at t0 + k/11 for k = 0..109.
+    expect(count('shotFired')).toBe(10 * world.tunables.weapon.kestrel.fireRateHz);
   });
 
   it('shots hit the world when nothing else is in the way', () => {

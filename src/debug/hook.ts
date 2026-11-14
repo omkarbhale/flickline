@@ -1,8 +1,13 @@
 import type { Game } from '../app/game';
+import { MODES } from '../app/modeHost';
+import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
+import type { CueId } from '../config/audio';
 import { ECHO_PRESET_IDS, type EchoPresetId } from '../config/palette';
+import type { WeaponId } from '../config/weapon';
 import type { ShowcaseItem } from '../render/targetsView';
 import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
-import type { HitZone, TargetKind, TickInput } from '../sim/types';
+import type { Settings } from '../settings/settings';
+import type { HitZone, SimEvents, TargetKind, TickInput } from '../sim/types';
 
 export interface ScriptStep {
   /** Number of sim ticks to run with this input. */
@@ -56,7 +61,27 @@ export interface FlicklineDebug {
   /** Frame/tick/draw stats. */
   perf(): unknown;
   /** Update a setting through the real store. */
-  setSetting(key: 'sensitivity' | 'dpi' | 'volume' | 'quality', value: number | string): void;
+  setSetting(key: keyof Settings, value: number | string | boolean): void;
+  /** Per-shot effect stats: cue-to-draw frame latency, pool sizes, JS heap (if exposed). */
+  fx(): unknown;
+  /** Hold transient effects still (dt = 0) so screenshots can catch them; CSS ones need the injected pause style. */
+  freezeFx(on?: boolean): void;
+  /** Render one frame advancing effect time by `sec` (use with freezeFx to step effects to a chosen moment). */
+  fxAdvance(sec: number): void;
+  /** Reset the effect latency counters. */
+  fxResetStats(): void;
+  /**
+   * Emit a synthetic sim event on the bus (zones other than 'body', RT/TTK, ... before the enemy
+   * framework exists), then render. Payload is merged over safe defaults; `point`, `origin`, `dir`
+   * take {x,y,z}. Returns nothing; read the result on screen or with events().
+   */
+  emit(type: keyof SimEvents, payload?: Record<string, unknown>): void;
+  /** Play a cue through the real engine (needs the context unlocked by a user gesture, see audioUnlock). */
+  playCue(cue: CueId, opts?: PlayOptions): void;
+  /** Create/resume the audio context without a click (headless checks). */
+  audioUnlock(): void;
+  /** Audio state: running, voices, sound-set render stats, and the most recent plays (what was scheduled where). */
+  audio(count?: number): { running: boolean; voices: number; stats: SoundSetStats | null; plays: PlayLogEntry[] };
   /** Crosshair state: current params, share code, redraw counter and last device-pixel geometry. */
   crosshair(): unknown;
   /** Import a crosshair share code through the real parser; returns `{ok, error?}`. */
@@ -72,8 +97,34 @@ export interface FlicklineDebug {
   echoClock(sec: number | null): void;
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
+  /** Named timestamps (ms since page load): panel shown, play clicked, lock, first shot. */
+  timeline(): Record<string, number>;
+  /**
+   * Fire one shot of `weaponId` (a loadout id, e.g. 'kestrel' or 'pace') at the current look, with
+   * deterministic stepping: swaps, equips, reloads and waits for the fire interval as the sim
+   * requires. Repeated calls with an automatic weapon form one held spray at the real fire rate.
+   * Returns copies of the shot's `shotFired` and `shotImpact` (impact null if it hit nothing).
+   */
+  fire(weaponId: string): { shot: unknown; impact: unknown };
+  /** `n` shots of `weaponId` back to back (a held spray for automatic weapons). */
+  spray(weaponId: string, n: number): { shot: unknown; impact: unknown }[];
+  /** Weapon options used by drills; persist across reset(). Returns the current options. */
+  weaponOptions(opts?: { infiniteMagazine?: boolean; infiniteReserve?: boolean }): {
+    infiniteMagazine: boolean;
+    infiniteReserve: boolean;
+  };
   /** Live tunables object (mutate for experiments; not persisted). */
   readonly tunables: unknown;
+  /** Mode framework: start/stop a mode run and read its state (`step()` advances it like any tick). */
+  readonly mode: {
+    /** Ready a run (ready phase 0.8 s, then live). `pinDial` fixes the dial. Returns false for an unknown id. */
+    start(id?: string, opts?: { seed?: number; pinDial?: number }): boolean;
+    stop(): void;
+    /** Phase, beat, dial, axes, score, streak, chain, trials, timing. */
+    status(): unknown;
+    /** Ids of the registered modes. */
+    list(): string[];
+  };
 }
 
 export type Vec3Like = { x: number; y: number; z: number } | readonly [number, number, number];
@@ -164,6 +215,66 @@ export function installDebugHook(game: Game): FlicklineDebug {
     setSetting(key, value) {
       game.settings.set({ [key]: value } as never);
     },
+    fx() {
+      const l = game.cues.latency;
+      const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+      return {
+        frame: game.cues.frame,
+        latencyMax: l.max,
+        latencyLast: l.last,
+        cuesDrawn: l.samples,
+        late: l.late,
+        tracers: game.cues.tracers.length,
+        impacts: game.cues.impacts.length,
+        decals: game.cues.decals.length,
+        shatters: game.cues.shatters.length,
+        heapBytes: heap ? heap.usedJSHeapSize : null,
+        drawCalls: game.renderer.stats.drawCalls,
+      };
+    },
+    freezeFx(on = true) {
+      game.freezeFx = on;
+    },
+    fxAdvance(sec) {
+      game.renderer.render(game.world, 1, game.input.yaw, game.input.pitch, sec);
+    },
+    fxResetStats() {
+      game.cues.resetLatency();
+    },
+    emit(type, payload = {}) {
+      const v = { x: 0, y: 1.5, z: -10 };
+      const defaults: Record<string, unknown> = {
+        tick: game.world.tick,
+        point: v,
+        origin: { x: 0, y: 1.62, z: 8 },
+        dir: { x: 0, y: 0, z: -1 },
+        normal: { x: 0, y: 0, z: 1 },
+        moving: false,
+        onTarget: false,
+        distance: 10,
+        targetId: 0,
+        damage: 34,
+        hpLeft: 66,
+        zone: 'body',
+        killed: false,
+      };
+      (game.bus as unknown as { emit(t: string, p: unknown): void }).emit(type, { ...defaults, ...payload });
+      game.renderNow();
+    },
+    playCue(cue, opts) {
+      game.audio.play(cue, opts);
+    },
+    audioUnlock() {
+      game.audio.resume();
+    },
+    audio(count = 16) {
+      return {
+        running: game.audio.running,
+        voices: game.audio.activeVoices,
+        stats: game.audio.stats,
+        plays: game.audio.recentPlays(count),
+      };
+    },
     crosshair() {
       const p = game.settings.get().crosshair;
       return { params: p, code: encodeCrosshair(p), draws: game.hud.crosshair.draws, view: game.hud.crosshair.describe() };
@@ -193,7 +304,29 @@ export function installDebugHook(game: Game): FlicklineDebug {
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);
     },
+    timeline: () => game.timeline.toObject(),
+    fire(weaponId) {
+      return game.fireOnce(weaponId as WeaponId);
+    },
+    spray(weaponId, n) {
+      const out: { shot: unknown; impact: unknown }[] = [];
+      for (let i = 0; i < n; i++) out.push(game.fireOnce(weaponId as WeaponId));
+      return out;
+    },
+    weaponOptions(opts = {}) {
+      const w = game.world.weapon;
+      if (opts.infiniteMagazine !== undefined) w.infiniteMagazine = opts.infiniteMagazine;
+      if (opts.infiniteReserve !== undefined) w.infiniteReserve = opts.infiniteReserve;
+      game.hud.refresh();
+      return { infiniteMagazine: w.infiniteMagazine, infiniteReserve: w.infiniteReserve };
+    },
     tunables: game.tunables,
+    mode: {
+      start: (id = 'test', opts = {}) => game.modes.start(id, opts),
+      stop: () => game.modes.stop(),
+      status: () => game.modes.status(),
+      list: () => Object.keys(MODES),
+    },
   };
   window.__flickline = hook;
   return hook;

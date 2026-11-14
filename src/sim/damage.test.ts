@@ -5,7 +5,7 @@ import { zoneDamage } from './damage';
 import type { HitZone } from './types';
 
 const tun = cloneTunables();
-const kestrel = tun.weapon.damageBands; // spec §3.2 / §7.4 rifle_spray
+const kestrel = tun.weapon.kestrel.damageBands; // spec §3.2 / §7.4 rifle_spray
 const HP = tun.targets.maxHp;
 
 /** Bullets of one zone at one range needed to take a full-health target to 0 (or below). */

@@ -1,4 +1,4 @@
-import { Color, DoubleSide, BackSide, ShaderMaterial, Vector2, Vector3, Vector4, type IUniform } from 'three';
+import { BackSide, Color, ShaderMaterial, Vector2, Vector3, type IUniform } from 'three';
 import { echoPresets, type EchoPresetId } from '../config/palette';
 import type { EchoTunables } from '../config/echo';
 import type { RenderTunables } from '../config/render';
@@ -36,11 +36,6 @@ export interface EchoUniforms {
   uViewport: IUniform<Vector2>;
   /** x = spin (rad/s), y = tilt (rad). */
   uGnat: IUniform<Vector2>;
-  /** Shards: x = life, y = speed min, z = speed max, w = bias speed. */
-  uShardA: IUniform<Vector4>;
-  /** Shards: x = gravity, y = size min, z = size max, w = spin (rad/s). */
-  uShardB: IUniform<Vector4>;
-  uFloor: IUniform<number>;
 }
 
 export function createEchoUniforms(e: EchoTunables, r: RenderTunables, hit: HitTunables): EchoUniforms {
@@ -55,9 +50,6 @@ export function createEchoUniforms(e: EchoTunables, r: RenderTunables, hit: HitT
     uHeadY: { value: new Vector2(hit.headCentreStand, hit.headCentreCrouch) },
     uViewport: { value: new Vector2(1, 1) },
     uGnat: { value: new Vector2(e.gnat.spinRadPerSec, e.gnat.tiltRad) },
-    uShardA: { value: new Vector4(e.shatter.lifeSec, e.shatter.speedMin, e.shatter.speedMax, e.shatter.biasSpeed) },
-    uShardB: { value: new Vector4(e.shatter.gravity, e.shatter.sizeMin, e.shatter.sizeMax, e.shatter.spinRadPerSec) },
-    uFloor: { value: e.shatter.floorY },
   };
   applyEchoPreset(u, 'ember');
   return u;
@@ -184,53 +176,4 @@ export function createEchoOutlineMaterial(u: EchoUniforms, kind: EchoMaterialKin
   return new ShaderMaterial({
     uniforms: { ...u }, vertexShader: VERT, fragmentShader: FRAG, defines: defines(kind, true), fog: false, side: BackSide,
   });
-}
-
-const SHARD_VERT = /* glsl */ `
-  attribute vec4 aKill;
-  attribute vec3 aBias;
-  attribute vec4 aSeed;
-  uniform float uTime;
-  uniform vec4 uShardA;
-  uniform vec4 uShardB;
-  uniform float uFloor;
-  varying float vU;
-  varying float vR;
-
-  void main() {
-    float t = uTime - aKill.w;
-    float u = t / uShardA.x;
-    vU = u;
-    vR = aSeed.w;
-    if (t < 0.0 || u >= 1.0) {
-      gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // outside the clip volume: a dead shard costs no fragments
-      return;
-    }
-    float speed = mix(uShardA.y, uShardA.z, aSeed.w);
-    vec3 pos = aKill.xyz + (aSeed.xyz * speed + aBias * uShardA.w) * t;
-    pos.y = max(pos.y - 0.5 * uShardB.x * t * t, uFloor);
-    float size = mix(uShardB.y, uShardB.z, aSeed.w) * (1.0 - u * u);
-    vec3 axis = normalize(aSeed.zxy + vec3(0.1, 0.2, 0.3));
-    float ang = t * uShardB.w * (0.5 + aSeed.w);
-    vec3 v = vec3(position.x * (0.6 + 0.8 * aSeed.w), position.y, 0.0) * size;
-    float ca = cos(ang), sa = sin(ang);
-    v = v * ca + cross(axis, v) * sa + axis * dot(axis, v) * (1.0 - ca);
-    gl_Position = projectionMatrix * viewMatrix * (modelMatrix * vec4(pos + v, 1.0));
-  }`;
-
-const SHARD_FRAG = /* glsl */ `
-  uniform vec3 uColor;
-  uniform vec3 uHead;
-  varying float vU;
-  varying float vR;
-  void main() {
-    vec3 col = mix(uHead, uColor, smoothstep(0.0, 0.4, vU));
-    col = mix(col, vec3(1.0), 0.2 * vR * (1.0 - vU));
-    gl_FragColor = vec4(col, 1.0);
-    #include <colorspace_fragment>
-  }`;
-
-/** Kill-shatter shards: all motion is computed in the vertex shader from per-shard data. */
-export function createShardMaterial(u: EchoUniforms): ShaderMaterial {
-  return new ShaderMaterial({ uniforms: { ...u }, vertexShader: SHARD_VERT, fragmentShader: SHARD_FRAG, fog: false, side: DoubleSide });
 }

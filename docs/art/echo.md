@@ -1,8 +1,8 @@
 # Echo, Beacon and Gnat: look, shader and how to drive them
 
-Design: `docs/design.md` §5.1, §5.2, §11. Code: `src/render/echo*.ts`, `src/render/targetsView.ts`,
-`src/render/shardRing.ts`; numbers in `src/config/echo.ts` (look), `src/config/palette.ts`
-(presets), `src/config/render.ts` (`echoOutline`, `echoShards` per quality).
+Design: `docs/design.md` §5.1, §5.2, §11. Code: `src/render/echo*.ts`, `src/render/targetsView.ts`;
+numbers in `src/config/echo.ts` (look), `src/config/palette.ts` (presets),
+`src/config/render.ts` (`echoOutline` per quality).
 
 ## Model (all procedural, no assets)
 
@@ -24,7 +24,7 @@ orb of exactly `kinds.beacon.orbRadius`; the Gnat is a vertically stretched octa
 ## Shader (`echoMaterial.ts`)
 
 One `ShaderMaterial` family, one shared uniform set (`EchoUniforms`): preset colours, light,
-rim, facet lift, head glow, outline width, viewport, clock, shard parameters.
+rim, facet lift, head glow, outline width, viewport, clock.
 
 * Unlit flat colour. Facet shading, rim light, head node and hit flash **only ever mix towards a
   lighter colour**, so the preset colour is the darkest thing an Echo ever renders: the 7:1 contrast
@@ -36,7 +36,7 @@ rim, facet lift, head glow, outline width, viewport, clock, shard parameters.
 * Outline: inverted hull, a second back-face draw of the same instances, pushed out in screen space.
   Off at Low and Medium, on at High, and always on for the Contrast preset.
 * One draw per type for up to 64 Echoes (`EnemyBatch`, filled compactly each frame: an idle type
-  draws nothing). At most 7 enemy draws: 3 types x (body + outline) + the shards.
+  draws nothing). At most 6 enemy draws: 3 types x (body + outline).
 
 ## Presets (`echoPresets`)
 
@@ -51,21 +51,21 @@ the table in `config/palette.test.ts` checks every surface):
 | Amber | `#FFC21A` | `#FFF4CC` | 11.3:1 | 16.7:1 |
 | Contrast | `#DCDCDC` + black outline | `#FFFFFF` | 13.4:1 | 18.4:1 |
 
-## Kill shatter (`echoShatter.ts`, `shardRing.ts`)
+## Kill shatter
 
-12 quads per kill (6 at Low) from the `targetKilled` hit point, pushed away from the shooter, in one
-pooled instanced draw. The CPU writes a kill's origin and birth time into preallocated typed arrays
-(the oldest of 16 kill slots is recycled); the vertex shader computes every shard's position,
-spin and size from `uTime - birth` and the shard's static seed. Zero allocation per kill (asserted
-in `shardRing.test.ts` and `targetsView.test.ts`). The killed body keeps its slot and dissolves for
-`dissolveSec` (0.28 s).
+The burst itself is the shard effect from #24 (`render/effects.ts`, `feedback/shotCues.ts`): 12
+shards per kill, all motion in the vertex shader, a pooled instanced mesh, zero allocation per kill
+(its tests assert it). #18 adds the matching Echo side: the killed body keeps its slot and dissolves
+for `echo.dissolveSec` (0.28 s, every triangle shrinks to its centroid in the vertex shader), the
+white hit flash length is `feedback.targetFlashSec` (60 ms), and the shards are tinted with the
+enemy colour preset (`ShotEffects.setShardColor`, called from `GameRenderer.setEchoPreset`).
 
 ## Driving it
 
 * `GameRenderer.setEchoPreset(id)`, `GameRenderer.enemies` (the `TargetsView`).
 * Debug hook: `__flickline.echoPreset('lime')`, `echoShowcase([{ look: 'gnat', x, y, z }, ...])`
   (display-only props: how the Gnat shows today, since the sim has no Gnat kind yet),
-  `echoClock(sec | null)` (pin the shard/Gnat clock for screenshots).
+  `echoClock(sec | null)` (pin the Gnat spin clock for screenshots).
 * Adding an enemy that looks like an Echo needs no render work: a humanoid-shaped kind is drawn as
   an Echo, an orb-shaped one as a Beacon. For the Gnat, route its kind to `TargetsView.gnat.add(...)`
   (one line next to the Beacon branch) and give it a hit radius from `echo.gnat.radius`.

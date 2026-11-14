@@ -1,6 +1,7 @@
 /**
  * Echo look tunables (design sections 5 and 11): the silhouette of the humanoid, the Beacon and
- * the Gnat, the shader's look, and the kill shatter. Art numbers only: the hit zones come from
+ * the Gnat and the shader's look. (The hit flash length is `feedback.targetFlashSec`; the kill
+ * shatter is the pooled shard effect in `render/effects.ts`, tinted by the colour preset.) Art numbers only: the hit zones come from
  * `targets.hit` and the mesh is built from them (`render/echoModel.ts`), so the silhouette cannot
  * drift from the hitboxes. Units: metres, seconds.
  */
@@ -28,8 +29,6 @@ export interface EchoShape {
 }
 
 export interface EchoTunables {
-  /** Hit flash length (design section 11: 60 ms of white). */
-  flashSec: number;
   /** Death dissolve of the body (the shards fly separately). */
   dissolveSec: number;
   shape: EchoShape;
@@ -44,28 +43,9 @@ export interface EchoTunables {
   beacon: { segments: number; rings: number };
   /** Gnat: octahedron "radius" (hand-sized), vertical stretch, spin speed and tilt. */
   gnat: { radius: number; stretch: number; spinRadPerSec: number; tiltRad: number };
-  shatter: {
-    /** Instances reserved per kill (the quality preset says how many of them fly). */
-    shardsPerKill: number;
-    /** Kills that can be in the air at once; the oldest is recycled beyond this. */
-    killCapacity: number;
-    lifeSec: number;
-    /** Outward speed range of a shard, m/s, plus how strongly the burst is pushed away from the shooter. */
-    speedMin: number;
-    speedMax: number;
-    biasSpeed: number;
-    gravity: number;
-    /** Shard edge length range, metres. */
-    sizeMin: number;
-    sizeMax: number;
-    spinRadPerSec: number;
-    /** Shards come to rest this high above the floor. */
-    floorY: number;
-  };
 }
 
 export const echo: EchoTunables = {
-  flashSec: 0.06,
   dissolveSec: 0.28,
   shape: {
     // Ranges: torso f=0 is `hit.torsoBottom*`, f=1 is `hit.torsoTop*` (the neck).
@@ -99,17 +79,4 @@ export const echo: EchoTunables = {
   outlinePx: 1.6,
   beacon: { segments: 12, rings: 8 },
   gnat: { radius: 0.11, stretch: 1.35, spinRadPerSec: 6, tiltRad: 0.5 },
-  shatter: {
-    shardsPerKill: 12,
-    killCapacity: 16,
-    lifeSec: 0.6,
-    speedMin: 1.6,
-    speedMax: 4.6,
-    biasSpeed: 2.2,
-    gravity: 9.8,
-    sizeMin: 0.07,
-    sizeMax: 0.16,
-    spinRadPerSec: 14,
-    floorY: 0.02,
-  },
 };

@@ -11,7 +11,7 @@ import { defaultBindings, type Bindings } from './bindings';
  * Latency design: mouse deltas are applied to `look` (yaw/pitch) inside the mousemove handler, so
  * the camera can render the freshest angles every frame with no tick-rate delay. sample() copies
  * the current state into a TickInput once per rendered frame; ticks run in that frame reuse it.
- * Edge inputs (jump, fire click) persist until a tick actually consumes them (endFrame).
+ * Edge inputs (jump, reload, fire click) persist until a tick actually consumes them (endFrame).
  */
 export class InputManager {
   /** Live view angles in radians (yaw 0 = -Z, + = left; pitch + = up). */
@@ -26,6 +26,7 @@ export class InputManager {
   private mouseFire = false;
   private fireEdge = false;
   private jumpEdge = false;
+  private reloadEdge = false;
   private readonly codeToAction = new Map<string, keyof Bindings>();
   onToggleDebug: (() => void) | null = null;
 
@@ -61,27 +62,56 @@ export class InputManager {
     this.pitch = clamp(pitch, -this.maxPitch, this.maxPitch);
   }
 
-  /** Must be called from a user gesture. Requests raw (unadjusted) mouse input when supported. */
+  /** Raw-input state of the last lock request: null until one was made. */
+  rawInput: boolean | null = null;
+
+  /**
+   * Must be called from a user gesture. Requests raw (unadjusted) mouse input. A browser that
+   * lacks it (or that rejects the option) gets a plain lock and `rawInputChanged {on: false}`.
+   */
   requestLock(): void {
     const c = this.canvas as HTMLCanvasElement & {
       requestPointerLock(options?: { unadjustedMovement?: boolean }): Promise<void> | void;
     };
+    // Real feature detection: only a browser that implements the option reads this member.
+    let optionRead = false;
+    const options = {
+      get unadjustedMovement(): boolean {
+        optionRead = true;
+        return true;
+      },
+    };
+    let result: Promise<void> | void;
     try {
-      const r = c.requestPointerLock({ unadjustedMovement: true });
-      if (r && typeof (r as Promise<void>).catch === 'function') {
-        (r as Promise<void>).catch(() => {
-          // Raw input unsupported (e.g. some platforms): fall back to the OS-accelerated pointer.
-          try {
-            const r2 = c.requestPointerLock();
-            if (r2 && typeof (r2 as Promise<void>).catch === 'function') (r2 as Promise<void>).catch(() => {});
-          } catch {
-            /* ignore */
-          }
-        });
-      }
+      result = c.requestPointerLock(options);
     } catch {
-      /* ignore */
+      return;
     }
+    if (!optionRead || !result || typeof result.then !== 'function') {
+      this.setRaw(false);
+      return;
+    }
+    result.then(
+      () => this.setRaw(true),
+      (err: unknown) => {
+        // Only "not supported" means raw input is unavailable; a SecurityError (lock just left,
+        // no gesture) says nothing about it, the player simply clicks again.
+        if ((err as { name?: string } | null)?.name !== 'NotSupportedError') return;
+        this.setRaw(false);
+        try {
+          const r2 = c.requestPointerLock();
+          if (r2 && typeof r2.catch === 'function') r2.catch(() => {});
+        } catch {
+          /* ignore */
+        }
+      },
+    );
+  }
+
+  private setRaw(on: boolean): void {
+    if (this.rawInput === on) return;
+    this.rawInput = on;
+    this.events.emit('rawInputChanged', { on });
   }
 
   private isDown(action: keyof Bindings): boolean {
@@ -108,6 +138,8 @@ export class InputManager {
     out.crouch = this.locked && this.isDown('crouch');
     out.walk = this.locked && this.isDown('walk');
     out.fire = this.mouseFire || this.fireEdge;
+    out.reload = this.reloadEdge;
+    out.switchTo = -1;
   }
 
   /** Call after the frame's ticks: edges are cleared only if a tick consumed them. */
@@ -115,6 +147,7 @@ export class InputManager {
     if (ticksRan > 0) {
       this.jumpEdge = false;
       this.fireEdge = false;
+      this.reloadEdge = false;
     }
   }
 
@@ -157,6 +190,7 @@ export class InputManager {
     if (e.repeat) return;
     this.down.add(e.code);
     if (action === 'jump') this.jumpEdge = true;
+    if (action === 'reload') this.reloadEdge = true;
   };
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {

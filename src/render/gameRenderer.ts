@@ -8,16 +8,16 @@ import {
   PerspectiveCamera,
   BoxGeometry,
   Scene,
+  Vector3,
   WebGLRenderer,
 } from 'three';
-import type { Subscribable } from '../core/eventBus';
 import { lerp } from '../core/math';
+import type { ShotCues } from '../feedback/shotCues';
 import { REFERENCE_ASPECT, verticalFovDeg } from '../core/view';
 import { env, palette } from '../config/palette';
-import type { EchoPresetId } from '../config/palette';
+import { echoPresets, type EchoPresetId } from '../config/palette';
 import { QUALITY_LEVELS, type QualityLevel } from '../config/render';
 import type { Tunables } from '../config/tunables';
-import type { SimEvents } from '../sim/types';
 import type { MapDef } from '../sim/mapTypes';
 import type { World } from '../sim/world';
 import { ShotEffects } from './effects';
@@ -26,6 +26,7 @@ import { applyEnvQuality, createEnvUniforms, horizonColor, type EnvUniforms } fr
 import { buildLevelMesh, type LevelMesh } from './levelMesh';
 import { Sky } from './sky';
 import { PostPipeline, createVignetteEffect } from './post';
+import { WorldHint } from './worldHint';
 import { TargetsView } from './targetsView';
 
 export interface RenderStats {
@@ -46,6 +47,8 @@ export class GameRenderer {
   readonly scene = new Scene();
   readonly camera: PerspectiveCamera;
   readonly post = new PostPipeline();
+  /** The single first-run hint floating over a target; hidden unless shown. */
+  readonly hint: WorldHint;
   readonly stats: RenderStats = { drawCalls: 0, triangles: 0, geometries: 0, textures: 0 };
 
   private quality: QualityLevel;
@@ -58,15 +61,16 @@ export class GameRenderer {
   private echoPreset: EchoPresetId = 'ember';
   private readonly effects: ShotEffects;
   private readonly viewmodel: Mesh;
+  private readonly proj = new Vector3();
   private width = 1;
   private height = 1;
   private viewmodelBaseZ = -0.34;
 
   constructor(
     canvas: HTMLCanvasElement,
-    private readonly bus: Subscribable<SimEvents>,
     private readonly tunables: Tunables,
     initialQuality: QualityLevel,
+    private readonly cues: ShotCues,
   ) {
     this.quality = initialQuality;
     const preset = tunables.render.quality[initialQuality];
@@ -100,7 +104,8 @@ export class GameRenderer {
     sun.position.set(...r.light.dir).multiplyScalar(12);
     this.scene.add(sun);
 
-    this.effects = new ShotEffects(this.scene, bus);
+    this.effects = new ShotEffects(this.scene, this.camera, cues, tunables.feedback);
+    this.hint = new WorldHint(this.scene, 'Click the orb');
 
     // Placeholder first-person weapon model, parented to the camera.
     this.viewmodel = new Mesh(new BoxGeometry(0.05, 0.07, 0.36), new MeshLambertMaterial({ color: palette.steel }));
@@ -115,9 +120,10 @@ export class GameRenderer {
   setEchoPreset(id: EchoPresetId): void {
     this.echoPreset = id;
     this.targetsView?.setPreset(id);
+    this.effects.setShardColor(echoPresets[id].color); // the kill shatter matches the enemy colour
   }
 
-  /** The enemy view (colour preset, showcase props, shatter clock); null before a level loads. */
+  /** The enemy view (colour preset, showcase props, Gnat clock); null before a level loads. */
   get enemies(): TargetsView | null {
     return this.targetsView;
   }
@@ -146,6 +152,7 @@ export class GameRenderer {
     this.camera.updateProjectionMatrix();
     const pr = this.renderer.getPixelRatio();
     const p = this.tunables.render.quality[this.quality];
+    this.effects.setViewportHeight(this.height * pr);
     this.post.setSize(Math.floor(this.width * pr), Math.floor(this.height * pr), p.antialias ? 4 : 0);
     this.targetsView?.setViewport(this.width * pr, this.height * pr);
   }
@@ -171,7 +178,7 @@ export class GameRenderer {
       this.scene.remove(this.targetsView.root);
       this.targetsView.dispose();
     }
-    this.targetsView = new TargetsView(this.tunables, this.bus, world.targets.length, this.tunables.render.quality[this.quality]);
+    this.targetsView = new TargetsView(this.tunables, world.targets.length, this.tunables.render.quality[this.quality]);
     this.targetsView.setPreset(this.echoPreset);
     const pr = this.renderer.getPixelRatio();
     this.targetsView.setViewport(this.width * pr, this.height * pr);
@@ -195,18 +202,31 @@ export class GameRenderer {
 
     this.sky.follow(this.camera);
     this.effects.update(dt);
-    this.viewmodel.position.z = this.viewmodelBaseZ + this.effects.kick * 0.04;
-    this.viewmodel.rotation.x = this.effects.kick * 0.06;
-    this.targetsView?.update(world, alpha, dt, this.camera.position.x, this.camera.position.y, this.camera.position.z);
+    this.viewmodel.position.z = this.viewmodelBaseZ + this.cues.kick * 0.04;
+    this.viewmodel.rotation.x = this.cues.kick * 0.06;
+    this.targetsView?.update(world, alpha, dt, this.camera.position.x, this.camera.position.z);
     this.blobs.update(world.targets, this.tunables.targets);
 
     this.renderer.info.reset();
     this.post.render(this.renderer, this.scene, this.camera);
+    this.cues.markDrawn();
     const info = this.renderer.info;
     this.stats.drawCalls = info.render.calls;
     this.stats.triangles = info.render.triangles;
     this.stats.geometries = info.memory.geometries;
     this.stats.textures = info.memory.textures;
+  }
+
+  /**
+   * Project a world point to CSS pixels using the camera of the last drawn frame (used to anchor
+   * floating numbers). Returns false when the point is behind the camera. No allocation.
+   */
+  projectToScreen(x: number, y: number, z: number, out: { x: number; y: number }): boolean {
+    const v = this.proj.set(x, y, z).project(this.camera);
+    if (v.z > 1) return false;
+    out.x = (v.x * 0.5 + 0.5) * this.width;
+    out.y = (-v.y * 0.5 + 0.5) * this.height;
+    return true;
   }
 
   dispose(): void {
