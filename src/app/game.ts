@@ -24,7 +24,7 @@ import { ProfileStore } from '../settings/profile';
 import { SettingsStore, SETTINGS_KEY, type Settings } from '../settings/settings';
 import { createTickInput, type TickInput } from '../sim/types';
 import type { MapDef } from '../sim/mapTypes';
-import { rangeMap } from '../sim/mapLoader';
+import { MAPS, rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
 import { nextSeed } from '../feedback/results';
 import { Menu } from '../ui/menu';
@@ -49,6 +49,12 @@ export interface LoggedEvent {
   data: unknown;
 }
 
+/** The map named by `?map=<id>` in the URL, else Range. */
+function mapFromUrl(): MapDef {
+  const id = new URLSearchParams(window.location.search).get('map');
+  return id !== null && Object.hasOwn(MAPS, id) ? MAPS[id]! : rangeMap;
+}
+
 /**
  * Composition root. Owns the core subsystems and the frame loop:
  *   rAF -> sample input (every frame) -> run N fixed sim ticks -> render with interpolation.
@@ -64,7 +70,8 @@ export class Game {
   readonly tunables: Tunables = liveTunables;
   readonly settings: SettingsStore;
   readonly profile: ProfileStore;
-  readonly map: MapDef = rangeMap;
+  /** Range unless the URL says `?map=lane|elbow` (a dev/playtest switch until the modes choose their own map). */
+  readonly map: MapDef = mapFromUrl();
   readonly world: World;
   readonly renderer: GameRenderer;
   readonly input: InputManager;
