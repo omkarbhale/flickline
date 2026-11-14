@@ -1,6 +1,6 @@
 import { TICK_DT } from '../core/time';
 import type { Subscribable } from '../core/eventBus';
-import { cssHex, palette } from '../config/palette';
+import { css } from '../config/palette';
 import type { FeedbackTunables } from '../config/feedback';
 import type { SessionStats } from '../feedback/sessionStats';
 import { colorToHex, type CrosshairParams } from '../settings/crosshair';
@@ -72,7 +72,7 @@ export class Hud {
     root.style.setProperty('--pulse-ms', `${cfg.pulse.ms}ms`);
     root.style.setProperty('--pulse-alpha', String(cfg.pulse.maxAlpha));
     for (const k of ['trim', 'gold', 'ok', 'warn', 'alert', 'core'] as const) {
-      root.style.setProperty(`--${k}`, cssHex(palette[k]));
+      root.style.setProperty(`--${k}`, css[k]);
     }
 
     root.innerHTML = `
