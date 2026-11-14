@@ -73,7 +73,7 @@ export class ResultsCard {
           <div class="rc-rating-row" data-k="ratingRow">
             <span class="rc-skill" data-k="skill"></span>
             <span class="rc-rnum before" data-k="before"></span>
-            <span class="rc-arrow" aria-hidden="true">→</span>
+            <span class="rc-arrow" aria-hidden="true" data-k="arrow">→</span>
             <span class="rc-rnum" data-k="after"></span>
             <span class="rc-delta" data-k="delta"></span>
             <span class="rc-shift" data-k="shift"></span>
@@ -169,6 +169,8 @@ export class ResultsCard {
       q('skill').textContent = r.skill;
       q('before').textContent = String(r.before);
       q('after').textContent = String(r.after);
+      // A first rating has nothing to compare with: just the rating and where it sits.
+      for (const k of ['before', 'arrow', 'delta', 'shift']) q(k).hidden = r.first;
       const d = q('delta');
       d.textContent = r.deltaText;
       d.dataset.tone = r.tone;

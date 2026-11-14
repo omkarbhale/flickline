@@ -22,6 +22,7 @@ function stats(p: Partial<RunStats> = {}): RunStats {
     shots: 50, hits: 30, misses: 20, headHits: 12, bodyHits: 16, legHits: 2, kills: 10, cleanKills: 6, movingShots: 2,
     accuracy: 0.6, headshotRate: 0.4, medianRtMs: 620, medianTtkMs: 410, timeOnTarget: 0.31,
     medianStopLatencyMs: null, stopCount: 0, preAimErrorDeg: 6.24, headHeightDisciplineDeg: null, headHeightSamples: 0,
+    leadErrorBiasDeg: null, leadErrorMeanAbsDeg: null, leadSamples: 0,
     flickErrorBiasDeg: null, flickErrorMeanAbsDeg: null, flickCount: 0, maxChain: 3, maxCleanStreak: 4, cleanStreak: 1,
     targets: [target(), target({ id: 2, firstBullet: false }), target({ id: 3 }), target({ id: 4, bullets: 0, killed: false, rtMs: null })],
     sprayBursts: [], sprays: [], sprayHitRateByIndex: [], sprayPullErrorByIndex: [], sprayCollapseIndex: null, sprayPullFallsApartIndex: null,
@@ -161,6 +162,21 @@ describe('statCells', () => {
     expect(o[6]!.hint).toBe('you overshoot');
     expect(statCells(stats({ mode: 'orbit', flickErrorBiasDeg: -1.2 }))[6]!.hint).toBe('you undershoot');
   });
+
+  it('Strafe Track shows time on target and the signed lead error (+ ahead of the target, - behind it)', () => {
+    const s = statCells(stats({ mode: 'strafeTrack', timeOnTarget: 0.42, leadErrorBiasDeg: 0.84, leadErrorMeanAbsDeg: 1.1, leadSamples: 120 }));
+    expect(s.slice(6).map((c) => c.id)).toEqual(['timeOnTarget', 'leadError']);
+    expect(s[6]!.value).toBe('42%');
+    expect(s[7]!.value).toBe('+0.8°');
+    expect(s[7]!.hint).toBe('you lead the target');
+    const lag = statCells(stats({ mode: 'strafeTrack', leadErrorBiasDeg: -1.46, leadSamples: 50 }))[7]!;
+    expect(lag.value).toBe('−1.5°');
+    expect(lag.hint).toBe('you lag behind');
+    expect(statCells(stats({ mode: 'strafeTrack', leadErrorBiasDeg: 0.2, leadSamples: 50 }))[7]!.hint).toBe('on the line');
+    const none = statCells(stats({ mode: 'strafeTrack' }))[7]!;
+    expect(none.value).toBe('—');
+    expect(none.hint).toBe('');
+  });
 });
 
 describe('buildCard', () => {
@@ -231,7 +247,7 @@ describe('buildCard', () => {
 });
 
 describe('ResultsRecorder', () => {
-  function setup(skill: 'precision' | 'line' | null, isClean?: () => boolean) {
+  function setup(skill: 'precision' | 'line' | null, isClean?: () => boolean, firstRating?: (mode: string) => boolean) {
     const bus = new EventBus<ResultsEvents>();
     let rating = 40;
     const cards: unknown[] = [];
@@ -246,9 +262,20 @@ describe('ResultsRecorder', () => {
       onCard: (c) => cards.push(c),
       onNewRun: () => newRuns++,
       isClean,
+      firstRating,
     });
     return { bus, rec, cards, setRating: (r: number) => (rating = r), newRuns: () => newRuns };
   }
+
+  it('marks the rating of a first-rating mode as first, and only that mode', () => {
+    const { bus, rec } = setup('line', undefined, (m) => m === 'placement');
+    bus.emit('runReady', { tick: 0, mode: 'placement', seed: 1, dial: 30 });
+    bus.emit('runEnded', { tick: 9, t: 45, reason: 'timer' });
+    expect(rec.last!.rating!.first).toBe(true);
+    bus.emit('runReady', { tick: 0, mode: 'coldStart', seed: 1, dial: 30 });
+    bus.emit('runEnded', { tick: 9, t: 60, reason: 'timer' });
+    expect(rec.last!.rating!.first).toBe(false);
+  });
 
   it('builds one card at runEnded from the score, medals and the rating before and after', () => {
     const { bus, rec, cards, setRating, newRuns } = setup('precision');

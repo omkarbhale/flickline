@@ -5,7 +5,8 @@ import type { Tunables } from '../config/tunables';
 import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import type {
-  AxisId, AxisValues, ModeEvents, ModeId, ModeRef, MotionView, RunEndReason, SkillId, SourceEvents, TrialExtra, WaveCurve, WeaponSourceEvents,
+  AxisId, AxisValues, ModeEvents, ModeId, ModeRef, MotionView, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra, WaveCurve,
+  WeaponSourceEvents,
 } from './contracts';
 import type { SpawnScheduler } from './scheduler';
 
@@ -87,6 +88,8 @@ export interface SpawnOptions {
   lifetimeSec?: number;
   /** Skill of the trial this target produces (default `mode.skills[0]`). */
   skill?: SkillId;
+  /** Strafer only: its speed, leg, stand-still and lane (default: the sim's dial-50 numbers on a line square to the player). */
+  strafe?: StrafeSpawn;
   /** Item difficulty override (default: the beat's, derived from the axis values in force). */
   difficulty?: number;
   /** The target takes any number of hits without dying (Spray Wall's Post). */

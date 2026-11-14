@@ -6,17 +6,19 @@ import type { Tunables } from '../config/tunables';
 import type { EnemyKind } from '../config/scoring';
 import type { WeaponId } from '../config/weapon';
 import { coldStart } from '../modes/coldStart';
-import type { AnchorSource, AxisValues, DialSource, TargetSpawner } from '../modes/contracts';
+import type { AnchorSource, AxisValues, DialSource, StrafeSpawn, TargetSpawner } from '../modes/contracts';
 import type { ModeDef } from '../modes/modeDef';
 import { orbit } from '../modes/orbit';
 import { placement, type PlacementState } from '../modes/placement';
 import { sprayWall } from '../modes/sprayWall';
+import { strafeTrack } from '../modes/strafeTrack';
 import { stopAndPop } from '../modes/stopAndPop';
 import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
 import { economyShield } from '../sim/damage';
 import { rayBox } from '../sim/collision';
 import type { MapDef } from '../sim/mapTypes';
+import type { SpawnOptions } from '../sim/targets';
 import type { World } from '../sim/world';
 import type { GameEvents } from '../core/gameEvents';
 
@@ -27,6 +29,7 @@ export const MODES: Readonly<Record<string, ModeDef<never>>> = {
   orbit: orbit as ModeDef<never>,
   placement: placement as ModeDef<never>,
   sprayWall: sprayWall as ModeDef<never>,
+  strafeTrack: strafeTrack as ModeDef<never>,
   stopAndPop: stopAndPop as ModeDef<never>,
 };
 
@@ -38,9 +41,13 @@ class WorldSpawner implements TargetSpawner {
   constructor(private readonly world: World, private readonly bus: EventBus<GameEvents>) {}
 
   /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. `durable` = Spray Wall's Post. */
-  spawn(kind: EnemyKind, pos: Vec3, scale: number, durable?: boolean): number {
+  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn, durable?: boolean): number {
     if (kind !== 'post' && kind !== 'beacon' && kind !== 'strafer' && kind !== 'peeker') return -1;
-    return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, durable ? { scale, hp: DURABLE_HP } : { scale });
+    // A Strafer's numbers and lane go to the sim as given; the sim copies them at spawn.
+    const o: SpawnOptions = { scale };
+    if (strafe) o.strafe = strafe;
+    if (durable) o.hp = DURABLE_HP;
+    return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, o);
   }
 
   despawn(id: number): void {
@@ -92,8 +99,8 @@ export interface PlacementOutcome {
  */
 export class ModeHost {
   readonly runner: ModeRunner;
-  /** The player's skill state (placeholder prior until the profile/persistence work). */
-  readonly skills = new SkillState('skip');
+  /** The player's skill state: restored from the progress save when there is one (`features/progress.ts` saves it after every run), else a prior of 'skip' until the self-report sets it. */
+  readonly skills: SkillState;
   /** Result of the last finished Placement run, or null. */
   placementOutcome: PlacementOutcome | null = null;
   private active: ModeDef<never> | null = null;
@@ -110,8 +117,9 @@ export class ModeHost {
     private readonly bus: EventBus<GameEvents>,
     private readonly map: MapDef,
     private readonly tunables: Tunables,
+    skills: SkillState = new SkillState('skip'),
   ) {
-    const skills = this.skills;
+    this.skills = skills;
     const dial: DialSource = {
       dialFor: (mode, beat, wave) => skills.dialFor(mode, beat, wave),
       axes: (d) => axes(d, undefined, tunables.dial) as unknown as AxisValues,

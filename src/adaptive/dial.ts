@@ -19,6 +19,7 @@ export interface DialAxes {
   strafeSpeed: number;
   strafeLegSec: number;
   standStillSec: number;
+  strafeLimitSec: number;
   exposureSec: number;
   orbitExposureSec: number;
   coldStartExposureSec: number;
@@ -42,6 +43,7 @@ export function createAxes(): DialAxes {
     strafeSpeed: 0,
     strafeLegSec: 0,
     standStillSec: 0,
+    strafeLimitSec: 0,
     exposureSec: 0,
     orbitExposureSec: 0,
     coldStartExposureSec: 0,
@@ -98,6 +100,7 @@ export function axes(dial: number, out: DialAxes = createAxes(), cfg: DialTunabl
   out.strafeSpeed = axisValue(a.strafeSpeed, dial);
   out.strafeLegSec = axisValue(a.strafeLegSec, dial);
   out.standStillSec = axisValue(a.standStillSec, dial);
+  out.strafeLimitSec = Math.max(f.exposureSec, axisValue(a.strafeLimitSec, dial));
   out.exposureSec = Math.max(f.exposureSec, axisValue(a.exposureSec, dial));
   out.orbitExposureSec = Math.max(f.exposureSec, f.orbitExposureSec, axisValue(a.orbitExposureSec, dial));
   out.coldStartExposureSec = Math.max(f.exposureSec, f.coldStartExposureSec, axisValue(a.coldStartExposureSec, dial));

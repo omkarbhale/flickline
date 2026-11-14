@@ -43,13 +43,26 @@ export interface DialSource {
   axes(dial: number): AxisValues;
 }
 
+/** What a Strafer needs at spawn (the dial's numbers and the lane it runs along; design §4.3, §5.2). */
+export interface StrafeSpawn {
+  /** Cruise speed, m/s. */
+  speed: number;
+  /** Longest strafe leg and longest stand-still, seconds. */
+  legSec: number;
+  standStillSec: number;
+  /** The strafe line's ends (feet height). */
+  laneA: Vec3;
+  laneB: Vec3;
+}
+
 /** The enemy sim's side (#15): create and remove targets. */
 export interface TargetSpawner {
   /**
-   * Create a target (humanoid: feet position; orb: centre); `scale` is ×real head size. `durable`
-   * targets take any number of hits without dying (Spray Wall's Post). Returns its id, or -1 when it could not be created.
+   * Create a target (humanoid: feet position; orb: centre); `scale` is ×real head size; `strafe`
+   * is for a Strafer. `durable` targets take any number of hits without dying (Spray Wall's Post).
+   * Returns its id, or -1 when it could not be created.
    */
-  spawn(kind: EnemyKind, pos: Vec3, scale: number, durable?: boolean): number;
+  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn, durable?: boolean): number;
   despawn(id: number): void;
 }
 

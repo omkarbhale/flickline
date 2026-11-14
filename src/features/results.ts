@@ -1,5 +1,6 @@
 import { defineFeature } from '../app/feature';
 import { MODES } from '../app/modeHost';
+import { PLACEMENT_MODE } from '../modes/placement';
 import '../feedback/cuePlanner'; // declares the cueScheduleSet event
 import { ResultsRecorder, type CardModel, type RatedSkill } from '../feedback/results';
 import { keyLabel } from '../settings/keys';
@@ -74,6 +75,7 @@ export const feature = defineFeature({
       },
       onNewRun: () => card.hide(),
       isClean: () => clean,
+      firstRating: (mode) => mode === PLACEMENT_MODE,
     });
     game.onReset(() => {
       if (game.run.state !== 'result') card.hide();
