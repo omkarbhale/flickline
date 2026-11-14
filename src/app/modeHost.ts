@@ -140,6 +140,20 @@ export class ModeHost {
     if (this.active) this.runner.tick(this.world.tick);
   }
 
+  /** The run clock for the HUD (cheap getters, no allocation). */
+  get phase(): 'idle' | 'ready' | 'live' | 'result' {
+    return this.active ? this.runner.phase : 'idle';
+  }
+  get modeId(): string | null {
+    return this.active?.id ?? null;
+  }
+  get timeSec(): number {
+    return this.runner.timeSec;
+  }
+  get remainingSec(): number {
+    return this.runner.remainingSec;
+  }
+
   get running(): boolean {
     return this.active !== null && this.runner.phase !== 'result';
   }

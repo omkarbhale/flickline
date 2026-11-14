@@ -2,6 +2,7 @@ import { audio, type AudioTunables } from './audio';
 import { feedback, type FeedbackTunables } from './feedback';
 import { damageFx, type DamageFxTunables } from './damageFx';
 import { dial, type DialTunables } from './dial';
+import { hud, type HudTunables } from './hud';
 import { echo, type EchoTunables } from './echo';
 import { modes, type ModeTunables } from './modes';
 import { movement, type MovementTunables } from './movement';
@@ -36,6 +37,7 @@ export interface Tunables {
   scoring: ScoringTunables;
   modes: ModeTunables;
   dial: DialTunables;
+  hud: HudTunables;
   echo: EchoTunables;
   run: RunTunables;
   /** The player's health, tagging and flinch (spec §4). */
@@ -48,7 +50,7 @@ export interface Tunables {
 
 /** Live, mutable instance. Only the debug hook and settings UI may mutate it at runtime. */
 export const tunables: Tunables = {
-  movement, weapon, weaponRules, targets, view, render, audio, feedback, profile, dial, scoring, modes, run, player, sweep, damageFx, echo,
+  movement, weapon, weaponRules, targets, view, render, audio, feedback, profile, dial, scoring, modes, run, player, sweep, damageFx, echo, hud,
 };
 
 /** Deep copy for tests and what-if runs (tunables are JSON-safe plain data). */
