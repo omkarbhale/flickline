@@ -10,9 +10,8 @@ describe('keys in a run', () => {
   it('Backspace restarts from ready, live and result, and in free play', () => {
     for (const runPhase of ['idle', 'ready', 'live', 'result'] as const) expect(act('Backspace', { menuOpen: false, runPhase })).toBe('restart');
   });
-  it('Enter starts the next run only on the result', () => {
-    expect(act('Enter', { menuOpen: false, runPhase: 'result' })).toBe('nextRun');
-    expect(act('Enter', { menuOpen: false, runPhase: 'live' })).toBeUndefined();
+  it('leaves Enter on the result to the results card', () => {
+    expect(act('Enter', { menuOpen: false, runPhase: 'result' })).toBeUndefined();
   });
   it('leaves every other key to the game', () => {
     for (const k of ['KeyW', 'Space', 'KeyR', 'Escape', 'Digit1']) expect(act(k, { menuOpen: false, runPhase: 'live' })).toBeUndefined();

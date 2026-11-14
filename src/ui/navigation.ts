@@ -3,8 +3,9 @@
  * section 13.4 first-run). One table, pure, so the rules are tested instead of scattered over
  * handlers. The DOM layer (`menu.ts`) only describes the situation and performs the action.
  *
- *  - In a run: `Backspace` restarts it from anywhere (ready, live, result). `Enter` on the result
- *    starts the next run. `Esc` is the browser's: it releases the pointer, and that opens the pause menu.
+ *  - In a run: `Backspace` restarts it from anywhere (ready, live, result). `Esc` is the browser's: it
+ *    releases the pointer, and that opens the pause menu. `Enter` on the result card is the card's
+ *    (`ui/resultsCard.ts`): it starts the next run through `Game.playAgain`.
  *  - Pause menu: `Esc`/`Enter` resume, `Backspace` restarts, `S` settings, `M` menu, `K` skips the session step.
  *  - Main menu: `Enter` plays today's session, `1`-`9` start that card, `S` settings, `K` skips.
  *  - Settings: `Esc` goes back. Nothing is a trap: every screen has a way back or on, one key away.
@@ -17,7 +18,6 @@ export type NavAction =
   | { type: 'playSession' }
   | { type: 'resume' }
   | { type: 'restart' }
-  | { type: 'nextRun' }
   | { type: 'openSettings' }
   | { type: 'back' }
   | { type: 'toMenu' }
@@ -40,7 +40,6 @@ export interface NavState {
 const PLAY_SESSION: NavAction = { type: 'playSession' };
 const RESUME: NavAction = { type: 'resume' };
 const RESTART: NavAction = { type: 'restart' };
-const NEXT_RUN: NavAction = { type: 'nextRun' };
 const OPEN_SETTINGS: NavAction = { type: 'openSettings' };
 const BACK: NavAction = { type: 'back' };
 const TO_MENU: NavAction = { type: 'toMenu' };
@@ -53,7 +52,6 @@ export function resolveKey(code: string, st: NavState): NavAction | null {
   if (!st.menuOpen) {
     // In a run (pointer locked).
     if (code === 'Backspace') return RESTART; // also in free play: a reset from the seed
-    if (code === 'Enter' && st.runPhase === 'result') return NEXT_RUN;
     return null;
   }
 

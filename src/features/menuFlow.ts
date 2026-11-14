@@ -11,10 +11,9 @@ declare module '../debug/hook' {
       show(screen: Screen): void;
       /** The plan Today's session would have right now. */
       plan(): unknown;
-      /** Press Play (today's session), skip the current step, or advance after a finished run. */
+      /** Press Play (today's session), or skip the current step. */
       play(): void;
       skip(): void;
-      next(): void;
       /** Start one mode as a card would (ends the session). */
       launch(modeId: string): void;
     };
@@ -52,7 +51,6 @@ export const feature = defineFeature({
         plan: () => game.todaysSession.plan(),
         play: () => game.playSession(),
         skip: () => game.skipStep(),
-        next: () => game.nextRun(),
         launch: (id) => {
           game.todaysSession.abandon();
           game.launchMode(id);

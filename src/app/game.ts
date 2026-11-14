@@ -29,7 +29,7 @@ import { rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
 import { nextSeed } from '../feedback/results';
 import { Menu } from '../ui/menu';
-import { buildCards, type CardModel } from '../ui/menuModel';
+import { buildCards, titleFromId, type CardModel } from '../ui/menuModel';
 import { tier } from '../adaptive/dial';
 import { FEATURES } from './features';
 import { ModeHost, MODES } from './modeHost';
@@ -218,7 +218,6 @@ export class Game {
         this.todaysSession.abandon();
         this.launchMode(id);
       },
-      nextRun: () => this.nextRun(),
       runPhase: () => (this.modes.phase !== 'idle' ? this.modes.phase : this.run.state),
       cards: () => this.modeCards(),
       session: () => this.todaysSession.view(),
@@ -379,21 +378,6 @@ export class Game {
     const id = this.todaysSession.skip();
     if (id === null) this.toMenu();
     else this.launchMode(id);
-  }
-
-  /**
-   * `Enter` on a finished run: the session's next step, or the same mode again from a fresh seed.
-   * Other code (the results card) calls this too, so the flow lives in one place.
-   */
-  nextRun(): void {
-    const next = this.todaysSession.next();
-    if (next !== null) {
-      this.launchMode(next);
-      return;
-    }
-    const id = this.modes.modeId;
-    if (id !== null) this.launchMode(id);
-    else this.restartCurrent();
   }
 
   /** The mode cards: the registry's modes with each one's skill, best score and matched tier. */
@@ -659,16 +643,24 @@ export class Game {
   playAgain(pressedAt: number = performance.now()): boolean {
     const info = this.run.info;
     if (!info || this.run.state !== 'result') return false;
-    const seed = nextSeed(info.seed, this.tunables.results);
+    // In Today's session the next run is the session's next step (it advanced when this run ended).
+    const next = this.run.isSelfDriven ? null : this.todaysSession.next();
+    const seed = next === null ? nextSeed(info.seed, this.tunables.results) : this.newSeed();
     if (this.run.isSelfDriven) {
       if (!this.run.restartRun(seed)) return false;
     } else {
-      if (!this.modes.start(info.mode, { seed })) return false;
+      if (!this.modes.start(next ?? info.mode, { seed })) return false;
     }
     this.afterRunReset();
     this.noteRestart(pressedAt);
     if (!this.input.locked) this.play();
     return true;
+  }
+
+  /** What the results card's primary button says: the session's next step, or null for plain "Play again". */
+  nextRunLabel(): string | null {
+    const next = this.run.isSelfDriven ? null : this.todaysSession.next();
+    return next === null ? null : (this.tunables.menu.modeCards[next]?.name ?? titleFromId(next));
   }
 
   /** Show the menu over whatever is on screen (the results card's `Esc` when the pointer is already free). */

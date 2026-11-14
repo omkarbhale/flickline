@@ -35,8 +35,6 @@ export interface MenuHost {
   skipStep(): void;
   /** Start one mode from its card. */
   launchMode(modeId: string): void;
-  /** `Enter` on a finished run: the next session step, or the same mode again. */
-  nextRun(): void;
   /** The run clock's phase (for the in-run keys). */
   runPhase(): RunPhase;
   /** Cards for the registered modes. */
@@ -239,11 +237,6 @@ export class Menu {
     }
   }
 
-  /** Whether the menu is on screen. */
-  get isOpen(): boolean {
-    return this.el.classList.contains('open');
-  }
-
   setVisible(v: boolean): void {
     const was = this.open;
     this.open = v;
@@ -380,9 +373,6 @@ export class Menu {
         break;
       case 'restart':
         this.host.restart();
-        break;
-      case 'nextRun':
-        this.host.nextRun();
         break;
       case 'openSettings':
         this.openSettings();
