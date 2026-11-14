@@ -12,7 +12,7 @@ import {
 function target(p: Partial<TargetStat> = {}): TargetStat {
   return {
     id: 1, kind: 'post', visibleTick: 0, rtMs: 500, ttkMs: 300, bullets: 1, hits: 1, misses: 0, movingShots: 0,
-    killed: true, expired: false, firstBullet: true, clean: true, zone: 'head', preAimDeg: 5, flickErrorDeg: null, ...p,
+    killed: true, expired: false, firstBullet: true, clean: true, zone: 'head', preAimDeg: 5, flickErrorDeg: null, armoured: false, ...p,
   };
 }
 

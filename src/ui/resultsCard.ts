@@ -131,6 +131,12 @@ export class ResultsCard {
     }
   };
 
+  /** Rename the primary button ("Next: Orbit" inside Today's session); null restores "Play again". */
+  setPlayLabel(label: string | null): void {
+    const text = this.play.firstChild;
+    if (text !== null && text.nodeType === Node.TEXT_NODE) text.textContent = `${label ?? 'Play again'} `;
+  }
+
   /** Write the model into the card and show it. `endedAt` is the `performance.now()` of `runEnded`. */
   show(m: CardModel, endedAt: number): void {
     this.model = m;

@@ -88,6 +88,14 @@ export const feature = defineFeature({
       if (spent) game.profile.set({ runsCompleted: game.profile.get().runsCompleted + 1 });
     });
 
+    // Surge brings the tells back as a reward (design 7.4); it never overrides a clean run (cueGate).
+    game.bus.on('surgeStarted', () => {
+      options.surge = true;
+    });
+    game.bus.on('surgeEnded', () => {
+      options.surge = false;
+    });
+
     game.addOverlayLines(() => {
       if (skill === null) return '';
       return `cues ${plan.clean ? 'clean run' : effectivePhase(options)}  ${skill} ${rating.toFixed(0)} ±${sd.toFixed(1)}`;

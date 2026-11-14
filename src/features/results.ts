@@ -58,7 +58,10 @@ export const feature = defineFeature({
       ratings: game.modes.skills,
       skillOf,
       pb: { best: () => pb },
-      onCard: (model) => card.show(model, endedAt),
+      onCard: (model) => {
+        card.setPlayLabel(game.nextRunLabel());
+        card.show(model, endedAt);
+      },
       onNewRun: () => card.hide(),
       isClean: () => clean,
     });

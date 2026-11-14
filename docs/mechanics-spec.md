@@ -238,7 +238,9 @@ Riot publishes **no** capsule, eye or crouch heights. All agents share one gamep
 | Crouched hull height | **1.30** | 130 | PLACEHOLDER |
 | Eye height, crouched | **1.17** | 117 | PLACEHOLDER |
 | Crouch transition (down or up) | **0.15 s** | | PLACEHOLDER |
-| Step height | 0.30 | 30 | PLACEHOLDER |
+| Step height (walk up a ledge or stair riser without jumping; also the longest drop walked down without becoming airborne) | **0.35** (authored risers stay at or below 0.30) | 35 | PLACEHOLDER; at least 0.30 as issue #133 requires |
+| Slopes: horizontal speed on a ramp | unchanged (the run, walk and crouch speeds above apply to the horizontal component; no uphill slow-down or downhill speed-up) | | ESTIMATE (45%): the reference game's ramp behaviour is not published |
+| Steepest walkable ramp a map may author | 45 degrees (the map lint enforces it; typical ramps 12 to 25) | | PLACEHOLDER |
 
 Flickline's own maps are designed around these numbers, so what matters is that the **map geometry and the hitboxes use the same values**. Measure any of them in the reference game by lining up a map ledge of known height with the crosshair at standing and crouched eye height; calibrate the world scale first with the 6.75 m/s knife run.
 

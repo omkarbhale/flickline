@@ -3,9 +3,10 @@ import { DEG2RAD } from '../core/math';
 import { secondsToTicks, TICK_DT } from '../core/time';
 import { directionFromAngles, vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
+import { createExpectedHead, expectedHead } from './headHeight';
 import { createZoneHit } from './hitZones';
 import type { TargetField } from './targets';
-import type { PlayerState, SimEvents, TickInput, WeaponState } from './types';
+import type { LevelDef, PlayerState, SimEvents, TickInput, WeaponState } from './types';
 
 /** Measurement events the run probe emits (part of `SimEvents`). */
 export interface ProbeEvents {
@@ -67,6 +68,7 @@ const zone = createZoneHit();
 const aimPayload = { tick: 0, on: false, id: -1 };
 const headPayload = { tick: 0, err: 0 };
 const stopPayload = { tick: 0, latencyMs: 0 };
+const head = createExpectedHead();
 
 /**
  * Id of the visible target the padded aim ray touches (-1 none). The "hit volume padded by 0.5
@@ -98,6 +100,7 @@ export function stepRunProbe(
   t: Tunables,
   tick: number,
   events: EventSink<SimEvents>,
+  level: LevelDef,
 ): void {
   const ox = p.pos.x, oy = p.pos.y + p.eyeHeight, oz = p.pos.z;
   directionFromAngles(dir, p.yaw, p.pitch);
@@ -126,7 +129,9 @@ export function stepRunProbe(
   if (tick >= s.nextHeadSampleTick) {
     s.nextHeadSampleTick = tick + secondsToTicks(t.run.headHeightSampleSec);
     if (!anyVisible && speed > thr) {
-      const ideal = Math.atan2(t.targets.hit.headCentreStand - oy, t.run.headHeightRefDistance);
+      // Against the head of the enemy the player is facing (its own floor height), not the player's eye level.
+      expectedHead(head, level, p, t.run, t.targets.hit.headCentreStand);
+      const ideal = Math.atan2(head.headY - oy, head.dist);
       headPayload.tick = tick;
       headPayload.err = Math.abs(p.pitch - ideal);
       events.emit('headHeightSampled', headPayload);

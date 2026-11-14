@@ -30,3 +30,11 @@ export function softLimiterCurve(thresholdDb: number, points = 2049): Float32Arr
   }
   return out;
 }
+
+/**
+ * How far (dB, positive) the weapons bus is ducked under a hit or kill cue peaking at `cuePeakDb`:
+ * enough to keep the weapons `dominanceDb` under it, never less than the design's `minDb` (3).
+ */
+export function duckDepthDb(cuePeakDb: number, duck: { db: number; dominanceDb: number; weaponsPeakDb: number }): number {
+  return Math.max(-duck.db, duck.weaponsPeakDb - (cuePeakDb - duck.dominanceDb));
+}

@@ -53,12 +53,23 @@ export interface DialAxesTunables {
   density: AxisDef;
 }
 
-/** Design §9.3.5. Applied after the axis mapping, so no tuning of the end points can break them. */
+/**
+ * Design §9.3.5. Applied after the axis mapping, so no tuning of the end points can break them.
+ * The enemy reaction and tell floors are split by expectation (#127): `tellSec` and
+ * `enemyReactionSec` bind an enemy the player surprised; a prepared holder (expects the player at
+ * this spot) is bound only by `preparedReactionSec` and never holds fire for a tell
+ * (`sim/enemyTiming.ts`).
+ */
 export interface FairnessFloors {
   tellSec: number;
   /** Applies to exposureSec and peekWideSec. */
   exposureSec: number;
   enemyReactionSec: number;
+  /**
+   * Reaction floor for a prepared holder: no ordinary mouse click answers a visual onset faster
+   * (`docs/research/human-performance.md` §1.1), so a prepared enemy is never superhuman.
+   */
+  preparedReactionSec: number;
   /** Minimum target scale relative to the spec's real head size (`hit.head_radius`). */
   minTargetScale: number;
   /** No spawn closer than this ... */
@@ -208,6 +219,7 @@ export const dial: DialTunables = {
     tellSec: 0.15,
     exposureSec: 0.3,
     enemyReactionSec: 0.25,
+    preparedReactionSec: 0.15,
     minTargetScale: 1.0,
     spawnMinDistance: 3,
     spawnViewAngleDeg: 90,
