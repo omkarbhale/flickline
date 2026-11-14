@@ -94,6 +94,8 @@ export interface FlicklineDebug {
   overlay(visible?: boolean): void;
   /** Run lifecycle (reset-only restart, event log, stats). Runs started by `mode.start` are mirrored here too. */
   readonly run: FlicklineRunApi;
+  /** Named timestamps (ms since page load): panel shown, play clicked, lock, first shot. */
+  timeline(): Record<string, number>;
   /**
    * Fire one shot of `weaponId` (a loadout id, e.g. 'kestrel' or 'pace') at the current look, with
    * deterministic stepping: swaps, equips, reloads and waits for the fire interval as the sim
@@ -263,6 +265,7 @@ export function installDebugHook(game: Game): FlicklineDebug {
       }),
       log: (count = 64) => game.run.log.events.slice(-count),
     },
+    timeline: () => game.timeline.toObject(),
     fire(weaponId) {
       return game.fireOnce(weaponId as WeaponId);
     },
