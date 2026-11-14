@@ -9,6 +9,7 @@ import { createAimInfo, measureAim, yawOf, type AimInfo } from './aim';
 import { lineBlockedRay } from './collision';
 import { arriveInit } from './arrival';
 import { createEnemyAi, resetEnemyAi, type ArriveParams, type FireParams, type PeekParams, type StrafeParams } from './enemyAi';
+import { createEnemyBody, resetEnemyBody, stepEnemyBody } from './enemyBody';
 import { fireInit } from './enemyFire';
 import { BEHAVIOURS } from './enemies';
 import { peekInit } from './peeker';
@@ -130,14 +131,16 @@ export interface SpawnOptions {
   arrive?: ArriveParams;
 }
 
-function createSlot(): TargetState {
+function createSlot(tunables: Tunables): TargetState {
+  const pos = vec3();
+  const prevPos = vec3();
   return {
     id: -1,
     kind: 'beacon',
     spawner: -1,
     home: vec3(),
-    pos: vec3(),
-    prevPos: vec3(),
+    pos,
+    prevPos,
     crouched: false,
     radius: 0,
     boundsY: 0,
@@ -156,6 +159,7 @@ function createSlot(): TargetState {
     fsm: createFsm(),
     streams: new EnemyStreams(),
     ai: createEnemyAi(),
+    body: createEnemyBody(pos, prevPos, tunables),
     visibleTick: -1,
     firstShotTick: -1,
     reactionShotTick: -1,
@@ -206,7 +210,7 @@ export class TargetField {
   private readonly losRay: Ray = createRay();
 
   constructor(readonly tunables: Tunables) {
-    for (let i = 0; i < tunables.targets.maxTargets; i++) this.slots.push(createSlot());
+    for (let i = 0; i < tunables.targets.maxTargets; i++) this.slots.push(createSlot(tunables));
   }
 
   /** Remove every target and forget the level's spawn points. */
@@ -283,6 +287,12 @@ export class TargetField {
     t.movingShot = false;
     t.prevPos.x = x; t.prevPos.y = y; t.prevPos.z = z;
     resetEnemyAi(t.ai);
+    if (def.shape === 'humanoid') {
+      // Facing the player, carrying the gun its shots would come from (the fire model's choice, else the fight's).
+      const pl = ctx.world.player;
+      const yaw = Math.atan2(-(pl.pos.x - x), -(pl.pos.z - z));
+      resetEnemyBody(t.body, t.crouched, yaw, opts?.fire?.weapon ?? ctx.world.enemyWeapon, this.tunables);
+    }
     if (def.behaviour === 'strafer') strafeInit(t, ctx, opts?.strafe);
     else if (def.behaviour === 'peeker') peekInit(t, opts?.peek);
     if (def.behaviour === 'strafer' || def.behaviour === 'peeker') fireInit(t, ctx, opts?.fire);
@@ -354,7 +364,18 @@ export class TargetField {
         this.expire(t, tick, ctx.events);
         continue;
       }
-      fsmStep(BEHAVIOURS[tt.kinds[t.kind].behaviour], t, ctx);
+      const b = BEHAVIOURS[tt.kinds[t.kind].behaviour];
+      if (t.body.driven) {
+        // The debug hook's command plays the body; the behaviour waits.
+        stepEnemyBody(t, ctx);
+        continue;
+      }
+      fsmStep(b, t, ctx);
+      // A state that moves the slot itself (an arrival walking its route in) leaves the body still.
+      if (b.drivesBody && t.alive && !b.states[t.fsm.state]!.kinematic) {
+        stepEnemyBody(t, ctx);
+        b.bodyMoved?.(t);
+      }
       if (t.ai.honest && t.ai.audibleTick < 0) this.trackAudible(t, ctx);
     }
     for (let i = 0; i < this.spawners.length; i++) {
@@ -666,6 +687,10 @@ export class TargetField {
       if (t.kind === 'strafer' || t.kind === 'peeker') {
         const a = t.ai;
         mix(a.s); mix(a.vel); mix(a.u); mix(a.phase); mix(a.burstLeft); mix(t.crouched ? 1 : 0);
+        const k = t.body.kin;
+        const w = t.body.weapon;
+        mix(k.vel.x); mix(k.vel.y); mix(k.vel.z); mix(k.yaw); mix(k.pitch); mix(k.grounded ? 1 : 0);
+        mix(w.shots); mix(w.slots[0]!.mag); mix(w.sprayCount); mix(w.recoilPitch); mix(w.recoilYaw); mix(w.reloadLeft);
       }
     }
     for (let i = 0; i < this.spawners.length; i++) mix(this.spawners[i]!.respawnTick);
