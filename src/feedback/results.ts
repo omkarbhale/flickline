@@ -368,6 +368,15 @@ function metricCell(id: MetricId, s: RunStats): StatCell {
       return { id, label: 'Clean streak', value: s.kills === 0 ? DASH : String(s.maxCleanStreak), hint: 'kills in a row, no miss' };
     case 'cleanKills':
       return { id, label: 'Clean kills', value: s.kills === 0 ? DASH : String(s.cleanKills), hint: s.kills > 0 ? `of ${s.kills} kills` : '' };
+    case 'depth':
+      return {
+        id, label: 'Depth', value: s.sectorsTotal > 0 ? `${s.sectorsReached} / ${s.sectorsTotal}` : DASH,
+        hint: s.sectorsTotal > 0 ? `${s.sectorsCleared} sector${s.sectorsCleared === 1 ? '' : 's'} cleared` : '',
+      };
+    case 'contacts': {
+      const n = s.contactsWon + s.contactsLost;
+      return { id, label: 'Fights won', value: n > 0 ? `${s.contactsWon} – ${s.contactsLost}` : DASH, hint: n > 0 ? `won – lost, of ${n} fights` : '' };
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 import type { Vec3 } from '../core/vec3';
 import type { EnemyKind } from '../config/scoring';
 import type { StreakEvents } from '../feedback/streaks';
-import type { SprayEvents } from '../sim/runEvents';
+import type { RunEvents, SectorEvents, SprayEvents } from '../sim/runEvents';
 import type { MapEvents } from '../sim/mapEvents';
 
 /**
@@ -55,15 +55,57 @@ export interface StrafeSpawn {
   laneB: Vec3;
 }
 
+/** What a Peeker needs at spawn (a map's `peek` anchor, design §10.2): its hidden and full-out feet positions and pattern. */
+export interface PeekSpawn {
+  pattern: 'shoulder' | 'wide' | 'jiggle' | 'hop';
+  hold: Vec3;
+  out: Vec3;
+  /** The dial's wide-peek exposure, seconds. */
+  wideSec?: number;
+}
+
+/** What an Echo that shoots back needs at spawn (the dial's numbers, design §5.3, and what it expects, #142). */
+export interface FireSpawn {
+  tellSec: number;
+  reactionSec: number;
+  hitChance: number;
+  expectation?: 'prepared' | 'attending' | 'unaware';
+}
+
+/** Spawn details beyond kind, place and size: a Peeker's anchor, shooting back, a crouched pose. */
+export interface EchoSpawn {
+  peek?: PeekSpawn;
+  fire?: FireSpawn;
+  crouched?: boolean;
+}
+
 /** The enemy sim's side (#15): create and remove targets. */
 export interface TargetSpawner {
   /**
    * Create a target (humanoid: feet position; orb: centre); `scale` is ×real head size; `strafe`
    * is for a Strafer. `durable` targets take any number of hits without dying (Spray Wall's Post).
+   * `echo` carries a Peeker's anchor, shooting back and a crouched pose (Sweep).
    * Returns its id, or -1 when it could not be created.
    */
-  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn, durable?: boolean): number;
+  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn, durable?: boolean, echo?: EchoSpawn): number;
   despawn(id: number): void;
+  /** Feet position of a live target into `out`; false when it is not alive. Absent: positions are unknown. */
+  position?(id: number, out: Vec3): boolean;
+  /**
+   * The Echo and the player have a line of sight between them now (its shooting model is in
+   * contact: an unoccluded line from its muzzle to the player's eye, in range). False for a target
+   * that does not shoot, or is gone. Absent: never.
+   */
+  inSight?(id: number): boolean;
+}
+
+/** Read-only view of the player's health (the sim's `PlayerHealth` satisfies it). */
+export interface VitalsView {
+  readonly hp: number;
+  readonly maxHp: number;
+  readonly shield: number;
+  readonly maxShield: number;
+  readonly alive: boolean;
 }
 
 /** A map anchor (design §10.2). Structural, so #16's `Anchor` union is assignable. */
@@ -171,6 +213,14 @@ export interface SourceEvents {
   shotFired: { tick: number; shotId: number; moving: boolean; speed: number; airborne: boolean; crouching: boolean };
   /** Horizontal speed first fell to the accuracy threshold; `counterStrafe`: the stop began with the opposite key, not a release. */
   playerStopped: { tick: number; latencyMs: number; counterStrafe: boolean };
+  /** The player first saw a target (in view and unoccluded), once per spawn. */
+  targetVisible: { tick: number; targetId: number };
+  /** An enemy first got the player in its sight, once per spawn. */
+  enemySawPlayer: { tick: number; targetId: number };
+  /** An enemy fired at the player. */
+  enemyFired: { tick: number; id: number };
+  /** The player took a hit: HP lost (`amount`), what the shield absorbed, what is left, and who fired (-1: nobody). */
+  playerDamaged: { tick: number; amount: number; absorbed: number; hp: number; shield: number; sourceId: number };
 }
 
 /**
@@ -207,7 +257,7 @@ export interface PlayerSourceEvents {
 }
 
 /** Events the framework emits. §14.3 names and payloads, plus `beatStarted` and `scoreAwarded`. */
-export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents {
+export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents, SectorEvents, Pick<RunEvents, 'contactSettled'> {
   /** The run moved the player (a mode with several stand points, Spray Wall): the view should face `yaw` again. */
   playerPlaced: { tick: number; x: number; y: number; z: number; yaw: number };
   runReady: { tick: number; mode: ModeId; seed: number; dial: number };
@@ -226,8 +276,13 @@ export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents {
     extra?: TrialExtra;
     /** Absent = `matched`. The mode's `trialSource` (benchmark trials are `baseline`). */
     source?: TrialSource;
+    /** The scenario card of the contact the target fought in (Sweep, design §4.4); absent elsewhere. */
+    card?: string;
   };
-  /** A kill was scored; `+score` floats from the kill. */
+  /**
+   * A kill was scored (`+score` floats from the kill), or points that are not a kill were paid (a
+   * contact settle, a sector clear: `targetId` -1, the terms 1). `total` is always the run's score.
+   */
   scoreAwarded: {
     tick: number;
     t: number;
@@ -244,7 +299,8 @@ export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents {
   };
 }
 
-export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit';
+/** `left`: the player walked out of a run's last exit alive (a Leave gate, design §4.9). */
+export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit' | 'left';
 
 declare module '../core/gameEvents' {
   interface GameEvents extends ModeEvents {}

@@ -156,7 +156,7 @@ function sanitizeStats(raw: unknown): RunStatsSummary {
   };
 }
 
-const REASONS: readonly RunEndReason[] = ['timer', 'death', 'complete', 'quit'];
+const REASONS: readonly RunEndReason[] = ['timer', 'death', 'complete', 'quit', 'left'];
 
 function sanitizeRun(raw: unknown): RunSummary | null {
   if (!isRec(raw) || typeof raw.mode !== 'string' || raw.mode === '') return null;

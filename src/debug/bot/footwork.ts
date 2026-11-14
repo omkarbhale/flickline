@@ -48,7 +48,7 @@ export class FootworkBot {
     const def = this.game.tunables.weapon[world.weapon.slots[world.weapon.active]!.id];
     const threshold = def.deadzoneFraction * def.runSpeedMps;
     const vx = p.vel.x * Math.cos(p.yaw) - p.vel.z * Math.sin(p.yaw); // speed along the view's right axis
-    const speed = Math.hypot(p.vel.x, p.vel.z);
+    const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.z * p.vel.z);
 
     let up = false;
     for (let i = 0; i < world.targets.length; i++) if (world.targets[i]!.alive) up = true;

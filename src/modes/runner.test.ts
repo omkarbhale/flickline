@@ -399,3 +399,72 @@ describe('TestMode', () => {
     expect(TICK_DT).toBe(1 / 128);
   });
 });
+
+describe('run-shaped modes (Sweep, #201)', () => {
+  it('the points multiplier scales kill points; awardPoints pays a non-kill result as scoreAwarded with targetId -1', () => {
+    const h = makeHarness();
+    h.runner.begin(bareMode({ durationSec: Infinity }), { seed: 1 });
+    h.step(READY);
+    const a = h.runner.spawn('post', far());
+    h.kill(a);
+    const plain = h.events('scoreAwarded')[0]!.points as number;
+    h.runner.setPointsMultiplier(2);
+    const b = h.runner.spawn('post', far());
+    // Same terms as the first kill except the clean streak, which is now 1.
+    h.kill(b);
+    const doubled = h.events('scoreAwarded')[1]!;
+    // `plain` is already rounded, so allow the rounding of one point.
+    expect(Math.abs((doubled.points as number) - plain * 2 * (1 + h.tunables.scoring.streakStep))).toBeLessThanOrEqual(1);
+    const before = h.runner.stats.score;
+    expect(h.runner.awardPoints(123.4)).toBe(123);
+    const award = h.events('scoreAwarded')[2]!;
+    expect(award).toMatchObject({ targetId: -1, points: 123, total: before + 123, precision: 1, streak: 1 });
+    expect(h.runner.awardPoints(-5)).toBe(0);
+    // A new run starts unmultiplied.
+    h.runner.begin(bareMode({ durationSec: Infinity }), { seed: 2 });
+    expect(h.runner.pointsMultiplier).toBe(1);
+  });
+
+  it('onEnd runs before runEnded, while points still count, for every end reason', () => {
+    const h = makeHarness();
+    const seen: string[] = [];
+    h.runner.begin(bareMode({
+      durationSec: Infinity,
+      onEnd(ctx, reason) {
+        seen.push(`${reason}:${ctx.phase}`);
+        ctx.awardPoints(10);
+        ctx.end('quit'); // ignored: the run is already ending
+      },
+    }), { seed: 1 });
+    h.step(READY);
+    h.bus.emit('playerDied', { tick: h.simTick });
+    expect(seen).toEqual(['death:live']);
+    expect(h.runner.stats.score).toBe(10);
+    expect(h.events('runEnded').map((e) => e.reason)).toEqual(['death']);
+  });
+
+  it('a placed spawn skips the fairness floors; its card rides on its trial', () => {
+    const h = makeHarness();
+    h.runner.begin(bareMode({ durationSec: Infinity }), { seed: 1 });
+    h.step(READY);
+    // Straight ahead at 2 m: refused as a normal spawn, accepted as a placed one.
+    expect(h.runner.spawn('post', vec3(0, 0, -2))).toBe(-1);
+    const id = h.runner.spawn('post', vec3(0, 0, -2), { placed: true, card: 'take-expected' });
+    expect(id).toBeGreaterThan(0);
+    h.kill(id);
+    expect(h.events('skillTrial')[0]).toMatchObject({ success: true, card: 'take-expected' });
+  });
+
+  it('forwards sight, enemy fire and damage facts to the mode only while live', () => {
+    const h = makeHarness();
+    const types: string[] = [];
+    h.runner.begin(bareMode({ durationSec: Infinity, onEvent: (_c, ev) => void types.push(ev.type) }), { seed: 1 });
+    h.bus.emit('targetVisible', { tick: 0, targetId: 1 });
+    h.step(READY);
+    h.bus.emit('targetVisible', { tick: h.simTick, targetId: 1 });
+    h.bus.emit('enemySawPlayer', { tick: h.simTick, targetId: 1 });
+    h.bus.emit('enemyFired', { tick: h.simTick, id: 1 });
+    h.bus.emit('playerDamaged', { tick: h.simTick, amount: 10, absorbed: 5, hp: 90, shield: 45, sourceId: 1 });
+    expect(types).toEqual(['targetVisible', 'enemySawPlayer', 'enemyFired', 'playerDamaged']);
+  });
+});

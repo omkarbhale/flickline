@@ -83,10 +83,9 @@ export const feature = defineFeature({
     game.bus.on('runReady', (e) => {
       before = noBest.includes(e.mode) ? null : (game.progress.bestAt(e.mode, e.dial)?.score ?? null);
     });
-    // The run's story (route strip, fights by situation) is folded from the run's events. `sectorEntered`,
-    // `sectorEnded`, `runBanked` and the card on `contactSettled` come from the run director (#201, design §14.3);
-    // until their declarations are merged into `GameEvents` the bus is read through the story's own structural
-    // event map, so nothing here depends on the director's code.
+    // The run's story (route strip, fights by situation) is folded from the run director's facts (#201, design §14.3:
+    // `sectorEntered`, `sectorEnded`, `contactSettled` with its card, `runBanked`) and the player's health events. The
+    // tracker reads them through its own structural event map, so it depends on none of the director's code.
     const story = new RunStoryTracker(storyConfigFrom(game.tunables.player, game.tunables.results.run.routeSectors, game.tunables.results.run.maxSectors));
     game.bus.onAny((type, payload) => {
       if (RunStoryTracker.reads(type)) story.ingest(type, payload as never);

@@ -44,7 +44,10 @@ export interface CoreDebug {
   state(): unknown;
   /** Fingerprint of sim state: equal inputs must give equal hashes. */
   hash(): number;
-  /** Recent sim events (oldest first), newest `count` entries. */
+  /**
+   * Recent sim events (oldest first), newest `count` entries. The log starts with the first hook
+   * command, so events from before it are not in it: normal play does not copy every event.
+   */
   events(count?: number): unknown[];
   /** The loaded map as plain data: id, bounds, spawn, anchors, nav, marks (see `sim/mapTypes.ts`). */
   map(): unknown;
@@ -75,6 +78,9 @@ declare global {
 }
 
 const DEG = Math.PI / 180;
+
+/** Hook commands that observe performance and so must not start the event log. */
+const MEASURING: ReadonlySet<string> = new Set(['perf', 'perfRun', 'perfStatus', 'timeline']);
 
 export function installDebugHook(game: Game): FlicklineDebug {
   let plan: HTMLCanvasElement | null = null;
@@ -167,6 +173,16 @@ export function installDebugHook(game: Game): FlicklineDebug {
   }
   // Every merged-in declaration is registered by the feature that declares it (`game.addDebug`).
   const hook = { ...core, ...game.debugCommands } as FlicklineDebug;
+  // The event log records only once something is driving the hook (see `Game.startEventLog`), not
+  // for the commands that measure: the perf harness must see the game as a player does.
+  for (const key of Object.keys(hook) as (keyof FlicklineDebug)[]) {
+    const fn = hook[key];
+    if (typeof fn !== 'function' || MEASURING.has(key)) continue;
+    (hook as unknown as Record<string, unknown>)[key] = (...args: unknown[]): unknown => {
+      game.startEventLog();
+      return (fn as (...a: unknown[]) => unknown)(...args);
+    };
+  }
   window.__flickline = hook;
   return hook;
 }

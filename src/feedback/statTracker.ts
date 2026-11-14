@@ -146,6 +146,16 @@ export interface RunStats {
   sprayCollapseIndex: number | null;
   /** First bullet index where the pull error rises above the tolerance and stays there; null if it never does. */
   sprayPullFallsApartIndex: number | null;
+  /**
+   * Sweep (design §4): sectors entered (the depth reached, 1-based) out of the run's sectors, and
+   * sectors cleared; contacts won (cleared) and lost (died in, or left while losing, design §8.1).
+   * All 0 outside Sweep.
+   */
+  sectorsReached: number;
+  sectorsTotal: number;
+  sectorsCleared: number;
+  contactsWon: number;
+  contactsLost: number;
 }
 
 interface Engagement {
@@ -249,6 +259,11 @@ export class StatTracker {
   private leadAbsSum = 0;
   private leadN = 0;
   private stopLatencies: number[] = [];
+  private sectorsReached = 0;
+  private sectorsTotal = 0;
+  private sectorsCleared = 0;
+  private contactsWon = 0;
+  private contactsLost = 0;
 
   constructor(private readonly cfg: StatConfig = defaultStatConfig) {}
 
@@ -283,6 +298,7 @@ export class StatTracker {
     this.headHeightSum = this.headHeightN = 0;
     this.leadSum = this.leadAbsSum = this.leadN = 0;
     this.stopLatencies = [];
+    this.sectorsReached = this.sectorsTotal = this.sectorsCleared = this.contactsWon = this.contactsLost = 0;
   }
 
   /** Live subscription to the bus. Returns the unsubscribe function. */
@@ -302,6 +318,9 @@ export class StatTracker {
       bus.on('playerStopped', (e) => this.onPlayerStopped(e)),
       bus.on('sprayStarted', (e) => this.onSprayStarted(e)),
       bus.on('sprayEnded', (e) => this.onSprayEnded(e)),
+      bus.on('sectorEntered', (e) => this.onSectorEntered(e)),
+      bus.on('sectorEnded', (e) => this.onSectorEnded(e)),
+      bus.on('contactSettled', (e) => this.onContactSettled(e)),
     ];
     return () => offs.forEach((f) => f());
   }
@@ -323,6 +342,9 @@ export class StatTracker {
       case 'playerStopped': this.onPlayerStopped(ev.data); break;
       case 'sprayStarted': this.onSprayStarted(ev.data); break;
       case 'sprayEnded': this.onSprayEnded(ev.data); break;
+      case 'sectorEntered': this.onSectorEntered(ev.data); break;
+      case 'sectorEnded': this.onSectorEnded(ev.data); break;
+      case 'contactSettled': this.onContactSettled(ev.data); break;
       default: break;
     }
   }
@@ -586,6 +608,20 @@ export class StatTracker {
   // --- result -------------------------------------------------------------------------------
 
   /** Snapshot of every stat so far (final once the run has ended). Allocates; not for per-frame use. */
+  private onSectorEntered(e: AllEvents['sectorEntered']): void {
+    this.sectorsReached = Math.max(this.sectorsReached, e.index + 1);
+    this.sectorsTotal = e.of;
+  }
+
+  private onSectorEnded(e: AllEvents['sectorEnded']): void {
+    if (e.cleared) this.sectorsCleared++;
+  }
+
+  private onContactSettled(e: AllEvents['contactSettled']): void {
+    if (e.outcome === 'cleared') this.contactsWon++;
+    else if (e.outcome === 'died' || e.outcome === 'disengaged') this.contactsLost++;
+  }
+
   result(): RunStats {
     const end = this.ended ? this.endTick : this.lastTick;
     const liveTicks = this.started ? Math.max(0, end - this.liveStartTick) : 0;
@@ -671,6 +707,11 @@ export class StatTracker {
       sprayPullErrorByIndex: pullErrors,
       sprayCollapseIndex: collapseIndex(hitRates, this.cfg.sprayWall.collapseHitRate, true),
       sprayPullFallsApartIndex: collapseIndex(pullErrors, this.cfg.sprayWall.pullToleranceDeg, false),
+      sectorsReached: this.sectorsReached,
+      sectorsTotal: this.sectorsTotal,
+      sectorsCleared: this.sectorsCleared,
+      contactsWon: this.contactsWon,
+      contactsLost: this.contactsLost,
     };
   }
 }

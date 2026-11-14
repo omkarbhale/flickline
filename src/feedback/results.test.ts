@@ -27,6 +27,7 @@ function stats(p: Partial<RunStats> = {}): RunStats {
     flickErrorBiasDeg: null, flickErrorMeanAbsDeg: null, flickCount: 0, maxChain: 3, maxCleanStreak: 4, cleanStreak: 1,
     targets: [target(), target({ id: 2, firstBullet: false }), target({ id: 3 }), target({ id: 4, bullets: 0, killed: false, rtMs: null })],
     sprayBursts: [], sprays: [], sprayHitRateByIndex: [], sprayPullErrorByIndex: [], sprayCollapseIndex: null, sprayPullFallsApartIndex: null,
+    sectorsReached: 0, sectorsTotal: 0, sectorsCleared: 0, contactsWon: 0, contactsLost: 0,
     ...p,
   };
 }
@@ -407,8 +408,8 @@ describe('the run results card (design §8.2, #213)', () => {
     const dead = make(sweep(), story(8), { deathCause: 'Lost to a flank you could not see.' });
     expect(dead).toMatchObject({ endLabel: 'Eliminated', depth: 'Overtime 2', deathLine: 'Lost to a flank you could not see.' });
     expect(dead.overtime).toEqual({ points: '200', state: 'lost' });
-    const left = make(sweep({ endReason: 'left' as never }), story(8), { deathCause: 'ignored' });
-    expect(left.endLabel).toBe('Left alive');
+    const left = make(sweep({ endReason: 'left' }), story(8), { deathCause: 'ignored' });
+    expect(left.endLabel).toBe('Made it out');
     expect(left.deathLine).toBeNull();
     expect(left.overtime).toEqual({ points: '200', state: 'banked' });
     expect(make(sweep(), story(3)).overtime).toBeNull();

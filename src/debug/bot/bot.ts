@@ -97,6 +97,15 @@ export class Bot {
   private readonly giveUpTicks: number;
   private readonly clickTicks: number;
 
+  /**
+   * Only targets the player has seen count (`visibleTick`): no search turn towards one that has never
+   * been in view. A drill's targets appear in the open, so the drills leave it off; a run where Echoes
+   * hold behind cover (Sweep) turns it on, or the bot would know where they are through walls.
+   */
+  visibleOnly = false;
+  /** With `visibleOnly`: whether a seen target is in plain sight now (a target that went back behind cover is not picked). */
+  inSight: ((t: TargetState) => boolean) | null = null;
+
   constructor(
     readonly params: BotParams,
     seed: number,
@@ -166,6 +175,16 @@ export class Bot {
     }
   }
 
+  /** No engagement in progress (nothing picked, or the last one is over). */
+  get idle(): boolean {
+    return this.phase === IDLE;
+  }
+
+  /** Id of the target being engaged, -1 when idle. */
+  get target(): number {
+    return this.targetId;
+  }
+
   /** With nothing to shoot at, a player tops up a part-empty magazine (Spray Wall asks for it after every spray). */
   private wantsReload(world: World): boolean {
     const w = world.weapon;
@@ -196,13 +215,14 @@ export class Bot {
       const t = slots[i]!;
       if (!t.alive) continue;
       const visible = t.visibleTick >= 0;
+      if (this.visibleOnly && (!visible || (this.inSight !== null && !this.inSight(t)))) continue;
       if (bestVisible && !visible) continue;
       targetAimPoint(t, this.tunables.targets, this.aimPoint);
       const vx = this.aimPoint.x - ex;
       const vy = this.aimPoint.y - eyeY;
       const vz = this.aimPoint.z - ez;
       const dY = Math.abs(wrapPi(yawOf(vx, vz) - this.yaw));
-      const dP = Math.abs(Math.atan2(vy, Math.hypot(vx, vz)) - this.pitch);
+      const dP = Math.abs(Math.atan2(vy, Math.sqrt(vx * vx + vz * vz)) - this.pitch);
       const score = dY + dP;
       if ((visible && !bestVisible) || score < bestScore) {
         best = t;
@@ -239,8 +259,8 @@ export class Bot {
     const vy = this.aimPoint.y - (p.pos.y + p.eyeHeight);
     const vz = this.aimPoint.z - p.pos.z;
     const dY = wrapPi(yawOf(vx, vz) - this.yaw) * Math.cos(this.pitch);
-    const dP = Math.atan2(vy, Math.hypot(vx, vz)) - this.pitch;
-    return Math.hypot(dY, dP) * RAD2DEG;
+    const dP = Math.atan2(vy, Math.sqrt(vx * vx + vz * vz)) - this.pitch;
+    return Math.sqrt(dY * dY + dP * dP) * RAD2DEG;
   }
 
   private beginFlick(world: World, t: TargetState, now: number): void {
@@ -248,10 +268,11 @@ export class Bot {
     const vx = this.aimPoint.x - p.pos.x;
     const vy = this.aimPoint.y - (p.pos.y + p.eyeHeight);
     const vz = this.aimPoint.z - p.pos.z;
-    const dist = Math.hypot(vx, vy, vz) || 1e-6;
+    const dist = Math.sqrt(vx * vx + vy * vy + vz * vz) || 1e-6;
     const dY = wrapPi(yawOf(vx, vz) - this.yaw);
-    const dP = Math.atan2(vy, Math.hypot(vx, vz)) - this.pitch;
-    const ampRad = Math.hypot(dY * Math.cos(this.pitch), dP);
+    const dP = Math.atan2(vy, Math.sqrt(vx * vx + vz * vz)) - this.pitch;
+    const dYc = dY * Math.cos(this.pitch);
+    const ampRad = Math.sqrt(dYc * dYc + dP * dP);
     // Angular radius of the thing being aimed at: the head, or the orb.
     const r = t.kind === 'beacon' ? t.radius : this.tunables.targets.hit.headRadius;
     const radiusDeg = Math.asin(Math.min(1, r / dist)) * RAD2DEG;
@@ -292,7 +313,7 @@ export class Bot {
     const vy = this.aimPoint.y - (p.pos.y + p.eyeHeight);
     const vz = this.aimPoint.z - p.pos.z;
     this.toYaw = this.fromYaw + wrapPi(yawOf(vx, vz) - this.fromYaw) + noiseYaw;
-    this.toPitch = Math.atan2(vy, Math.hypot(vx, vz)) + noisePitch;
+    this.toPitch = Math.atan2(vy, Math.sqrt(vx * vx + vz * vz)) + noisePitch;
   }
 
   /** Move the commanded view along the minimum-jerk profile; true once the movement is complete. */
@@ -312,7 +333,7 @@ export class Bot {
       const vy = this.aimPoint.y - (p.pos.y + p.eyeHeight);
       const vz = this.aimPoint.z - p.pos.z;
       this.noiseYaw = this.yaw - (this.yaw + wrapPi(yawOf(vx, vz) - this.yaw));
-      this.noisePitch = this.pitch - Math.atan2(vy, Math.hypot(vx, vz));
+      this.noisePitch = this.pitch - Math.atan2(vy, Math.sqrt(vx * vx + vz * vz));
     }
     this.phase = ENGAGE;
     this.phaseStart = now;
@@ -339,7 +360,7 @@ export class Bot {
     const vz = this.aimPoint.z - p.pos.z;
     const q = this.params.sprayControl;
     const wantYaw = this.yaw + wrapPi(yawOf(vx, vz) - this.yaw) + this.noiseYaw + w.recoilYaw * DEG2RAD * q;
-    const wantPitch = Math.atan2(vy, Math.hypot(vx, vz)) + this.noisePitch - w.recoilPitch * DEG2RAD * q;
+    const wantPitch = Math.atan2(vy, Math.sqrt(vx * vx + vz * vz)) + this.noisePitch - w.recoilPitch * DEG2RAD * q;
     this.yaw += (wantYaw - this.yaw) * FOLLOW_K;
     this.pitch += (wantPitch - this.pitch) * FOLLOW_K;
 

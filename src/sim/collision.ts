@@ -1,5 +1,7 @@
 import type { Vec3 } from '../core/vec3';
-import type { BoxDef } from './types';
+import type { MovementTunables } from '../config/movement';
+import { createRay, type Ray } from './hitZones';
+import type { BoxDef, PlayerState } from './types';
 
 /**
  * Axis-aligned box collision, plus ramps (a box clipped by one sloped plane, `BoxDef.ramp`).
@@ -74,6 +76,42 @@ export function hullBlocked(
 }
 
 /**
+ * `hullOverlaps` for the player's hull against one box, taking the player and the tunables rather
+ * than the position, half-width and height as numbers (V8 boxes every double passed to a function
+ * it does not inline, architecture §7), and `hullBlockedBy` for all boxes. Used by the movers below.
+ */
+function hullHits(p: PlayerState, m: MovementTunables, b: BoxDef): boolean {
+  const pos = p.pos;
+  const hw = m.hullHalfWidth;
+  if (
+    pos.x - hw < b.max.x - SKIN &&
+    pos.x + hw > b.min.x + SKIN &&
+    pos.y < b.max.y - SKIN &&
+    pos.y + p.height > b.min.y + SKIN &&
+    pos.z - hw < b.max.z - SKIN &&
+    pos.z + hw > b.min.z + SKIN
+  ) {
+    return b.ramp === undefined || pos.y < restHeight(b, pos.x, pos.z, hw) - SKIN;
+  }
+  return false;
+}
+
+/** Whether the player's hull, at its position and with its height, intersects any box. */
+export function hullBlockedBy(boxes: readonly BoxDef[], p: PlayerState, m: MovementTunables): boolean {
+  for (let i = 0; i < boxes.length; i++) if (hullHits(p, m, boxes[i]!)) return true;
+  return false;
+}
+
+/** Whether the standing hull at the player's position (`m.standHeight` tall, whatever the player's height now) intersects any box: room to stand up. */
+export function standBlocked(boxes: readonly BoxDef[], p: PlayerState, m: MovementTunables): boolean {
+  const h = p.height;
+  p.height = m.standHeight;
+  const blocked = hullBlockedBy(boxes, p, m);
+  p.height = h;
+  return blocked;
+}
+
+/**
  * Highest surface at or below `maxY` that a hull with feet centre (px, pz) and half-width `hw`
  * (0 = a point) can stand on, or -Infinity if there is none. Does not check headroom.
  */
@@ -91,29 +129,56 @@ export function supportBelow(boxes: readonly BoxDef[], px: number, pz: number, h
 export type Axis = 'x' | 'y' | 'z';
 
 /**
- * Move `pos` by `delta` along one axis and resolve overlaps.
- * Returns true if blocked (the move was truncated by a box).
+ * The hull movers below take the player and the tunables, not the half-width, height, step height
+ * and delta as numbers, and hand the delta to the shared core through this one-slot scratch.
+ * V8 passes arguments to a function it does not inline as boxed heap numbers, so a call with a
+ * freshly computed or loaded double allocates once per double per call (architecture §7 rule 1);
+ * objects, integers and a typed-array store do not.
  */
-export function moveAxis(
-  boxes: readonly BoxDef[],
-  pos: Vec3,
-  axis: Axis,
-  delta: number,
-  hw: number,
-  h: number,
-): boolean {
+export const sweepDelta = new Float64Array(1);
+
+/**
+ * Move the hull along `axis` by `sweepDelta[0]` and resolve overlaps. Returns true if blocked (the
+ * move was truncated by a box).
+ */
+function sweepAxis(boxes: readonly BoxDef[], p: PlayerState, axis: Axis, m: MovementTunables): boolean {
+  const delta = sweepDelta[0]!;
   if (delta === 0) return false;
-  pos[axis] += delta;
+  const pos = p.pos;
+  const hw = m.hullHalfWidth;
+  const h = p.height;
+  // Explicit branches, not `pos[axis] += delta`: a keyed double store boxes a heap number per call.
+  if (axis === 'x') pos.x += delta;
+  else if (axis === 'z') pos.z += delta;
+  else pos.y += delta;
   let blocked = false;
   for (let i = 0; i < boxes.length; i++) {
     const b = boxes[i]!;
-    if (!hullOverlaps(pos.x, pos.y, pos.z, hw, h, b)) continue;
+    if (!hullHits(p, m, b)) continue;
     blocked = true;
     if (axis === 'x') pos.x = delta > 0 ? b.min.x - hw : b.max.x + hw;
     else if (axis === 'z') pos.z = delta > 0 ? b.min.z - hw : b.max.z + hw;
-    else pos.y = delta > 0 ? b.min.y - h : restHeight(b, pos.x, pos.z, hw);
+    else pos.y = delta > 0 ? b.min.y - h : b.ramp === undefined ? b.max.y : restHeight(b, pos.x, pos.z, hw);
   }
   return blocked;
+}
+
+/**
+ * Move the player's hull along `axis` by its velocity on that axis for `dt` seconds and resolve
+ * overlaps. Returns true if blocked (the move was truncated by a box).
+ */
+export function moveAxis(boxes: readonly BoxDef[], p: PlayerState, axis: Axis, dt: number, m: MovementTunables): boolean {
+  sweepDelta[0] = (axis === 'x' ? p.vel.x : axis === 'z' ? p.vel.z : p.vel.y) * dt;
+  return sweepAxis(boxes, p, axis, m);
+}
+
+/**
+ * Move the hull vertically by `sweepDelta[0]` (the caller's trapezoid step, `0.5 * (vy0 + vy) * dt`,
+ * stored there rather than passed, so no double crosses the call) and resolve overlaps. Returns
+ * true if blocked.
+ */
+export function moveAxisY(boxes: readonly BoxDef[], p: PlayerState, m: MovementTunables): boolean {
+  return sweepAxis(boxes, p, 'y', m);
 }
 
 /**
@@ -122,35 +187,31 @@ export function moveAxis(
  * provided the lifted hull has headroom. Returns true if the move was truncated (a real wall).
  * Call it only while the player is grounded: a jumping hull does not step.
  */
-export function moveAxisStep(
-  boxes: readonly BoxDef[],
-  pos: Vec3,
-  axis: 'x' | 'z',
-  delta: number,
-  hw: number,
-  h: number,
-  stepHeight: number,
-): boolean {
+export function moveAxisStep(boxes: readonly BoxDef[], p: PlayerState, axis: 'x' | 'z', dt: number, m: MovementTunables): boolean {
+  const delta = (axis === 'x' ? p.vel.x : p.vel.z) * dt;
   if (delta === 0) return false;
-  pos[axis] += delta;
+  const pos = p.pos;
+  const hw = m.hullHalfWidth;
+  if (axis === 'x') pos.x += delta;
+  else pos.z += delta;
   let top = -Infinity;
   for (let i = 0; i < boxes.length; i++) {
     const b = boxes[i]!;
-    if (!hullOverlaps(pos.x, pos.y, pos.z, hw, h, b)) continue;
-    const t = restHeight(b, pos.x, pos.z, hw);
+    if (!hullHits(p, m, b)) continue;
+    const t = b.ramp === undefined ? b.max.y : restHeight(b, pos.x, pos.z, hw);
     if (t > top) top = t;
   }
   if (top === -Infinity) return false; // free
-  if (top - pos.y <= stepHeight) {
+  if (top - pos.y <= m.stepHeight) {
     const y0 = pos.y;
     pos.y = top;
-    if (!hullBlocked(boxes, pos.x, pos.y, pos.z, hw, h)) return false; // stepped up
+    if (!hullBlockedBy(boxes, p, m)) return false; // stepped up
     pos.y = y0; // no headroom: it is a wall after all
   }
   let blocked = false;
   for (let i = 0; i < boxes.length; i++) {
     const b = boxes[i]!;
-    if (!hullOverlaps(pos.x, pos.y, pos.z, hw, h, b)) continue;
+    if (!hullHits(p, m, b)) continue;
     blocked = true;
     if (axis === 'x') pos.x = delta > 0 ? b.min.x - hw : b.max.x + hw;
     else pos.z = delta > 0 ? b.min.z - hw : b.max.z + hw;
@@ -160,50 +221,64 @@ export function moveAxisStep(
 
 /**
  * Keep a grounded hull on the ground it is walking over: if the first surface below is at most
- * `maxDrop` down, move onto it and return true; otherwise leave `pos` untouched and return false
- * (a real drop, so the caller lets gravity take over). This is what stops walking down stairs or
- * a ramp from being a series of tiny falls.
+ * `m.stepHeight` down, move onto it and return true; otherwise leave `pos` untouched and return
+ * false (a real drop, so the caller lets gravity take over). This is what stops walking down
+ * stairs or a ramp from being a series of tiny falls.
  */
-export function snapDown(boxes: readonly BoxDef[], pos: Vec3, hw: number, h: number, maxDrop: number): boolean {
-  const y0 = pos.y;
-  if (moveAxis(boxes, pos, 'y', -maxDrop, hw, h)) return true;
-  pos.y = y0;
+export function snapDown(boxes: readonly BoxDef[], p: PlayerState, m: MovementTunables): boolean {
+  const y0 = p.pos.y;
+  sweepDelta[0] = -m.stepHeight;
+  if (sweepAxis(boxes, p, 'y', m)) return true;
+  p.pos.y = y0;
   return false;
 }
 
 const blockScratch: Vec3 = { x: 0, y: 0, z: 0 };
+const losRay = createRay();
+const rayBoxScratch = createRay();
+/** Entry distance of the last `rayBoxHit` hit. A one-slot typed array: a double returned from a function V8 does not inline is boxed. */
+const boxT = new Float64Array(1);
 
-/** Whether a box lies on the unit-direction ray from (`ox`, `oy`, `oz`) before it has gone `dist` metres (less a 1 mm margin): line of sight is blocked. Allocates nothing. */
+/**
+ * Whether a box lies on the unit-direction ray from (`ox`, `oy`, `oz`) before it has gone `dist` metres (less a 1 mm margin): line of sight is blocked. Allocates nothing.
+ * The ray goes through a scratch object because V8 boxes every double passed to a function it does not inline (architecture §7).
+ */
 export function lineBlocked(
   boxes: readonly BoxDef[],
   ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, dist: number,
 ): boolean {
-  const limit = dist - 0.001;
+  losRay.ox = ox; losRay.oy = oy; losRay.oz = oz;
+  losRay.dx = dx; losRay.dy = dy; losRay.dz = dz;
+  losRay.maxDist = dist;
+  return lineBlockedRay(boxes, losRay);
+}
+
+/** `lineBlocked` for a ray in an object: `ray.maxDist` is the distance to the far end of the line. Takes no doubles, so it allocates nothing however V8 inlines it. */
+export function lineBlockedRay(boxes: readonly BoxDef[], ray: Ray): boolean {
+  const dist = ray.maxDist;
+  ray.maxDist = dist - 0.001;
+  let blocked = false;
   for (let i = 0; i < boxes.length; i++) {
-    const hit = rayBox(ox, oy, oz, dx, dy, dz, boxes[i]!, limit, blockScratch);
-    if (hit >= 0 && hit < limit) return true;
+    if (rayBoxHit(ray, boxes[i]!, blockScratch) && boxT[0]! < ray.maxDist) { blocked = true; break; }
   }
-  return false;
+  ray.maxDist = dist;
+  return blocked;
 }
 
 /**
- * Ray vs AABB (slab method). Returns entry distance along the (unit) direction, or -1 on miss.
- * Writes the hit normal into `normalOut` when it hits. Rays starting inside a box are ignored.
+ * Ray vs AABB (slab method), the ray in an object. True on a hit no further than `ray.maxDist`,
+ * with the entry distance along the (unit) direction in `boxT[0]` and the hit normal written to
+ * `normalOut`. Rays starting inside a box are ignored.
  */
-export function rayBox(
-  ox: number, oy: number, oz: number,
-  dx: number, dy: number, dz: number,
-  b: BoxDef,
-  maxDist: number,
-  normalOut: Vec3,
-): number {
-  let tmin = 0;
-  let tmax = maxDist;
+function rayBoxHit(ray: Ray, b: BoxDef, normalOut: Vec3): boolean {
   let nx = 0, ny = 0, nz = 0;
+  const ox = ray.ox, oy = ray.oy, oz = ray.oz, dx = ray.dx, dy = ray.dy, dz = ray.dz;
+  let tmin = 0;
+  let tmax = ray.maxDist;
 
   // X slab
   if (Math.abs(dx) < EPS) {
-    if (ox < b.min.x || ox > b.max.x) return -1;
+    if (ox < b.min.x || ox > b.max.x) return false;
   } else {
     let t1 = (b.min.x - ox) / dx;
     let t2 = (b.max.x - ox) / dx;
@@ -211,11 +286,11 @@ export function rayBox(
     if (t1 > t2) { const t = t1; t1 = t2; t2 = t; n = 1; }
     if (t1 > tmin) { tmin = t1; nx = n; ny = 0; nz = 0; }
     if (t2 < tmax) tmax = t2;
-    if (tmin > tmax) return -1;
+    if (tmin > tmax) return false;
   }
   // Y slab
   if (Math.abs(dy) < EPS) {
-    if (oy < b.min.y || oy > b.max.y) return -1;
+    if (oy < b.min.y || oy > b.max.y) return false;
   } else {
     let t1 = (b.min.y - oy) / dy;
     let t2 = (b.max.y - oy) / dy;
@@ -223,11 +298,11 @@ export function rayBox(
     if (t1 > t2) { const t = t1; t1 = t2; t2 = t; n = 1; }
     if (t1 > tmin) { tmin = t1; nx = 0; ny = n; nz = 0; }
     if (t2 < tmax) tmax = t2;
-    if (tmin > tmax) return -1;
+    if (tmin > tmax) return false;
   }
   // Z slab
   if (Math.abs(dz) < EPS) {
-    if (oz < b.min.z || oz > b.max.z) return -1;
+    if (oz < b.min.z || oz > b.max.z) return false;
   } else {
     let t1 = (b.min.z - oz) / dz;
     let t2 = (b.max.z - oz) / dz;
@@ -235,7 +310,7 @@ export function rayBox(
     if (t1 > t2) { const t = t1; t1 = t2; t2 = t; n = 1; }
     if (t1 > tmin) { tmin = t1; nx = 0; ny = 0; nz = n; }
     if (t2 < tmax) tmax = t2;
-    if (tmin > tmax) return -1;
+    if (tmin > tmax) return false;
   }
   if (b.ramp !== undefined) {
     // The solid is the part of the box below the sloped surface y = sx*x + sz*z + c.
@@ -250,7 +325,7 @@ export function rayBox(
     const a = dy - sx * dx - sz * dz; // rate at which the ray rises above the surface
     const g0 = oy - sx * ox - sz * oz - c; // height of the origin above it
     if (Math.abs(a) < EPS) {
-      if (g0 > 0) return -1;
+      if (g0 > 0) return false;
     } else {
       const t = -g0 / a;
       if (a > 0) {
@@ -260,14 +335,31 @@ export function rayBox(
         const inv = 1 / Math.sqrt(sx * sx + 1 + sz * sz);
         nx = -sx * inv; ny = inv; nz = -sz * inv;
       }
-      if (tmin > tmax) return -1;
+      if (tmin > tmax) return false;
     }
   }
-  if (tmin <= 0) return -1; // origin inside (or touching) the box
+  if (tmin <= 0) return false; // origin inside (or touching) the box
   normalOut.x = nx;
   normalOut.y = ny;
   normalOut.z = nz;
-  return tmin;
+  boxT[0] = tmin;
+  return true;
+}
+
+/**
+ * Ray vs AABB (slab method). Returns entry distance along the (unit) direction, or -1 on miss.
+ * Writes the hit normal into `normalOut` when it hits. Rays starting inside a box are ignored.
+ */
+export function rayBox(
+  ox: number, oy: number, oz: number,
+  dx: number, dy: number, dz: number,
+  b: BoxDef,
+  maxDist: number,
+  normalOut: Vec3,
+): number {
+  const r = rayBoxScratch;
+  r.ox = ox; r.oy = oy; r.oz = oz; r.dx = dx; r.dy = dy; r.dz = dz; r.maxDist = maxDist;
+  return rayBoxHit(r, b, normalOut) ? boxT[0]! : -1;
 }
 
 /** Ray vs sphere. Returns entry distance or -1. `dir` must be a unit vector. */

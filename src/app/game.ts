@@ -131,8 +131,13 @@ export class Game {
   /** Debug: draw with dt = 0 so transient effects hold still for screenshots. */
   freezeFx = false;
   menuHidden = false;
-  /** Gameplay facts (every event whose payload has a `tick`), newest last, for the debug hook. */
+  /**
+   * Gameplay facts (every event whose payload has a `tick`), newest last, for the debug hook.
+   * Empty until `startEventLog()` is called, which the first hook command does: copying every
+   * event (a JSON round trip, a string and an object each) is not something normal play pays for.
+   */
   readonly eventLog: LoggedEvent[] = [];
+  private stopEventLog: (() => void) | null = null;
   /** Debug-hook commands registered by features (see `addDebug`). */
   readonly debugCommands: Partial<FlicklineDebug> = {};
   /** Debug timing of the last instant restart: synchronous reset cost, and press-to-next-frame. */
@@ -277,14 +282,9 @@ export class Game {
     for (const f of FEATURES) f.setup(this);
     this.renderer.loadLevel(this.world, initialMap);
 
-    this.bus.onAny((type, e) => {
-      if (typeof e !== 'object' || e === null || !('tick' in e)) return; // UI state, not a gameplay fact
-      this.eventLog.push({ type, data: JSON.parse(JSON.stringify(e)) });
-      if (this.eventLog.length > 256) this.eventLog.shift();
-    });
-
     // A mode started on a map other than the loaded one (ModeHost.start): show that map's level before the run's first frame.
     this.bus.on('mapLoaded', () => this.renderer.loadLevel(this.world, this.modes.currentMap));
+
     this.bus.on('settingsChanged', ({ settings, changed }) => {
       if (changed.includes('sensitivity')) this.input.setSensitivity(settings.sensitivity);
       if (changed.some((k) => k === 'keys' || k === 'invertY' || k === 'rawInput')) this.applyInputSettings(settings);
@@ -356,6 +356,16 @@ export class Game {
   addSnapshot(key: string, fn: () => unknown): void {
     if (this.snapshotSections.has(key)) throw new Error(`snapshot section '${key}' registered twice`);
     this.snapshotSections.set(key, fn);
+  }
+
+  /** Start recording gameplay events into `eventLog` (idempotent). The debug hook calls it on its first command. */
+  startEventLog(): void {
+    if (this.stopEventLog) return;
+    this.stopEventLog = this.bus.onAny((type, e) => {
+      if (typeof e !== 'object' || e === null || !('tick' in e)) return; // UI state, not a gameplay fact
+      this.eventLog.push({ type, data: JSON.parse(JSON.stringify(e)) });
+      if (this.eventLog.length > 256) this.eventLog.shift();
+    });
   }
 
   /**
@@ -525,7 +535,7 @@ export class Game {
       if (!t.alive || t.kind !== 'beacon') continue;
       const dx = t.pos.x - p.x;
       const dz = t.pos.z - p.z;
-      const dot = (dx * fx + dz * fz) / (Math.hypot(dx, dz) || 1);
+      const dot = (dx * fx + dz * fz) / (Math.sqrt(dx * dx + dz * dz) || 1);
       if (dot > bestDot) {
         bestDot = dot;
         best = i;
@@ -838,7 +848,7 @@ export class Game {
   private debugLines(): string {
     const p = this.world.player;
     const f = (n: number): string => n.toFixed(2);
-    const speed = Math.hypot(p.vel.x, p.vel.z);
+    const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.z * p.vel.z);
     return (
       `pos ${f(p.pos.x)} ${f(p.pos.y)} ${f(p.pos.z)}  speed ${f(speed)} m/s\n` +
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +

@@ -54,13 +54,19 @@ never touches sim state. One engagement is the two-submovement model of aimed mo
 A target that is not in view yet (behind the player in Orbit) is turned to at `searchDegPerSec`.
 
 **Not modelled** (so a mode that needs them is not playable by this bot yet): leading moving
-targets (it trails them with its follow lag), movement of any kind except Stop & Pop's footwork (below; elsewhere it stands still), crouching outside Stop & Pop,
+targets (it trails them with its follow lag), movement of any kind except Stop & Pop's footwork and Sweep's walk (below; elsewhere it stands still), crouching outside Stop & Pop,
 jumping, weapon swaps and reloads (the sim reloads an empty magazine by itself), taking cover,
 and enemies shooting back.
 
 ### Stop & Pop footwork (`footwork.ts`)
 
 Stop & Pop is the one mode with movement, and it is played on its own map (`mapForMode`: Lane). `FootworkBot` wraps the aiming `Bot`: it strafes along the Lane (arming it), and when a target appears waits its reaction time, taps the opposite key until its speed is under the accuracy threshold, lets go, takes the ring's stance (crouch for a blue ring) and only then lets the aimer fire. A weak bot reacts late and runs out of exposure; a strong one does not.
+
+### Sweep (`sweepBot.ts`, `sweepReport.ts`)
+
+Sweep (#201) is a run with no clock: `SweepBot` walks each sector from its entry to its exit along the map's nav graph (`navRoute` in `modes/sweepCatalog.ts`), looking where it walks with the crosshair at head height. When the aimer engages an Echo it has actually seen (`Bot.visibleOnly`, and only while that Echo is in plain sight, so it never aims through walls), it counter-strafes to a stop and fires only along an open line. When a fight pulls it off its route, or it is stuck on a corner for 3 s, it plans a new route from where it stands. It does not clear angles one at a time, pre-aim, use cover, crouch or back off a fight it is losing, so its numbers are a floor for a balance pass (#53), not a target.
+
+`npm run bot -- --sweep-report [--runs 50] [--skills 30,50,70] [--dial D]` plays seeded runs at each skill and prints the balance table posted on #201: contact win rate (cleared ÷ fights; a contact the player left unhurt is not a fight), fights per run, depth reached, the share of runs that made it out, mean health+shield at each sector exit, run length and score.
 
 ### The skill model (`skill.ts`)
 
@@ -103,14 +109,27 @@ A new mode is covered by registering it in `MODES`: the suite iterates the regis
 
 ## Allocation audit (`npm run bot -- --alloc`)
 
-The architecture forbids allocation in hot paths. The audit plays a long free-play run with the
-bot, lets the JIT settle (20 000 ticks), then records every allocation of the next 100 000 ticks
-with V8's sampling heap profiler (including objects the scavenger already freed) and prints the
-total, the bytes per tick, and the functions responsible. `bot.test.ts` enforces a **regression
-ceiling** (400 B/tick; today about 200) so a new per-tick closure, array or object literal fails
-the build the day it lands. The target is 0; the remaining allocations are V8 boxing doubles
-returned from `Math.hypot` and non-inlined helpers in `runProbe.ts`, `hitZones.ts` and
-`movement.ts` (listed by the audit; filed as #152, not fixed here because optimising is #55).
+The architecture forbids allocation in hot paths. The audit plays a free-play run with the bot,
+recording the view angles and trigger it produces, then replays that recording on a fresh game with
+a scripted movement overlaid (strafing, walking, jumping, crouching) and **the bot out of the
+process**: the bot's once-per-engagement code is cold, runs in V8's interpreter and boxes every
+double there, which is the test tool's cost and not the game's. After 20 000 warm-up ticks to let the JIT
+settle, it records every allocation of the next 100 000 ticks with V8's sampling heap profiler
+(including objects the scavenger already freed) and prints the total, the bytes per tick, and the
+functions responsible. `allocAudit.test.ts` enforces a **regression ceiling** of 8 B/tick (today
+about 3; the target is 0) so a new per-tick closure, array, object literal, or double passed to a
+function V8 does not inline fails the build the day it lands. What is left is the run's event log
+(`feedback/eventLog.ts`, which copies each event once, by design) and per-event handlers.
+
+Why "double passed to a function V8 does not inline" is a leak: V8 passes arguments to such a
+function as boxed heap numbers, so every call with a freshly computed or loaded `number` allocates
+16 bytes per number; so does a number returned from one, stored in a module-level `let`, or written
+through a computed key (`pos[axis] += d`). `Math.hypot` boxes its result as well. The sim's per-tick
+paths therefore take objects (`Ray`, the player, the tunables) and write results into scratch typed
+arrays or fields, use `Math.sqrt(x * x + z * z)`, and inline tiny helpers. To check that a path stays
+free of it whatever V8 decides to inline, run
+`node --no-turbo-inlining --no-maglev-inlining scripts/bot.mjs --alloc`: what remains there is
+per-event (a target becoming visible, a lead sample), not per tick.
 
 ## The perf harness
 
@@ -129,14 +148,19 @@ The **scene** (`src/debug/perfHarness.ts`), a pure function of time so two runs 
 play on the Range with an infinite magazine; the view sweeps ±28° across the targets every 4 s;
 automatic fire is held (tracers, impacts, decals, kill shatters, respawns); the player strafes
 every 1.5 s, jumps every 2.5 s (footsteps, landings) and takes 6 HP every 2 s (damage arcs,
-vignette, HP bar). 2 s of warm-up are not measured. Every frame's time and CPU time go into
+vignette, HP bar). Before the scene, 30 000 sim ticks of it run undrawn (the sim's JIT), then 14 s
+are drawn on a 64x36 canvas (the frame loop's JIT: a software renderer draws a handful of 1280x720
+frames a second, and code V8 has not yet compiled boxes every double); after the canvas is restored
+three frames settle, and none of this is measured. Every frame's time and CPU time go into
 preallocated buffers, so the harness adds no allocation of its own while it measures.
 
 The **report**: frames and ticks; average, p50, p99 and worst frame; the 1 % and 0.1 % low (the
 average fps over the slowest 1 % / 0.1 % of frames); the share of frames over the 6.94 ms budget;
 CPU time inside the frame callback; draw calls and triangles; and the JS heap: start and end, the
 growth of its floor (the minimum of each second, least-squares slope: a leak shows here, a
-sawtooth does not), bytes allocated per second and per frame, and the collections seen.
+sawtooth does not), bytes allocated per second (the sum of the rises, and the typical second:
+the median sample interval, which ignores the spikes of V8 compiling and of the browser's own
+work) and per frame, and the collections seen.
 
 **Smoke thresholds** (`SMOKE` in `perfHarness.ts`): average frame ≤ 500 ms, worst frame ≤ 5 s,
 heap floor growth ≤ 16 MB, at least 20 frames. Only a broken build fails them; the headless
@@ -146,8 +170,11 @@ for absolute frame rate**; judge 144 fps on real hardware (design §14.1, the re
 
 **Zero allocation in the browser:** the page cannot tell its sim's allocation from the renderer's,
 so the report gives the total (bytes/s and bytes/frame) and the floor growth, and the sim's share
-and sources come from the Node audit above. Today the scene allocates (see #152):
-the harness reports it rather than proving zero.
+and sources come from the Node audit above. To see where the page's allocation comes from, load the
+dev server in a browser with remote debugging, start `HeapProfiler.startSampling` (with
+`includeObjectsCollectedByMinorGC`) after the scene has warmed up and read the call tree: what is
+left after #152 is three.js's own per-frame work (uniform upload caches, the render-list sort and
+push, the frustum matrix; about 2 KiB per frame) and the per-shot / per-event handlers.
 
 ## CI
 

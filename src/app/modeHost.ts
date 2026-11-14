@@ -6,16 +6,18 @@ import type { Tunables } from '../config/tunables';
 import type { EnemyKind } from '../config/scoring';
 import type { WeaponId } from '../config/weapon';
 import { coldStart } from '../modes/coldStart';
-import type { AnchorSource, AxisValues, DialSource, StrafeSpawn, TargetSpawner } from '../modes/contracts';
+import type { AnchorSource, AxisValues, DialSource, EchoSpawn, StrafeSpawn, TargetSpawner } from '../modes/contracts';
 import type { ModeDef } from '../modes/modeDef';
 import { orbit } from '../modes/orbit';
 import { placement, type PlacementState } from '../modes/placement';
 import { sprayWall } from '../modes/sprayWall';
 import { strafeTrack } from '../modes/strafeTrack';
 import { stopAndPop } from '../modes/stopAndPop';
+import { sweep } from '../modes/sweep';
 import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
 import { economyShield } from '../sim/damage';
+import { FIRE_IDLE } from '../sim/enemyAi';
 import { rayBox } from '../sim/collision';
 import { MAPS } from '../sim/mapLoader';
 import type { MapDef } from '../sim/mapTypes';
@@ -32,6 +34,7 @@ export const MODES: Readonly<Record<string, ModeDef<never>>> = {
   sprayWall: sprayWall as ModeDef<never>,
   strafeTrack: strafeTrack as ModeDef<never>,
   stopAndPop: stopAndPop as ModeDef<never>,
+  sweep: sweep as ModeDef<never>,
 };
 
 /** A durable target's health: a spray cannot kill it. */
@@ -42,17 +45,35 @@ class WorldSpawner implements TargetSpawner {
   constructor(private readonly world: World, private readonly bus: EventBus<GameEvents>) {}
 
   /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. `durable` = Spray Wall's Post. */
-  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn, durable?: boolean): number {
+  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn, durable?: boolean, echo?: EchoSpawn): number {
     if (kind !== 'post' && kind !== 'beacon' && kind !== 'strafer' && kind !== 'peeker') return -1;
-    // A Strafer's numbers and lane go to the sim as given; the sim copies them at spawn.
+    // A Strafer's numbers and lane, a Peeker's anchor and the shooting numbers go to the sim as given; the sim copies them at spawn.
     const o: SpawnOptions = { scale };
     if (strafe) o.strafe = strafe;
     if (durable) o.hp = DURABLE_HP;
+    if (echo?.peek) o.peek = echo.peek;
+    if (echo?.fire) o.fire = echo.fire;
+    if (echo?.crouched) o.crouched = true;
     return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, o);
   }
 
   despawn(id: number): void {
     this.world.despawnTarget(id, this.bus);
+  }
+
+  /** The Echo's shooting model is in contact: it has the player in an unoccluded line, in range (`enemyFire.seesPlayer`). */
+  inSight(id: number): boolean {
+    const t = this.world.targetField.byId(id);
+    return t !== null && t.alive && t.ai.fireOn && t.ai.phase !== FIRE_IDLE;
+  }
+
+  position(id: number, out: Vec3): boolean {
+    const t = this.world.targetField.byId(id);
+    if (!t || !t.alive) return false;
+    out.x = t.pos.x;
+    out.y = t.pos.y;
+    out.z = t.pos.z;
+    return true;
   }
 }
 
@@ -129,6 +150,8 @@ export class ModeHost {
     this.runner = new ModeRunner({
       events: bus, tunables, dial, spawner: new WorldSpawner(world, bus), player: world.player,
       placePlayer: (x, y, z, yaw) => this.placePlayer(x, y, z, yaw),
+      vitals: world.health,
+      loadMap: (mapId) => (this.loadMap(mapId) ? this.anchors : null),
     });
     this.runner.attach(bus);
     this.anchors = this.anchorsOf(map);
@@ -156,14 +179,26 @@ export class ModeHost {
    * naming a map that is not shipped plays on the current one.
    */
   private loadMapFor(mode: ModeDef<never>): void {
-    const next = MAPS[mode.map];
-    if (!next || next === this.map) return;
+    this.loadMap(mode.map);
+  }
+
+  /**
+   * Load a shipped map in place (no-op when it is the loaded one): the sim's level, this host's
+   * anchors and, through `mapLoaded`, the level visuals. Also the run's own move between maps (Sweep
+   * sectors, `ModeContext.loadMap`): the player, his health and the run are untouched. False for an
+   * unknown map id.
+   */
+  loadMap(mapId: string): boolean {
+    const next = MAPS[mapId];
+    if (!next) return false;
+    if (next === this.map) return true;
     this.map = next;
     this.anchors = this.anchorsOf(next);
     this.world.setLevel(next);
     this.mapEv.tick = this.world.tick;
     this.mapEv.mapId = next.id;
     this.bus.emit('mapLoaded', this.mapEv);
+    return true;
   }
 
   start(id: string, opts: Partial<RunOptions> = {}): boolean {
