@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { audio, CUE_IDS, type CueId } from '../config/audio';
-import { dominantHz, energyAbove, peakDb, spectralCentroid } from './analysis';
+import { bandPeakDb, dominantHz, energyAbove, peakDb, spectralCentroid } from './analysis';
 import { renderSoundSet } from './cues';
 import { dbToGain, ladderStep, softLimiterCurve } from './mixer';
 
@@ -37,20 +37,52 @@ describe('sound set', () => {
     expect(peakDb(one('hitBody')) - peakDb(one('hitLeg'))).toBeCloseTo(6, 0);
   });
 
-  it('headshot and body hit are told apart by spectrum (tink above 1.5 kHz, thock not)', () => {
+  it('headshot and body hit are told apart by spectrum (tink at 3 kHz, thock energy below 1.5 kHz)', () => {
     const thock = energyAbove(one('hitBody'), SR, 1500);
     const tink = energyAbove(one('hitHead'), SR, 1500);
     expect(thock).toBeLessThan(0.03);
     expect(tink).toBeGreaterThan(0.2);
     expect(spectralCentroid(one('hitHead'), SR)).toBeGreaterThan(2 * spectralCentroid(one('hitBody'), SR));
-    expect(dominantHz(one('hitHead'), SR)).toBeGreaterThan(1500);
+    expect(dominantHz(one('hitHead'), SR)).toBeGreaterThan(2500); // R4: the tink at 3.0 kHz
     expect(dominantHz(one('hitBody'), SR)).toBeLessThan(400);
   });
 
-  it('leg thock is a semitone lower than the body thock', () => {
+  it('body thock carries its pitch above the small-speaker roll-off (#52 R2)', () => {
+    // 260 -> 150 Hz with the second harmonic: a fifth of the energy sits above 250 Hz (it was ~0 at 220 -> 110 Hz).
+    expect(energyAbove(one('hitBody'), SR, 250)).toBeGreaterThan(0.15);
+    expect(dominantHz(one('hitBody'), SR)).toBeGreaterThan(150);
+  });
+
+  it('the body click carries the hit above the weapon in the 2.5-4 kHz band (#52 R3)', () => {
+    const click = bandPeakDb(one('hitBody'), SR, 2500, 4000);
+    expect(click).toBeGreaterThan(-23);
+    expect(click).toBeLessThan(-17); // about -20 dBFS, some 8 dB under the thock
+    // In the mix a hit ducks the weapons bus (`audio.duck.db`, -3 dB) on the same tick as the shot.
+    for (const shot of ['shotPace', 'shotKestrel'] as const) {
+      expect(click - (bandPeakDb(one(shot), SR, 2500, 4000) + audio.duck.db), shot).toBeGreaterThanOrEqual(10);
+    }
+  });
+
+  it('leg is weaker than body in pitch, level, length and attack (#52 R1)', () => {
     const ratio = dominantHz(one('hitBody'), SR) / dominantHz(one('hitLeg'), SR);
-    expect(ratio).toBeGreaterThan(1.03);
-    expect(ratio).toBeLessThan(1.09);
+    expect(ratio).toBeGreaterThan(1.12); // 3 semitones = 1.19
+    expect(ratio).toBeLessThan(1.26);
+    expect(peakDb(one('hitBody')) - peakDb(one('hitLeg'))).toBeGreaterThanOrEqual(5.5);
+    expect(one('hitLeg').length).toBeLessThan(0.7 * one('hitBody').length); // 35 ms vs 60 ms
+    // No click: nothing in the click band, where the body has it.
+    expect(bandPeakDb(one('hitLeg'), SR, 2500, 4000)).toBeLessThan(bandPeakDb(one('hitBody'), SR, 2500, 4000) - 20);
+  });
+
+  it('keeps the three cue families in separate bands, at least 3 ERB apart (#52 R4)', () => {
+    const erb = (hz: number): number => 21.4 * Math.log10((4.37 * hz) / 1000 + 1);
+    const thock = dominantHz(one('hitBody'), SR);
+    const ladderLo = dominantHz(set.kill.variants[0]!, SR);
+    const ladderHi = dominantHz(set.kill.variants[set.kill.variants.length - 1]!, SR);
+    const tink = dominantHz(one('hitHead'), SR);
+    expect(ladderLo).toBeGreaterThan(430);
+    expect(ladderHi).toBeLessThan(1120);
+    expect(erb(ladderLo) - erb(thock)).toBeGreaterThanOrEqual(3);
+    expect(erb(tink) - erb(ladderHi)).toBeGreaterThanOrEqual(3);
   });
 
   it('the kill ladder rises monotonically across its 8 pentatonic steps', () => {

@@ -33,7 +33,7 @@ export const placement: ModeDef<PlacementState> = {
   weapon: 'kestrel',
   player: { standAt: 'beacon-shell', lockMovement: true, infiniteMagazine: true },
   durationSec: modeCfg.placement.durationSec,
-  axes: ['beaconScale', 'flickMinDeg', 'flickMaxDeg', 'distance', 'exposureSec'],
+  axes: ['beaconScale', 'flickMinDeg', 'flickMaxDeg', 'distance', 'orbitExposureSec', 'coldStartExposureSec'],
   // The dial is the staircase's, not a beat's: one beat for the whole run, flat.
   beatSec: null,
   waveCurve: [0],

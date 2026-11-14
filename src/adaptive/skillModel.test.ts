@@ -120,7 +120,7 @@ describe('MatchedDifficulty (DifficultyModel seam)', () => {
     const m = new MatchedDifficulty(s, 'orbit', [0]);
     const d = m.beat(0);
     expect(m.level).toBeCloseTo(d / 100, 9);
-    expect(m.axes.flickMinDeg).toBeCloseTo(20 + 0.7 * d, 9);
+    expect(m.axes.flickMinDeg).toBeCloseTo(20 + 0.4 * d, 9);
     m.recordOutcome(true);
     expect(s.trialCount('flick')).toBe(1);
     const sweep = new MatchedDifficulty(s, 'sweep');

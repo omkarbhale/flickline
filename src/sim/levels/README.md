@@ -30,5 +30,5 @@ Vectors are `[x, y, z]` metres, +Y up, yaw 0 looks down -Z. Unknown properties a
 ## Range
 
 54 x 24 m hall, 8 m ceiling, spawn at the south end (z = 25) looking north, so distances from the spawn are `25 - z`:
-posts at 6/10/15/20/30/40 m (5 angles each, tag `band-N`) plus 3 beside the pillars (tag `pillar`); the `beacon-shell` (8-25 m) is centred in the middle of the hall, so the Orbit mode moves the player to its `centre`;
+posts at 6/10/15/20/30/40 m (tag `band-N`; 9 angles 15° apart at 6 and 10 m so Cold Start always has a Post 5-25° from the crosshair, 5 angles at the other bands) plus 3 beside the pillars (tag `pillar`); the `beacon-shell` (8-25 m) is centred in the middle of the hall, so the Orbit mode moves the player to its `centre`;
 3 `strafe-lane`s at 12/22/33 m; 3 `spray-alcove`s (niches in the north wall; the player fires from `stand` at the `post` 12/20/28 m away); 5 sphere targets at 5/10/20/30/50 m; floor ticks every 5 m (thicker every 10 m).
