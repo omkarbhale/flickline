@@ -3,6 +3,7 @@ import { DEG2RAD } from '../core/math';
 import type { Rng } from '../core/rng';
 import { TICK_DT } from '../core/time';
 import { directionFromAngles, vec3, type Vec3 } from '../core/vec3';
+import type { MovementTunables } from '../config/movement';
 import type { WeaponDef, WeaponId, WeaponRules, WeaponTable } from '../config/weapon';
 import { rayBox } from './collision';
 import { createAimInfo, nearestAimTarget, type AimInfo } from './aim';
@@ -311,6 +312,8 @@ export interface WeaponWorld {
   field: TargetField;
   table: WeaponTable;
   rules: WeaponRules;
+  /** Movement tunables: the walk fractions the movement-error ramp shares with the walk speeds. */
+  move: MovementTunables;
   rng: Rng;
   /** A mode without a loadout ignores `switchTo` (design §4: swapping belongs to Sweep). */
   swapLocked: boolean;
@@ -453,7 +456,7 @@ function fire(
   const landing = time - w.landTime < rules.landingSpreadSec - EPS ? rules.landingSpreadAddDeg : 0;
   const spreadDeg =
     accum * stanceMult +
-    movementErrorDeg(def, rules, speed / def.runSpeedMps, p.crouching, airborne) +
+    movementErrorDeg(def, world.move, speed / def.runSpeedMps, p.crouching, airborne) +
     landing;
 
   // Direction: view + recoil offset, then a random point in the spread cone (half-angle, spec §3.3;
