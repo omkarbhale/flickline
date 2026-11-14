@@ -58,7 +58,7 @@ Every item names the methods it needs. Evidence goes in the sheet's notes column
 
 **C2 · Real-time capture at a known rate.** Screen-record at 60 fps or more, or point a phone in 240 fps slow motion at the screen. Write the capture rate on the sheet: timing resolution is one capture frame. Use it for "does this look right in motion" items, and (with an input event visible, such as a mouse button LED) for end-to-end latency. Your own footage is evidence for the sheet; keep it out of the repo unless a still frame is needed in a PR, and keep it of Flickline only.
 
-**C3 · Spray and recoil measurement.** `npm run human-check` (about 4 s, no browser): 200 seeded full-magazine sprays per weapon with the per-bullet climb, sideways kick, yaw switch rate, a burst-pause-tap reset table, and the movement, tagging and flinch curves. In the page: `__flickline.spray(weapon, n)` returns each bullet's shot and impact; the Spray Wall mode draws the spray trace on the wall.
+**C3 · Spray and recoil measurement.** `npm run human-check` (about 4 s, no browser): 200 seeded full-magazine sprays per weapon with the per-bullet climb, sideways kick, yaw switch rate, a burst-pause-tap reset table, and the movement, tagging and flinch curves. In the page: `__flickline.spray(weapon, n)` returns each bullet's shot and impact; the Spray Wall mode, while it exists, draws the spray trace on the wall.
 
 **C4 · Movement trace.** `f.runScript([{ ticks: 64, input: { moveX: 1 } }, { ticks: 1, input: { moveX: -1 } }, ...])` with `f.state().player` (position, velocity, grounded, crouching, view angles) read after each step; or the `movement` block of `npm run human-check`. Identical scripts give identical `f.hash()`, so a trace can be re-run after a tuning change.
 
@@ -97,8 +97,8 @@ Public descriptions are qualitative: the spray rifles climb almost straight up f
 - **Sources:** the reference fixes its weapons to a 128 Hz tick, so fire rates quantise the same way ([128-tick post][128tick]; spec §1.4).
 
 #### RC4 · Pitch-up, then the sideways break · critical · Ref · M R
-- **Look / listen for:** A held spray rises almost straight for the first several bullets, then breaks sideways, then the climb flattens. The break is readable on the wall: you can point at the bullet where the pattern turns. On Spray Wall the trace shows a recognisable shape, not a scribble.
-- **Evidence:** C3 (mean climb and sideways per bullet; first sideways bullet; yaw switches), the Spray Wall trace, and `spray(weapon, 30)` impacts plotted at 10 m.
+- **Look / listen for:** A held spray rises almost straight for the first several bullets, then breaks sideways, then the climb flattens. The break is readable on the wall: you can point at the bullet where the pattern turns. On a wall test (the Spray Wall trace while that mode exists) the pattern shows a recognisable shape, not a scribble.
+- **Evidence:** C3 (mean climb and sideways per bullet; first sideways bullet; yaw switches), the Spray Wall trace if present, and `spray(weapon, 30)` impacts plotted at 10 m.
 - **0 / 1 / 2:** **0** no straight-up phase or no sideways break, or the pattern is noise. **1** both phases exist but the turn is soft, too early or too late by more than two bullets against the public descriptions. **2** the turn lands where the public descriptions put it (within one to two bullets) and a person with the reference says it reads the same (R).
 - **Sources:** [a 100-spray test][win-spray] ("hard snap" after bullet 6 or 7 for the precise rifle), [PCGamesN][pcgamesn] ("straight down, then flick to the left at the ninth or tenth shot" for the spray rifle), [valoranttracker][vtracker], [patch 11.08][p11.08] for the switch rules. The sources disagree on shape and none gives degrees, so this item is **R** for a 2.
 
@@ -136,7 +136,7 @@ Public descriptions are qualitative: the spray rifles climb almost straight up f
 
 ## 5. Movement (MV)
 
-Spec §2 owns the numbers (equipped run speeds, the two-band braking, acceleration time, deadzone, jump, eye heights). These items ask whether starting, stopping, reversing and jumping *feel* like the reference game's. Note that [#73](https://github.com/omkarbhale/flickline/issues/73) already tracks that the first-playable movement is much snappier than the spec; the checklist judges the feel; #73 fixes the numbers.
+Spec §2 owns the numbers (equipped run speeds, the two-band braking, acceleration time, deadzone, jump, eye heights). These items ask whether starting, stopping, reversing and jumping *feel* like the reference game's. The first-playable movement was much snappier than the spec (`docs/reviews/human-check-1.md` Q4); [#73](https://github.com/omkarbhale/flickline/issues/73) applied the spec's model afterwards, so re-run `npm run human-check` before scoring and do not reuse those old measurements. The checklist judges the feel; the numbers belong to #61.
 
 The best public evidence is a Riot designer's stop test, not a feel description: a counter-strafe stops a running rifle in about the time the spec records, and letting go of the keys or counter-strafing is faster than holding a walk key ([Riot developer reply][devtrack]). Acceleration, friction and air control are not public (spec §2.3, §2.6), so several items are **R**.
 
@@ -189,7 +189,7 @@ The best public evidence is a Riot designer's stop test, not a feel description:
 - **Sources:** no public eye height (spec §2.7, estimates); spec §1.4 (render at the display rate with interpolation); architecture #54 §4 (every moving thing keeps `prev*` copies).
 
 #### MV9 · Crouch · Ref · M H
-- **Look / listen for:** Crouching lowers the view over a short smooth transition, not a one-frame pop (the first-playable pop is tracked in [#73](https://github.com/omkarbhale/flickline/issues/73)). Crouched, you are slower, a little more accurate and have a lower hitbox; standing up under a low ceiling is blocked without a jolt.
+- **Look / listen for:** Crouching lowers the view over a short smooth transition, not a one-frame pop (the first-playable hull flipped in one tick, `docs/reviews/human-check-1.md` Q4; check whether that is still so). Crouched, you are slower, a little more accurate and have a lower hitbox; standing up under a low ceiling is blocked without a jolt.
 - **Evidence:** C1 horizon per tick through a crouch down and up; C4 speed.
 - **0 / 1 / 2:** **0** the eye moves in one tick, or standing up under a ceiling clips. **1** smooth, but the duration reads too fast or slow. **2** smooth and correct.
 - **Sources:** spec §2.7 (0.15 s transition is a PLACEHOLDER); [Riot hit registration post][hitreg] (hitboxes follow the pose).
@@ -310,7 +310,7 @@ Public descriptions of the reference's cues are thin. One report describes its o
 
 #### HK9 · Level and comfort over a long streak · Own · M H
 - **Look / listen for:** The cues are loud enough to act on and never painful; after twenty kills in a row the player is not tired by the chime.
-- **Evidence:** C5 peaks against the design mix; C7 a 60-second Orbit run with sound on.
+- **Evidence:** C5 peaks against the design mix; C7 a 60-second run of Sweep fights with sound on.
 - **0 / 1 / 2:** **0** painful, or the limiter engages. **1** a person would turn it down. **2** comfortable.
 - **Sources:** design §12 mix.
 
@@ -340,7 +340,7 @@ Hit markers, target reactions and being hit. The reference's own markers come fr
 
 #### HR3 · Nothing covers the crosshair or the target · critical · Own (guard rail) · M
 - **Look / listen for:** No marker, burst, number or tracer covers the crosshair or the head-height area above it for more than a single frame, and the head of the target stays visible.
-- **Evidence:** C1 over a kill and the next target appearing in Orbit: pixel coverage of the aim area per frame.
+- **Evidence:** C1 over a kill and the next enemy appearing right after it (in Sweep, or any scene that spawns the next target within a quarter of a second): pixel coverage of the aim area per frame.
 - **0 / 1 / 2:** **0** the aim area is covered for more than one frame. **1** a single frame. **2** none.
 - **Sources:** vision principle 8; issue [#176](https://github.com/omkarbhale/flickline/issues/176).
 
@@ -619,7 +619,7 @@ Defaults are what the scorer assumes until someone with the reference game answe
 | 9 | Which display and audio output should a pass assume? | Wired headphones or desktop speakers at 144 Hz or above for a confirmed verdict. The sheet header records what was used; a different device is a different pass. | Yes |
 | 10 | Who may score? | `M` items: an agent. `H` items: a person; an agent leaves them unscored. `R` items: a person with the reference game. The sheet says who did what. | Yes |
 | 11 | Are the scoped (sniper) items judged now? | No. Longnail is later (design §6); scoped FOV, scoped sensitivity and scope in/out timing are added as new items when it ships, so they are `n/a` until then. | Yes |
-| 12 | A cue fades with the player's skill (design §7.4). Which state is scored? | The default state (every cue shown). The cue-free clean run is checked once for HR3 and VW5 only. | Yes |
+| 12 | A cue fades with the player's skill (design §7.4). Which state is scored? | The default state (every cue shown). The cue-free opening sector of a session (design §7.4) is checked once, for HR3 and VW5 only. | Yes |
 
 Items that **cannot be judged without the reference game side by side**, collected: RC2, RC4, RC5, MV1, MV2, MV6, SS5, HR6, HR7, VW1 (every `R` tag in the sheet). A scorer without the reference game scores these provisionally.
 
