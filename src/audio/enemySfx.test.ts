@@ -72,13 +72,13 @@ describe('attachEnemySfx', () => {
   it('is silent for an enemy that is not in the field', () => {
     const { bus, calls } = setup();
     bus.emit('enemyTell', { tick: 1, id: 99, durationMs: 200 });
-    bus.emit('enemyFired', { tick: 2, id: 99, hit: false, dir: unit(0, 0, 1) });
+    bus.emit('enemyFired', { tick: 2, id: 99, hit: false, dir: unit(0, 0, 1), audibleToPlayer: true });
     expect(calls).toEqual([]);
   });
 
   it('plays the enemy shot at the enemy on a hit, with no whiz and no extra sound', () => {
     const { bus, calls } = setup();
-    bus.emit('enemyFired', { tick: 1, id: 7, hit: true, dir: unit(-10, 0.3, 20) });
+    bus.emit('enemyFired', { tick: 1, id: 7, hit: true, dir: unit(-10, 0.3, 20), audibleToPlayer: true });
     expect(calls.map((c) => c.cue)).toEqual(['enemyShot']);
     expect(calls[0]!.at).toMatchObject({ x: 10, y: 1.3, z: -20 });
   });
@@ -87,7 +87,7 @@ describe('attachEnemySfx', () => {
     // Enemy straight ahead at 20 m, player facing it. Aim 0.6 m to the player's right (+X) and 0.6 m to the left.
     for (const side of [1, -1]) {
       const { bus, calls } = setup({ 7: vec3(0, 1.3, -20) });
-      bus.emit('enemyFired', { tick: 1, id: 7, hit: false, dir: unit(side * 0.6, 0.3, 20) });
+      bus.emit('enemyFired', { tick: 1, id: 7, hit: false, dir: unit(side * 0.6, 0.3, 20), audibleToPlayer: true });
       expect(calls.map((c) => c.cue)).toEqual(['enemyShot', 'whiz']);
       const w = calls[1]!.at!;
       expect(Math.sign(w.x)).toBe(side);
@@ -100,23 +100,23 @@ describe('attachEnemySfx', () => {
 
   it('skips the whiz for a miss that passed far away or moved off behind the muzzle', () => {
     const far = setup({ 7: vec3(0, 1.3, -20) });
-    far.bus.emit('enemyFired', { tick: 1, id: 7, hit: false, dir: unit(8, 0, 20) }); // passes ~8 m wide
+    far.bus.emit('enemyFired', { tick: 1, id: 7, hit: false, dir: unit(8, 0, 20), audibleToPlayer: true }); // passes ~8 m wide
     expect(far.calls.map((c) => c.cue)).toEqual(['enemyShot']);
     const away = setup({ 7: vec3(0, 1.3, -20) });
-    away.bus.emit('enemyFired', { tick: 1, id: 7, hit: false, dir: unit(0, 0, -1) });
+    away.bus.emit('enemyFired', { tick: 1, id: 7, hit: false, dir: unit(0, 0, -1), audibleToPlayer: true });
     expect(away.calls.map((c) => c.cue)).toEqual(['enemyShot']);
   });
 
   it('keeps a whiz off the exact centre of the head', () => {
     const { bus, calls } = setup({ 7: vec3(0, 1.6, -20) });
-    bus.emit('enemyFired', { tick: 1, id: 7, hit: false, dir: unit(0.01, 0, 20) }); // a hair off the centre
+    bus.emit('enemyFired', { tick: 1, id: 7, hit: false, dir: unit(0.01, 0, 20), audibleToPlayer: true }); // a hair off the centre
     const w = calls[1]!.at!;
     expect(Math.hypot(w.x, w.y - 1.6, w.z)).toBeGreaterThanOrEqual(audio.whiz.minOffsetM - 1e-9);
   });
 
   it('plays the damage thud, centred in the head', () => {
     const { bus, calls } = setup();
-    bus.emit('playerDamaged', { tick: 1, t: 0, amount: 20, absorbed: 0, hp: 80, maxHp: 100, shield: 0, maxShield: 0, zone: 'body', dir: vec3(0, 0, -1), yaw: 0, sourceId: 7, killed: false });
+    bus.emit('playerDamaged', { tick: 1, t: 0, amount: 20, absorbed: 0, hp: 80, maxHp: 100, shield: 0, maxShield: 0, zone: 'body', dir: vec3(0, 0, -1), yaw: 0, sourceId: 7, killed: false, exposedTo: 1 });
     expect(calls).toMatchObject([{ cue: 'damageThud', at: null }]);
   });
 });
