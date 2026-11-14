@@ -1,4 +1,7 @@
 import type { Game } from '../app/game';
+import type { PlayLogEntry, PlayOptions } from '../audio/audioEngine';
+import type { SoundSetStats } from '../audio/audioEngine';
+import type { CueId } from '../config/audio';
 import type { TickInput } from '../sim/types';
 
 export interface ScriptStep {
@@ -39,7 +42,13 @@ export interface FlicklineDebug {
   /** Frame/tick/draw stats. */
   perf(): unknown;
   /** Update a setting through the real store. */
-  setSetting(key: 'sensitivity' | 'dpi' | 'volume' | 'quality', value: number | string): void;
+  setSetting(key: 'sensitivity' | 'dpi' | 'volume' | 'weaponsVolume' | 'hitsVolume' | 'enemiesVolume' | 'uiVolume' | 'quality', value: number | string): void;
+  /** Play a cue through the real engine (needs the context unlocked by a user gesture, see audioUnlock). */
+  playCue(cue: CueId, opts?: PlayOptions): void;
+  /** Create/resume the audio context without a click (headless checks). */
+  audioUnlock(): void;
+  /** Audio state: running, voices, sound-set render stats, and the most recent plays (what was scheduled where). */
+  audio(count?: number): { running: boolean; voices: number; stats: SoundSetStats | null; plays: PlayLogEntry[] };
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
   /** Live tunables object (mutate for experiments; not persisted). */
@@ -104,6 +113,20 @@ export function installDebugHook(game: Game): FlicklineDebug {
     },
     setSetting(key, value) {
       game.settings.set({ [key]: value } as never);
+    },
+    playCue(cue, opts) {
+      game.audio.play(cue, opts);
+    },
+    audioUnlock() {
+      game.audio.resume();
+    },
+    audio(count = 16) {
+      return {
+        running: game.audio.running,
+        voices: game.audio.activeVoices,
+        stats: game.audio.stats,
+        plays: game.audio.recentPlays(count),
+      };
     },
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);

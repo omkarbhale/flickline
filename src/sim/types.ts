@@ -82,13 +82,20 @@ export interface LevelDef {
   targets: TargetSpawn[];
 }
 
+/** Humanoid hit zone (design 5.1). Sphere-only targets have no zones, so events omit it (treated as body). */
+export type HitZone = 'head' | 'body' | 'leg';
+
 /** Events the simulation emits. Payloads are read-only and valid only during the callback. */
 export interface SimEvents {
-  shotFired: { tick: number; origin: Vec3; dir: Vec3 };
+  /**
+   * `weapon` (weapon id) and `moving` (fired above the accuracy speed threshold) are optional until
+   * the weapon simulation (#14) sets them; audio and feedback treat absent as the default weapon / not moving.
+   */
+  shotFired: { tick: number; origin: Vec3; dir: Vec3; weapon?: string; moving?: boolean };
   /** Where a shot ended (world surface, target, or max range). */
   shotImpact: { tick: number; point: Vec3; normal: Vec3; onTarget: boolean; distance: number };
-  targetHit: { tick: number; targetId: number; point: Vec3; damage: number; hpLeft: number; distance: number };
-  targetKilled: { tick: number; targetId: number; point: Vec3; distance: number };
+  targetHit: { tick: number; targetId: number; point: Vec3; damage: number; hpLeft: number; distance: number; zone?: HitZone };
+  targetKilled: { tick: number; targetId: number; point: Vec3; distance: number; zone?: HitZone };
   targetRespawned: { tick: number; targetId: number };
   playerJumped: { tick: number };
   playerLanded: { tick: number; impactSpeed: number };

@@ -1,3 +1,4 @@
+import type { FeedbackEvents } from '../feedback/events';
 import type { SettingsEvents } from '../settings/settings';
 import type { SimEvents } from '../sim/types';
 
@@ -8,4 +9,4 @@ export interface AppEvents {
 }
 
 /** Everything that flows over the single shared bus. Add new event maps here. */
-export type GameEvents = SimEvents & SettingsEvents & AppEvents;
+export type GameEvents = SimEvents & FeedbackEvents & SettingsEvents & AppEvents;

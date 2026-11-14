@@ -12,7 +12,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "audio:snapshot": "AUDIO_SNAPSHOT_DIR=docs/audio vitest run src/audio/snapshot.test.ts"
   },
   "dependencies": {
     "three": "^0.187.0"
