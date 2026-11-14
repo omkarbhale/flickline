@@ -1,3 +1,19 @@
-# flickline
+# Flickline
 
-A first-person aim and movement trainer with tactical-shooter gunplay, instant feedback, and skill-matched difficulty.
+A first-person aim and movement trainer with tactical-shooter gunplay, instant feedback, and skill-matched difficulty. Browser game: TypeScript, three.js (WebGL), Vite, hosted on GitHub Pages.
+
+## Run
+
+```
+npm install
+npm run dev         # play at http://127.0.0.1:5173/ (click to lock the mouse)
+npm run typecheck
+npm test
+npm run build       # production build in dist/
+```
+
+Controls: WASD move, Space jump, Ctrl/C crouch, Shift walk, left mouse shoot, Esc menu/settings, backtick debug overlay.
+
+## Contributing
+
+Read the architecture issue in full before touching code: [Architecture and conventions (read first)](https://github.com/omkarbhale/flickline/issues/54). Work is tracked in GitHub issues and pull requests.
