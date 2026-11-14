@@ -1,40 +1,37 @@
 import type { Subscribable } from '../core/eventBus';
-import type { SessionStats } from '../feedback/sessionStats';
-import type { WeaponTable } from '../config/weapon';
 import { colorToHex, type CrosshairParams } from '../settings/crosshair';
 import type { SettingsEvents } from '../settings/settings';
-import type { SimEvents, WeaponState } from '../sim/types';
+import type { ModeEvents } from '../modes/contracts';
+import type { SimEvents } from '../sim/types';
 import { CrosshairView } from './crosshairView';
+import { LiveHud, type LiveHudDeps } from './liveHud';
 
 /**
- * In-game overlay: crosshair, hit marker, session counters. DOM is written only from events
- * (never per frame). The hit marker restarts a CSS animation by toggling a class.
+ * In-game overlay: crosshair, hit marker and the live HUD (`LiveHud`: timer, score, counters, stat
+ * strip, ghost-pace, edge meter, ammo). DOM is written only from events and on change (never per
+ * frame, except the run clock in `update()`). The hit marker restarts a CSS animation by swapping
+ * the animation name, which needs no forced reflow.
  */
 export class Hud {
   private readonly hitMarker: HTMLElement;
-  private readonly counters: HTMLElement;
-  private readonly ammo: HTMLElement;
+  private hitFlip = false;
   readonly root: HTMLElement;
   /** The crosshair canvas; redraws only on change (see `CrosshairView`). */
   readonly crosshair: CrosshairView;
+  /** The live readouts (design §7.2, §13.1). */
+  readonly live: LiveHud;
 
   constructor(
     root: HTMLElement,
-    bus: Subscribable<SimEvents & SettingsEvents>,
-    private readonly stats: SessionStats,
+    bus: Subscribable<SimEvents & SettingsEvents & ModeEvents>,
     crosshair: Readonly<CrosshairParams>,
-    private readonly weapon: WeaponState,
-    private readonly weapons: WeaponTable,
+    liveDeps: LiveHudDeps,
   ) {
     this.root = root;
-    root.innerHTML = `
-      <div class="hitmarker"><i></i><i></i><i></i><i></i></div>
-      <div class="counters"></div>
-      <div class="ammo"></div>`;
+    root.innerHTML = `<div class="hitmarker"><i></i><i></i><i></i><i></i></div>`;
     this.hitMarker = root.querySelector('.hitmarker') as HTMLElement;
-    this.counters = root.querySelector('.counters') as HTMLElement;
-    this.ammo = root.querySelector('.ammo') as HTMLElement;
     this.crosshair = new CrosshairView(root, crosshair);
+    this.live = new LiveHud(root, bus, liveDeps);
     this.applyHitColor(crosshair);
 
     bus.on('settingsChanged', ({ settings, changed }) => {
@@ -48,13 +45,6 @@ export class Hud {
 
     bus.on('targetHit', () => this.flash(false));
     bus.on('targetKilled', () => this.flash(true));
-    bus.on('shotFired', () => this.refresh());
-    bus.on('targetHit', () => this.refresh());
-    bus.on('reloadStarted', () => this.refresh());
-    bus.on('reloadCompleted', () => this.refresh());
-    bus.on('reloadCancelled', () => this.refresh());
-    bus.on('weaponSwitched', () => this.refresh());
-    this.refresh();
   }
 
   private applyHitColor(p: Readonly<CrosshairParams>): void {
@@ -63,23 +53,20 @@ export class Hud {
 
   private flash(kill: boolean): void {
     const el = this.hitMarker;
-    el.classList.remove('show', 'kill');
-    void el.offsetWidth; // restart the animation
+    this.hitFlip = !this.hitFlip;
+    el.classList.toggle('flip', this.hitFlip);
     el.classList.add('show');
-    if (kill) el.classList.add('kill');
+    el.classList.toggle('kill', kill);
   }
 
-  /** Rewrite the counters and ammo text (called from events only). */
+  /** Re-read every live readout from its source (after a reset). */
   refresh(): void {
-    const s = this.stats;
-    this.counters.textContent = `KILLS ${s.kills}   ACC ${(s.accuracy * 100).toFixed(0)}%`;
-    const w = this.weapon;
-    const slot = w.slots[w.active];
-    if (!slot) return;
-    const name = this.weapons[slot.id].name.toUpperCase();
-    const mag = w.infiniteMagazine ? '\u221e' : String(slot.mag);
-    const reserve = w.infiniteReserve ? '\u221e' : String(slot.reserve);
-    this.ammo.textContent = `${name}   ${mag} / ${reserve}${w.reloadLeft > 0 ? '   RELOADING' : ''}`;
+    this.live.refreshAll();
+  }
+
+  /** Per frame: the run clock and ghost-pace bar. Cheap; writes the DOM only on change. */
+  update(): void {
+    this.live.update();
   }
 
   setVisible(v: boolean): void {

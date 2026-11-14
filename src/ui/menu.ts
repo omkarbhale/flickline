@@ -3,6 +3,7 @@ import { QUALITY_LEVELS } from '../config/render';
 import type { Tunables } from '../config/tunables';
 import type { SettingsStore } from '../settings/settings';
 import { CrosshairEditor } from './crosshairEditor';
+import { HudSettingsPanel } from './hudSettings';
 
 /**
  * Start / pause menu with the settings panel. Shown whenever the pointer is not locked.
@@ -17,6 +18,7 @@ export class Menu {
   private readonly quality: HTMLSelectElement;
   private readonly title: HTMLElement;
   private readonly crosshair: CrosshairEditor;
+  private readonly hudPanel: HudSettingsPanel;
 
   constructor(
     root: HTMLElement,
@@ -39,6 +41,7 @@ export class Menu {
           <label>Graphics<select data-k="quality" name="quality" id="set-quality">${QUALITY_LEVELS.map((q) => `<option value="${q}">${q}</option>`).join('')}</select></label>
         </div>
         <details class="ch-editor"><summary>Crosshair</summary><div data-k="crosshair"></div></details>
+        <details class="ch-editor"><summary>HUD</summary><div data-k="hud"></div></details>
         <p class="note"></p>
         <p class="keys">WASD move · Space jump · Ctrl/C crouch · Shift walk · LMB shoot · R reload · \` debug overlay</p>
       </div>`;
@@ -49,6 +52,7 @@ export class Menu {
     this.vol = q('vol');
     this.quality = q('quality');
     this.crosshair = new CrosshairEditor(q('crosshair'), store);
+    this.hudPanel = new HudSettingsPanel(q('hud'), store);
     this.title = root.querySelector('[data-title]') as HTMLElement;
     (root.querySelector('.note') as HTMLElement).textContent = tunables.view.fovLockNote;
 
@@ -90,6 +94,7 @@ export class Menu {
     this.vol.value = String(s.volume);
     this.quality.value = s.quality;
     this.crosshair.sync();
+    this.hudPanel.sync();
   }
 
   setVisible(v: boolean): void {

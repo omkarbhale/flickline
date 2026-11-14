@@ -52,3 +52,34 @@ describe('settings', () => {
     expect(store.get().volume).toBe(0.1);
   });
 });
+
+describe('hud settings', () => {
+  it('default every element on at scale 1, and a stored partial object is completed', () => {
+    const s = sanitizeSettings({ hud: { scale: 1.2, show: { ghost: false, bogus: false } } });
+    expect(s.hud.scale).toBe(1.2);
+    expect(s.hud.show.ghost).toBe(false);
+    expect(s.hud.show.timer).toBe(true);
+    expect(Object.keys(s.hud.show)).not.toContain('bogus');
+    expect(sanitizeSettings(null).hud.show.edge).toBe(true);
+  });
+  it('clamps the scale and ignores non-boolean toggles', () => {
+    expect(sanitizeSettings({ hud: { scale: 99 } }).hud.scale).toBe(1.6);
+    expect(sanitizeSettings({ hud: { scale: -1 } }).hud.scale).toBe(0.6);
+    expect(sanitizeSettings({ hud: { scale: 'x', show: { acc: 'no' } } }).hud).toEqual(sanitizeSettings(null).hud);
+  });
+  it('a toggle persists, emits `hud` and does not mutate the defaults', () => {
+    const bus = new EventBus<SettingsEvents>();
+    const seen: string[][] = [];
+    bus.on('settingsChanged', (e) => seen.push([...e.changed]));
+    const st = memoryStorage();
+    const store = new SettingsStore(bus, st);
+    const h = structuredClone(store.get().hud);
+    h.show.rt = false;
+    store.set({ hud: h });
+    expect(seen).toEqual([['hud']]);
+    store.set({ hud: structuredClone(h) });
+    expect(seen.length).toBe(1);
+    expect(new SettingsStore(new EventBus<SettingsEvents>(), st).get().hud.show.rt).toBe(false);
+    expect(DEFAULT_SETTINGS.hud.show.rt).toBe(true);
+  });
+});

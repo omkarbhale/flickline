@@ -8,6 +8,8 @@ import { attachSfx } from '../audio/sfx';
 import { attachUiSounds } from '../audio/uiSounds';
 import { DebugOverlay } from '../debug/overlay';
 import { PerfStats } from '../debug/perfStats';
+import { EdgeMeter } from '../feedback/edgeMeter';
+import { LiveStats } from '../feedback/liveStats';
 import { SessionStats } from '../feedback/sessionStats';
 import type { ModeEvents } from '../modes/contracts';
 import { Hud } from '../hud/hud';
@@ -54,6 +56,9 @@ export class Game {
   readonly overlay: DebugOverlay;
   readonly perf = new PerfStats();
   readonly session = new SessionStats();
+  /** The stat tracker the HUD stat strip reads (design 14.3); #13's tracker replaces it behind `HudStatsSource`. */
+  readonly liveStats: LiveStats;
+  readonly edge: EdgeMeter;
   readonly modes: ModeHost;
   readonly stepper = new FixedStepper(TICK_DT, 8);
 
@@ -98,12 +103,25 @@ export class Game {
     this.applyAudioSettings(s);
     // Feedback producers (stats, later streaks) subscribe before presentation (attachSfx), so the kill chime reads the updated streak.
     this.session.attach(this.bus);
+    this.liveStats = new LiveStats(this.tunables.hud);
+    this.liveStats.attach(this.bus);
+    this.edge = new EdgeMeter(this.tunables.hud);
+    this.edge.attach(this.bus);
     // The mode runner is a feedback producer too: it emits `streakUpdated` before the kill chime reads it.
     this.modes = new ModeHost(this.world, this.bus, this.map, this.tunables);
     attachSfx(this.bus, this.audio, this.tunables.audio);
     attachUiSounds(document, this.audio);
 
-    this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair, this.world.weapon, this.tunables.weapon);
+    this.hud = new Hud(hudRoot, this.bus, s.crosshair, {
+      stats: this.liveStats,
+      edge: this.edge,
+      clock: this.modes,
+      hud: this.tunables.hud,
+      streakCap: this.tunables.scoring.streakCap,
+      settings: s.hud,
+      weapon: this.world.weapon,
+      weapons: this.tunables.weapon,
+    });
     this.menu = new Menu(menuRoot, this.settings, this.tunables, () => this.play());
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
@@ -200,6 +218,7 @@ export class Game {
     this.input.endFrame(ticks);
     this.perf.ticksLastFrame = ticks;
 
+    this.hud.update();
     this.drawFrame(this.stepper.alpha, dt);
     this.perf.endFrame();
     this.overlay.update(ts);
@@ -317,6 +336,8 @@ export class Game {
     this.modes.stop();
     this.world.reset(seed);
     this.session.reset();
+    this.liveStats.reset();
+    this.edge.reset();
     this.hud.refresh();
     this.input.setLook(this.world.player.yaw, 0);
     this.stepper.reset();

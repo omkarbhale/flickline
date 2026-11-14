@@ -1,6 +1,7 @@
 import type { EventSink } from '../core/eventBus';
 import { QUALITY_LEVELS, type QualityLevel } from '../config/render';
 import { clamp } from '../core/math';
+import { cloneHud, DEFAULT_HUD, hudEquals, sanitizeHud, type HudSettings } from './hud';
 import { cloneCrosshair, crosshairEquals, DEFAULT_CROSSHAIR, sanitizeCrosshair, type CrosshairParams } from './crosshair';
 
 export interface Settings {
@@ -18,6 +19,8 @@ export interface Settings {
   quality: QualityLevel;
   /** Crosshair appearance (design 13.2). Replaced as a whole by `set`. */
   crosshair: CrosshairParams;
+  /** Live HUD element visibility and scale (design 13.1). Replaced as a whole by `set`. */
+  hud: HudSettings;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -30,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   uiVolume: 1,
   quality: 'medium',
   crosshair: DEFAULT_CROSSHAIR,
+  hud: DEFAULT_HUD,
 };
 
 export interface SettingsEvents {
@@ -46,7 +50,7 @@ export const SETTINGS_KEY = 'flickline.settings.v1';
 
 /** Validate + clamp arbitrary input into a full, safe Settings object. */
 export function sanitizeSettings(raw: unknown): Settings {
-  const out: Settings = { ...DEFAULT_SETTINGS, crosshair: cloneCrosshair(DEFAULT_CROSSHAIR) };
+  const out: Settings = { ...DEFAULT_SETTINGS, crosshair: cloneCrosshair(DEFAULT_CROSSHAIR), hud: cloneHud(DEFAULT_HUD) };
   if (typeof raw !== 'object' || raw === null) return out;
   const r = raw as Record<string, unknown>;
   const num = (v: unknown, lo: number, hi: number, fallback: number): number =>
@@ -62,11 +66,13 @@ export function sanitizeSettings(raw: unknown): Settings {
     out.quality = r.quality as QualityLevel;
   }
   out.crosshair = sanitizeCrosshair(r.crosshair);
+  out.hud = sanitizeHud(r.hud);
   return out;
 }
 
-function settingEquals(a: Settings[keyof Settings], b: Settings[keyof Settings]): boolean {
-  if (typeof a === 'object' && typeof b === 'object') return crosshairEquals(a, b);
+function settingEquals<K extends keyof Settings>(key: K, a: Settings[K], b: Settings[K]): boolean {
+  if (key === 'crosshair') return crosshairEquals(a as CrosshairParams, b as CrosshairParams);
+  if (key === 'hud') return hudEquals(a as HudSettings, b as HudSettings);
   return a === b;
 }
 
@@ -94,7 +100,7 @@ export class SettingsStore {
 
   set(patch: Partial<Settings>): void {
     const next = sanitizeSettings({ ...this.current, ...patch });
-    const changed = (Object.keys(next) as (keyof Settings)[]).filter((k) => !settingEquals(next[k], this.current[k]));
+    const changed = (Object.keys(next) as (keyof Settings)[]).filter((k) => !settingEquals(k, next[k], this.current[k]));
     if (changed.length === 0) return;
     this.current = next;
     try {
