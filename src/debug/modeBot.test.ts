@@ -61,7 +61,7 @@ function play(id: string, o: Partial<BotOptions> = {}): Omit<ReturnType<typeof p
 }
 
 /** [mode, min trials, max trials] over a full run for a human-paced aimer (design §4: ~45 / ~70 / 25-30 for a slower first run). */
-const EXPECTED: [string, number, number][] = [['coldStart', 35, 60], ['orbit', 50, 90], ['placement', 25, 50]];
+const EXPECTED: [string, number, number][] = [['coldStart', 35, 60], ['orbit', 50, 90], ['placement', 25, 50], ['strafeTrack', 40, 110]];
 
 describe('scripted aimer plays each mode for a full run', () => {
   for (const [id, lo, hi] of EXPECTED) {
@@ -82,6 +82,32 @@ describe('scripted aimer plays each mode for a full run', () => {
       expect(play(id, { seed: 8 }).hash).not.toBe(a.hash);
     });
   }
+
+  it('Strafe Track at dial 10 and 90 runs with the parameters the dial sets (design §9.4), and the same dial and seed repeat exactly', () => {
+    const at = (dial: number) => {
+      const h = headless();
+      const r = playMode(h.host, 'strafeTrack', { seed: 7, pinDial: dial });
+      return { r, axes: h.mode.status().axes };
+    };
+    const lo = at(10);
+    const hi = at(90);
+    expect(lo.axes.strafeSpeed).toBeCloseTo(2.0 + 3.4 * 0.1, 9);
+    expect(hi.axes.strafeSpeed).toBeCloseTo(2.0 + 3.4 * 0.9, 9);
+    expect(hi.axes.strafeLegSec).toBeLessThan(lo.axes.strafeLegSec!);
+    expect(hi.axes.standStillSec).toBeLessThan(lo.axes.standStillSec!);
+    expect(hi.axes.strafeLimitSec).toBeLessThan(lo.axes.strafeLimitSec!);
+    expect(hi.axes.distance).toBeGreaterThan(lo.axes.distance!);
+    expect(hi.axes.density).toBeGreaterThan(lo.axes.density!);
+    for (const x of [lo, hi]) {
+      expect(x.r.phase).toBe('result');
+      expect(x.r.score).toBeGreaterThan(0);
+      expect(x.r.trials).toBeGreaterThanOrEqual(40);
+      expect(x.r.trials).toBeLessThanOrEqual(110);
+    }
+    // The harder dial is harder on the same aimer: fewer of the Strafers die within their limit.
+    expect(hi.r.trialsWon / hi.r.trials).toBeLessThan(lo.r.trialsWon / lo.r.trials);
+    expect(at(10).r.hash).toBe(lo.r.hash);
+  });
 
   it('every trial carries its first-bullet data, and flick error is recorded for Orbit', () => {
     const o = play('orbit');

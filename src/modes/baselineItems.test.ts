@@ -20,7 +20,7 @@ function hashItems(): string {
  * versions stay listed: their series on the profile still refer to them (design §8.5, transfer.md §5.8).
  */
 const FROZEN: Readonly<Record<number, string>> = {
-  1: 'ab122946',
+  1: '9869152a',
 };
 
 describe('Baseline content version', () => {

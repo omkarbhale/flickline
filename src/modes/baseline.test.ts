@@ -2,35 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { axes } from '../adaptive/dial';
 import { BASELINE_SKILLS } from '../config/baseline';
 import { BASELINE_ITEMS } from '../config/baselineItems';
-import { cloneTunables, tunables } from '../config/tunables';
+import { tunables } from '../config/tunables';
 import { DEG2RAD } from '../core/math';
-import { angleDeg, directionTo } from './aim';
-import { baseline, baselineLevelFor, buildBaselineSequence, isBaselineDue, type BaselineLevels, type BaselineState } from './baseline';
+import { baselineLevelFor, buildBaselineSequence, isBaselineDue, type BaselineLevels } from './baseline';
 import { generateBaselineItems } from './baselineGen';
-import { directionFromAngles, vec3 } from '../core/vec3';
-import { aimAt, EYE, hall, kill, READY, shot, TABLE, targetOf, untilTarget } from './drillSupport';
-import { makeHarness, type Harness } from './testHarness';
 
 const LEVELS: BaselineLevels = { flick: 45, precision: 45 };
 const HOUR = 3_600_000;
-
-function startBaseline(seed: number, levels: BaselineLevels = LEVELS): Harness {
-  const h = makeHarness(TABLE, 45);
-  h.runner.begin(baseline, { seed, anchors: hall(), levels, pinDial: 45 });
-  h.step(READY);
-  return h;
-}
-
-/** Play the trial now up like a perfect player: aim, first-bullet head hit, kill. */
-function win(h: Harness): void {
-  untilTarget(h, 2000);
-  const t = targetOf(h);
-  aimAt(h, t.pos, t.kind === 'post' ? h.tunables.targets.hit.headCentreStand : 0);
-  h.step(20);
-  shot(h, t.id, true);
-  kill(h, t.id, 'head');
-  h.targets.delete(t.id);
-}
 
 const stat = (xs: number[]): [number, number] => {
   const m = xs.reduce((a, b) => a + b, 0) / xs.length;
@@ -186,137 +164,5 @@ describe('the daily shuffle', () => {
     const post = plan.filter((p) => p.skill === 'precision');
     expect(flick[0]!.item.scale).toBeCloseTo(axes(15).beaconScale, 3);
     expect(post[0]!.item.exposureSec).toBeCloseTo(axes(90).coldStartExposureSec, 3);
-  });
-});
-
-describe('the Baseline run', () => {
-  it('is a fixed-count hybrid on the Range with the Kestrel, movement locked, no beats or wave', () => {
-    expect(baseline.skills).toEqual(['flick', 'precision']);
-    expect(baseline.map).toBe('range');
-    expect(baseline.weapon).toBe('kestrel');
-    expect(baseline.durationSec).toBe(Infinity);
-    expect(baseline.beatSec).toBeNull();
-    expect(baseline.waveCurve).toEqual([0]);
-    expect(baseline.player?.lockMovement).toBe(true);
-    expect(baseline.trialSource).toBe('baseline');
-    expect(baseline.referenceLike).toBe(true);
-  });
-
-  it('places every item at its angle from the crosshair, at its scale, on the side the shuffle chose', () => {
-    const seed = 9;
-    const h = startBaseline(seed);
-    const plan = buildBaselineSequence(seed, LEVELS);
-    const view = vec3();
-    const dir = vec3();
-    for (let i = 0; i < 40; i++) {
-      // The view as the trial starts: the player is looking at the last kill.
-      untilTarget(h, 2000);
-      const t = targetOf(h);
-      const item = plan[i]!.item;
-      const centre = vec3(t.pos.x, t.pos.y + (t.kind === 'post' ? h.tunables.targets.hit.headCentreStand : 0), t.pos.z);
-      // (the view moved on after the spawn; the trial's own record has the geometry)
-      const rec = h.log.filter((l) => l.type === 'skillTrial').length;
-      expect(rec).toBe(i);
-      expect(t.kind).toBe(plan[i]!.skill === 'flick' ? 'beacon' : 'post');
-      if (t.kind === 'beacon') expect(t.scale).toBeCloseTo(item.scale, 6);
-      directionFromAngles(view, h.player.yaw, h.player.pitch);
-      directionTo(dir, EYE, centre);
-      const a = angleDeg(view, dir);
-      if (t.kind === 'beacon') expect(a).toBeCloseTo(item.angleDeg, 3);
-      else {
-        // A Post's pitch is fixed by its distance: a view looking up cannot be as near as the item says, so the angle is widened, never narrowed.
-        const pPost = Math.asin((centre.y - EYE.y) / Math.hypot(centre.x - EYE.x, centre.y - EYE.y, centre.z - EYE.z)) / DEG2RAD;
-        expect(a).toBeGreaterThanOrEqual(item.angleDeg - 1e-3);
-        expect(a).toBeLessThanOrEqual(Math.max(item.angleDeg, Math.abs(pPost - h.player.pitch / DEG2RAD)) + 1e-3);
-      }
-      const dist = Math.hypot(centre.x - EYE.x, centre.y - EYE.y, centre.z - EYE.z);
-      expect(dist).toBeLessThanOrEqual(item.distance + 1e-6);
-      if (dist < item.distance - 1e-6) expect(dist).toBeGreaterThanOrEqual(item.distance * 0.3); // shrunk to fit the hall, never to nothing
-      // Left of the crosshair = positive yaw offset.
-      const yawOff = Math.atan2(-(centre.x - EYE.x), -(centre.z - EYE.z)) - h.player.yaw;
-      const wrapped = Math.atan2(Math.sin(yawOff), Math.cos(yawOff));
-      // (the other side is used only when the hall cannot hold this one)
-      expect(Math.sign(wrapped) === item.side || Math.abs(wrapped) < 1e-6).toBe(true);
-      aimAt(h, t.pos, t.kind === 'post' ? h.tunables.targets.hit.headCentreStand : 0);
-      h.step(10);
-      shot(h, t.id, true);
-      kill(h, t.id, 'head');
-      h.targets.delete(t.id);
-    }
-  });
-
-  it('ends when the 40th trial resolves, not on a clock, with 40 tagged skillTrials at the levels', () => {
-    const h = startBaseline(4, { flick: 30, precision: 60 });
-    for (let i = 0; i < 39; i++) {
-      win(h);
-      expect(h.runner.phase).toBe('live');
-    }
-    h.step(120 * 128); // time passing does not end it
-    expect(h.runner.phase === 'live' || h.events('skillTrial').length === 40).toBe(true);
-    if (h.runner.phase === 'live') {
-      win(h);
-    }
-    expect(h.runner.phase).toBe('result');
-    expect(h.events('runEnded')[0]!.reason).toBe('complete');
-    const trials = h.events('skillTrial');
-    expect(trials).toHaveLength(40);
-    expect(trials.every((t) => t.source === 'baseline')).toBe(true);
-    trials.forEach((t, i) => {
-      expect(t.skill).toBe(i % 2 === 0 ? 'flick' : 'precision');
-      expect(t.itemDifficulty).toBe(i % 2 === 0 ? 30 : 60);
-    });
-    expect(h.events('beatStarted')).toHaveLength(1); // no adaptation: one flat beat
-    expect(h.dialCalls).toEqual([]); // the pinned run never asks the skill model
-  });
-
-  it('a player who never shoots still finishes: every trial times out', () => {
-    const h = makeHarness(TABLE, 45);
-    h.runner.begin(baseline, { seed: 2, anchors: hall(), levels: LEVELS, pinDial: 45 });
-    h.step(READY);
-    for (let i = 0; i < 400 * 128 && h.runner.phase === 'live'; i++) h.step(1);
-    expect(h.runner.phase).toBe('result');
-    const trials = h.events('skillTrial');
-    expect(trials).toHaveLength(40);
-    expect(trials.every((t) => t.success === false)).toBe(true);
-    expect((h.runner.state as BaselineState).resolved).toBe(40);
-  });
-
-  it('is deterministic for a seed', () => {
-    const run = (seed: number): string => {
-      const h = startBaseline(seed);
-      for (let i = 0; i < 12; i++) win(h);
-      return JSON.stringify(h.log);
-    };
-    expect(run(21)).toBe(run(21));
-    expect(run(21)).not.toBe(run(22));
-  });
-
-  it('reports exposure from the item, not the dial', () => {
-    const h = startBaseline(6, { flick: 90, precision: 90 });
-    untilTarget(h, 2000);
-    const first = buildBaselineSequence(6, { flick: 90, precision: 90 })[0]!.item;
-    // The Beacon leaves after its stored exposure (floored), not before.
-    const t = targetOf(h);
-    h.step(Math.floor((first.exposureSec - 0.1) * 128));
-    expect(h.targets.has(t.id)).toBe(true);
-    h.step(Math.ceil(0.2 * 128) + 2);
-    expect(h.targets.has(t.id)).toBe(false);
-  });
-
-  it('every placement is fair: no target nearer than the floors', () => {
-    const t = cloneTunables();
-    const h = startBaseline(14);
-    for (let i = 0; i < 40; i++) {
-      untilTarget(h, 2000);
-      const x = targetOf(h);
-      const head = x.pos.y + (x.kind === 'post' ? t.targets.hit.headCentreStand : 0);
-      expect(Math.hypot(x.pos.x, head - EYE.y, x.pos.z)).toBeGreaterThanOrEqual(t.dial.floors.spawnMinDistance);
-      aimAt(h, x.pos, x.kind === 'post' ? t.targets.hit.headCentreStand : 0);
-      h.step(5);
-      shot(h, x.id, true);
-      kill(h, x.id, 'head');
-      h.targets.delete(x.id);
-    }
-    expect(h.runner.refusedSpawns).toBe(0);
   });
 });

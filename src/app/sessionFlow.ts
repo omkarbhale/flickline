@@ -3,7 +3,7 @@ import { SKILL_IDS, type DialTunables, type SkillId } from '../config/dial';
 import type { MenuTunables } from '../config/menu';
 import type { RunEndReason } from '../modes/contracts';
 import { planSession, SessionQueue, stepReason, type SessionCandidate, type SessionStep } from '../modes/todaysSession';
-import type { PlayLog } from '../settings/playLog';
+import type { PlayLogReads } from '../settings/playLog';
 import type { SkillState } from '../adaptive/skillModel';
 import { buildSessionView, titleFromId, type RegisteredMode, type SessionView } from '../ui/menuModel';
 
@@ -34,7 +34,7 @@ export class SessionFlow {
   constructor(
     bus: SessionBus,
     private readonly modes: SessionModes,
-    private readonly playLog: PlayLog,
+    private readonly playLog: PlayLogReads,
     private readonly menu: MenuTunables,
     private readonly dial: DialTunables,
   ) {

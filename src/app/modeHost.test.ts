@@ -132,97 +132,45 @@ describe('ModeHost on the real sim', () => {
     }
   });
 
-  describe('the Daily Baseline', () => {
-    function baselineRig(seed: number) {
-      const tunables = cloneTunables();
-      const world = new World({ level: rangeMap, tunables, seed });
-      const bus = new EventBus<GameEvents>();
-      const host = new ModeHost(world, bus, rangeMap, tunables);
-      const trials: { skill: string; source?: string; itemDifficulty: number; success: boolean }[] = [];
-      let ended: string | null = null;
-      bus.on('skillTrial', (e) => trials.push({ skill: e.skill, source: e.source, itemDifficulty: e.itemDifficulty, success: e.success }));
-      bus.on('runEnded', (e) => (ended = e.reason));
+  it('keeps benchmark trials out of the matched posterior (a mode with trialSource baseline, design 8.5)', () => {
+    const tunables = cloneTunables();
+    const world = new World({ level: rangeMap, tunables, seed: 5 });
+    const bus = new EventBus<GameEvents>();
+    const host = new ModeHost(world, bus, rangeMap, tunables);
+    const modes = MODES as Record<string, ModeDef<never>>;
+    modes['__bench'] = { ...(testMode as ModeDef<never>), trialSource: 'baseline' };
+    const sources: (string | undefined)[] = [];
+    bus.on('skillTrial', (e) => sources.push(e.source));
+    try {
+      const before = host.skills.rating('precision');
+      expect(host.start('__bench', { seed: 5 })).toBe(true);
       const input = createTickInput();
       const c = vec3();
-      /** A bot that aims at the live target's head and fires once it has settled; ticks until the run ends. */
-      const play = (maxTicks: number): void => {
-        for (let i = 0; i < maxTicks && host.runner.phase !== 'result'; i++) {
-          input.fire = false;
-          for (const t of world.targets) {
-            if (!t.alive) continue;
-            zoneCentre(c, t, tunables.targets.hit, tunables.targets.kinds[t.kind], 'head');
-            const p = world.player;
-            const dx = c.x - p.pos.x, dy = c.y - (p.pos.y + p.eyeHeight), dz = c.z - p.pos.z;
-            input.yaw = Math.atan2(-dx, -dz);
-            input.pitch = Math.asin(dy / Math.hypot(dx, dy, dz));
-            input.fire = host.runner.phase === 'live' && i % 50 === 0;
-            break;
-          }
-          world.step(input, bus);
-          host.tick();
+      for (let i = 0; i < 128 * 8; i++) {
+        input.fire = false;
+        for (const t of world.targets) {
+          if (!t.alive) continue;
+          zoneCentre(c, t, tunables.targets.hit, tunables.targets.kinds[t.kind], 'head');
+          const p = world.player;
+          const dx = c.x - p.pos.x, dy = c.y - (p.pos.y + p.eyeHeight), dz = c.z - p.pos.z;
+          input.yaw = Math.atan2(-dx, -dz);
+          input.pitch = Math.asin(dy / Math.hypot(dx, dy, dz));
+          input.fire = host.runner.phase === 'live' && i % 40 === 0;
+          break;
         }
-      };
-      return { host, world, bus, tunables, trials, play, ended: () => ended };
+        world.step(input, bus);
+        host.tick();
+      }
+      expect(sources.length).toBeGreaterThan(2);
+      expect(sources.every((x) => x === 'baseline')).toBe(true);
+      expect(host.skills.trialCount('precision')).toBe(0);
+      expect(host.skills.rating('precision')).toBe(before);
+      // A matched trial (any other mode, or no tag) still feeds it.
+      bus.emit('skillTrial', { tick: 1, t: 0, skill: 'precision', itemDifficulty: 40, success: true, source: 'matched' });
+      bus.emit('skillTrial', { tick: 1, t: 0, skill: 'precision', itemDifficulty: 40, success: true });
+      expect(host.skills.trialCount('precision')).toBe(2);
+    } finally {
+      delete modes['__bench'];
     }
-
-    it('runs 40 trials on the real sim and ends complete, on the Kestrel, movement locked', () => {
-      const r = baselineRig(3);
-      expect(r.host.start('baseline', { seed: 3 })).toBe(true);
-      expect(r.world.weapon.slots[r.world.weapon.active]!.id).toBe('kestrel');
-      expect(r.world.movementLocked).toBe(true);
-      r.play(128 * 400);
-      expect(r.host.runner.phase).toBe('result');
-      expect(r.ended()).toBe('complete');
-      expect(r.trials).toHaveLength(40);
-      expect(r.trials.every((t) => t.source === 'baseline')).toBe(true);
-      expect(r.host.status().baseline).toMatchObject({ version: 1, started: 40, resolved: 40, of: 40 });
-      expect(r.host.status().refusedSpawns).toBe(0);
-    });
-
-    it('is deterministic for a seed, and two seeds play different sequences', () => {
-      const run = (seed: number) => {
-        const r = baselineRig(seed);
-        r.host.start('baseline', { seed });
-        r.play(128 * 400);
-        return { hash: r.world.hash(), trials: JSON.stringify(r.trials) };
-      };
-      expect(run(8)).toEqual(run(8));
-      expect(run(8).hash).not.toBe(run(9).hash);
-    });
-
-    it('never feeds the matched posterior, while a matched trial still does', () => {
-      const r = baselineRig(5);
-      const before = [r.host.skills.rating('flick'), r.host.skills.rating('precision')];
-      r.host.start('baseline', { seed: 5 });
-      r.play(128 * 400);
-      expect(r.host.skills.trialCount('flick')).toBe(0);
-      expect(r.host.skills.trialCount('precision')).toBe(0);
-      expect([r.host.skills.rating('flick'), r.host.skills.rating('precision')]).toEqual(before);
-      r.bus.emit('skillTrial', { tick: 1, t: 0, skill: 'flick', itemDifficulty: 40, success: true, source: 'matched' });
-      r.bus.emit('skillTrial', { tick: 1, t: 0, skill: 'flick', itemDifficulty: 40, success: true });
-      expect(r.host.skills.trialCount('flick')).toBe(2);
-    });
-
-    it('takes each skill\'s level from its matched dial until the series exists (highest level at or below it)', () => {
-      const r = baselineRig(1);
-      const sk = r.host.skills;
-      // Cold start prior: dial 40 -> flick matched 40 - 7.6 = 32.4 -> level 30; precision 40 - 0.9 = 39.1 -> 30.
-      expect(r.host.baselineLevels()).toEqual({ flick: 30, precision: 30 });
-      for (let i = 0; i < 80; i++) sk.observe('flick', { itemDifficulty: 70, success: true });
-      const matched = sk.targetDial('flick', 0.7);
-      expect(matched).toBeGreaterThan(60);
-      const level = r.host.baselineLevels().flick;
-      expect(level).toBeLessThanOrEqual(matched);
-      expect(matched - level).toBeLessThan(15);
-      expect(r.host.baselineLevels(52)).toEqual({ flick: 45, precision: 45 }); // a pinned dial stands in for both
-    });
-
-    it('scores each item at its own level and runs the trials at the levels', () => {
-      const r = baselineRig(2);
-      r.host.start('baseline', { seed: 2, pinDial: 61 });
-      r.play(128 * 400);
-      expect(r.trials.every((t) => t.itemDifficulty === 60)).toBe(true);
-      expect(r.host.status().baseline!.levels).toEqual({ flick: 60, precision: 60 });
-    });
   });
 });

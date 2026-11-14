@@ -1,5 +1,6 @@
 import { defineFeature } from '../app/feature';
 import { MODES } from '../app/modeHost';
+import { PLACEMENT_MODE } from '../modes/placement';
 import '../feedback/cuePlanner'; // declares the cueScheduleSet event
 import { ResultsRecorder, type CardModel, type RatedSkill } from '../feedback/results';
 import { keyLabel } from '../settings/keys';
@@ -11,7 +12,7 @@ declare module '../debug/hook' {
      * End-of-run results card (design 8.2). `state()` reads whether it is open, the card's data and the
      * measured timings (ms from `runEnded` to the DOM being written, and to the next painted frame; key press
      * to the first drawn `ready` frame of the next run). `playAgain()` is the `Enter` path. `pb(n)` installs a
-     * fake personal best score for the PB delta (`null` removes it).
+     * fake personal best score for the PB line (`null` = no personal best yet).
      */
     readonly results: {
       state(): { open: boolean; card: CardModel | null; buildMs: number; appearMs: number; restartToFrameMs: number; budgetMs: number };
@@ -61,19 +62,28 @@ export const feature = defineFeature({
     game.bus.on('cueScheduleSet', (e) => {
       clean = e.clean;
     });
-    let pb: number | null = null;
+    // The best the run has to beat, read at `runReady`: the progress producer records the run (and a new best)
+    // before this presentation feature builds the card, so reading it at `runEnded` would compare a run with itself.
+    let before: number | null = null;
+    // A playtest's fake best (`results.pb`); undefined = the real one.
+    let fake: number | null | undefined;
+    const noBest = game.tunables.progress.noBestModes;
+    game.bus.on('runReady', (e) => {
+      before = noBest.includes(e.mode) ? null : (game.progress.bestAt(e.mode, e.dial)?.score ?? null);
+    });
     const recorder = new ResultsRecorder({
       bus: game.bus,
       run: game.run,
       ratings: game.modes.skills,
       skillOf,
-      pb: { best: () => pb },
+      pb: { best: () => (fake === undefined ? before : fake), keepsBest: (mode) => !noBest.includes(mode) },
       onCard: (model) => {
         card.setPlayLabel(game.nextRunLabel());
         card.show(model, endedAt);
       },
       onNewRun: () => card.hide(),
       isClean: () => clean,
+      firstRating: (mode) => mode === PLACEMENT_MODE,
     });
     game.onReset(() => {
       if (game.run.state !== 'result') card.hide();
@@ -97,7 +107,7 @@ export const feature = defineFeature({
         }),
         playAgain: () => game.playAgain(performance.now()),
         pb(score) {
-          pb = score;
+          fake = score;
         },
       },
     });

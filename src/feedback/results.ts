@@ -52,6 +52,8 @@ export interface RatingView {
   /** Index into the tier table of the rating after the run (for the badge colour). */
   tierIndex: number;
   tierShift: 'up' | 'down' | 'same';
+  /** The player's first rating (the Placement run): there is no "before" worth showing, only the prior it started from. */
+  first: boolean;
   /** Progress 0..1 through the current sub-tier. */
   progress: number;
   progressText: string;
@@ -87,9 +89,13 @@ export interface CardModel {
   clean: boolean;
   score: string;
   scoreValue: number | null;
-  /** `—` without a personal best. */
+  /** The score against the best it had to beat ("+345"); `—` without a personal best. */
   pbText: string;
   pbTone: Tone;
+  /** Whether this run set a personal best: the first on the board (`first`), beat the old one (`beat`), or neither. */
+  pbKind: 'first' | 'beat' | 'none';
+  /** The line the card prints under the score ("New personal best", "−655 vs personal best"); empty when there is nothing to say. */
+  pbLabel: string;
   /** Null when the run does not move a rating (a plain run). */
   rating: RatingView | null;
   stats: StatCell[];
@@ -111,17 +117,22 @@ export interface ResultsInput {
   /** The mode's score; null for a run that does not score. */
   score: number | null;
   /** Dial-scale ratings (0-100) before and after, for the skill the run moves; null if none. */
-  rating: { skill: RatedSkill; before: number; after: number } | null;
+  rating: { skill: RatedSkill; before: number; after: number; first?: boolean } | null;
   /** Personal best score for this mode and dial band before this run, or null. */
   pb: number | null;
   medals: readonly string[];
   /** The run was a clean run (default false). */
   clean?: boolean;
+  /** Whether the mode keeps personal bests at all (default true; the Placement run does not). */
+  keepsBest?: boolean;
 }
 
 /** Where the card gets a personal best from (#38 provides the real one). */
 export interface PbSource {
+  /** The best the run had to beat: as it stood BEFORE the run, whether or not the run has been recorded yet. */
   best(mode: string, dial: number): number | null;
+  /** Whether the mode keeps personal bests (default true). */
+  keepsBest?(mode: string): boolean;
 }
 
 /** The skill model's side: `SkillState` satisfies it. */
@@ -280,6 +291,13 @@ function metricCell(id: MetricId, s: RunStats): StatCell {
     }
     case 'flickError':
       return { id, label: 'Flick error', value: formatDeg(s.flickErrorMeanAbsDeg), hint: s.flickCount > 0 ? `${s.flickCount} flicks` : '' };
+    case 'leadError': {
+      // + = the crosshair ran ahead of the Strafer (leading), - = behind it (lagging); design §3, §4.3.
+      const b = s.leadErrorBiasDeg;
+      const value = b === null ? DASH : `${b >= 0 ? '+' : '−'}${Math.abs(b).toFixed(1)}°`;
+      const hint = b === null ? '' : Math.abs(b) < 0.5 ? 'on the line' : b > 0 ? 'you lead the target' : 'you lag behind';
+      return { id, label: 'Lead error', value, hint };
+    }
     case 'timeOnTarget':
       return { id, label: 'Time on target', value: formatPercent(s.timeOnTarget), hint: 'of the run' };
     case 'stopLatency':
@@ -288,6 +306,8 @@ function metricCell(id: MetricId, s: RunStats): StatCell {
       return { id, label: 'Head height', value: formatDeg(s.headHeightDisciplineDeg), hint: 'off head level, lower is better' };
     case 'bestChain':
       return { id, label: 'Best chain', value: s.kills === 0 ? DASH : String(s.maxChain), hint: 'kills in a row, 1.5 s apart' };
+    case 'cleanStreak':
+      return { id, label: 'Clean streak', value: s.kills === 0 ? DASH : String(s.maxCleanStreak), hint: 'kills in a row, no miss' };
     case 'cleanKills':
       return { id, label: 'Clean kills', value: s.kills === 0 ? DASH : String(s.cleanKills), hint: s.kills > 0 ? `of ${s.kills} kills` : '' };
   }
@@ -303,7 +323,10 @@ export function statCells(s: RunStats, cfg: ResultsTunables = defaultResults): S
     // Research P1 (docs/research/human-performance.md): this is visible-to-shot, which includes the aim movement,
     // so the player-facing name is "time to shot", never "reaction time".
     { id: 'timeToShot', label: 'Time to shot', value: formatMs(s.medianRtMs), hint: 'median' },
-    { id: 'ttk', label: 'Time to kill', value: formatMs(s.medianTtkMs), hint: 'median' },
+    // One-bullet modes have no time to kill to speak of (first shot to death is ~0 ms): another tile takes its place.
+    cfg.oneBulletModes.includes(s.mode)
+      ? metricCell(cfg.oneBulletTile, s)
+      : { id: 'ttk', label: 'Time to kill', value: formatMs(s.medianTtkMs), hint: 'median' },
     { id: 'movingShots', label: 'Moving shots', value: s.shots > 0 ? String(s.movingShots) : DASH, hint: movingShare === null ? '' : `${formatPercent(movingShare)} of shots` },
     { id: 'kills', label: 'Kills', value: String(s.kills), hint: s.kills > 0 ? `${s.cleanKills} clean` : '' },
     metricCell(keys[0], s),
@@ -320,21 +343,41 @@ function ratingView(r: NonNullable<ResultsInput['rating']>, cfg: ResultsTunables
   const ta = tierOf(r.after, createTierInfo());
   const delta = after - before;
   const top = ta.index === tunables.dial.tiers.length - 1;
+  const first = r.first === true;
   return {
     skill: cfg.skillLabels[r.skill] ?? titleCase(r.skill),
     before,
     after,
     delta,
-    deltaText: formatDelta(delta),
-    tone: toneOf(delta),
+    deltaText: first ? '' : formatDelta(delta),
+    tone: first ? 'none' : toneOf(delta),
     beforeTier: tb.label,
     afterTier: ta.label,
     tierIndex: ta.index,
-    tierShift: ta.index > tb.index || (ta.index === tb.index && ta.division > tb.division) ? 'up'
+    first,
+    tierShift: first ? 'same' : ta.index > tb.index || (ta.index === tb.index && ta.division > tb.division) ? 'up'
       : ta.index < tb.index || (ta.index === tb.index && ta.division < tb.division) ? 'down' : 'same',
     progress: ta.progress,
     progressText: top && ta.division === 0 ? 'Top tier' : `${Math.round(ta.progress * 100)}% to the next division`,
   };
+}
+
+/**
+ * The personal-best line. A run sets a best when it scores above the old one (or there is none), mirroring
+ * `beatsBest`; a run quit early is not recorded, so it never claims one. The first score on a board is a reward
+ * moment of its own (design §7.3), so it says so instead of a dash (#175).
+ */
+function pbView(input: ResultsInput, endReason: RunEndReason | null): Pick<CardModel, 'pbText' | 'pbTone' | 'pbKind' | 'pbLabel'> {
+  const none = { pbText: DASH, pbTone: 'none' as Tone, pbKind: 'none' as const, pbLabel: '' };
+  if (input.score === null || input.keepsBest === false) return none;
+  const recorded = endReason !== 'quit' && Math.round(input.score) > 0;
+  if (input.pb === null) {
+    return recorded ? { pbText: DASH, pbTone: 'good', pbKind: 'first', pbLabel: 'New personal best' } : none;
+  }
+  const d = input.score - input.pb;
+  const text = formatDelta(d);
+  if (recorded && Math.round(input.score) > input.pb) return { pbText: text, pbTone: 'good', pbKind: 'beat', pbLabel: `New personal best ${text}` };
+  return { pbText: text, pbTone: toneOf(d), pbKind: 'none', pbLabel: `${text} vs personal best` };
 }
 
 export function buildCard(input: ResultsInput, cfg: ResultsTunables = defaultResults): CardModel {
@@ -346,13 +389,7 @@ export function buildCard(input: ResultsInput, cfg: ResultsTunables = defaultRes
     else medals.set(id, { id, label: cfg.medalLabels[id] ?? titleCase(id), count: 1 });
   }
 
-  let pbText = DASH;
-  let pbTone: Tone = 'none';
-  if (input.score !== null && input.pb !== null) {
-    const d = input.score - input.pb;
-    pbText = formatDelta(d);
-    pbTone = toneOf(d);
-  }
+  const pb = pbView(input, s.endReason);
 
   return {
     mode: s.mode,
@@ -364,8 +401,7 @@ export function buildCard(input: ResultsInput, cfg: ResultsTunables = defaultRes
     clean: input.clean === true,
     score: input.score === null ? DASH : formatThousands(input.score),
     scoreValue: input.score,
-    pbText,
-    pbTone,
+    ...pb,
     rating: input.rating ? ratingView(input.rating, cfg) : null,
     stats: statCells(s, cfg),
     medals: Array.from(medals.values()),
@@ -403,6 +439,8 @@ export interface ResultsRecorderDeps {
   onNewRun?(): void;
   /** Whether the run that just started is a clean run (read at `runEnded`). */
   isClean?(): boolean;
+  /** True for a mode whose result is the player's first rating (the Placement run): shown without a delta. */
+  firstRating?(mode: string): boolean;
 }
 
 /**
@@ -414,6 +452,7 @@ export class ResultsRecorder {
   last: CardModel | null = null;
   private skill: RatedSkill | null = null;
   private before = 0;
+  private first = false;
   private score: number | null = null;
   private medals: string[] = [];
   private readonly pbSource: PbSource;
@@ -425,6 +464,7 @@ export class ResultsRecorder {
     deps.bus.on('runReady', (e) => {
       this.skill = deps.skillOf(e.mode);
       this.before = this.skill === null ? 0 : deps.ratings.rating(this.skill);
+      this.first = deps.firstRating?.(e.mode) === true;
       this.score = null;
       this.medals = [];
       this.last = null;
@@ -440,7 +480,7 @@ export class ResultsRecorder {
   private finish(): void {
     const { run, ratings } = this.deps;
     const stats = run.liveStats();
-    const rating = this.skill === null ? null : { skill: this.skill, before: this.before, after: ratings.rating(this.skill) };
+    const rating = this.skill === null ? null : { skill: this.skill, before: this.before, after: ratings.rating(this.skill), first: this.first };
     const card = buildCard(
       {
         stats,
@@ -448,6 +488,7 @@ export class ResultsRecorder {
         score: this.score,
         rating,
         pb: this.pbSource.best(stats.mode, stats.dial),
+        keepsBest: this.pbSource.keepsBest?.(stats.mode) !== false,
         medals: this.medals,
         clean: this.deps.isClean?.() === true,
       },

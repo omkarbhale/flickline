@@ -1,6 +1,7 @@
 import type { Vec3 } from '../core/vec3';
 import type { EnemyKind } from '../config/scoring';
 import type { StreakEvents } from '../feedback/streaks';
+import type { SprayEvents } from '../sim/runEvents';
 import type { MapEvents } from '../sim/mapEvents';
 
 /**
@@ -42,10 +43,26 @@ export interface DialSource {
   axes(dial: number): AxisValues;
 }
 
+/** What a Strafer needs at spawn (the dial's numbers and the lane it runs along; design §4.3, §5.2). */
+export interface StrafeSpawn {
+  /** Cruise speed, m/s. */
+  speed: number;
+  /** Longest strafe leg and longest stand-still, seconds. */
+  legSec: number;
+  standStillSec: number;
+  /** The strafe line's ends (feet height). */
+  laneA: Vec3;
+  laneB: Vec3;
+}
+
 /** The enemy sim's side (#15): create and remove targets. */
 export interface TargetSpawner {
-  /** Create a target (humanoid: feet position; orb: centre); `scale` is ×real head size. Returns its id, or -1 when it could not be created. */
-  spawn(kind: EnemyKind, pos: Vec3, scale: number): number;
+  /**
+   * Create a target (humanoid: feet position; orb: centre); `scale` is ×real head size; `strafe`
+   * is for a Strafer. `durable` targets take any number of hits without dying (Spray Wall's Post).
+   * Returns its id, or -1 when it could not be created.
+   */
+  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn, durable?: boolean): number;
   despawn(id: number): void;
 }
 
@@ -64,6 +81,13 @@ export interface AnchorLike {
   /** Lane anchors (`strafe-lane`): the scheduler uses the midpoint as the position. */
   readonly a?: Vec3;
   readonly b?: Vec3;
+  /** Spray alcoves (`spray-alcove`): where to stand, which way to face (radians), where the Post stands, and the metres between them. */
+  readonly stand?: Vec3;
+  readonly yaw?: number;
+  readonly post?: Vec3;
+  readonly distance?: number;
+  /** Spray alcoves: the id of the wall panel box behind the Post. */
+  readonly panel?: string;
 }
 
 /** The map's side (#16): anchors and bounds. */
@@ -97,14 +121,14 @@ export type TrialExtra = Readonly<Record<string, number>>;
 
 /**
  * Where a `skillTrial` belongs: `matched` trials move the player's matched posterior (design §9);
- * `baseline` trials are the Daily Baseline's (design §8.5) and are never fed to it, so the
- * Baseline stays an independent measurement.
+ * `baseline` trials are the cold opener's benchmark (design §8.5) and are never fed to it, so the
+ * benchmark stays an independent measurement.
  */
 export type TrialSource = 'matched' | 'baseline';
 
 /**
- * One stored item of a fixed-content run (the Daily Baseline), placed relative to the crosshair when
- * its trial starts: `angleDeg` from the crosshair direction, the target's `pitchDeg` above the
+ * One stored benchmark item (`config/baselineItems.ts`, shuffled and mirrored per run by
+ * `buildBaselineSequence`), described relative to the crosshair: `angleDeg` from the crosshair direction, the target's `pitchDeg` above the
  * horizon, `distance` from the eye, an orb `scale` (x real head size) and the `exposureSec` it stays
  * up. `side` mirrors it: +1 puts it to the left of the crosshair, -1 to the right.
  */
@@ -149,6 +173,33 @@ export interface SourceEvents {
   playerStopped: { tick: number; latencyMs: number; counterStrafe: boolean };
 }
 
+/**
+ * Weapon facts for modes that judge bullets and magazines (Spray Wall). They arrive through
+ * `ModeDef.onWeapon`, separate from `ModeEvent`, so a mode that does not care never sees them.
+ */
+export interface WeaponSourceEvents {
+  /** A bullet left the gun: the fields a spray trace needs (the sim's payload carries more). */
+  shotFired: {
+    tick: number;
+    shotId: number;
+    /** Weapon id the bullet came from (a mode ignores bullets of a weapon it did not hand out). */
+    weapon: string;
+    /** Bullet direction, recoil and spread included. */
+    dir: Vec3;
+    /** View angles at the tick, radians (the crosshair). */
+    yaw: number;
+    pitch: number;
+    /** Recoil aim offset this bullet was fired with, degrees (pitch + = up, yaw + = right). */
+    recoilPitchDeg: number;
+    recoilYawDeg: number;
+    spreadDeg: number;
+    /** Rounds left after this shot. */
+    ammo: number;
+  };
+  reloadStarted: { tick: number };
+  reloadCompleted: { tick: number };
+}
+
 /** Run-level facts about the player the runner listens to (not mode events: modes never see them). */
 export interface PlayerSourceEvents {
   /** The player's HP reached 0: the run ends with reason `death` (design §14.3). */
@@ -156,7 +207,9 @@ export interface PlayerSourceEvents {
 }
 
 /** Events the framework emits. §14.3 names and payloads, plus `beatStarted` and `scoreAwarded`. */
-export interface ModeEvents extends StreakEvents, MapEvents {
+export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents {
+  /** The run moved the player (a mode with several stand points, Spray Wall): the view should face `yaw` again. */
+  playerPlaced: { tick: number; x: number; y: number; z: number; yaw: number };
   runReady: { tick: number; mode: ModeId; seed: number; dial: number };
   runStarted: { tick: number };
   runEnded: { tick: number; t: number; reason: RunEndReason };
@@ -171,7 +224,7 @@ export interface ModeEvents extends StreakEvents, MapEvents {
     success: boolean;
     rtMs?: number;
     extra?: TrialExtra;
-    /** Absent = `matched`. The mode's `trialSource` (the Baseline's trials are `baseline`). */
+    /** Absent = `matched`. The mode's `trialSource` (benchmark trials are `baseline`). */
     source?: TrialSource;
   };
   /** A kill was scored; `+score` floats from the kill. */

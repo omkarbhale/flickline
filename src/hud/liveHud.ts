@@ -46,6 +46,8 @@ export interface LiveHudDeps {
    * design §5.1) shows health and shield from the ready phase instead of from the first hit.
    */
   health?: Readonly<PlayerHealth>;
+  /** How long the health bar flashes when the player is hit, ms (design §7.1; `damageFx.hpFlashMs`). */
+  hpFlashMs?: number;
 }
 
 const ELEMENT_ATTR = 'data-el';
@@ -98,6 +100,8 @@ export class LiveHud {
   private lastPhase: HudClock['phase'] | '' = '';
   private lastTimerKey = NaN;
   private lastEdgeKey = NaN;
+  private readonly hpBars: HTMLElement;
+  private hpAlwaysShown = false;
   private hpFrac = NaN;
   private shFrac = NaN;
   private shMax = 0;
@@ -177,6 +181,8 @@ export class LiveHud {
     this.ghostText = el.ghost.querySelector('.lh-ghost-txt') as HTMLElement;
     this.edgeFill = el.edge.querySelector('i') as HTMLElement;
     this.edgeNum = v('edge');
+    this.hpBars = el.hp.querySelector('.lh-hp-bars') as HTMLElement;
+    if (d.hpFlashMs !== undefined) wrap.style.setProperty('--lh-hp-flash-ms', `${d.hpFlashMs}ms`);
     this.hpFill = el.hp.querySelector('.lh-hp-bar i') as HTMLElement;
     this.shBar = el.hp.querySelector('.lh-sh-bar') as HTMLElement;
     this.shFill = this.shBar.querySelector('i') as HTMLElement;
@@ -192,7 +198,11 @@ export class LiveHud {
     });
 
     // Health is shown from the first damage or heal of a run (modes with enemy fire), hidden again when a run is readied.
-    bus.on('playerDamaged', (e) => this.setHp(e.hp, e.maxHp, e.shield, e.maxShield));
+    bus.on('playerDamaged', (e) => {
+      this.setHp(e.hp, e.maxHp, e.shield, e.maxShield);
+      // The flash is a CSS animation; Reduce flashing switches it off there (styles.css).
+      restart(this.hpBars, 'lh-hit');
+    });
     bus.on('playerHealed', (e) => this.setHp(e.hp, e.maxHp, this.shNow, this.shMax));
     bus.on('runReady', () => this.onRunReady());
     bus.on('runStarted', () => { this.paceDirty = true; });
@@ -256,6 +266,18 @@ export class LiveHud {
       this.shNum.textContent = on ? String(Math.max(0, Math.ceil(shield))) : '';
     }
     this.el.hp.classList.remove('off');
+  }
+
+  /**
+   * Keep the health bar up from the start of a run, even at full health and without a shield
+   * (debug / playtest switch; modes with enemy fire show it from the first hit otherwise).
+   */
+  setHpAlwaysVisible(v: boolean): void {
+    this.hpAlwaysShown = v;
+    const h = this.d.health;
+    if (!h) return;
+    if (v || h.maxShield > 0 || h.hp < h.maxHp) this.setHp(h.hp, h.maxHp, h.shield, h.maxShield);
+    else this.setHp(null);
   }
 
   /** Per frame: the run clock and the ghost-pace bar. Allocation-free; writes only on change. */
@@ -352,7 +374,7 @@ export class LiveHud {
     this.setStreak(0, 1);
     const h = this.d.health;
     // A shielded fight shows its health and shield from the start (the shield is part of the plan).
-    if (h && h.maxShield > 0) this.setHp(h.hp, h.maxHp, h.shield, h.maxShield);
+    if (h && (h.maxShield > 0 || this.hpAlwaysShown)) this.setHp(h.hp, h.maxHp, h.shield, h.maxShield);
     else this.setHp(null);
     this.paceDirty = true;
     this.refreshStats(true);

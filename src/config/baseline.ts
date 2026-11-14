@@ -1,6 +1,6 @@
 /**
- * The Daily Baseline (design §8.5, `docs/research/transfer.md` §5). Tunables here; the stored item
- * lists are generated data in `baselineItems.ts` (`scripts/gen-baseline-items.mjs`).
+ * The benchmark behind the cold opener (design §8.5, `docs/research/transfer.md` §5). Tunables here;
+ * the stored item lists are generated data in `baselineItems.ts` (`scripts/gen-baseline-items.mjs`).
  *
  * `version` names the content: the item lists, the trial engines they drive and the dial axes they
  * are generated from. Any change to any of them is a new version and a new series on the profile
@@ -42,13 +42,10 @@ export interface BaselineTunables {
   /** Nearest a Cold-Start-style Post is stored: just outside the 5 m view-cone fairness floor (§9.3.5). */
   minPostDistanceM: number;
   /**
-   * Lowest an orb's centre is stored and placed above the floor (m). The shell's pitch law reaches
-   * -20 degrees, which at 8 m or more is under the floor: such orbs are left out of the lists and a
-   * placement that would go under is lifted to this height.
+   * Lowest an orb's centre is stored above the floor (m). The shell's pitch law reaches -20 degrees,
+   * which at 8 m or more is under the floor: such orbs are left out of the lists.
    */
   minBeaconHeightM: number;
-  /** A trial the placement cannot fit in the hall is shrunk towards the player in this many steps (distance only). */
-  fitSteps: number;
 }
 
 export const baseline: BaselineTunables = {
@@ -57,11 +54,10 @@ export const baseline: BaselineTunables = {
   levels: [15, 30, 45, 60, 75, 90],
   trialsPerSkill: 20,
   generatorSeed: 0xba5e1150,
-  matchedTargetSuccess: { flick: 0.7, precision: 0.55 },
+  matchedTargetSuccess: { flick: 0.7, precision: 0.7 },
   maxDistanceM: 25,
   minPostDistanceM: 5.05,
   minBeaconHeightM: 0.8,
-  fitSteps: 6,
 };
 
 /** This file's groups of `Tunables` (config/tunables.ts composes them). */

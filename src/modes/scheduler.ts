@@ -35,46 +35,6 @@ export interface SpawnQuery {
   aimOffsetY: number;
 }
 
-/**
- * Where to put one stored item (`placeFixed`): reuse one object per engine and mutate it. Angles in
- * degrees, distances in metres.
- */
-export interface FixedPlacement {
-  /** Great-circle angle from the crosshair direction. */
-  angleDeg: number;
-  /** Pitch of the target direction above the horizon (an orb); ignored when `lockPitch`. */
-  pitchDeg: number;
-  /** Nominal distance from the eye. */
-  distance: number;
-  /** +1 = left of the crosshair, -1 = right; the other side is tried when this one does not fit. */
-  side: 1 | -1;
-  /**
-   * The target's height is fixed (a Post's head on a standing body): its pitch follows from the
-   * distance (`headDy` metres above the eye), and an angle the view's pitch makes impossible is
-   * widened to the nearest one that works, instead of moving the target off the floor.
-   */
-  lockPitch: boolean;
-  headDy: number;
-  /** Lowest the target's centre may be above the player's floor (m): an orb's pitch is lifted to keep it there. */
-  minHeight: number;
-  /** Shortest distance the item may be shrunk to when it does not fit the hall. */
-  minDistance: number;
-  /** Distance steps from `distance` to `minDistance` (>= 1). */
-  fitSteps: number;
-}
-
-/** What `placeFixed` did, for the trial's record. */
-export interface FixedPlaced {
-  /** Side actually used (+1 left, -1 right). */
-  side: 1 | -1;
-  /** Degrees the angle (Post) or pitch (orb) had to move to be possible from the current view; 0 = exact. */
-  adjustDeg: number;
-}
-
-export function createFixedPlacement(): FixedPlacement {
-  return { angleDeg: 0, pitchDeg: 0, distance: 10, side: 1, lockPitch: false, headDy: 0, minHeight: 0, minDistance: 5, fitSteps: 6 };
-}
-
 export function createSpawnQuery(kind = 'post'): SpawnQuery {
   return { kind, minDist: 0, maxDist: Infinity, minAngleDeg: 0, maxAngleDeg: 180, refDir: null, aimOffsetY: 0 };
 }
@@ -123,8 +83,6 @@ export class SpawnScheduler {
   private readonly view = vec3();
   /** Spawns rejected by the fairness floor or exhausted constraints (for the debug hook). */
   rejected = 0;
-  /** What the last successful `placeFixed` did (valid until the next call). */
-  readonly placed: FixedPlaced = { side: 1, adjustDeg: 0 };
 
   constructor(
     private readonly cfg: ModeTunables,
@@ -164,6 +122,11 @@ export class SpawnScheduler {
   }
 
   /** The first anchor of a kind (a mode's `beacon-shell`), or null. */
+  /** Every anchor of a kind, in the map's order (stations of a mode that stands the player at several places). */
+  anchorsOfKind(kind: string): readonly AnchorLike[] {
+    return this.index.ofKind(kind);
+  }
+
   firstOfKind(kind: string): AnchorLike | null {
     return this.index.ofKind(kind)[0] ?? null;
   }
@@ -229,64 +192,6 @@ export class SpawnScheduler {
     }
     this.rejected++;
     return false;
-  }
-
-  /**
-   * Put a stored item at `angleDeg` from the crosshair, `pitchDeg` above the horizon, `distance`
-   * from the eye (design §8.5: the Daily Baseline's items). Nothing is random: the angle, pitch and
-   * distance are the item's, and only what the hall cannot hold changes. If the point is out of
-   * bounds, behind a pillar or unfair on `side`, the other side is tried; then the item is brought
-   * closer in `fitSteps` steps, never nearer than `minDistance`. A pitch the view makes impossible
-   * (a crosshair looking far up cannot be 20 degrees from a target far below, nor an orb be under the
-   * floor) is moved to the nearest possible one, or the angle is for a `lockPitch` item. Writes the point into `out` and the
-   * outcome into `placed`; false when nothing fits this tick (the caller tries again next tick).
-   */
-  placeFixed(f: FixedPlacement, out: Vec3): boolean {
-    const eye = this.eyePosition();
-    const ref = directionFromAngles(this.ref, this.player.yaw, this.player.pitch);
-    const pitch0 = Math.asin(Math.max(-1, Math.min(1, ref.y)));
-    const yaw0 = Math.atan2(-ref.x, -ref.z);
-    const steps = Math.max(1, f.fitSteps);
-    for (let i = 0; i <= steps; i++) {
-      const r = f.distance - ((f.distance - f.minDistance) * i) / steps;
-      for (let k = 0; k < 2; k++) {
-        const side = k === 0 ? f.side : (-f.side as 1 | -1);
-        if (this.fixedPoint(f, eye, yaw0, pitch0, r, side, out)) return true;
-      }
-    }
-    this.rejected++;
-    return false;
-  }
-
-  private fixedPoint(f: FixedPlacement, eye: Vec3, yaw0: number, pitch0: number, r: number, side: 1 | -1, out: Vec3): boolean {
-    let a = f.angleDeg * DEG2RAD;
-    let p = f.lockPitch ? Math.asin(Math.max(-1, Math.min(1, f.headDy / r))) : f.pitchDeg * DEG2RAD;
-    const want = f.lockPitch ? a : p;
-    // Both directions can only be this far apart: |p - pitch0| <= a <= PI - |p + pitch0|.
-    if (f.lockPitch) {
-      a = Math.min(Math.max(a, Math.abs(p - pitch0)), Math.PI - Math.abs(p + pitch0));
-    } else {
-      const floorP = Math.asin(Math.max(-1, Math.min(1, (this.player.pos.y + f.minHeight - eye.y) / r)));
-      const lo = Math.max(pitch0 - a, -(Math.PI - a) - pitch0, -Math.PI / 2, floorP);
-      const hi = Math.min(pitch0 + a, Math.PI - a - pitch0, Math.PI / 2);
-      p = Math.min(Math.max(p, lo), hi);
-    }
-    const cp0 = Math.cos(pitch0);
-    const cp = Math.cos(p);
-    const denom = cp0 * cp;
-    const arg = denom < 1e-9 ? 1 : (Math.cos(a) - Math.sin(pitch0) * Math.sin(p)) / denom;
-    const dyaw = Math.acos(Math.max(-1, Math.min(1, arg))) * side;
-    directionFromAngles(this.dir, yaw0 + dyaw, p);
-    set(this.pos, eye.x + this.dir.x * r, eye.y + this.dir.y * r, eye.z + this.dir.z * r);
-    if (!this.inBounds(this.pos)) return false;
-    if (!this.fairAt(this.pos)) return false;
-    if (this.index.sightClear && !this.index.sightClear(eye, this.pos)) return false;
-    out.x = this.pos.x;
-    out.y = this.pos.y;
-    out.z = this.pos.z;
-    this.placed.side = side;
-    this.placed.adjustDeg = Math.abs((f.lockPitch ? a : p) - want) / DEG2RAD;
-    return true;
   }
 
   private reservoir(list: readonly AnchorLike[], q: SpawnQuery, useAngle: boolean, useDist: boolean, out: Vec3): AnchorLike | null {

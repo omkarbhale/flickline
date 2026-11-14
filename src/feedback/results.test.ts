@@ -22,9 +22,10 @@ function stats(p: Partial<RunStats> = {}): RunStats {
     shots: 50, hits: 30, misses: 20, headHits: 12, bodyHits: 16, legHits: 2, kills: 10, cleanKills: 6, movingShots: 2,
     accuracy: 0.6, headshotRate: 0.4, medianRtMs: 620, medianTtkMs: 410, timeOnTarget: 0.31,
     medianStopLatencyMs: null, stopCount: 0, preAimErrorDeg: 6.24, headHeightDisciplineDeg: null, headHeightSamples: 0,
+    leadErrorBiasDeg: null, leadErrorMeanAbsDeg: null, leadSamples: 0,
     flickErrorBiasDeg: null, flickErrorMeanAbsDeg: null, flickCount: 0, maxChain: 3, maxCleanStreak: 4, cleanStreak: 1,
     targets: [target(), target({ id: 2, firstBullet: false }), target({ id: 3 }), target({ id: 4, bullets: 0, killed: false, rtMs: null })],
-    sprayBursts: [],
+    sprayBursts: [], sprays: [], sprayHitRateByIndex: [], sprayPullErrorByIndex: [], sprayCollapseIndex: null, sprayPullFallsApartIndex: null,
     ...p,
   };
 }
@@ -134,9 +135,9 @@ describe('pickFix (the #26 stub)', () => {
 describe('statCells', () => {
   it('lists the headline stats then the mode key metrics, with a dash for undefined values', () => {
     const cells = statCells(emptyStats());
-    expect(cells.map((c) => c.id)).toEqual(['accuracy', 'headshotRate', 'timeToShot', 'ttk', 'movingShots', 'kills', 'firstShotRate', 'preAimError']);
+    expect(cells.map((c) => c.id)).toEqual(['accuracy', 'headshotRate', 'timeToShot', 'cleanStreak', 'movingShots', 'kills', 'firstShotRate', 'preAimError']);
     const byId = Object.fromEntries(cells.map((c) => [c.id, c.value]));
-    for (const id of ['accuracy', 'headshotRate', 'timeToShot', 'ttk', 'movingShots', 'firstShotRate', 'preAimError']) expect(byId[id]).toBe(DASH);
+    for (const id of ['accuracy', 'headshotRate', 'timeToShot', 'cleanStreak', 'movingShots', 'firstShotRate', 'preAimError']) expect(byId[id]).toBe(DASH);
     expect(byId.kills).toBe('0');
   });
 
@@ -146,12 +147,26 @@ describe('statCells', () => {
     expect(byId.accuracy!.hint).toBe('30 of 50 shots');
     expect(byId.headshotRate!.value).toBe('40%');
     expect(byId.timeToShot!.value).toBe('620 ms');
-    expect(byId.ttk!.value).toBe('410 ms');
+    expect(byId.ttk).toBeUndefined(); // Cold Start's kills are one bullet: the tile is the clean streak instead
+    expect(byId.cleanStreak!.value).toBe('4');
+    expect(Object.fromEntries(statCells(stats({ mode: 'strafeTrack' })).map((c) => [c.id, c])).ttk!.value).toBe('410 ms');
     expect(byId.movingShots!.value).toBe('2');
     expect(byId.movingShots!.hint).toBe('4% of shots');
     expect(byId.firstShotRate!.value).toBe('67%'); // 2 of 3 engaged targets
     expect(byId.firstShotRate!.hint).toBe('of 3 targets');
     expect(byId.preAimError!.value).toBe('6.2°');
+  });
+
+  it('swaps the meaningless time to kill for the clean streak in one-bullet modes (#175)', () => {
+    for (const mode of ['coldStart', 'orbit', 'placement']) {
+      const ids = statCells(stats({ mode, maxCleanStreak: 7 })).map((c) => c.id);
+      expect(ids).not.toContain('ttk');
+      expect(ids.slice(0, 6)).toEqual(['accuracy', 'headshotRate', 'timeToShot', 'cleanStreak', 'movingShots', 'kills']);
+    }
+    const streak = statCells(stats({ mode: 'coldStart', maxCleanStreak: 7, kills: 12 })).find((c) => c.id === 'cleanStreak')!;
+    expect(streak.value).toBe('7');
+    expect(statCells(stats({ mode: 'coldStart', kills: 0 })).find((c) => c.id === 'cleanStreak')!.value).toBe(DASH);
+    expect(statCells(stats({ mode: 'strafeTrack' })).map((c) => c.id)).toContain('ttk');
   });
 
   it('shows the mode specific pair and signs the flick bias', () => {
@@ -160,6 +175,21 @@ describe('statCells', () => {
     expect(o[6]!.value).toBe('+2.3°');
     expect(o[6]!.hint).toBe('you overshoot');
     expect(statCells(stats({ mode: 'orbit', flickErrorBiasDeg: -1.2 }))[6]!.hint).toBe('you undershoot');
+  });
+
+  it('Strafe Track shows time on target and the signed lead error (+ ahead of the target, - behind it)', () => {
+    const s = statCells(stats({ mode: 'strafeTrack', timeOnTarget: 0.42, leadErrorBiasDeg: 0.84, leadErrorMeanAbsDeg: 1.1, leadSamples: 120 }));
+    expect(s.slice(6).map((c) => c.id)).toEqual(['timeOnTarget', 'leadError']);
+    expect(s[6]!.value).toBe('42%');
+    expect(s[7]!.value).toBe('+0.8°');
+    expect(s[7]!.hint).toBe('you lead the target');
+    const lag = statCells(stats({ mode: 'strafeTrack', leadErrorBiasDeg: -1.46, leadSamples: 50 }))[7]!;
+    expect(lag.value).toBe('−1.5°');
+    expect(lag.hint).toBe('you lag behind');
+    expect(statCells(stats({ mode: 'strafeTrack', leadErrorBiasDeg: 0.2, leadSamples: 50 }))[7]!.hint).toBe('on the line');
+    const none = statCells(stats({ mode: 'strafeTrack' }))[7]!;
+    expect(none.value).toBe('—');
+    expect(none.hint).toBe('');
   });
 });
 
@@ -173,9 +203,24 @@ describe('buildCard', () => {
     expect(buildCard(input({ clean: true })).clean).toBe(true);
   });
 
+  it('says "New personal best" on the run that sets the first one, and never on one that cannot (#175)', () => {
+    expect(buildCard(input({ pb: null }))).toMatchObject({ pbKind: 'first', pbLabel: 'New personal best', pbTone: 'good' });
+    expect(buildCard(input({ pb: null, stats: stats({ endReason: 'quit' }) })).pbLabel).toBe('');
+    expect(buildCard(input({ pb: null, score: 0 })).pbLabel).toBe('');
+    expect(buildCard(input({ pb: null, score: null })).pbLabel).toBe('');
+    expect(buildCard(input({ pb: null, keepsBest: false })).pbLabel).toBe('');
+  });
+
+  it('labels a beaten best with the margin, and a missed one with the gap', () => {
+    expect(buildCard(input({ pb: 12000 }))).toMatchObject({ pbKind: 'beat', pbLabel: 'New personal best +345' });
+    expect(buildCard(input({ pb: 13000 }))).toMatchObject({ pbKind: 'none', pbLabel: '−655 vs personal best' });
+    expect(buildCard(input({ pb: 12345 })).pbLabel).toBe('±0 vs personal best');
+    expect(buildCard(input({ pb: 12000, stats: stats({ endReason: 'quit' }) })).pbKind).toBe('none');
+  });
+
   it('shows a dash for the PB delta without a PB, and tones the delta with one', () => {
     expect(buildCard(input()).pbText).toBe(DASH);
-    expect(buildCard(input()).pbTone).toBe('none');
+    expect(buildCard(input({ score: null })).pbTone).toBe('none');
     expect(buildCard(input({ pb: 12000 }))).toMatchObject({ pbText: '+345', pbTone: 'good' });
     expect(buildCard(input({ pb: 13000 }))).toMatchObject({ pbText: '−655', pbTone: 'bad' });
     expect(buildCard(input({ pb: 12345 }))).toMatchObject({ pbText: '±0', pbTone: 'even' });
@@ -231,7 +276,7 @@ describe('buildCard', () => {
 });
 
 describe('ResultsRecorder', () => {
-  function setup(skill: 'precision' | 'line' | null, isClean?: () => boolean) {
+  function setup(skill: 'precision' | 'line' | null, isClean?: () => boolean, firstRating?: (mode: string) => boolean) {
     const bus = new EventBus<ResultsEvents>();
     let rating = 40;
     const cards: unknown[] = [];
@@ -246,9 +291,20 @@ describe('ResultsRecorder', () => {
       onCard: (c) => cards.push(c),
       onNewRun: () => newRuns++,
       isClean,
+      firstRating,
     });
     return { bus, rec, cards, setRating: (r: number) => (rating = r), newRuns: () => newRuns };
   }
+
+  it('marks the rating of a first-rating mode as first, and only that mode', () => {
+    const { bus, rec } = setup('line', undefined, (m) => m === 'placement');
+    bus.emit('runReady', { tick: 0, mode: 'placement', seed: 1, dial: 30 });
+    bus.emit('runEnded', { tick: 9, t: 45, reason: 'timer' });
+    expect(rec.last!.rating!.first).toBe(true);
+    bus.emit('runReady', { tick: 0, mode: 'coldStart', seed: 1, dial: 30 });
+    bus.emit('runEnded', { tick: 9, t: 60, reason: 'timer' });
+    expect(rec.last!.rating!.first).toBe(false);
+  });
 
   it('builds one card at runEnded from the score, medals and the rating before and after', () => {
     const { bus, rec, cards, setRating, newRuns } = setup('precision');

@@ -1,29 +1,47 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizePlayLog } from './playLog';
+import { defaultProgress, SAVE_VERSION as PROGRESS_VERSION, type ProgressData } from '../progress/save';
 import { DEFAULT_PROFILE } from './profile';
 import { buildSave, MAX_SAVE_BYTES, parseSave, SAVE_VERSION } from './saveData';
 import { DEFAULT_SETTINGS, sanitizeSettings } from './settings';
 
+function progress(): ProgressData {
+  const p = defaultProgress();
+  p.plays = { orbit: 3 };
+  p.flaggedSkill = 'flick';
+  p.medals = { needle: { count: 2, last: '2026-01-01T00:00:00.000Z' } };
+  p.bests = {
+    orbit: {
+      neon: {
+        score: 1200, seed: 7, date: '2026-01-01T00:00:00.000Z', dial: 61,
+        stats: { shots: 40, hits: 30, headHits: 12, kills: 28, movingShots: 1, accuracy: 0.75, headshotRate: 0.4, medianRtMs: 480, medianTtkMs: 120, maxChain: 5, cleanKills: 20 },
+        curve: [0, 100, 250, 400],
+      },
+    },
+  };
+  return p;
+}
+
 const parts = () => ({
   settings: sanitizeSettings({ sensitivity: 0.55, quality: 'high', fpsCap: 144, keys: { jump: ['KeyF'] }, difficultyPin: { orbit: 40 } }),
   profile: { ...DEFAULT_PROFILE, selfReport: 'some' as const, firstRunDone: true },
-  playLog: sanitizePlayLog({ bests: { orbit: 1200 }, plays: { orbit: 3 }, flaggedSkill: 'flick' }),
+  progress: progress(),
 });
 
 describe('save file', () => {
-  it('round-trips settings, profile and play log', () => {
+  it('round-trips settings, profile and progress', () => {
     const r = parseSave(buildSave(parts(), '2026-01-01T00:00:00.000Z'));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.parts.settings).toEqual(parts().settings);
     expect(r.parts.profile).toEqual(parts().profile);
-    expect(r.parts.playLog).toEqual(parts().playLog);
+    expect(r.parts.progress).toEqual(parts().progress);
   });
 
   it('is versioned and says what it is', () => {
     const j = JSON.parse(buildSave(parts(), 'x'));
     expect(j.format).toBe('flickline-save');
     expect(j.version).toBe(SAVE_VERSION);
+    expect(SAVE_VERSION).toBe(PROGRESS_VERSION);
   });
 
   it('rejects things that are not saves, with a reason', () => {
@@ -34,9 +52,19 @@ describe('save file', () => {
     }
   });
 
+  it('rejects a truncated file and a part with the wrong shape (the whole file, not half of it)', () => {
+    const text = buildSave(parts(), 'x');
+    expect(parseSave(text.slice(0, text.length >> 1)).ok).toBe(false);
+    for (const [k, v] of [['history', 'x'], ['bests', []], ['plays', 5], ['ratings', { v: 1 }], ['medals', 'no']] as const) {
+      const j = { ...JSON.parse(text), [k]: v };
+      const r = parseSave(JSON.stringify(j));
+      expect(r.ok, k).toBe(false);
+    }
+  });
+
   it('rejects a newer version and an empty save, and an oversized text', () => {
     expect(parseSave(JSON.stringify({ format: 'flickline-save', version: SAVE_VERSION + 1, settings: {} })).ok).toBe(false);
-    expect(parseSave(JSON.stringify({ format: 'flickline-save', version: 1 })).ok).toBe(false);
+    expect(parseSave(JSON.stringify({ format: 'flickline-save', version: 2 })).ok).toBe(false);
     expect(parseSave('x'.repeat(MAX_SAVE_BYTES + 1)).ok).toBe(false);
   });
 
@@ -53,12 +81,25 @@ describe('save file', () => {
   });
 
   it('leaves out the parts the file does not have', () => {
-    const r = parseSave(JSON.stringify({ format: 'flickline-save', version: 1, playLog: { bests: { orbit: 5 } } }));
+    const r = parseSave(JSON.stringify({ format: 'flickline-save', version: 2, plays: { orbit: 5 } }));
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.parts.settings).toBeUndefined();
       expect(r.parts.profile).toBeUndefined();
-      expect(r.parts.playLog?.bests.orbit).toBe(5);
+      expect(r.parts.progress?.plays.orbit).toBe(5);
     }
+  });
+
+  it('migrates a version 1 file (settings, profile, play log): counts and the flagged skill carry over', () => {
+    const v1 = { format: 'flickline-save', version: 1, exportedAt: 'x', settings: { sensitivity: 0.6 }, profile: { selfReport: 'some', firstRunDone: true }, playLog: { bests: { orbit: 9 }, plays: { orbit: 4, coldStart: 2 }, flaggedSkill: 'track' } };
+    const r = parseSave(JSON.stringify(v1));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.parts.settings?.sensitivity).toBe(0.6);
+    expect(r.parts.profile?.selfReport).toBe('some');
+    expect(r.parts.progress?.plays).toEqual({ orbit: 4, coldStart: 2 });
+    expect(r.parts.progress?.flaggedSkill).toBe('track');
+    // the old per-mode bests had no dial, so they are not placed into a band
+    expect(r.parts.progress?.bests).toEqual({});
   });
 });

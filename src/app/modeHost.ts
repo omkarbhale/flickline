@@ -5,18 +5,20 @@ import { SkillState } from '../adaptive/skillModel';
 import type { Tunables } from '../config/tunables';
 import type { EnemyKind } from '../config/scoring';
 import type { WeaponId } from '../config/weapon';
-import { baseline, baselineLevelFor, type BaselineLevels, type BaselineState } from '../modes/baseline';
 import { coldStart } from '../modes/coldStart';
-import type { AnchorSource, AxisValues, DialSource, SkillId, TargetSpawner } from '../modes/contracts';
+import type { AnchorSource, AxisValues, DialSource, StrafeSpawn, TargetSpawner } from '../modes/contracts';
 import type { ModeDef } from '../modes/modeDef';
 import { orbit } from '../modes/orbit';
 import { placement, type PlacementState } from '../modes/placement';
+import { sprayWall } from '../modes/sprayWall';
+import { strafeTrack } from '../modes/strafeTrack';
 import { stopAndPop } from '../modes/stopAndPop';
 import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
 import { economyShield } from '../sim/damage';
 import { rayBox } from '../sim/collision';
 import type { MapDef } from '../sim/mapTypes';
+import type { SpawnOptions } from '../sim/targets';
 import type { World } from '../sim/world';
 import type { GameEvents } from '../core/gameEvents';
 
@@ -26,18 +28,26 @@ export const MODES: Readonly<Record<string, ModeDef<never>>> = {
   coldStart: coldStart as ModeDef<never>,
   orbit: orbit as ModeDef<never>,
   placement: placement as ModeDef<never>,
-  baseline: baseline as ModeDef<never>,
+  sprayWall: sprayWall as ModeDef<never>,
+  strafeTrack: strafeTrack as ModeDef<never>,
   stopAndPop: stopAndPop as ModeDef<never>,
 };
+
+/** A durable target's health: a spray cannot kill it. */
+const DURABLE_HP = 1e6;
 
 /** The sim's target registry as the framework's spawner (#15). Only the kinds the sim has yet (Rusher, Bulwark and Gnat: #33). */
 class WorldSpawner implements TargetSpawner {
   constructor(private readonly world: World, private readonly bus: EventBus<GameEvents>) {}
 
-  /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. */
-  spawn(kind: EnemyKind, pos: Vec3, scale: number): number {
+  /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. `durable` = Spray Wall's Post. */
+  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn, durable?: boolean): number {
     if (kind !== 'post' && kind !== 'beacon' && kind !== 'strafer' && kind !== 'peeker') return -1;
-    return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, { scale });
+    // A Strafer's numbers and lane go to the sim as given; the sim copies them at spawn.
+    const o: SpawnOptions = { scale };
+    if (strafe) o.strafe = strafe;
+    if (durable) o.hp = DURABLE_HP;
+    return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, o);
   }
 
   despawn(id: number): void {
@@ -69,8 +79,6 @@ export interface ModeStatus {
   placement: PlacementOutcome | null;
   /** Placement run only: the staircase's current dial, step and reversal count. */
   staircase: { dial: number; step: number; reversals: number } | null;
-  /** Baseline run only: the content version, each skill's level and the trials started and resolved. */
-  baseline: { version: number; levels: BaselineLevels; started: number; resolved: number; of: number } | null;
 }
 
 /** What the Placement run hands the skill model when it ends (design §9.2). */
@@ -91,8 +99,8 @@ export interface PlacementOutcome {
  */
 export class ModeHost {
   readonly runner: ModeRunner;
-  /** The player's skill state (placeholder prior until the profile/persistence work). */
-  readonly skills = new SkillState('skip');
+  /** The player's skill state: restored from the progress save when there is one (`features/progress.ts` saves it after every run), else a prior of 'skip' until the self-report sets it. */
+  readonly skills: SkillState;
   /** Result of the last finished Placement run, or null. */
   placementOutcome: PlacementOutcome | null = null;
   private active: ModeDef<never> | null = null;
@@ -100,23 +108,29 @@ export class ModeHost {
   pinFor: (modeId: string) => number | undefined = () => undefined;
   private readonly anchors: AnchorSource;
   private priorInfiniteMagazine = false;
+  private priorInfiniteReserve = false;
   private readonly ray = vec3();
+  private readonly placedEv = { tick: 0, x: 0, y: 0, z: 0, yaw: 0 };
 
   constructor(
     private readonly world: World,
     private readonly bus: EventBus<GameEvents>,
     private readonly map: MapDef,
     private readonly tunables: Tunables,
+    skills: SkillState = new SkillState('skip'),
   ) {
-    const skills = this.skills;
+    this.skills = skills;
     const dial: DialSource = {
       dialFor: (mode, beat, wave) => skills.dialFor(mode, beat, wave),
       axes: (d) => axes(d, undefined, tunables.dial) as unknown as AxisValues,
     };
-    this.runner = new ModeRunner({ events: bus, tunables, dial, spawner: new WorldSpawner(world, bus), player: world.player });
+    this.runner = new ModeRunner({
+      events: bus, tunables, dial, spawner: new WorldSpawner(world, bus), player: world.player,
+      placePlayer: (x, y, z, yaw) => this.placePlayer(x, y, z, yaw),
+    });
     this.runner.attach(bus);
     this.anchors = { anchors: map.anchors, bounds: map.bounds, sightClear: (from, to) => this.sightClear(from, to) };
-    // The Baseline's trials are a separate measurement (design §8.5): the matched posterior never consumes them.
+    // Benchmark trials (the cold opener's, design §8.5) are a separate measurement: the matched posterior never consumes them.
     bus.on('skillTrial', (e) => {
       if (e.source !== 'baseline') skills.observeTrial(e);
     });
@@ -134,30 +148,15 @@ export class ModeHost {
     this.clearField();
     this.applyPlayerSetup(mode);
     this.active = mode;
-    // A run pinned to levels (the Baseline) takes each skill's level, scored at their mean. The player's
-    // difficulty pin does not apply: the Baseline is a fixed measurement at the player's level (design §8.5).
-    const levels = mode.trialSource === 'baseline' ? this.baselineLevels(opts.pinDial) : undefined;
-    const pinDial = levels ? (levels.flick + levels.precision) / 2 : (opts.pinDial ?? this.pinFor(id));
-    this.runner.begin(mode, { seed, pinDial, levels, anchors: opts.anchors ?? this.anchors });
+    this.runner.begin(mode, { seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors });
     return true;
-  }
-
-  /**
-   * Each Baseline skill's level until #151's series exists (transfer.md §5.3): the highest level at
-   * or below the skill's matched dial, `θ - s × logit(p)` at the success rate its mode aims for. A
-   * pinned dial ("Pin difficulty") stands in for the matched dial of both skills.
-   */
-  baselineLevels(pinDial?: number): BaselineLevels {
-    const target = this.tunables.baseline.matchedTargetSuccess;
-    const level = (skill: 'flick' | 'precision'): number =>
-      baselineLevelFor(pinDial ?? this.skills.targetDial(skill as SkillId, target[skill]), this.tunables.baseline.levels);
-    return { flick: level('flick'), precision: level('precision') };
   }
 
   stop(): void {
     if (this.active) {
       this.runner.end('quit');
       this.world.weapon.infiniteMagazine = this.priorInfiniteMagazine;
+      this.world.weapon.infiniteReserve = this.priorInfiniteReserve;
     }
     this.world.movementLocked = false;
     this.world.swapLocked = false;
@@ -221,12 +220,26 @@ export class ModeHost {
     w.swapLocked = !(setup?.allowSwap ?? false);
     this.priorInfiniteMagazine = w.weapon.infiniteMagazine;
     w.weapon.infiniteMagazine = setup?.infiniteMagazine ?? this.priorInfiniteMagazine;
+    this.priorInfiniteReserve = w.weapon.infiniteReserve;
+    w.weapon.infiniteReserve = setup?.infiniteReserve ?? this.priorInfiniteReserve;
     w.movementLocked = setup?.lockMovement ?? false;
     const level = mode.economy ? economyShield(mode.economy, this.tunables.economy, this.tunables.player.shield) : 0;
     w.setShields(level, level);
     // A mode with an economy is a mode where enemies shoot back (design §5.3); drills never have one.
     w.enemiesFire = mode.economy !== undefined;
     if (mode.economy) w.enemyWeapon = this.tunables.economy.levels[mode.economy].enemyWeapon;
+  }
+
+  /** A mode moves the player (Spray Wall's alcoves): place the sim's player and tell the view to follow. */
+  private placePlayer(x: number, y: number, z: number, yaw: number): void {
+    this.world.placePlayer(x, y, z, yaw);
+    const e = this.placedEv;
+    e.tick = this.world.tick;
+    e.x = x;
+    e.y = y;
+    e.z = z;
+    e.yaw = yaw;
+    this.bus.emit('playerPlaced', e);
   }
 
   /** Line of sight between two points through the level's collision boxes. */
@@ -266,7 +279,6 @@ export class ModeHost {
   status(): ModeStatus {
     const r = this.runner;
     const st = this.active?.id === 'placement' ? (r.state as PlacementState).staircase : null;
-    const bs = this.active?.id === 'baseline' ? (r.state as BaselineState) : null;
     return {
       mode: this.active?.id ?? null,
       phase: this.active ? r.phase : 'idle',
@@ -289,10 +301,6 @@ export class ModeHost {
       refusedSpawns: r.refusedSpawns,
       placement: this.placementOutcome,
       staircase: st ? { dial: st.dial, step: st.step, reversals: st.reversals } : null,
-      baseline:
-        this.active?.id === 'baseline'
-          ? { version: this.tunables.baseline.version, levels: bs!.levels, started: bs!.started, resolved: bs!.resolved, of: bs!.plan.length }
-          : null,
     };
   }
 }

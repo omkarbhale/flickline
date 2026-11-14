@@ -1,6 +1,6 @@
 # Transfer checklist
 
-How the **Transfer** quality track is judged (design §14.7). The question: **does skill earned in Flickline carry over to the reference game, and does every mode teach only habits that are also right there?** Reasoning and evidence: `docs/research/transfer.md`. Tracking issue: [#149](https://github.com/omkarbhale/flickline/issues/149).
+How the **Transfer** quality track is judged (design §14.7). The question: **does skill earned in Flickline carry over to the reference game, and does every situation the game presents teach only habits that are also right there?** Since #187 the game is one game, Sweep (design §4); the review's unit is the **situation**: a sector role, a scenario card, a condition or a game layer (door stakes, kill-heal, Overtime, the depth multiplier). Where this page says *mode*, read *situation*. Reasoning and evidence: `docs/research/transfer.md`. Tracking issue: [#149](https://github.com/omkarbhale/flickline/issues/149).
 
 Transfer is judged in two ways, never merged into one score and never standing in for numbers, feel or fun:
 
@@ -42,6 +42,7 @@ Each item describes a habit in Flickline's own words; no reference material is c
 | T11 | Enemy behaviour | Do enemies fight like players at the player's level, mistakes included (`docs/research/player-like-enemies.md`)? | Enemies are beaten by an exploit no human opponent allows (always the same peek, never re-peeking, no trade). |
 | T12 | Information | Does the player know as much and as little about the fight as they would in a match (`docs/research/engagement-information.md`)? | Both sides always know everything, or the player always knows where every enemy will be. |
 | T13 | Pace and fatigue | Is the session length and intensity something the player can bring into a match warm, not tired? | A session that leaves the player's hand tired before they play a match. |
+| T14 | Game layers | Do the layers around the mechanics (kill-heal, door stakes, the depth multiplier, Overtime's bank-or-push, tempo) reward the decision a good player would make in a match? | A layer pays for a habit a match punishes: taking needless fights to heal, rushing loud to beat a window, never saving. |
 
 New items are added when a playtest or review finds a habit the list misses; each new item needs an example of the harmful case.
 
@@ -50,12 +51,12 @@ New items are added when a playtest or review finds a habit the list misses; eac
 ```
 ## Transfer
 
-Habit review: <modes reviewed> at <skill levels>, build <commit>.
+Habit review: <situations reviewed> at <skill levels>, build <commit>.
 
-| Mode | T1 | T2 | … | T13 | Harmful items (issues) |
+| Situation | T1 | T2 | … | T14 | Harmful items (issues) |
 |---|---|---|---|---|---|
 
-Measurements: Baseline bot tests <pass/fail> (H2–H5); Baseline data from testers <n, days, verdicts shown>; check-ins <n>.
+Measurements: cold-opener bot tests <pass/fail> (H2–H5); cold-opener data from testers <n, days, verdicts shown>; check-ins <n>.
 Pilot: <not run / feasibility verdict and warnings, link>.
 Verdict: <pass / fail against the phase rule below>, with the reasons.
 ```
@@ -68,11 +69,11 @@ Post the section on the Transfer tracker as a comment, as the other tracks do.
 
 | Measurement | Where | Pass |
 |---|---|---|
-| Baseline precision (H2) | Bot harness, CI | Spread of a fixed-ability bot's Baseline estimates within 20% of the derived figure (`transfer.md` §5.5). |
+| Cold-opener precision (H2) | Bot harness, CI | Spread of a fixed-ability bot's cold-opener estimates within 20% of the figure design §8.5 states (about ±5 dial points, to be measured). |
 | Warm-up is not improvement (H3) | Bot harness, CI | A warm-up-only bot is told "Steady" on every one of 30 days. |
 | Learning is reported (H4) | Bot harness, CI | A learning bot is told "Improved" within 14 days, across a level change. |
 | Not memorisable (H5) | Bot harness, CI | Two days' orders differ; their item statistics are identical. |
-| Baseline in play | Playtest exports | Reported, not judged: valid Baselines per tester, share warm, gaps between Baselines, verdicts shown. |
+| Cold opener in play | Playtest exports | Reported, not judged: valid cold openers per tester, share warm, gaps between them, verdicts shown. |
 | Reference check-in | Playtest exports and pilot form | Reported, not judged: check-ins per tester. |
 | Transfer pilot | Pilot playtest issue | Its feasibility verdict and any warning (`transfer.md` §7.3). |
 
@@ -82,14 +83,14 @@ Post the section on the Transfer tracker as a comment, as the other tracks do.
 
 ### First playable
 
-- The habit review has been run on every shipped mode (Cold Start, Orbit, the Placement run) and posted on the tracker.
+- The habit review has been run on the first playable's run (take sectors on Elbow and Lane and the cards they draw, kill-heal, contact settle) and posted on the tracker. Cold Start, Orbit and the Placement run were retired by #187 before their review (#160) ran.
 - Every *Harmful* item has an issue. Critical items need not be fixed yet, but each has an issue in the first-release scope.
 
 ### First release
 
-- The habit review has been run on all eight modes.
+- The habit review has been run on every sector role, every scenario card, every condition and every game layer (item T14).
 - **No open critical harmful item**, unless the tracker records why it is accepted for this release and which issue fixes it.
-- The Daily Baseline and the reference check-in are built, and H2–H5 pass in CI.
+- The cold opener (design §8.5, which replaced the Daily Baseline) and the reference check-in are built, and H2–H5 pass in CI against the cold opener.
 - The transfer pilot has run and reported a feasibility verdict, with no open "worse than the reference game's own practice" warning.
 
 A pass on this track says the game builds no known wrong habit and that its learning is measured honestly. It does not say transfer is proven; only a study large enough to test it can say that (`transfer.md` §7.5).

@@ -40,6 +40,8 @@ export interface DialAxesTunables {
   /** Strafer leg duration (s) and stand-still window after the 0.16 s decel (s). */
   strafeLegSec: AxisDef;
   standStillSec: AxisDef;
+  /** Strafe Track: time limit of one Strafer, spawn to kill (s); a Strafer not killed in it is a failed trial (#46). */
+  strafeLimitSec: AxisDef;
   /**
    * Time a timed target stays exposed (s); counted from its spawn today, from `targetVisible` once
    * #143 lands (design §9.3.5). `exposureSec` is the
@@ -62,6 +64,8 @@ export interface DialAxesTunables {
   enemyHitChance: AxisDef;
   /** Simultaneous targets. */
   density: AxisDef;
+  /** Spray Wall: the share of a spray's bullets that must land in the head or body zone (design §4.5). */
+  sprayHitFraction: AxisDef;
 }
 
 /**
@@ -196,7 +200,8 @@ export const dial: DialTunables = {
   modes: {
     // `test` is the mode framework's TestMode (`modes/testMode.ts`): a demo/test fixture, not a shipped mode.
     test: { skill: 'precision', targetSuccess: 0.7 },
-    coldStart: { skill: 'precision', targetSuccess: 0.55 },
+    // Inside the 60-80 % flow band like every drill (#170; it was 0.55 and settled below the band).
+    coldStart: { skill: 'precision', targetSuccess: 0.7 },
     orbit: { skill: 'flick', targetSuccess: 0.7 },
     // The Placement run's own dial is the staircase; this entry only gives it a sensible starting dial (design §9.2).
     placement: { skill: 'flick', targetSuccess: 0.7 },
@@ -221,11 +226,16 @@ export const dial: DialTunables = {
     // and 0.35 s legs leave time to re-acquire a reversal (#12 P5).
     strafeLegSec: { at0: 1.0, at100: 0.35, curve: 'linear' },
     standStillSec: { at0: 0.4, at100: 0.25, curve: 'linear' },
+    // Design §4.3: 8 s at dial 0 down to 3 s at dial 100 (#46).
+    strafeLimitSec: { at0: 8, at100: 3, curve: 'linear' },
     // Exposure per mode (#12 §4.1): about 1.3x the minimum feasible time (reaction + aiming
     // movement for the mode's angles and sizes). The generic curve is for pre-aimed targets.
     exposureSec: { at0: 3.0, at100: 0.45, curve: 'geometric' },
     orbitExposureSec: { at0: 2.5, at100: 1.6, curve: 'geometric' },
-    coldStartExposureSec: { at0: 2.5, at100: 1.05, curve: 'geometric' },
+    // Cold Start's exposure is generous on purpose (#170): it is a precision drill, so a failed trial
+    // should be a missed head, not a Post that left before the first bullet. Difficulty comes from
+    // head size (`distance`); the end point sits well above the 0.8 s floor.
+    coldStartExposureSec: { at0: 2.5, at100: 1.35, curve: 'geometric' },
     stopAndPopExposureSec: { at0: 2.0, at100: 0.7, curve: 'geometric' },
     // A 0.3 s wide peek is shorter than a pre-aimed player's time to shot (#12 §4.1).
     peekWideSec: { at0: 1.4, at100: 0.45, curve: 'geometric' },
@@ -235,6 +245,8 @@ export const dial: DialTunables = {
     tellSec: { at0: 0.7, at100: 0.3, curve: 'linear' },
     enemyHitChance: { at0: 0.15, at100: 0.6, curve: 'linear' },
     density: { at0: 1, at100: 6, curve: 'step' },
+    // Design §4.5: 60% at dial 0 up to 85% at dial 100.
+    sprayHitFraction: { at0: 0.6, at100: 0.85, curve: 'linear' },
   },
   // HYPOTHESIS (#129): tells fade over Steel-Cobalt; the settling experiment (#164) moves these.
   tellCue: { fullBelow: 35, goneAbove: 60 },

@@ -5,14 +5,14 @@ import { buildBaselineSequence, isBaselineDue, type BaselineLevels } from '../mo
 declare module '../debug/hook' {
   interface FlicklineDebug {
     /**
-     * The Daily Baseline (design 8.5). `plan(seed?, levels?)`: the 40 trials a Baseline with that seed
-     * would play, each `{ skill, angleDeg, pitchDeg, distance, scale, exposureSec, side, index }` (default: the
-     * current seed and the levels the host would pick now). `due(lastRunEndMs, nowMs?)`: whether a Baseline is
-     * due after a finished run at that wall-clock time (default now). `referenceLike()`: whether the
-     * reference-like presentation is on. Start a run with `mode.start('baseline', { seed })`.
+     * The benchmark of the cold opener (design 8.5). `plan(levels, seed?)`: the 40 trials a benchmark with
+     * that seed would play at those levels, each `{ skill, angleDeg, pitchDeg, distance, scale, exposureSec,
+     * side, index }` (default seed: the current one). `due(lastRunEndMs, nowMs?)`: whether a benchmark is due
+     * after a finished run at that wall-clock time (default now). `referenceLike()`: whether the
+     * reference-like presentation is on.
      */
     readonly baseline: {
-      plan(seed?: number, levels?: BaselineLevels): unknown[];
+      plan(levels: BaselineLevels, seed?: number): unknown[];
       due(lastRunEndMs: number | null, nowMs?: number): boolean;
       referenceLike(): boolean;
     };
@@ -20,8 +20,8 @@ declare module '../debug/hook' {
 }
 
 /**
- * Reference-like presentation (design 8.5): while a run whose mode is `referenceLike` (the Daily
- * Baseline) is on, the rewards and readouts the reference game does not have are off whatever the
+ * Reference-like presentation (design 8.5): while a run whose mode is `referenceLike` (the cold
+ * opener) is on, the rewards and readouts the reference game does not have are off whatever the
  * settings say. The coaching cues, stat strip, ghost pace and edge meter are #129's clean run:
  * `features/cues.ts` plans every such run as clean. This feature adds the rest as one flag on the
  * shared feedback options (the HUD and the sound map read it) and one class on the HUD root (the
@@ -43,7 +43,7 @@ export const feature = defineFeature({
     game.addOverlayLines(() => (game.feedbackOptions.referenceLike === true ? 'presentation reference-like (Baseline)' : ''));
     game.addDebug({
       baseline: {
-        plan: (seed = game.world.seed, levels = game.modes.baselineLevels()) =>
+        plan: (levels, seed = game.world.seed) =>
           buildBaselineSequence(seed, levels).map((p) => ({ skill: p.skill, ...p.item })),
         due: (lastRunEndMs, nowMs = Date.now()) => isBaselineDue(lastRunEndMs, nowMs, game.tunables.baseline.gapHours),
         referenceLike: () => game.feedbackOptions.referenceLike === true,

@@ -5,7 +5,8 @@ import type { Tunables } from '../config/tunables';
 import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import type {
-  AxisId, AxisValues, ModeEvents, ModeId, ModeRef, MotionView, RunEndReason, SkillId, SourceEvents, TrialExtra, TrialSource, WaveCurve,
+  AxisId, AxisValues, ModeEvents, ModeId, ModeRef, MotionView, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra, TrialSource, WaveCurve,
+  WeaponSourceEvents,
 } from './contracts';
 import type { SpawnScheduler } from './scheduler';
 
@@ -20,6 +21,8 @@ export interface PlayerSetup {
   lockMovement?: boolean;
   /** No reload (the design's "infinite magazine"). */
   infiniteMagazine?: boolean;
+  /** Reloads always find a full magazine's worth of spare ammo (real magazines, no running out: Spray Wall). */
+  infiniteReserve?: boolean;
   /** The run has a loadout: `1` / `2` swap primary and sidearm (default false; Sweep only, design §4). */
   allowSwap?: boolean;
 }
@@ -56,17 +59,23 @@ export interface ModeDef<S = unknown> extends ModeRef {
   /** Par time in seconds for the speed term of a kill (default `scoring.defaultParSec`). */
   parSec?(kind: EnemyKind, axes: AxisValues): number;
   /**
-   * Which stream the run's `skillTrial` events belong to (default `matched`). `baseline` trials are
-   * tagged so the matched posterior never consumes them (design §8.5).
+   * Which stream the run's `skillTrial` events belong to (default `matched`). `baseline` trials (the
+   * cold opener's, design §8.5) are tagged so the matched posterior never consumes them.
    */
   readonly trialSource?: TrialSource;
   /**
-   * Reference-like presentation (design §8.5): while this run is on, the coaching cues (amber
-   * moving-shot tracer, glyph and tock, miss ghost, damage numbers), the time-to-shot readout, the
-   * stat strip, ghost pace and edge meter are off whatever the settings say. The shot, the target's
-   * reaction and the hit and kill sounds stay.
+   * Reference-like presentation (design §8.5, the cold opener): while this run is on it is a clean
+   * run whatever the settings say, and the rewards the reference game lacks (clock, score and streak
+   * counters, floating points, screen pulse, kill ladder and chain sounds) are off too. The shot, the
+   * target's reaction and the hit and kill sounds stay.
    */
   readonly referenceLike?: boolean;
+  /**
+   * Whether a shot that misses breaks the clean streak (default: `scoring.missBreaksStreak`). A
+   * mode where misses are expected and judged per trial (Spray Wall) turns it off, so its streak
+   * counts trials won.
+   */
+  readonly missBreaksStreak?: boolean;
 
   /** Build the mode's state when the run is readied. Targets are not live yet. */
   setup(ctx: ModeContext<S>): S;
@@ -74,10 +83,15 @@ export interface ModeDef<S = unknown> extends ModeRef {
   tick(ctx: ModeContext<S>): void;
   /** Called for each fact the framework reads from the sim, after counters are updated. */
   onEvent(ctx: ModeContext<S>, ev: ModeEvent): void;
+  /** Weapon facts (bullets fired, reloads); only modes that judge them implement it. */
+  onWeapon?(ctx: ModeContext<S>, ev: WeaponEvent): void;
 }
 
 /** One sim fact. The runner reuses these wrapper objects: copy what you keep. */
 export type ModeEvent = { [K in keyof SourceEvents]: { type: K; payload: SourceEvents[K] } }[keyof SourceEvents];
+
+/** One weapon fact, like `ModeEvent`: the runner reuses these wrapper objects, copy what you keep. */
+export type WeaponEvent = { [K in keyof WeaponSourceEvents]: { type: K; payload: WeaponSourceEvents[K] } }[keyof WeaponSourceEvents];
 
 export interface SpawnOptions {
   /** ×real head size (default 1). Floored at `dial.floors.minTargetScale`. */
@@ -86,10 +100,26 @@ export interface SpawnOptions {
   lifetimeSec?: number;
   /** Skill of the trial this target produces (default `mode.skills[0]`). */
   skill?: SkillId;
+  /** Strafer only: its speed, leg, stand-still and lane (default: the sim's dial-50 numbers on a line square to the player). */
+  strafe?: StrafeSpawn;
   /** Item difficulty override (default: the beat's, derived from the axis values in force). */
   difficulty?: number;
-  /** Dial the kill is scored at (default: the beat's). A run pinned to per-skill levels passes the item's level. */
-  dial?: number;
+  /** The target takes any number of hits without dying (Spray Wall's Post). */
+  durable?: boolean;
+}
+
+/** What a mode tells the scoring table about a result that is not a kill (Spray Wall's spray). */
+export interface AwardOptions {
+  /** Enemy kind whose base points the result is worth (default `post`). */
+  kind?: EnemyKind;
+  /** Multiplies the whole score, 0-1 (a partial result pays less). */
+  weight: number;
+  /** Seconds the result took, for the speed term; omitted = no speed term. */
+  durationSec?: number;
+  headshot?: boolean;
+  firstBullet?: boolean;
+  /** Extends the clean streak (default true). */
+  clean?: boolean;
 }
 
 export interface ResolveOptions {
@@ -134,12 +164,6 @@ export interface ModeContext<S = unknown> {
   readonly timeSec: number;
   readonly remainingSec: number;
 
-  /**
-   * Dial value each skill is pinned to for this run (the Daily Baseline's levels; empty for every
-   * other mode). Set by the host from the player's level, never by the mode.
-   */
-  readonly levels: Readonly<Partial<Record<SkillId, number>>>;
-
   /** Beat index, dial and axis values in force. These change ONLY at beat boundaries. */
   readonly beat: number;
   readonly dial: number;
@@ -165,6 +189,13 @@ export interface ModeContext<S = unknown> {
   resolveTrial(id: number, success: boolean, opts?: ResolveOptions): boolean;
   /** Manual-beat modes (`beatSec: null`): start the next beat now (calls the dial module). */
   advanceBeat(): void;
+  /**
+   * Score a result that is not a kill (the table of design §8.1 applied to a spray) and count it
+   * in the streak. Emits `scoreAwarded` for target `id`; returns the points.
+   */
+  awardScore(id: number, opts: AwardOptions): number;
+  /** Stand the player at a feet position facing `yaw` (radians), at rest, and tell the view to follow (`playerPlaced`). */
+  placePlayer(x: number, y: number, z: number, yaw: number): void;
   /** Surge multiplier hook (the meter itself is the Sweep work). */
   setSurge(on: boolean): void;
   /** End the run (`death`, `complete`, `quit`; the timer ends it by itself). */
