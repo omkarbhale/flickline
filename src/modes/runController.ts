@@ -90,6 +90,8 @@ export class RunController {
     });
     this.log.attach(bus);
     this.tracker.attach(bus);
+    // The player's HP reaching 0 ends a self-driven run (a mode run ends through its runner, which listens too).
+    bus.on('playerDied', () => this.endRun('death'));
     bus.on('runEnded', () => {
       this.state = 'result';
       this.log.stop();

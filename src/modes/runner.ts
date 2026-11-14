@@ -8,7 +8,8 @@ import type { EnemyKind } from '../config/scoring';
 import { createScoreBreakdown, scoreKill, type ScoreBreakdown } from '../feedback/scoring';
 import { StreakTracker } from '../feedback/streaks';
 import type {
-  AnchorSource, AxisValues, DialSource, ModeEvents, PlayerView, RunEndReason, SkillId, SourceEvents, TargetSpawner,
+  AnchorSource, AxisValues, DialSource, ModeEvents, PlayerSourceEvents, PlayerView, RunEndReason, SkillId, SourceEvents,
+  TargetSpawner,
 } from './contracts';
 import { effectiveDial } from './itemDifficulty';
 import type { ModeContext, ModeDef, ModeEvent, ResolveOptions, RunPhase, RunStats, SpawnOptions } from './modeDef';
@@ -136,11 +137,12 @@ export class ModeRunner implements ModeContext<unknown> {
   }
 
   /** Feed the runner the sim's facts (design §14.3 shape). Returns the unsubscribe function. */
-  attach(bus: Subscribable<SourceEvents>): () => void {
+  attach(bus: Subscribable<SourceEvents & PlayerSourceEvents>): () => void {
     const offs = [
       bus.on('targetKilled', (e) => this.onKilled(e)),
       bus.on('targetExpired', (e) => this.onExpired(e)),
       bus.on('shotImpact', (e) => this.onImpact(e)),
+      bus.on('playerDied', () => this.end('death')),
     ];
     return () => offs.forEach((f) => f());
   }

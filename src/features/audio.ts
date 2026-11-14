@@ -1,5 +1,6 @@
 import { defineFeature } from '../app/feature';
 import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
+import { attachDamageAudio } from '../audio/damageAudio';
 import { attachSfx } from '../audio/sfx';
 import { attachUiSounds } from '../audio/uiSounds';
 import type { CueId } from '../config/audio';
@@ -15,13 +16,14 @@ declare module '../debug/hook' {
   }
 }
 
-/** The feedback sound set: game events and UI clicks to cues on the shared audio engine. */
+/** The feedback sound set: game events, UI clicks and damage taken to cues on the shared audio engine. */
 export const feature = defineFeature({
   id: 'audio',
   stage: 'presentation',
   setup(game) {
     attachSfx(game.bus, game.audio, game.tunables.audio);
     attachUiSounds(document, game.audio);
+    attachDamageAudio(game.bus, game.audio);
     game.addDebug({
       playCue(cue, opts) {
         game.audio.play(cue, opts);

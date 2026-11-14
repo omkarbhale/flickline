@@ -33,6 +33,25 @@ function setup(seed = 5) {
 
 const READY = secondsToTicks(0.8);
 
+describe('player death', () => {
+  it('ends a self-driven run with reason death and freezes the sim for the results card', () => {
+    const { ctl, world, bus, run } = setup();
+    const reasons: string[] = [];
+    bus.on('runEnded', (e) => reasons.push(e.reason));
+    ctl.startRun({ mode: 'test', seed: 9, dial: 40, durationSec: 60 });
+    run(READY + 10);
+    expect(ctl.state).toBe('live');
+    const p = world.player;
+    world.damagePlayer(1000, 'head', p.pos.x, p.pos.y + p.eyeHeight, p.pos.z - 8, 3, bus);
+    expect(ctl.state).toBe('result');
+    expect(reasons).toEqual(['death']);
+    expect(ctl.finalStats).not.toBeNull();
+    const tick = world.tick;
+    expect(run(20)).toBe(0); // frozen: no tick ran
+    expect(world.tick).toBe(tick);
+  });
+});
+
 describe('run state machine', () => {
   it('starts idle (free play: the world ticks, nothing is recorded)', () => {
     const { ctl, world, run } = setup();

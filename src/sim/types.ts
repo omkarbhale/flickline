@@ -48,6 +48,29 @@ export interface PlayerState {
   prevEyeHeight: number;
   /** Horizontal distance since last footstep event. */
   stepAccum: number;
+  /** Speed multiplier from being tagged (spec §4.3): 1 = free, `tag.speed_scale` = fully tagged. Set by the health step. */
+  tagScale: number;
+  /** Aim punch from being hit (spec §4.4), radians added to the view pitch (+ = up). Set by the health step. */
+  aimPunch: number;
+}
+
+/** The player's health and the timers behind tagging and flinch. Plain data (hashable, snapshot-able). */
+export interface PlayerHealth {
+  hp: number;
+  maxHp: number;
+  /** False after `playerDied`; the world no longer steps until it is reset. */
+  alive: boolean;
+  /** Seconds since the last tagging hit; Infinity = not tagged. */
+  tagSince: number;
+  /** Ramp-in progress 0..1 (reaches 1 over `tag.ramp_in`). */
+  tagRise: number;
+  /** Current aim punch, degrees (+ = up). */
+  flinchDeg: number;
+  /** Tick of the last damage taken, -1 = never. */
+  lastDamageTick: number;
+  /** Total damage taken and healed this life (stats, "you lost 40 HP to ..."). */
+  damageTaken: number;
+  healed: number;
 }
 
 /** The three humanoid damage zones (design §5.1). Orbs are a single `head` zone. */
@@ -191,8 +214,8 @@ export interface LevelDef {
 /**
  * Events the simulation emits: an open interface. Each sim area declares its own map next to the
  * code that emits it (`PlayerEvents` in movement.ts, `WeaponEvents` in weapon.ts, `TargetEvents`
- * in targets.ts) and merges it in with `declare module './types' { interface SimEvents extends
- * XEvents {} }`. Payloads are read-only and valid only during the callback (the weapon reuses its
+ * in targets.ts, `HealthEvents` in playerHealth.ts, ...) and merges it in with
+ * `declare module './types' { interface SimEvents extends XEvents {} }`. Payloads are read-only and valid only during the callback (the weapon reuses its
  * payload objects). `t` is sim seconds since the world was reset.
  */
 export interface SimEvents {}

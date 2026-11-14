@@ -30,7 +30,7 @@ export const feature = defineFeature({
   stage: 'presentation',
   setup(game) {
     const cues = game.cues;
-    game.renderer.addLayer(new ShotLayer(game.renderer.scene, game.renderer.camera, cues, game.tunables.feedback));
+    game.renderer.addLayer(new ShotLayer(game.renderer, cues, game.tunables.feedback));
     game.addOverlayLines(
       () => `fx latency max ${cues.latency.max} frame(s) over ${cues.latency.samples} cues, ${cues.latency.late} late`,
     );

@@ -33,7 +33,7 @@ describe('feature registry', () => {
 
 describe('tunables registry', () => {
   it('composes every config group', () => {
-    for (const key of ['movement', 'weapon', 'weaponRules', 'targets', 'view', 'render', 'audio', 'feedback', 'profile', 'scoring', 'modes', 'dial', 'run']) {
+    for (const key of ['movement', 'weapon', 'weaponRules', 'targets', 'view', 'render', 'audio', 'feedback', 'profile', 'scoring', 'modes', 'dial', 'run', 'player', 'sweep', 'damageFx', 'echo']) {
       expect(tunables, key).toHaveProperty(key);
     }
   });

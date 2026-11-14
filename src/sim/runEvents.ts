@@ -26,9 +26,7 @@ export interface RunEvents {
 
   enemyTell: { tick: number; id: number; durationMs: number };
   enemyFired: { tick: number; id: number; hit: boolean; dir: Vec3 };
-  playerDamaged: { tick: number; amount: number; hp: number; dir: Vec3; sourceId: number };
-  playerSlowed: { tick: number; factor: number; durationMs: number };
-  playerDied: { tick: number };
+  // `playerDamaged`, `playerSlowed`, `playerDied` and `playerHealed` live in `SimEvents` (sim/types.ts).
 
   surgeStarted: { tick: number };
   surgeEnded: { tick: number };

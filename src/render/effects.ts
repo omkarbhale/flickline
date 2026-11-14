@@ -585,6 +585,11 @@ export class ShotEffects {
     for (let i = 0; i < attrs.length; i++) attrs[i]!.needsUpdate = true;
   }
 
+  /** Tint the kill-shatter shards (the enemy colour preset); the burst starts warm white either way. */
+  setShardColor(hex: number): void {
+    (this.shardMat.uniforms.uColor!.value as Color).set(hex);
+  }
+
   /** True while any shard is in flight (debug overlay). */
   get busy(): boolean {
     return this.shardsActive || this.tracersWereActive || this.spritesWereActive;
