@@ -6,6 +6,7 @@ import type { Tunables } from '../config/tunables';
 import type { BehaviourContext } from './fsm';
 import { TargetField, type SpawnOptions } from './targets';
 import { levelTargetsReset } from './targetsInit';
+import { createProbeState, resetProbe, stepRunProbe, type ProbeState } from './runProbe';
 import type { WeaponId } from '../config/weapon';
 import {
   createWeaponScratch,
@@ -53,6 +54,12 @@ export class World {
   readonly targets: TargetState[];
   readonly loadout: readonly WeaponId[];
   readonly weapon: WeaponState;
+  /**
+   * Whether targets and the weapon are live. The run controller clears it during `ready` (movement
+   * only) and sets it when a self-driven run goes `live`; free play and mode runs keep it true.
+   */
+  live = true;
+  readonly probe: ProbeState = createProbeState();
   private readonly weaponWorld: WeaponWorld;
   private readonly weaponScratch: WeaponScratch = createWeaponScratch();
   private readonly lockedInput = createTickInput();
@@ -111,6 +118,8 @@ export class World {
     p.eyeHeight = p.prevEyeHeight = m.standEyeHeight;
     p.stepAccum = 0;
     resetWeaponState(this.weapon, this.loadout, this.tunables.weapon);
+    this.live = true;
+    resetProbe(this.probe);
     this.behaviourCtx.tick = 0;
     this.behaviourCtx.events = NULL_SINK;
     levelTargetsReset(this.targetField, this.level, this.behaviourCtx);
@@ -128,9 +137,22 @@ export class World {
       moveInput = l;
     }
     stepPlayer(this.player, moveInput, this.level.boxes, t.movement, TICK_DT, this.tick, events);
+    if (!this.live) return;
     this.targetField.updateVisibility(this.player, this.level.boxes, this.tick, events);
     stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, events, this.weaponScratch);
     this.stepTargets(events);
+    stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events);
+  }
+
+  /**
+   * A self-driven run went `live`: announce every living target (`targetSpawned`) so the stat
+   * tracker opens its engagements, forget earlier sightings, and start measuring from a clean
+   * probe state.
+   */
+  beginLive(events: EventSink<SimEvents>): void {
+    this.live = true;
+    resetProbe(this.probe);
+    this.targetField.announceAll(this.tick, events);
   }
 
   /** Advance target behaviours, lifetimes and level respawns. */
