@@ -3,7 +3,7 @@ import { Rng } from '../core/rng';
 import { TICK_DT } from '../core/time';
 import { copy, vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
-import type { BehaviourContext } from './fsm';
+import type { BehaviourContext, EnemyWorld } from './fsm';
 import { TargetField, type SpawnOptions } from './targets';
 import { levelTargetsReset } from './targetsInit';
 import { zoneDamage } from './damage';
@@ -23,7 +23,7 @@ import { validateLoadout, type LoadoutRequest, type LoadoutResult } from './load
 import { stepPlayer } from './movement';
 import {
   createTickInput,
-  type HitZone, type LevelDef, type PlayerHealth, type PlayerState, type SimEvents, type TargetKind, type TargetState, type TickInput, type WeaponState,
+  type BoxDef, type HitZone, type LevelDef, type PlayerHealth, type PlayerState, type SimEvents, type TargetKind, type TargetState, type TickInput, type WeaponState,
 } from './types';
 
 const NULL_SINK: EventSink<SimEvents> = { emit() {} };
@@ -59,7 +59,7 @@ export interface WorldOptions {
  * Math.random. Same (level, tunables, seed, input sequence) => identical state, always.
  * Everything advances only through step(). Emits SimEvents; presentation subscribes.
  */
-export class World {
+export class World implements EnemyWorld {
   readonly level: LevelDef;
   readonly tunables: Tunables;
   readonly rng: Rng;
@@ -71,6 +71,14 @@ export class World {
    * (it belongs to the run); the mode host sets and clears it.
    */
   movementLocked = false;
+  /**
+   * Whether Strafers and Peekers that were spawned armed (`SpawnOptions.fire`) shoot at the player
+   * (design §5.3: only in Corner Clear and Sweep; drills never). Like `movementLocked` it belongs to
+   * the run, not the world state: `reset()` leaves it, the mode host sets and clears it.
+   */
+  enemiesFire = false;
+  /** The weapon armed Echoes carry (the run's economy picks it; `config/economy.ts`). Not reset by `reset()`. */
+  enemyWeapon: WeaponId = 'kestrel';
   /**
    * A mode that has no loadout ignores the swap keys (design §4: `1`/`2` swap only where a loadout
    * makes sense, i.e. Sweep). Like `movementLocked` it belongs to the run: the mode host sets and
@@ -114,7 +122,7 @@ export class World {
     this.rng = new Rng(this.seed);
     this.targetField = new TargetField(opts.tunables);
     this.targets = this.targetField.slots;
-    this.behaviourCtx = { tick: 0, rng: this.rng, tunables: opts.tunables, events: NULL_SINK };
+    this.behaviourCtx = { tick: 0, rng: this.rng, tunables: opts.tunables, events: NULL_SINK, world: this };
     this.loadoutSlots = [...(opts.loadout ?? opts.tunables.weaponRules.defaultLoadout)];
     this.loadout = this.loadoutSlots;
     this.weapon = createWeaponState(this.loadout, opts.tunables.weapon);
@@ -203,6 +211,29 @@ export class World {
     this.stepTargets(relay);
     relay.target = NULL_SINK;
     stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events, this.level);
+  }
+
+  /** Enemies shoot only while the run is live, the player is alive and the mode lets them (`EnemyWorld`). */
+  get firing(): boolean {
+    return this.enemiesFire && this.live && this.health.alive;
+  }
+
+  /** The level's collision boxes (`EnemyWorld`: what blocks an enemy's sight). */
+  get boxes(): readonly BoxDef[] {
+    return this.level.boxes;
+  }
+
+  /**
+   * The player is above the equipped weapon's accuracy deadzone, or airborne (`EnemyWorld`): the
+   * condition under which an enemy's shot is halved (design §5.3). A tagged player is capped at
+   * exactly the deadzone speed (spec §4.3) and counts as accurate, so the margin is `movingEpsilon`.
+   */
+  playerMoving(): boolean {
+    const p = this.player;
+    const w = this.weapon;
+    const def = this.tunables.weapon[w.slots[w.active]!.id];
+    const speed = Math.hypot(p.vel.x, p.vel.z);
+    return !p.grounded || speed > def.deadzoneFraction * def.runSpeedMps + this.tunables.enemies.fire.movingEpsilon;
   }
 
   /**

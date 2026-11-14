@@ -2,12 +2,15 @@ import type { BehaviourId } from '../config/targets';
 import { moveTowards } from '../core/math';
 import { TICK_RATE } from '../core/time';
 import { fsmSetTimerRange, STAY, type Behaviour, type BehaviourContext, type BehaviourState } from './fsm';
+import { peekerBehaviour } from './peeker';
+import { straferBehaviour } from './strafer';
 import type { TargetState } from './types';
 
 /**
  * Behaviours (FSM tables) for the roster. The roster itself (shape, tags, radius) is data in
- * `config/targets.ts`; this file holds only the code each `BehaviourId` needs. Later enemies
- * (#32/#33) add a table here and an entry in `BEHAVIOURS`.
+ * `config/targets.ts`; this file holds only the code each `BehaviourId` needs. Strafer and Peeker
+ * live in `strafer.ts` / `peeker.ts` (they share the shooting model in `enemyFire.ts`); later
+ * enemies (#33) add a table and an entry in `BEHAVIOURS`.
  */
 
 // ---------------------------------------------------------------------------------------------
@@ -65,4 +68,6 @@ export const beaconBehaviour: Behaviour = {
 export const BEHAVIOURS: Readonly<Record<BehaviourId, Behaviour>> = {
   post: postBehaviour,
   beacon: beaconBehaviour,
+  strafer: straferBehaviour,
+  peeker: peekerBehaviour,
 };

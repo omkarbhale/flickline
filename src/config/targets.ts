@@ -31,7 +31,7 @@ export interface HitTunables {
 export type TargetShape = 'humanoid' | 'orb';
 
 /** Which behaviour (FSM) drives a kind. The functions live in `sim/enemies.ts`. */
-export type BehaviourId = 'post' | 'beacon';
+export type BehaviourId = 'post' | 'beacon' | 'strafer' | 'peeker';
 
 /** One roster entry. Adding an enemy kind = adding an entry here (+ a behaviour in the sim). */
 export interface TargetKindDef {
@@ -65,7 +65,7 @@ export interface TargetTunables {
   /** `health.max`. Echoes and the player share it. Shields (`player.shield`) sit on top of it in enemy-fire modes. */
   maxHp: number;
   /** The roster as data. */
-  kinds: { post: TargetKindDef; beacon: TargetKindDef };
+  kinds: { post: TargetKindDef; beacon: TargetKindDef; strafer: TargetKindDef; peeker: TargetKindDef };
   sway: SwayTunables;
   /** Seconds a level-placed target stays down before it comes back. */
   respawnSec: number;
@@ -104,6 +104,10 @@ export const targets: TargetTunables = {
     post: { shape: 'humanoid', behaviour: 'post', orbRadius: 0, tags: ['echo', 'static'] },
     // Design §5.2: head-sized glowing orb on nothing. Radius = the head radius (0.14 m).
     beacon: { shape: 'orb', behaviour: 'beacon', orbRadius: 0.14, tags: ['orb', 'static'] },
+    // Design §5.2: an Echo that strafes in real stops (and fires in them where enemies shoot back).
+    strafer: { shape: 'humanoid', behaviour: 'strafer', orbRadius: 0, tags: ['echo', 'mover', 'strafer'] },
+    // Design §5.2: an Echo that peeks out from cover in shoulder, wide, jiggle and hop patterns.
+    peeker: { shape: 'humanoid', behaviour: 'peeker', orbRadius: 0, tags: ['echo', 'mover', 'peeker'] },
   },
   sway: {
     amplitude: 0.02,

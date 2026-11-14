@@ -7,6 +7,8 @@ import { TargetField } from './targets';
 import { vec3 } from '../core/vec3';
 import type { HitZone, SimEvents, TargetKind, TargetState } from './types';
 
+import { createStubEnemyWorld } from './enemyStub';
+
 const tun = cloneTunables();
 const H = tun.targets.hit;
 
@@ -14,7 +16,7 @@ const H = tun.targets.hit;
 function rig(kind: TargetKind, crouched = false, y = 0, z0 = -10) {
   const field = new TargetField(tun);
   const events = new EventBus<SimEvents>();
-  const ctx = { tick: 0, rng: new Rng(1), tunables: tun, events };
+  const ctx = { tick: 0, rng: new Rng(1), tunables: tun, events, world: createStubEnemyWorld() };
   field.spawn(kind, 0, y, z0, ctx, null, { crouched });
   const t: TargetState = field.slots[0]!;
   const def = tun.targets.kinds[kind];
