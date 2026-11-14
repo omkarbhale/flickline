@@ -2,6 +2,8 @@
 
 Status: v1 of the design, written for the first playable and first release. Decisions are made here, not offered as menus. If a rule in this document conflicts with `docs/mechanics-spec.md` on a *number* (speeds, damage, spread, fire rate, FOV, sensitivity scale), the spec wins. If it conflicts with the "Architecture and conventions (read first)" issue (#54) on a *module boundary or event name*, that issue wins. Section numbers of the spec are cited as `spec §x.y`. Everything else here is normative.
 
+Vision: [`docs/vision.md`](vision.md) states what Flickline is for. This design is how we currently pursue it, and every section here is checked against it.
+
 Contents: 1 Pitch and pillars · 2 Core loop · 3 Skills and stat definitions · 4 Modes · 5 Enemies and targets · 6 Weapons · 7 Instant feedback · 8 Results and progression · 9 Skill matching · 10 Maps · 11 Look · 12 Sound · 13 Interface · 14 Technical contracts (incl. 14.7 quality tracks) · 15 Scope · 16 Identity and legal line · 17 Backlog
 
 ---
