@@ -113,7 +113,7 @@ All modes have `ready` → `live` → `result`; weapon per mode is the default b
 - **Rule**: one Post (section 5) appears at a time at a random anchor, 5–25° from the current crosshair direction (mostly small adjustments; this is a *placement and click* drill, not a flick). The first bullet fired at it decides the trial: if the target is hit in the head by that bullet it dies (shatter); a body hit makes it flash and leave; a miss makes it leave. Whatever happens, the Post leaves 0.25 s after your first bullet at it, so spraying is pointless by design. If no bullet is fired before its exposure ends it leaves and counts as a miss-by-timeout.
 - **Trial** (for the skill model): success = head hit with the first bullet.
 - **Pace**: 0.5–0.9 s between targets, about 45 trials per run.
-- **Dial axes**: distance (head size on screen, 5 → 35 m), exposure (2.5 s → 1.05 s, Cold Start's own curve, §9.4), density fixed at 1.
+- **Dial axes**: distance (head size on screen, 5 → 35 m), exposure (2.5 s → 1.35 s, Cold Start's own curve, §9.4; generous on purpose, so a failed trial is a precision failure and not a timeout, #170), density fixed at 1.
 - **Score**: first-bullet head kill = 100 base; the precision multiplier is the dominant term (section 8).
 - **Key metrics shown**: first-shot accuracy, pre-aim error, time to shot.
 
@@ -434,7 +434,7 @@ The Placement run (45 s, about 25–30 trials) uses an adaptive **staircase** on
 
 ### 9.3 Steady state: keeping the edge without rubber-banding
 
-1. **Target success rate 70%**: the dial for the next stretch is `θ_est − s × ln(0.7/0.3)` ≈ `θ_est − 7.6`, chosen so the *expected* success rate is 0.70. A mode may set a different target in data: Cold Start's first-bullet-headshot trial is a harder binary event, so it targets 0.55.
+1. **Target success rate 70%**: the dial for the next stretch is `θ_est − s × ln(0.7/0.3)` ≈ `θ_est − 7.6`, chosen so the *expected* success rate is 0.70. A mode may set a different target in data, but it must stay inside the 60–80% flow band (the edge meter's shaded zone, §9.5). Cold Start's first-bullet-headshot trial was set to 0.55 at first; the first playable playtest (#29) found it settled below the band with 94–99% of failures being exposure timeouts, so it now targets 0.70 like every other drill and its exposure no longer binds (#170).
 2. **Difficulty is a function of the posterior and a pre-planned wave curve, never of the last few shots.** A run is divided into *beats* (every 10 s in drills; every contact in Sweep). The dial changes only at beat boundaries, by at most ±3 points per beat, and the wave curve (warm-up −8, build, peak +6, breather −6) is applied around it. A streak of misses does not make the next target easier; a streak of hits does not instantly spike difficulty. The player sees structure, not a fight against their score.
 3. **Asymmetric update**: the posterior reacts faster upward than downward (likelihood scale `s` 8 for successes, 10 for failures) so a few lucky hits are not rewarded by a brutal jump, and a bad evening does not collapse the rating.
 4. **No hidden handicaps**: the score table's `difficulty` factor means an easier dial does not hand out free points; the PB is per dial band.
@@ -454,7 +454,7 @@ The dial 0–100 maps to the seven axes (each mode uses a subset; linear unless 
 | Strafe leg interval (s) / stand-still window (s) | 1.0 / 0.4 | 0.35 / 0.25 (after the 0.16 s decel) | Strafer |
 | Exposure, pre-aimed timed targets (s) | 3.0 (g) | 0.45 | Any timed target without its own curve |
 | Exposure, Orbit (s) | 2.5 (g) | 1.6 | Orbit, Placement run (Orbit-style trials) |
-| Exposure, Cold Start (s) | 2.5 (g) | 1.05 | Cold Start, Placement run (Cold-Start-style trials) |
+| Exposure, Cold Start (s) | 2.5 (g) | 1.35 | Cold Start, Placement run (Cold-Start-style trials) |
 | Exposure, Stop & Pop (s) | 2.0 (g) | 0.7 | Stop & Pop |
 | Exposure, Peeker wide peek (s) | 1.4 (g) | 0.45 | Corner Clear, Sweep |
 | Exposure, Gnat (s) | 1.5 | 0.6 | Switchboard, Sweep (axis added with the Gnat) |

@@ -24,7 +24,7 @@
  *
  * **Steady state.** `dialFor(mode, beatIndex, wave)` is called once per beat (10 s in drills, a
  * contact in Sweep). It aims the *matched dial* at the mode's target success rate
- * (θ − s·logit(p): 70 %, Cold Start 55 %), moves it by at most ±3 per beat, resets it to the target
+ * (θ − s·logit(p): 70 % for every mode, `config/dial.ts`), moves it by at most ±3 per beat, resets it to the target
  * at beat 0 (a new run), and adds the wave-curve offset for that beat (warm-up −8 … peak +6,
  * breather −6). It reads only the posterior and the beat index, never the last few shots.
  *

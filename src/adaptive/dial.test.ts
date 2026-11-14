@@ -20,7 +20,7 @@ describe('axes (design §9.4)', () => {
     expect(a100.flickMinDeg).toBe(60);
     expect(a100.flickMaxDeg).toBe(120);
     expect(a100.orbitExposureSec).toBeCloseTo(1.6, 9);
-    expect(a100.coldStartExposureSec).toBeCloseTo(1.05, 9);
+    expect(a100.coldStartExposureSec).toBeCloseTo(1.35, 9);
     expect(a100.stopAndPopExposureSec).toBeCloseTo(0.7, 9);
     expect(a100.peekWideSec).toBeCloseTo(0.45, 9);
     expect(a100.strafeLegSec).toBeCloseTo(0.35, 9);
