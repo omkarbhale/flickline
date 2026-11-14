@@ -37,11 +37,11 @@ engine.play(cueId, { pitchStep?, position?, gain? })
 |---|---|
 | `shotFired` | weapon shot by `weapon` id (`pace` -> `shotPace`, `kestrel` -> `shotKestrel`, anything else or absent -> Kestrel); plus `movingShot` when `moving` is true |
 | `shotImpact` with `onTarget: false` | `miss` at the impact point (positional) |
-| `targetHit` | `hitBody` (zone `body` or absent), `hitLeg` (`leg`), `hitHead` (`head`) |
+| `targetHit` | `hitBody` (zone `body`), `hitLeg` (`leg`), `hitHead` (`head`) |
 | `targetKilled` | `kill` at ladder step = current clean streak (min 1, cap 8); `killSparkle` at the same step when `zone` is `head` |
 | `streakUpdated` | tracks the streak; a streak of 2 or more falling to 0 plays `streakBreak` |
 
-`streakUpdated { streak, mult }` is a typed contract in `src/feedback/events.ts` (design 14.3); its producer lands with the run/feedback work (#13, #40). The producer must emit it before presentation handles the `targetKilled` it belongs to; subscribing the producer to the bus before `attachSfx` does that. `shotFired.moving` is emitted by the sim; `shotFired.weapon` and the `zone` fields on `targetHit`/`targetKilled` are optional additions to the sim event types until the weapon and enemy work (#14, #15) emits them; absent means default weapon (Kestrel) and body.
+`streakUpdated { streak, mult }` is a typed contract in `src/feedback/events.ts` (design 14.3); its producer lands with the run/feedback work (#13, #40). The producer must emit it before presentation handles the `targetKilled` it belongs to; subscribing the producer to the bus before `attachSfx` does that. `shotFired.moving` and the `zone` of `targetHit`/`targetKilled` are emitted by the sim; `shotFired.weapon` is an optional addition until the weapon work (#14) sets it; absent means the default weapon (Kestrel).
 
 UI ticks: `src/audio/uiSounds.ts` plays `uiTick` for a click on any menu button and `uiConfirm` for the primary Play button (one delegated listener).
 

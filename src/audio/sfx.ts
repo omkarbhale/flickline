@@ -12,7 +12,7 @@ type SfxEvents = SimEvents & FeedbackEvents;
  *
  *  shotFired    -> weapon shot (+ moving-shot tock when `moving`)
  *  shotImpact   -> miss "pfft" at the impact point (HRTF positional) when it hit no target
- *  targetHit    -> body / leg thock, or headshot thock + tink (zone absent = body)
+ *  targetHit    -> body / leg thock, or headshot thock + tink (no zone = body)
  *  targetKilled -> kill chime on the ladder step of the clean streak, headshot kills add the sparkle
  *  streakUpdated-> tracks the streak; a streak of `streakBreakMin`+ that drops to 0 plays the break cue
  *
