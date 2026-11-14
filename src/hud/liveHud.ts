@@ -2,7 +2,7 @@ import type { Subscribable } from '../core/eventBus';
 import type { HudTunables } from '../config/hud';
 import type { WeaponTable } from '../config/weapon';
 import type { EdgeMeter } from '../feedback/edgeMeter';
-import { NO_PERSONAL_BEST, paceFraction, type PersonalBestSource } from '../feedback/ghostPace';
+import { NO_PACE, paceFraction, type RunPaceSource } from '../feedback/ghostPace';
 import type { HudStatsSource } from '../feedback/hudStats';
 import type { ModeEvents } from '../modes/contracts';
 import { HUD_ELEMENTS, HUD_LABELS, type HudElementId, type HudSettings } from '../settings/hud';
@@ -89,7 +89,7 @@ export class LiveHud {
   private readonly ammoCount: HTMLElement;
   private readonly statV: Record<'acc' | 'hs' | 'rt' | 'ttk' | 'moving', HTMLElement>;
 
-  private pb: PersonalBestSource = NO_PERSONAL_BEST;
+  private pace: RunPaceSource = NO_PACE;
   private score = 0;
   private chain = 0;
   private streak = 0;
@@ -127,7 +127,7 @@ export class LiveHud {
         </div>
         <div class="lh-ghost off" ${ELEMENT_ATTR}="ghost">
           <div class="lh-ghost-bar"><i class="behind"></i><i class="ahead"></i><b></b></div>
-          <span class="lh-ghost-txt">PB</span>
+          <span class="lh-ghost-txt">best run</span>
         </div>
       </div>
       <div class="lh-counters">
@@ -225,9 +225,9 @@ export class LiveHud {
 
   // ---- public ---------------------------------------------------------------------------------
 
-  /** Where PB scores come from (#38). The default answers "none" and the bar hides. */
-  setPersonalBest(src: PersonalBestSource | null): void {
-    this.pb = src ?? NO_PERSONAL_BEST;
+  /** Where the pace against the best run comes from (#217). The default answers "none" and the bar hides. */
+  setPace(src: RunPaceSource | null): void {
+    this.pace = src ?? NO_PACE;
     this.paceDirty = true;
     this.paceTick = -1;
   }
@@ -424,9 +424,11 @@ export class LiveHud {
     let frac = NaN;
     let delta = 0;
     if (c.phase === 'live' && c.modeId !== null) {
-      const pb = this.pb.scoreAt(c.modeId, c.timeSec);
-      frac = paceFraction(this.score, pb, this.d.hud);
-      if (pb !== null) delta = this.score - pb;
+      const p = this.pace.pace();
+      if (p !== null) {
+        frac = paceFraction(p.score, p.reference, this.d.hud);
+        delta = p.score - p.reference;
+      }
     }
     const visible = !Number.isNaN(frac);
     if (visible !== this.paceVisible) {
@@ -442,7 +444,7 @@ export class LiveHud {
     this.paceKey = key;
     this.ghostAhead.style.transform = `scaleX(${Math.max(frac, 0)})`;
     this.ghostBehind.style.transform = `scaleX(${Math.max(-frac, 0)})`;
-    this.ghostText.textContent = `${formatDelta(delta)} vs PB`;
+    this.ghostText.textContent = `${formatDelta(delta)} vs best run`;
     this.el.ghost.dataset.pace = frac > 0.02 ? 'ahead' : frac < -0.02 ? 'behind' : 'level';
   }
 

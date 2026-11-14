@@ -15,7 +15,7 @@ import { SessionStats } from '../feedback/sessionStats';
 import { applySettingsToOptions, createFeedbackOptions } from '../feedback/options';
 import { ShotCues } from '../feedback/shotCues';
 import type { RunEndReason } from '../modes/contracts';
-import { PLACEMENT_MODE } from '../modes/placement';
+import { SWEEP_MODE } from '../modes/sweep';
 import { RunController, type StartRunOptions } from '../modes/runController';
 import { DamageView } from '../hud/damageView';
 import { Hud } from '../hud/hud';
@@ -26,6 +26,7 @@ import { GameRenderer } from '../render/gameRenderer';
 import { DEFAULT_PROFILE, ProfileStore } from '../settings/profile';
 import { ProgressStore } from '../progress/store';
 import { SkillState } from '../adaptive/skillModel';
+import { SKILL_IDS } from '../config/dial';
 import { buildSave, type SaveParts } from '../settings/saveData';
 import { SettingsStore, SETTINGS_KEY, type Settings } from '../settings/settings';
 import { createTickInput, type TickInput } from '../sim/types';
@@ -33,20 +34,18 @@ import type { MapDef } from '../sim/mapTypes';
 import { MAPS, rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
 import { nextSeed } from '../feedback/results';
+import { dailyLabel, dailySeed, isDateKey, localDateKey } from '../modes/dailyRoute';
 import { Menu } from '../ui/menu';
-import { buildCards, titleFromId, type CardModel } from '../ui/menuModel';
+import { titleFromId } from '../ui/menuModel';
+import { DiscardAsk } from '../ui/navigation';
 import { tier } from '../adaptive/dial';
 import { FEATURES } from './features';
 import { ModeHost, MODES } from './modeHost';
-import { registeredModes, SessionFlow } from './sessionFlow';
 
 /** Events the app shell emits. */
 export interface AppEvents {
-  /**
-   * The first-run player entered the game: start the Placement run (#23). `priorMean`/`priorSd`
-   * are the skill prior from the self-report chips (#17). Nothing subscribes until those land.
-   */
-  placementRunRequested: { priorMean: number; priorSd: number };
+  /** `Backspace` mid-run asked once whether to discard the run (design §2.3); a second press within `hints.discardWindowSec` does. */
+  runDiscardAsked: { tick: number };
 }
 
 declare module '../core/gameEvents' {
@@ -81,12 +80,9 @@ export class Game {
   readonly profile: ProfileStore;
   /**
    * The progress save (design §14.5): skill posteriors, ranks, personal bests per mode and dial band, medals and
-   * the run history. Also the best scores, finished-run counts and flagged skill behind the mode cards and
-   * Today's session.
+   * the run history.
    */
   readonly progress: ProgressStore;
-  /** Today's session: which mode is next (the menu shows it, the game launches it). */
-  readonly todaysSession: SessionFlow;
   /**
    * The map in the world now. Range, or the URL's `?map=lane|elbow` (a dev/playtest switch), until a
    * mode starts: starting a mode loads the map it is designed for (`ModeDef.map`, see `ModeHost.start`).
@@ -161,12 +157,20 @@ export class Game {
   private wasFrozen = false;
   /** Has the pointer been locked at least once this page load (pause panel vs landing menu). */
   private hasPlayed = false;
-  /** The first-run hint is showing and waits for the first hit. */
-  private hintActive = false;
-  /** The first-run hint is owed: shown over the first orb that exists, until the first hit. */
-  private hintWanted = false;
+  /** `Backspace` mid-run asks once before it discards a run. */
+  private readonly discard: DiscardAsk;
+  /** A link named a mode (`?mode=`) and it is readied: the first Play takes the lock for that run instead of starting Sweep. */
+  private urlModeReadied = false;
+  private readonly askEv = { tick: 0 };
   /** `?seed=N` from the URL: every run uses it (shareable, replayable), else each run draws its own. */
   private readonly urlSeed: number | null;
+  /**
+   * The local date (`YYYY-MM-DD`) of the Daily Route now playing (design §4.8), null for every other run. It is set
+   * before the run's seed is applied, so listeners of `runReady` and `runEnded` read it as the run's own.
+   */
+  private dailyDate: string | null = null;
+  /** A playtest's stand-in for today's date (`daily.setDate`); null reads the clock. */
+  private dateOverride: string | null = null;
 
   constructor(canvas: HTMLCanvasElement, hudRoot: HTMLElement, menuRoot: HTMLElement, debugRoot: HTMLElement) {
     let storage: Storage | null = null;
@@ -238,36 +242,24 @@ export class Game {
       () => performance.now(), () => this.viewYaw(),
     );
     this.tunables.player.flinch.strength = s.flinchStrength;
-    const modes = this.modes;
-    this.todaysSession = new SessionFlow(
-      this.bus,
-      { registry: MODES, skills: modes.skills, get modeId() { return modes.modeId; } },
-      this.progress,
-      this.tunables.menu,
-      this.tunables.dial,
-    );
+    this.discard = new DiscardAsk(this.tunables.hints.discardWindowSec);
     this.menu = new Menu(menuRoot, this.settings, this.profile, this.tunables, {
-      play: () => this.play(),
+      play: () => this.playRun(),
+      playDaily: () => this.launchDailyRoute(),
+      daily: () => this.dailyView(),
       resume: () => this.play(),
-      restart: () => this.restartCurrent(),
+      newRun: () => this.newRun(),
       toMenu: () => this.toMenu(),
-      playSession: () => this.playSession(),
-      skipStep: () => this.skipStep(),
-      launchMode: (id) => {
-        this.todaysSession.abandon();
-        this.launchMode(id);
-      },
-      runPhase: () => (this.modes.phase !== 'idle' ? this.modes.phase : this.run.state),
-      cards: () => this.modeCards(),
-      session: () => this.todaysSession.view(),
-      pinnableModes: () => this.modeCards().filter((c) => this.tunables.dial.modes[c.id] !== undefined).map((c) => ({ id: c.id, name: c.name })),
+      runPhase: () => this.runPhase(),
+      // Play starts Sweep, so Sweep is the one mode with a difficulty to pin.
+      pinnableModes: () => [SWEEP_MODE].filter((id) => this.tunables.dial.modes[id] !== undefined).map((id) => ({ id, name: this.modeName(id) })),
       tierLabel: (dialValue) => tier(dialValue).label,
       exportSave: () => this.exportSave(),
       importSave: (parts) => this.importSave(parts),
       resetProgress: () => this.resetProgress(),
       runLabel: () => {
         const id = this.modes.modeId ?? this.run.info?.mode ?? null;
-        return id === null ? null : (this.tunables.menu.modeCards[id]?.name ?? id);
+        return id === null ? null : this.modeName(id);
       },
     });
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
@@ -306,13 +298,14 @@ export class Game {
     this.bus.on('rawInputChanged', ({ on, requested }) => this.menu.setRawInput(on, requested));
     this.bus.on('progressChanged', () => this.menu.refresh());
     this.bus.on('shotFired', () => this.timeline.mark('firstShot'));
-    this.bus.on('targetHit', () => this.dismissHint());
-    // The Placement run's first orb appears after the run goes live, not at the click: the hint waits for it.
-    this.bus.on('targetSpawned', () => {
-      if (this.hintWanted) this.showHint();
+    this.bus.on('runReady', () => {
+      this.timeline.mark('runReady');
+      this.discard.clear();
     });
-    this.bus.on('targetExpired', () => {
-      if (this.hintActive) this.hideHint(); // the orb it pointed at left unhit: wait for the next one
+    this.bus.on('runStarted', () => this.timeline.mark('runLive'));
+    // Clicking the range on the first panel locks the pointer in the Lobby: nothing is scored there (design 13.4).
+    canvas.addEventListener('click', () => {
+      if (!this.input.locked && this.menu.isOpen && this.menu.current === 'firstRun') this.play();
     });
 
     window.addEventListener('resize', this.onResize);
@@ -320,9 +313,9 @@ export class Game {
     this.refreshChrome();
     this.timeline.mark(this.profile.get().firstRunDone ? 'mainMenuShown' : 'firstRunPanelShown');
 
-    // `?mode=orbit` readies that mode now; it starts ticking when the player clicks Play (the sim only runs with the pointer locked). The menu for choosing modes is #27.
+    // `?mode=orbit` readies that mode now; it starts ticking when the player clicks Play (the sim only runs with the pointer locked). The menu no longer lists modes (#202); the link is for playtests until the drill code goes (#211).
     const modeParam = new URLSearchParams(window.location.search).get('mode');
-    if (modeParam) this.startMode(modeParam);
+    if (modeParam) this.urlModeReadied = this.startMode(modeParam);
   }
 
   // --- Feature registration: call these from a feature's `setup` --------------------------------
@@ -449,114 +442,137 @@ export class Game {
     return this.urlSeed ?? (Math.floor(Math.random() * 0x7fffffff) + 1);
   }
 
-  /** Start `id` from a seed (a fresh one by default), reset the run state and take the pointer lock. */
-  launchMode(id: string, seed: number = this.newSeed()): void {
+  /** The name a mode goes by in the menu (pause title, difficulty pin). */
+  private modeName(id: string): string {
+    return this.tunables.menu.modeCards[id]?.name ?? titleFromId(id);
+  }
+
+  /** The run clock's phase: the mode run's, else the plain run's (`idle` in the Lobby). */
+  private runPhase(): 'idle' | 'ready' | 'live' | 'result' {
+    return this.modes.phase !== 'idle' ? this.modes.phase : this.run.state;
+  }
+
+  /** The local date the Daily Route is for right now (`YYYY-MM-DD`); it changes at local midnight. */
+  today(): string {
+    return this.dateOverride ?? localDateKey(new Date());
+  }
+
+  /** The date of the Daily Route now playing, or null when the run is not one. */
+  get dailyKey(): string | null {
+    return this.dailyDate;
+  }
+
+  /** Playtests only: the run about to be started straight on the mode host (the bot's) is the Daily Route of `key` (null: not one). */
+  markDailyRun(key: string | null): void {
+    this.dailyDate = key;
+  }
+
+  /** Playtests only: pretend today is `key` (null: the clock), to look at the day best across midnight. */
+  setToday(key: string | null): void {
+    if (key !== null && !isDateKey(key)) return;
+    this.dateOverride = key;
+    this.menu.refresh();
+  }
+
+  /** Start a run of `id`, saying whether it is the Daily Route of `daily` (a date key) or not. False for an unknown mode. */
+  private startModeRun(id: string, seed: number, daily: string | null): boolean {
+    if (!MODES[id]) return false;
+    this.modes.stop(); // the run being left ends as what it was, before the new run's date applies
+    const was = this.dailyDate;
+    this.dailyDate = daily;
+    if (this.modes.start(id, { seed })) return true;
+    this.dailyDate = was;
+    return false;
+  }
+
+  /** The Daily Route button: Sweep on the seed of today's date (unlimited attempts), pointer lock taken. */
+  launchDailyRoute(): void {
+    if (!this.profile.get().firstRunDone) this.beginFirstRun();
+    this.urlModeReadied = false;
+    const date = this.today();
+    this.launchMode(SWEEP_MODE, dailySeed(date, this.tunables.daily), date);
+  }
+
+  /** What the menu shows for the Daily Route: today's date and the day best so far. */
+  dailyView(): { label: string; best: number | null } {
+    const date = this.today();
+    return { label: dailyLabel(date), best: this.progress.dailyBest(date)?.score ?? null };
+  }
+
+  /**
+   * Start `id` from a seed (a fresh one by default), reset the run state and take the pointer lock. `daily` is the date
+   * key when the run is the Daily Route (see `dailyKey`).
+   */
+  launchMode(id: string, seed: number = this.newSeed(), daily: string | null = null): void {
     const t0 = performance.now();
-    if (!this.modes.start(id, { seed })) return;
-    this.dismissHint();
+    if (!this.startModeRun(id, seed, daily)) return;
     this.afterRunReset();
     this.noteRestart(t0);
     this.play();
   }
 
   /**
-   * Instant restart of whatever is running, from the same seed (design section 2: `Backspace`, from
-   * anywhere in a run): a mode run, a plain run, or free play. Also takes the pointer lock.
+   * Play (design §2.2, §13.4): a Sweep run on a new seed. The first one is the player's first run: the
+   * self-report sets the skill model's prior first (so the opening dial fits them), then the panel is
+   * done with. Needs a user gesture (the lock and the audio).
    */
-  restartCurrent(): void {
-    const id = this.modes.modeId;
-    if (id !== null) {
-      this.launchMode(id, this.modes.runner.seed);
+  playRun(): void {
+    if (!this.profile.get().firstRunDone) this.beginFirstRun();
+    if (this.urlModeReadied && this.modes.phase === 'ready') {
+      this.urlModeReadied = false; // a link that names a mode is an explicit choice: that run is already readied
+      this.play();
       return;
     }
-    if (!this.restartRun()) this.resetWorld();
+    this.urlModeReadied = false;
+    this.launchMode(SWEEP_MODE);
+  }
+
+  /**
+   * The first run starts: remember it (the next visit lands on the menu, not the first panel) and seed the
+   * skill model from the self-report (design §9.2). A model that already has trials (an imported save) is kept.
+   */
+  private beginFirstRun(): void {
+    if (SKILL_IDS.every((k) => this.modes.skills.trialCount(k) === 0)) this.modes.skills.reseed(this.profile.prior(this.tunables.dial));
+    this.profile.set({ firstRunDone: true });
+  }
+
+  /**
+   * A new run (the pause menu's button, `Backspace`): the mode in progress on a new seed, no scene rebuild; in
+   * the Lobby it resets the range. With the pointer locked and the run live, the key only asks (design §2.3);
+   * a second press within the window does it.
+   */
+  newRun(): void {
+    if (this.input.locked && this.discard.press(this.runPhase(), performance.now() / 1000) === 'ask') {
+      this.askEv.tick = this.world.tick;
+      this.bus.emit('runDiscardAsked', this.askEv);
+      return;
+    }
+    const id = this.modes.modeId;
+    if (id !== null) {
+      // A new run of the Daily Route is the route of today again; any other run draws a new seed.
+      if (this.dailyDate !== null) this.launchDailyRoute();
+      else this.launchMode(id);
+      return;
+    }
+    const info = this.run.info;
+    if (info !== null && this.run.state !== 'idle' && this.run.isSelfDriven && this.restartRun(nextSeed(info.seed, this.tunables.results))) {
+      this.play();
+      return;
+    }
+    this.resetWorld();
     this.play();
   }
 
-  /** Leave the run for the main menu (the session, if any, can be continued from there). */
+  /** Leave the run for the main menu. */
   toMenu(): void {
     this.resetWorld();
     this.menu.setMode('main');
   }
 
-  /** Play (today's session): its first step, or the one it is on. With no modes registered, free play. */
-  playSession(): void {
-    const id = this.todaysSession.start();
-    if (id === null) this.play();
-    else this.launchMode(id);
-  }
-
-  /** Skip the session's current step; past the last one the session is over and the menu shows. */
-  skipStep(): void {
-    const id = this.todaysSession.skip();
-    if (id === null) this.toMenu();
-    else this.launchMode(id);
-  }
-
-  /** The mode cards: the registry's modes with each one's skill, best score and matched tier. */
-  private modeCards(): CardModel[] {
-    const dial = this.tunables.dial;
-    const skills = this.modes.skills;
-    return buildCards(registeredModes(MODES, dial), this.tunables.menu, {
-      bestScore: (id) => this.progress.best(id),
-      matchedDial: (id) => {
-        const d = dial.modes[id];
-        return d ? skills.targetDial(d.skill, d.targetSuccess) : null;
-      },
-      tierLabel: (value) => tier(value).label,
-    });
-  }
-
-  /**
-   * First lock of a first-run player: they are in. Remember it (so the next visit lands on the
-   * main menu), start the Placement run with the self-report prior, and point at the first orb.
-   */
+  /** The pointer lock was taken: in the Lobby (nothing scored) or in a run. */
   private onLockAcquired(): void {
     this.timeline.mark('lockAcquired');
     this.hasPlayed = true;
-    if (this.profile.get().firstRunDone) return;
-    this.profile.set({ firstRunDone: true });
-    const prior = this.profile.prior(this.tunables.dial);
-    this.bus.emit('placementRunRequested', { priorMean: prior.mean, priorSd: prior.sd });
-    this.showHint();
-  }
-
-  /** Float the single "Click the orb" hint over the orb nearest to where the player looks; with none yet, the next one that spawns. */
-  private showHint(): void {
-    this.hintWanted = true;
-    const targets = this.world.targets;
-    let best = -1;
-    let bestDot = -2;
-    const fx = -Math.sin(this.input.yaw);
-    const fz = -Math.cos(this.input.yaw);
-    const p = this.world.player.pos;
-    for (let i = 0; i < targets.length; i++) {
-      const t = targets[i]!;
-      if (!t.alive || t.kind !== 'beacon') continue;
-      const dx = t.pos.x - p.x;
-      const dz = t.pos.z - p.z;
-      const dot = (dx * fx + dz * fz) / (Math.sqrt(dx * dx + dz * dz) || 1);
-      if (dot > bestDot) {
-        bestDot = dot;
-        best = i;
-      }
-    }
-    if (best < 0) return;
-    const t = targets[best]!;
-    this.renderer.hint.show(t.pos.x, t.pos.y + t.radius + 0.9, t.pos.z);
-    this.hintActive = true;
-  }
-
-  /** The hint is done for good (first hit, or another run started). */
-  private dismissHint(): void {
-    this.hintWanted = false;
-    this.hideHint();
-  }
-
-  private hideHint(): void {
-    if (!this.hintActive) return;
-    this.hintActive = false;
-    this.renderer.hint.hide();
   }
 
   refreshChrome(): void {
@@ -730,6 +746,7 @@ export class Game {
    */
   startMode(id: string, opts: { seed?: number; pinDial?: number } = {}): boolean {
     const t0 = performance.now();
+    this.dailyDate = null;
     if (!this.modes.start(id, opts)) return false;
     this.afterRunReset();
     this.noteRestart(t0);
@@ -740,6 +757,7 @@ export class Game {
   /** Abandon any run and reset the world (free play). */
   resetWorld(seed?: number): void {
     this.modes.stop();
+    this.dailyDate = null;
     this.run.cancel(seed);
     this.afterRunReset();
   }
@@ -763,23 +781,22 @@ export class Game {
   }
 
   /**
-   * The results card's `Enter`: the next run of the same mode and dial on a fresh seed
-   * (`nextSeed`), straight back to `ready` with no scene rebuild. `pressedAt` is the key event's
-   * timestamp, so `lastRestartToFrameMs` measures key press to the first drawn `ready` frame.
-   * Takes the pointer lock back if it was lost (the key press is a user gesture). False when
-   * there is no finished run to follow up.
+   * The results card's `Enter` (design §2.3): a new run, the same mode and dial on a new seed (the next one in
+   * the `nextSeed` chain, so every run is replayable from its seed), straight back to `ready` with no scene
+   * rebuild. `pressedAt` is the key event's timestamp, so `lastRestartToFrameMs` measures key press to the
+   * first drawn `ready` frame. Takes the pointer lock back if it was lost (the key press is a user gesture).
+   * False when there is no finished run to follow up.
    */
   playAgain(pressedAt: number = performance.now()): boolean {
     const info = this.run.info;
     if (!info || this.run.state !== 'result') return false;
-    // In Today's session the next run is the session's next step (it advanced when this run ended).
-    // After the Placement run it is the first step of a new session: the next click is the real game (design 13.4).
-    const next = this.run.isSelfDriven ? null : info.mode === PLACEMENT_MODE ? this.todaysSession.start() : this.todaysSession.next();
-    const seed = next === null ? nextSeed(info.seed, this.tunables.results) : this.newSeed();
+    // The Daily Route again: unlimited attempts at today's route (a new date after midnight is a new route).
+    const date = this.dailyDate !== null && !this.run.isSelfDriven ? this.today() : null;
+    const seed = date !== null ? dailySeed(date, this.tunables.daily) : nextSeed(info.seed, this.tunables.results);
     if (this.run.isSelfDriven) {
       if (!this.run.restartRun(seed)) return false;
-    } else {
-      if (!this.modes.start(next ?? info.mode, { seed })) return false;
+    } else if (!this.startModeRun(info.mode, seed, date)) {
+      return false;
     }
     this.afterRunReset();
     this.noteRestart(pressedAt);
@@ -787,15 +804,20 @@ export class Game {
     return true;
   }
 
-  /** What the results card's primary button says: the session's next step, or null for plain "Play again". */
-  nextRunLabel(): string | null {
+  /**
+   * The results card's `R` (design §8.2): the same mode, dial and seed again, straight back to `ready`.
+   * False when there is no finished run to replay.
+   */
+  replaySeed(pressedAt: number = performance.now()): boolean {
     const info = this.run.info;
-    const next = this.run.isSelfDriven
-      ? null
-      : info?.mode === PLACEMENT_MODE
-        ? (this.todaysSession.plan()[0]?.modeId ?? null)
-        : this.todaysSession.next();
-    return next === null ? null : `Next: ${this.tunables.menu.modeCards[next]?.name ?? titleFromId(next)}`;
+    if (!info || this.run.state !== 'result') return false;
+    if (this.run.isSelfDriven) {
+      if (!this.run.restartRun(info.seed)) return false;
+    } else if (!this.startModeRun(info.mode, info.seed, this.dailyDate)) return false;
+    this.afterRunReset();
+    this.noteRestart(pressedAt);
+    if (!this.input.locked) this.play();
+    return true;
   }
 
   /** Show the menu over whatever is on screen (the results card's `Esc` when the pointer is already free). */

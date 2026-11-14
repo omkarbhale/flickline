@@ -7,7 +7,7 @@
 @font-face { font-family: 'Barlow'; font-weight: 700; font-style: normal; font-display: swap; src: url('../../assets/fonts/barlow-700.woff2') format('woff2'); }
 @font-face { font-family: 'JetBrains Mono'; font-weight: 600; font-style: normal; font-display: swap; src: url('../../assets/fonts/jetbrains-mono-600.woff2') format('woff2'); }
 
-#menu {
+#menu, .rc {
   --font-ui: 'Barlow', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-num: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --fg: color-mix(in srgb, var(--core) 92%, var(--ink));
@@ -52,7 +52,7 @@
 .fl-btn--primary .fl-kbd { color: var(--ink); background: color-mix(in srgb, var(--ink) 14%, transparent); border-color: color-mix(in srgb, var(--ink) 32%, transparent); }
 
 /* One focus style everywhere: a trim ring, never removed. */
-#menu :is(button, input, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--trim); outline-offset: 2px; }
+#menu :is(button, input, select, summary, [tabindex]):focus-visible, .rc :is(button, [tabindex]):focus-visible { outline: 2px solid var(--trim); outline-offset: 2px; }
 
 /* Tabs */
 .fl-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 0 16px; }
