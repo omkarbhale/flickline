@@ -63,7 +63,8 @@ export interface WorldOptions {
  * Everything advances only through step(). Emits SimEvents; presentation subscribes.
  */
 export class World implements EnemyWorld {
-  readonly level: LevelDef;
+  /** The loaded level. Replaced only by `setLevel` (a mode on another map); never assigned elsewhere. */
+  level: LevelDef;
   readonly tunables: Tunables;
   readonly rng: Rng;
   seed: number;
@@ -166,6 +167,17 @@ export class World implements EnemyWorld {
     // Until the enemy minds (#89) answer, a firing enemy "sees" the player by the one sight rule its fire model already uses.
     this.attribution.perception = { seesPlayer: (t) => t.ai.fireOn && this.firing && seesPlayer(t, this.behaviourCtx) };
     this.reset(this.seed);
+  }
+
+  /**
+   * Load another level in place: its collision boxes (weapon rays, enemy sight, attribution), spawn
+   * point and placed targets replace the old level's. Takes effect with the next `reset()`, which the
+   * caller runs straight after (`ModeHost.start`); nothing else about the world changes.
+   */
+  setLevel(level: LevelDef): void {
+    this.level = level;
+    this.weaponWorld.boxes = level.boxes;
+    this.attribution.setBoxes(level.boxes);
   }
 
   /** Restore the initial state; optionally with a new seed. */
