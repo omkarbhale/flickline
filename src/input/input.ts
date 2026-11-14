@@ -3,7 +3,8 @@ import { clamp, DEG2RAD } from '../core/math';
 import { degreesPerCount } from '../core/sensitivity';
 import { SLOT_INDEX } from '../sim/loadout';
 import type { TickInput } from '../sim/types';
-import { defaultBindings, type Bindings } from './bindings';
+import type { KeyBindings } from '../settings/keys';
+import { defaultBindings, indexBindings, withKeys, type Bindings, type BoundAction } from './bindings';
 
 /** Events the input layer emits. */
 export interface InputEvents {
@@ -13,7 +14,7 @@ export interface InputEvents {
    * Whether the last pointer lock request got raw (unadjusted) mouse input. `on: false` means the
    * browser lacks it and the OS pointer acceleration may apply.
    */
-  rawInputChanged: { on: boolean };
+  rawInputChanged: { on: boolean; /** Whether the player's setting asked for it. */ requested: boolean };
 }
 
 declare module '../core/gameEvents' {
@@ -44,17 +45,23 @@ export class InputManager {
   private reloadEdge = false;
   /** Loadout slot of the last swap key pressed since a tick consumed it, or -1. */
   private switchEdge = -1;
-  private readonly codeToAction = new Map<string, keyof Bindings>();
+  private readonly codeToAction = new Map<string, BoundAction>();
+  private bindings: Bindings;
+  /** Mouse up looks down (the setting `invertY`). */
+  private pitchSign = -1;
+  /** Ask for raw (unadjusted) mouse input when locking (the setting `rawInput`). */
+  private wantRaw = true;
+  /** What `wantRaw` was when `rawInputChanged` last fired (so a change of the setting alone is reported too). */
+  private rawReported = true;
   onToggleDebug: (() => void) | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly events: EventSink<InputEvents>,
-    private readonly bindings: Bindings = defaultBindings,
+    bindings: Bindings = defaultBindings,
   ) {
-    for (const action of Object.keys(bindings) as (keyof Bindings)[]) {
-      for (const code of bindings[action]) this.codeToAction.set(code, action);
-    }
+    this.bindings = bindings;
+    indexBindings(bindings, this.codeToAction);
     document.addEventListener('pointerlockchange', this.onLockChange);
     document.addEventListener('pointerlockerror', this.onLockError);
     document.addEventListener('mousemove', this.onMouseMove);
@@ -74,6 +81,23 @@ export class InputManager {
     this.degPerCount = degreesPerCount(sensitivity);
   }
 
+  /** The player's key bindings; takes effect on the next key event (keys held across the change are released). */
+  setKeys(keys: Readonly<KeyBindings>): void {
+    this.bindings = withKeys(keys);
+    indexBindings(this.bindings, this.codeToAction);
+    this.down.clear();
+  }
+
+  /** Invert the vertical mouse axis. */
+  setInvertY(on: boolean): void {
+    this.pitchSign = on ? 1 : -1;
+  }
+
+  /** Whether the next pointer lock asks for raw mouse input. */
+  setRawWanted(on: boolean): void {
+    this.wantRaw = on;
+  }
+
   setLook(yaw: number, pitch: number): void {
     this.yaw = yaw;
     this.pitch = clamp(pitch, -this.maxPitch, this.maxPitch);
@@ -87,6 +111,16 @@ export class InputManager {
    * lacks it (or that rejects the option) gets a plain lock and `rawInputChanged {on: false}`.
    */
   requestLock(): void {
+    if (!this.wantRaw) {
+      try {
+        const r = this.canvas.requestPointerLock() as Promise<void> | void;
+        if (r && typeof r.catch === 'function') r.catch(() => {});
+      } catch {
+        return;
+      }
+      this.setRaw(false);
+      return;
+    }
     const c = this.canvas as HTMLCanvasElement & {
       requestPointerLock(options?: { unadjustedMovement?: boolean }): Promise<void> | void;
     };
@@ -126,12 +160,13 @@ export class InputManager {
   }
 
   private setRaw(on: boolean): void {
-    if (this.rawInput === on) return;
+    if (this.rawInput === on && this.rawReported === this.wantRaw) return;
     this.rawInput = on;
-    this.events.emit('rawInputChanged', { on });
+    this.rawReported = this.wantRaw;
+    this.events.emit('rawInputChanged', { on, requested: this.wantRaw });
   }
 
-  private isDown(action: keyof Bindings): boolean {
+  private isDown(action: BoundAction): boolean {
     const codes = this.bindings[action];
     for (let i = 0; i < codes.length; i++) if (this.down.has(codes[i]!)) return true;
     return false;
@@ -183,7 +218,7 @@ export class InputManager {
   private readonly onMouseMove = (e: MouseEvent): void => {
     if (!this.locked) return;
     this.yaw -= e.movementX * this.degPerCount * DEG2RAD;
-    this.pitch = clamp(this.pitch - e.movementY * this.degPerCount * DEG2RAD, -this.maxPitch, this.maxPitch);
+    this.pitch = clamp(this.pitch + this.pitchSign * e.movementY * this.degPerCount * DEG2RAD, -this.maxPitch, this.maxPitch);
   };
 
   private readonly onMouseDown = (e: MouseEvent): void => {
@@ -200,6 +235,11 @@ export class InputManager {
     const action = this.codeToAction.get(e.code);
     if (action === 'toggleDebug') {
       if (!e.repeat) this.onToggleDebug?.();
+      e.preventDefault();
+      return;
+    }
+    if (action === 'fullscreen') {
+      if (!e.repeat) toggleFullscreen();
       e.preventDefault();
       return;
     }
@@ -231,5 +271,15 @@ export class InputManager {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.releaseAll);
+  }
+}
+
+/** Enter or leave fullscreen (needs a user gesture: called from a key press). */
+function toggleFullscreen(): void {
+  try {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    else void document.documentElement.requestFullscreen().catch(() => undefined);
+  } catch {
+    /* ignore */
   }
 }
