@@ -29,7 +29,7 @@ type LiveHudEvents = Pick<
   'shotFired' | 'targetHit' | 'targetKilled' | 'reloadStarted' | 'reloadCompleted' | 'reloadCancelled' | 'weaponSwitched' | 'playerDamaged' | 'playerHealed'
 > &
   Pick<ModeEvents, 'runReady' | 'runStarted' | 'runEnded' | 'scoreAwarded' | 'chainUpdated' | 'streakUpdated'> &
-  Pick<EconomyEvents, 'economyApplied'> &
+  Pick<EconomyEvents, 'economyApplied' | 'primaryPicked'> &
   SettingsEvents;
 
 export interface LiveHudDeps {
@@ -210,7 +210,9 @@ export class LiveHud {
     bus.on('economyApplied', (e) => {
       const h = this.d.health;
       if (h) this.setHp(h.hp, h.maxHp, e.shield, e.maxShield);
+      this.refreshAmmo(); // the primary may have been holstered or taken back
     });
+    bus.on('primaryPicked', () => this.refreshAmmo());
     bus.on('runReady', () => this.onRunReady());
     bus.on('runStarted', () => { this.paceDirty = true; });
     bus.on('runEnded', () => { this.paceDirty = true; });
