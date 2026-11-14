@@ -200,7 +200,7 @@ describe('tagging (spec §4.3)', () => {
   it('a hit caps a full run at 27.5% of max speed, then the speed comes back', () => {
     const { world, run, hitFromAhead, tun } = setup();
     run(TICK_RATE, { moveZ: 1 });
-    const max = tun.movement.runSpeed;
+    const max = world.maxSpeed();
     expect(horizSpeed(world)).toBeCloseTo(max, 3);
     hitFromAhead(10);
     // The ramp-in takes 0.10 s: right after it the player is on the cap (a single hit reaches it).
@@ -222,7 +222,7 @@ describe('tagging (spec §4.3)', () => {
   it('is at the full cap while hits keep coming (each hit refreshes the release)', () => {
     const { world, run, hitFromAhead, tun } = setup();
     run(TICK_RATE, { moveZ: 1 });
-    const cap = tun.movement.runSpeed * tun.player.tag.speedScale;
+    const cap = world.maxSpeed() * tun.player.tag.speedScale;
     for (let i = 0; i < 12; i++) {
       hitFromAhead(1);
       run(Math.round(0.07 * TICK_RATE), { moveZ: 1 }); // ~ a rifle's fire interval
@@ -234,25 +234,25 @@ describe('tagging (spec §4.3)', () => {
   });
 
   it('applies to airborne players too (horizontal speed only)', () => {
-    const { world, run, hitFromAhead, tun } = setup();
+    const { world, run, hitFromAhead } = setup();
     run(TICK_RATE, { moveZ: 1 });
     run(1, { moveZ: 1, jump: true });
     expect(world.player.grounded).toBe(false);
     const vy = world.player.vel.y;
     hitFromAhead(10);
     run(Math.round(0.12 * TICK_RATE), { moveZ: 1 });
-    expect(horizSpeed(world)).toBeLessThanOrEqual(tun.movement.runSpeed * 0.5);
+    expect(horizSpeed(world)).toBeLessThanOrEqual(world.maxSpeed() * 0.5);
     expect(world.player.vel.y).toBeLessThan(vy); // gravity still acts, the slow is horizontal
   });
 
   it('the tag constants are tunables: a different speed_scale changes the cap', () => {
-    const { world, run, hitFromAhead, tun } = setup((t) => { t.player.tag.speedScale = 0.5; });
+    const { world, run, hitFromAhead } = setup((t) => { t.player.tag.speedScale = 0.5; });
     run(TICK_RATE, { moveZ: 1 });
     for (let i = 0; i < 12; i++) {
       hitFromAhead(1);
       run(Math.round(0.07 * TICK_RATE), { moveZ: 1 });
     }
-    expect(horizSpeed(world)).toBeCloseTo(tun.movement.runSpeed * 0.5, 2);
+    expect(horizSpeed(world)).toBeCloseTo(world.maxSpeed() * 0.5, 2);
   });
 });
 

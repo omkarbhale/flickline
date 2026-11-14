@@ -101,10 +101,6 @@ export interface WeaponDef {
 export interface WeaponRules {
   /** Hitscan reach, metres. Spec §3.2 bands end at 50 m; this only bounds the trace. */
   rangeM: number;
-  /** `move.walk_fraction` (spec §2.2): walk speed as a fraction of the equipped run speed. */
-  walkFraction: number;
-  /** `move.crouch_walk_fraction` (spec §2.2). */
-  crouchWalkFraction: number;
   /** `move.landing_spread_add` (spec §2.6): degrees added for a window after landing. */
   landingSpreadAddDeg: number;
   /** `move.landing_spread_duration` (spec §2.6), seconds. */
@@ -295,8 +291,6 @@ export const weapon: WeaponTable = {
 
 export const weaponRules: WeaponRules = {
   rangeM: 200,
-  walkFraction: 0.5, // spec §7.1 `move.walk_fraction`
-  crouchWalkFraction: 0.34, // spec §7.1 `move.crouch_walk_fraction`
   landingSpreadAddDeg: 7, // spec §7.1 `move.landing_spread_add`
   landingSpreadSec: 0.225, // spec §7.1 `move.landing_spread_duration`
   centreBiasPowerStill: 1.5, // spec §7.1 `spread.center_bias_power_still`

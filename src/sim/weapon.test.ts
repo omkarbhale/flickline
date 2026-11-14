@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { movement } from '../config/movement';
 import { cloneTunables } from '../config/tunables';
 import { weapon as weaponTable, weaponRules, type WeaponDef } from '../config/weapon';
 import { EventBus } from '../core/eventBus';
@@ -114,18 +115,18 @@ describe('spread (spec §3.3)', () => {
 
 describe('movement accuracy (spec §2.4, §3.4)', () => {
   it('movement error follows the deadzone / walk / run / air thresholds', () => {
-    const r = weaponRules;
-    expect(movementErrorDeg(kestrel, r, 0, false, false)).toBe(0);
-    expect(movementErrorDeg(kestrel, r, 0.275, false, false)).toBe(0);
-    expect(movementErrorDeg(kestrel, r, 0.28, false, false)).toBeGreaterThan(0);
-    expect(movementErrorDeg(kestrel, r, 0.5, false, false)).toBeCloseTo(3, 12);
-    expect(movementErrorDeg(kestrel, r, 0.75, false, false)).toBeCloseTo(4.5, 12);
-    expect(movementErrorDeg(kestrel, r, 1, false, false)).toBeCloseTo(6, 12);
-    expect(movementErrorDeg(kestrel, r, 0.34, true, false)).toBeCloseTo(0.8, 12);
-    expect(movementErrorDeg(kestrel, r, 0, false, true)).toBe(10);
-    expect(movementErrorDeg(pace, r, 1, false, false)).toBeCloseTo(2.3, 12);
-    expect(movementErrorDeg(pace, r, 0.5, false, false)).toBeCloseTo(1.1, 12);
-    expect(movementErrorDeg(pace, r, 0, false, true)).toBe(7);
+    const m = movement;
+    expect(movementErrorDeg(kestrel, m, 0, false, false)).toBe(0);
+    expect(movementErrorDeg(kestrel, m, 0.275, false, false)).toBe(0);
+    expect(movementErrorDeg(kestrel, m, 0.28, false, false)).toBeGreaterThan(0);
+    expect(movementErrorDeg(kestrel, m, 0.5, false, false)).toBeCloseTo(3, 12);
+    expect(movementErrorDeg(kestrel, m, 0.75, false, false)).toBeCloseTo(4.5, 12);
+    expect(movementErrorDeg(kestrel, m, 1, false, false)).toBeCloseTo(6, 12);
+    expect(movementErrorDeg(kestrel, m, 0.34, true, false)).toBeCloseTo(0.8, 12);
+    expect(movementErrorDeg(kestrel, m, 0, false, true)).toBe(10);
+    expect(movementErrorDeg(pace, m, 1, false, false)).toBeCloseTo(2.3, 12);
+    expect(movementErrorDeg(pace, m, 0.5, false, false)).toBeCloseTo(1.1, 12);
+    expect(movementErrorDeg(pace, m, 0, false, true)).toBe(7);
   });
 
   it('a shot is moving above 27.5% of the equipped run speed, or airborne', () => {
