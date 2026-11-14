@@ -68,6 +68,8 @@ Sweep (#201) is a run with no clock: `SweepBot` walks each sector from its entry
 
 `npm run bot -- --sweep-report [--runs 50] [--skills 30,50,70] [--dial D]` plays seeded runs at each skill and prints the balance table posted on #201: contact win rate (cleared ÷ fights; a contact the player left unhurt is not a fight), fights per run, depth reached, the share of runs that made it out, mean health+shield at each sector exit, run length and score.
 
+`npm run bot -- --meet-report [--runs 100] [--skills 30,50,70] [--stop-delay 2.5]` is the meet-sector report (#212). Each run is forced to the Opener and then one meet sector (`sweep.roleMix` set to meets only, two sectors), and every settled meet contact is tallied by who first dropped to counter-strafe speed (`contactSettled.stopFirst`) against whether the player won it (every Echo dead). `SweepBot` normally stops the moment it engages an Echo, which would leave only one side of the comparison; `--stop-delay S` lets it keep running its route for a uniform 0..S seconds after it first engages (aim on the Echo, no shot while moving), so both orders occur. A bigger S makes the Echoes stop first more often and the player's run-through costlier. The bot's skill changes its aim, not its stopping, so the rows differ little.
+
 ### The skill model (`skill.ts`)
 
 One number, `skill` 0..100, on the same scale as the difficulty dial and the latent ability of
