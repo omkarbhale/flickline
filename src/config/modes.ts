@@ -18,6 +18,7 @@ export interface ModeTunables {
   coldStart: ColdStartTunables;
   orbit: OrbitTunables;
   placement: PlacementTunables;
+  strafeTrack: StrafeTrackTunables;
 }
 
 /** Cold Start (design §4.1): one Post at a time, 5-25 degrees from the crosshair, the first bullet decides. */
@@ -53,6 +54,28 @@ export interface PlacementTunables {
   durationSec: number;
 }
 
+/**
+ * Strafe Track (design §4.3): 1-3 Strafers alive at 10-35 m, each on a Range `strafe-lane`. The
+ * dial moves their speed, leg, stand-still, time limit, lane distance and how many are alive
+ * (`config/dial.ts`); what is here is what the dial does not.
+ */
+export interface StrafeTrackTunables {
+  /** Most Strafers alive at once; the dial's density (1..6) is spread over 1..maxAlive in equal bands. */
+  maxAlive: number;
+  /** Lane distance band, metres from the eye (design §4.3: 10-35 m). */
+  minDistM: number;
+  maxDistM: number;
+  /** The dial's distance axis picks a lane within these multiples of it (the picker widens the band if no lane fits). */
+  distanceLoMult: number;
+  distanceHiMult: number;
+  /** A replacement Strafer spawns this long after a kill or a timeout (design §4.3: 0.4 s). */
+  replaceDelaySec: number;
+  /** The Strafers of the opening wave appear this far apart, so they do not all pop in at once. */
+  openingStaggerSec: number;
+  /** Tries to find a lane no other living Strafer is on before sharing one. */
+  laneRetries: number;
+}
+
 export const modes: ModeTunables = {
   readySec: 0.8,
   drillSec: 60,
@@ -77,6 +100,16 @@ export const modes: ModeTunables = {
   },
   placement: {
     durationSec: 45,
+  },
+  strafeTrack: {
+    maxAlive: 3,
+    minDistM: 10,
+    maxDistM: 35,
+    distanceLoMult: 0.7,
+    distanceHiMult: 1.4,
+    replaceDelaySec: 0.4,
+    openingStaggerSec: 0.25,
+    laneRetries: 4,
   },
 };
 

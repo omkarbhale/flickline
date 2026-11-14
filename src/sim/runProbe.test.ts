@@ -4,6 +4,7 @@ import { EventBus } from '../core/eventBus';
 import { DEG2RAD } from '../core/math';
 import { TICK_DT, TICK_RATE } from '../core/time';
 import { vec3 } from '../core/vec3';
+import { yawOf } from './aim';
 import { accuracyThreshold } from './runProbe';
 import type { RunEvents } from './runEvents';
 import { createTickInput, type LevelDef, type RunAndSimEvents, type SimEvents, type TickInput } from './types';
@@ -25,7 +26,7 @@ function setup(lv: LevelDef = level()) {
   const bus = new EventBus<RunAndSimEvents>();
   const seen: { type: string; data: Record<string, number | boolean | string> }[] = [];
   for (const t of [
-    'shotFired', 'targetVisible', 'aimOnTarget', 'headHeightSampled', 'playerStopped', 'targetSpawned',
+    'shotFired', 'targetVisible', 'aimOnTarget', 'leadSampled', 'headHeightSampled', 'playerStopped', 'targetSpawned',
   ] as (keyof SimEvents | keyof RunEvents)[]) {
     bus.on(t, (e) => seen.push({ type: t, data: JSON.parse(JSON.stringify(e)) }));
   }
@@ -246,5 +247,69 @@ describe('shot aim data', () => {
     run(4);
     run(1, { fire: true });
     expect(of('shotFired')[0]!.data.aimTargetId).toBe(-1);
+  });
+});
+
+describe('lead error (Strafe Track, design §3)', () => {
+  /**
+   * A Strafer on a lane 10 m ahead. For the first `onTicks` the view is dead on it; after that it is
+   * put `offDeg` ahead of the Strafer's direction of travel (negative = behind it) every tick.
+   */
+  function strafe(offDeg: number, onTicks = 40, ticks = TICK_RATE * 2) {
+    const s = setup(level({ target: false }));
+    const id = s.world.spawnTarget('strafer', 0, 0, -10, s.bus, {
+      strafe: { speed: 4, legSec: 1, standStillSec: 0.3, laneA: vec3(-20, 0, -10), laneB: vec3(20, 0, -10) },
+    });
+    const t = s.world.targetField.byId(id)!;
+    s.run(2, { yaw: onTicks > 0 ? 0 : 0.3, pitch: 0 }); // in view; dead on it only when the run starts on it
+    for (let i = 0; i < ticks; i++) {
+      const dir = Math.sign(t.ai.vel * t.ai.axis.x) || 1;
+      const eye = s.world.player.pos.y + s.world.player.eyeHeight;
+      const off = i < onTicks ? 0 : offDeg;
+      const yaw = yawOf(t.pos.x, t.pos.z) - dir * off * DEG2RAD;
+      const pitch = Math.atan2(t.pos.y + t.boundsY - eye, Math.hypot(t.pos.x, t.pos.z));
+      s.run(1, { yaw, pitch });
+    }
+    return s;
+  }
+  /** The samples taken after the dead-on phase (2 warm-up ticks + `onTicks`). */
+  const offPhase = (s: ReturnType<typeof strafe>, onTicks = 40) => s.of('leadSampled').filter((x) => (x.data.tick as number) > 2 + onTicks);
+
+  it('is + when the crosshair is ahead of the Strafer in its direction of travel, whichever way it runs', () => {
+    const e = offPhase(strafe(0.8));
+    expect(e.length).toBeGreaterThan(5);
+    for (const x of e) expect(x.data.err as number).toBeCloseTo(0.8 * DEG2RAD, 2);
+  });
+
+  it('is - when the crosshair lags behind it', () => {
+    const e = offPhase(strafe(-0.9));
+    expect(e.length).toBeGreaterThan(5);
+    for (const x of e) expect(x.data.err as number).toBeCloseTo(-0.9 * DEG2RAD, 2);
+  });
+
+  it('samples at run.leadSampleSec and only while the Strafer cruises', () => {
+    const t = cloneTunables();
+    const e = offPhase(strafe(0.5));
+    const gaps = e.slice(1).map((x, i) => (x.data.tick as number) - (e[i]!.data.tick as number));
+    expect(gaps.length).toBeGreaterThan(3);
+    for (const g of gaps) expect(g).toBeGreaterThanOrEqual(Math.round(t.run.leadSampleSec * TICK_RATE));
+    // A stand-still (no cruise) takes no samples: a Strafer that is not moving has no lead to measure.
+    const still = setup(level({ target: false }));
+    still.world.spawnTarget('strafer', 0, 0, -10, still.bus, { strafe: { speed: 0, legSec: 1, standStillSec: 0.3 } });
+    still.run(TICK_RATE, { yaw: 0, pitch: 0 });
+    expect(still.of('leadSampled')).toHaveLength(0);
+  });
+
+  it('measures tracking, not the flick onto a Strafer: nothing before the aim has been on it, and nothing once it has been off it for run.leadEngageSec', () => {
+    // Never on it (3 degrees ahead from the start): the crosshair is on its way, not tracking.
+    expect(strafe(3, 0).of('leadSampled')).toHaveLength(0);
+    // On it for a moment, then 3 degrees ahead: samples only inside the engagement window.
+    const t = cloneTunables();
+    const e = offPhase(strafe(3, 40, TICK_RATE * 3));
+    expect(e.length).toBeGreaterThan(0);
+    const lastOn = 40 + 2;
+    for (const x of e) expect((x.data.tick as number) - lastOn).toBeLessThanOrEqual(Math.ceil(t.run.leadEngageSec * TICK_RATE) + 3);
+    // And not at all when the view is beyond run.leadMaxOffDeg of it, however recently it was on it.
+    expect(offPhase(strafe(20, 40))).toHaveLength(0);
   });
 });

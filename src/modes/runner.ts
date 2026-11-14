@@ -231,7 +231,7 @@ export class ModeRunner implements ModeContext<unknown> {
       return -1;
     }
     const scale = Math.max(opts?.scale ?? 1, fl.minTargetScale);
-    const id = this.deps.spawner.spawn(kind, pos, scale);
+    const id = this.deps.spawner.spawn(kind, pos, scale, opts?.strafe);
     if (id < 0) {
       this.refusedSpawns++;
       return -1;

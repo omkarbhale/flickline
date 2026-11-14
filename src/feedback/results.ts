@@ -280,6 +280,13 @@ function metricCell(id: MetricId, s: RunStats): StatCell {
     }
     case 'flickError':
       return { id, label: 'Flick error', value: formatDeg(s.flickErrorMeanAbsDeg), hint: s.flickCount > 0 ? `${s.flickCount} flicks` : '' };
+    case 'leadError': {
+      // + = the crosshair ran ahead of the Strafer (leading), - = behind it (lagging); design §3, §4.3.
+      const b = s.leadErrorBiasDeg;
+      const value = b === null ? DASH : `${b >= 0 ? '+' : '−'}${Math.abs(b).toFixed(1)}°`;
+      const hint = b === null ? '' : Math.abs(b) < 0.5 ? 'on the line' : b > 0 ? 'you lead the target' : 'you lag behind';
+      return { id, label: 'Lead error', value, hint };
+    }
     case 'timeOnTarget':
       return { id, label: 'Time on target', value: formatPercent(s.timeOnTarget), hint: 'of the run' };
     case 'stopLatency':
