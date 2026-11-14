@@ -2,6 +2,7 @@ import type { Game } from '../app/game';
 import type { RunState, StartRunOptions } from '../modes/runController';
 import type { RunEndReason } from '../sim/runEvents';
 import type { RunStats } from '../feedback/statTracker';
+import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
 import type { TickInput } from '../sim/types';
 
 export interface ScriptStep {
@@ -53,6 +54,10 @@ export interface FlicklineDebug {
   hash(): number;
   /** Recent sim events (oldest first), newest `count` entries. */
   events(count?: number): unknown[];
+  /** The loaded map as plain data: id, bounds, spawn, anchors, nav, marks (see `sim/mapTypes.ts`). */
+  map(): unknown;
+  /** Put the player at (x, y, z) feet position, velocity zeroed, optionally facing yawDeg/pitchDeg. */
+  teleport(x: number, y: number, z: number, yawDeg?: number, pitchDeg?: number): void;
   /** Reset the world (optionally with a seed). */
   reset(seed?: number): void;
   /** Hide/show the start/pause menu so screenshots show the game. */
@@ -61,6 +66,10 @@ export interface FlicklineDebug {
   perf(): unknown;
   /** Update a setting through the real store. */
   setSetting(key: 'sensitivity' | 'dpi' | 'volume' | 'quality', value: number | string): void;
+  /** Crosshair state: current params, share code, redraw counter and last device-pixel geometry. */
+  crosshair(): unknown;
+  /** Import a crosshair share code through the real parser; returns `{ok, error?}`. */
+  setCrosshairCode(code: string): { ok: boolean; error?: string };
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
   /** Run lifecycle: start/end/restart and stats. */
@@ -108,6 +117,19 @@ export function installDebugHook(game: Game): FlicklineDebug {
     events(count = 32) {
       return game.eventLog.slice(-count);
     },
+    map: () => game.map,
+    teleport(x, y, z, yawDeg, pitchDeg) {
+      const p = game.world.player;
+      p.pos.x = p.prevPos.x = x;
+      p.pos.y = p.prevPos.y = y;
+      p.pos.z = p.prevPos.z = z;
+      p.vel.x = p.vel.y = p.vel.z = 0;
+      p.grounded = false;
+      if (yawDeg !== undefined || pitchDeg !== undefined) {
+        game.input.setLook((yawDeg ?? p.yaw / DEG) * DEG, (pitchDeg ?? p.pitch / DEG) * DEG);
+      }
+      game.renderNow();
+    },
     reset(seed) {
       game.resetWorld(seed);
       game.eventLog.length = 0;
@@ -127,6 +149,16 @@ export function installDebugHook(game: Game): FlicklineDebug {
     },
     setSetting(key, value) {
       game.settings.set({ [key]: value } as never);
+    },
+    crosshair() {
+      const p = game.settings.get().crosshair;
+      return { params: p, code: encodeCrosshair(p), draws: game.hud.crosshair.draws, view: game.hud.crosshair.describe() };
+    },
+    setCrosshairCode(code) {
+      const res = decodeCrosshair(code);
+      if (!res.ok) return { ok: false, error: res.error };
+      game.settings.set({ crosshair: res.params });
+      return { ok: true };
     },
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);

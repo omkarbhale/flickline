@@ -14,7 +14,8 @@ import { GameRenderer } from '../render/gameRenderer';
 import { SettingsStore } from '../settings/settings';
 import { RunController, type StartRunOptions } from '../modes/runController';
 import { createTickInput, type TickInput } from '../sim/types';
-import { testRoom } from '../sim/levels';
+import type { MapDef } from '../sim/mapTypes';
+import { rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
 import { Menu } from '../ui/menu';
 import type { GameEvents } from './events';
@@ -33,6 +34,7 @@ export class Game {
   readonly bus = new EventBus<GameEvents>();
   readonly tunables: Tunables = liveTunables;
   readonly settings: SettingsStore;
+  readonly map: MapDef = rangeMap;
   readonly world: World;
   readonly renderer: GameRenderer;
   readonly input: InputManager;
@@ -75,10 +77,10 @@ export class Game {
 
     const seedParam = new URLSearchParams(window.location.search).get('seed');
     const seed = seedParam !== null && Number.isFinite(Number(seedParam)) ? Number(seedParam) : 1;
-    this.world = new World({ level: testRoom, tunables: this.tunables, seed });
+    this.world = new World({ level: this.map, tunables: this.tunables, seed });
 
     this.renderer = new GameRenderer(canvas, this.bus, this.tunables, s.quality);
-    this.renderer.loadLevel(this.world);
+    this.renderer.loadLevel(this.world, this.map);
 
     this.input = new InputManager(canvas, this.bus);
     this.input.maxPitch = (this.tunables.movement.maxPitchDeg * Math.PI) / 180;
@@ -92,7 +94,7 @@ export class Game {
     this.session.attach(this.bus);
     this.run = new RunController(this.world, this.bus, this.tunables.run);
 
-    this.hud = new Hud(hudRoot, this.bus, this.session);
+    this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair);
     this.menu = new Menu(menuRoot, this.settings, this.tunables, () => this.play());
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
@@ -261,7 +263,7 @@ export class Game {
       `pos ${f(p.pos.x)} ${f(p.pos.y)} ${f(p.pos.z)}  speed ${f(speed)} m/s\n` +
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
-      `tick ${this.world.tick}  quality ${this.settings.get().quality}\n` +
+      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}\n` +
       this.runLine()
     );
   }
