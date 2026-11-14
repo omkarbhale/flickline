@@ -292,6 +292,11 @@ export interface ModeContext<S = unknown> {
    * Returns the points paid (rounded, never negative).
    */
   awardPoints(points: number): number;
+  /**
+   * Take `points` back off the run's score (Sweep's Overtime: points that were never banked, design §4.7, #206). Clamped so the score never goes
+   * below 0; returns what was taken. It emits nothing: the caller reports it (`overtimeLost`), and the runner's score is final once the run ends.
+   */
+  forfeitPoints(points: number): number;
   /** Feet position of a live target into `out`; false when it is gone (or the host cannot tell). */
   targetPosition(id: number, out: Vec3): boolean;
   /** An Echo that shoots back and the player can see each other now (line of sight either way, in range). */

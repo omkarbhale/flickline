@@ -362,6 +362,12 @@ export class ModeRunner implements ModeContext<unknown> {
     return p;
   }
 
+  forfeitPoints(points: number): number {
+    const p = Math.min(this.stats.score, Math.max(0, Math.round(points)));
+    this.stats.score -= p;
+    return p;
+  }
+
   targetPosition(id: number, out: Vec3): boolean {
     return this.deps.spawner.position?.(id, out) ?? false;
   }

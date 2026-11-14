@@ -154,8 +154,11 @@ export interface CardModel {
   depth: string;
   /** The death cause line (#123) when the run ended in a death and one is known, else null. */
   deathLine: string | null;
-  /** Overtime points shown apart from the score (#206); null when the run never entered Overtime. */
-  overtime: { points: string; state: 'banked' | 'lost' } | null;
+  /**
+   * Overtime points shown apart from the score (design §4.7, §8.2, #206): `banked` when the run left at an Overtime gate (they are in the
+   * score), `lost` when it ended without leaving (they are not); `sectors` is the Overtime depth. Null when the run never entered Overtime.
+   */
+  overtime: { points: string; state: 'banked' | 'lost'; sectors: number } | null;
   /** The route strip (design §8.2 section 2): one tile per sector entered; empty for a run without sectors. */
   route: RouteTileView[];
   /** Fights by situation (design §8.2 section 3): the scenario cards fought this run; empty without cards. */
@@ -573,7 +576,8 @@ export function buildCard(rawInput: ResultsInput, cfg: ResultsTunables = default
   const pb = pbView(input, s.endReason, daily !== null ? 'day best' : isRun ? 'best run' : 'personal best');
   const reason: string | null = s.endReason;
   const overtimeTiles = story ? story.sectors.filter((t) => t.overtime) : [];
-  const overtimePoints = overtimeTiles.reduce((n, t) => n + t.points, 0);
+  // What a Leave door banked or the end forfeited, as the run reported it; the tiles' own points when it did not (a replayed story).
+  const overtimePoints = (reason === 'left' ? story?.banked : story?.overtimeLost) ?? overtimeTiles.reduce((n, t) => n + t.points, 0);
 
   return {
     mode: s.mode,
@@ -592,7 +596,7 @@ export function buildCard(rawInput: ResultsInput, cfg: ResultsTunables = default
     overtime:
       overtimeTiles.length === 0
         ? null
-        : { points: formatThousands(overtimePoints), state: reason === 'death' ? 'lost' : 'banked' },
+        : { points: formatThousands(overtimePoints), state: reason === 'left' ? 'banked' : 'lost', sectors: overtimeTiles.length },
     route: story ? story.sectors.map((t) => tileView(t, cfg)) : [],
     situations: story ? story.situations.map((r) => situationView(r, input.situationHistory, cfg)) : [],
     notes: input.notes ? input.notes.slice() : [],
@@ -616,6 +620,8 @@ export interface ResultsEvents {
   runReady: { tick: number; mode: string; seed: number; dial: number };
   runEnded: { tick: number; t: number; reason: RunEndReason };
   scoreAwarded: { total: number };
+  /** Overtime points forfeited at the run's end (design §4.7, #206): `score` is what the run finally scored. */
+  overtimeLost: { score: number };
   medalAwarded: { tick: number; id: string };
 }
 
@@ -686,6 +692,9 @@ export class ResultsRecorder {
     });
     deps.bus.on('scoreAwarded', (e) => {
       this.score = e.total;
+    });
+    deps.bus.on('overtimeLost', (e) => {
+      this.score = e.score;
     });
     deps.bus.on('medalAwarded', (e) => this.medals.push(e.id));
     deps.bus.on('runEnded', () => this.finish());

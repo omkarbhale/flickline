@@ -46,3 +46,34 @@ export const readAllFacts: GatePolicy = (gate) => {
 export const leftDoor: GatePolicy = () => 0;
 
 export const GATE_POLICIES: Readonly<Record<string, GatePolicy>> = { hot: alwaysHot, read: readTheGate, facts: readAllFacts, left: leftDoor };
+
+/** What the bot sees at an Overtime gate (design §4.7, #206): its health and what is at stake. */
+export interface OvertimeView {
+  hp: number;
+  shield: number;
+  /** Overtime sectors cleared so far (0 at the gate right after the Finale). */
+  overtimeSectors: number;
+  /** Overtime points at risk (a Leave door banks them) and the score banked for good. */
+  atRisk: number;
+  banked: number;
+}
+
+/** The two doors of an Overtime gate: leave (the run ends, everything banked) or push on into the next Overtime sector. */
+export type OvertimePolicy = (view: OvertimeView) => 'leave' | 'push';
+
+/** Always leave at the first Overtime gate: the run ends at the Finale, as it did before Overtime. The default, so earlier reports do not change. */
+export const alwaysLeave: OvertimePolicy = () => 'leave';
+
+/** Always push on: how deep the bot gets before it dies (the depth distribution of #206). */
+export const alwaysPush: OvertimePolicy = () => 'push';
+
+/**
+ * Health+shield below which `bankWhenHurt` leaves. The full tank is 100 HP + 50 shield; 90 is 60% of it, about where a player who reads
+ * their own health stops trusting the next sector (a fight costs a third of the tank at the matched dial).
+ */
+export const BANK_BELOW_EHP = 90;
+
+/** Push while the tank is healthy, leave once it is not: the bank-or-push decision a player makes (design §4.7). */
+export const bankWhenHurt: OvertimePolicy = (v) => (v.hp + v.shield < BANK_BELOW_EHP ? 'leave' : 'push');
+
+export const OVERTIME_POLICIES: Readonly<Record<string, OvertimePolicy>> = { leave: alwaysLeave, push: alwaysPush, bank: bankWhenHurt };

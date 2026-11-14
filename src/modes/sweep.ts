@@ -13,9 +13,9 @@ import type { SkillId } from './contracts';
 import { ContactTrials, type SightQuery, type TrialSink } from './contactTrials';
 import type { ModeContext, ModeDef, ModeEvent } from './modeDef';
 import { sectorCatalog } from './sweepCatalog';
-import { perSector, planFollowers, planRun, type ContactPlan, type EchoPlan, type GatePlan, type RunPlan, type SectorPlan, type SectorSource } from './sweepDirector';
+import { isOvertime, planFollowers, planRun, sectorDepth, sectorDialOffset, type ContactPlan, type EchoPlan, type GatePlan, type RunPlan, type SectorPlan, type SectorSource } from './sweepDirector';
 import { NO_LEAN, leanedSweep, type Lean } from './lean';
-import { commitGate, planGate, type GateEnv } from './sweepGate';
+import { commitGate, planGate, planOvertimeGate, type GateEnv } from './sweepGate';
 
 /**
  * Sweep, the run (design §4; v0 is #201, hold sectors and the Finale #204): six sectors across the sector
@@ -33,7 +33,14 @@ import { commitGate, planGate, type GateEnv } from './sweepGate';
  * a stake (`sweepGate.ts`). Walking through a door commits: its sector's map is loaded in place when
  * it differs, the player is put at its entry and the stake is applied (Shield refills the shield,
  * Arms swaps the primary, Hot adds a contact and multiplies the sector's points). The run ends at 0 HP
- * (`death`) or at the last sector's exit (`left`; no gate after it).
+ * (`death`) or at a Leave door (`left`).
+ *
+ * Overtime (design §4.7, #206): the gate after the Finale and after every Overtime sector is an **Overtime
+ * gate** (`planOvertimeGate`): the left door **leaves** (the run ends, every point banked, `runBanked`), the
+ * right door is the next sector, harder (`sectorDialOffset`, `sectorDepth`). The score the run held at the
+ * Finale's exit is **banked** (`SweepState.banked`); every point earned after it is at risk until a Leave
+ * door, and the run ending any other way (death, or a quit) forfeits exactly those (`overtimeLost`): the
+ * points of the route's own sectors are never touched.
  *
  * Skill matching inside the run (design §9, #203): the dial is set once per sector from the skill
  * model's fight track and the depth curve (`adaptive/sectorDial.ts`); every contact's facts are
@@ -111,7 +118,7 @@ export interface SweepState {
   carry: { count: number; won: boolean } | null;
   /** Index the next contact planned at run time (a follower's) takes, after the plan's own. */
   nextPlanIndex: number;
-  /** The gate drawn for the sector after this one (drawn when this one is entered, under the fade), or null after the last. */
+  /** The gate drawn for the sector after this one (drawn when this one is entered, under the fade): an Overtime gate after the route's last sector. */
   nextGate: GatePlan | null;
   /** In a gate: its doors and the choice. Null while a sector plays. */
   gate: GateRt | null;
@@ -129,6 +136,12 @@ export interface SweepState {
   lost: number;
   /** The run is over (left or died). */
   done: boolean;
+  /**
+   * Overtime (#206): the run's score when the Finale's exit gate was entered, banked for good, or -1 before it. What the score holds
+   * above it is the Overtime points still at risk. Overtime sectors entered so far: `overtime` (0 before the first).
+   */
+  banked: number;
+  overtime: number;
   /** The run's dial, sector by sector (and the placing Opener's staircase). */
   dial: SectorDial;
   /** The current sector's trial classifier. */
@@ -151,7 +164,9 @@ const endedEv: SectorEvents['sectorEnded'] = {
   tick: 0, t: 0, sectorId: '', index: 0, cleared: false, keptSector: 0, tempo: false, points: 0, clearPoints: 0, reason: 'exit',
 };
 const gateEnteredEv: SectorEvents['gateEntered'] = { tick: 0, t: 0, index: 0 };
-const gateChosenEv: SectorEvents['gateChosen'] = { tick: 0, t: 0, index: 0, door: 0, stake: 'plain', role: 'take', heard: 'quiet' };
+const gateChosenEv: SectorEvents['gateChosen'] = { tick: 0, t: 0, index: 0, door: 0, stake: 'plain', role: 'take', heard: 'quiet', leave: false };
+const bankedEv: RunEvents['runBanked'] = { tick: 0, t: 0, points: 0, overtimeSectors: 0, score: 0 };
+const lostEv: RunEvents['overtimeLost'] = { tick: 0, t: 0, points: 0, overtimeSectors: 0, score: 0 };
 const settledEv: RunEvents['contactSettled'] = {
   tick: 0, t: 0, contactId: 0, outcome: 'avoided', kept: 1, enemies: 0, points: 0, card: '', trials: 0, difficulty: 0,
 };
@@ -277,7 +292,7 @@ function enterSector(ctx: ModeContext<SweepState>, sp: SectorPlan): void {
   // contact sectors take the staircase's dial, and the sector after it is seeded with the staircase's final dial.
   const laterStage = st.openerStage > 0;
   const target = laterStage ? NaN : ctx.targetDial();
-  const dial = st.dial.enterSector(i, laterStage, target, perSector(cfg.dialOffset, i), st.plan.placing);
+  const dial = st.dial.enterSector(i, laterStage, target, sectorDialOffset(cfg, i), st.plan.placing);
   if (i === 0 && !laterStage) ctx.setDial(dial);
   else ctx.advanceBeat(dial);
   // The stake (design §4.5): what the door promised, applied on entry.
@@ -285,7 +300,8 @@ function enterSector(ctx: ModeContext<SweepState>, sp: SectorPlan): void {
   else if (sp.stake === 'arms' && sp.arms) ctx.setPrimary(sp.arms);
   // The sector's economy (design §4.6) before anyone is placed: the Echoes spawn with its shield and weapon.
   ctx.setEconomy(sp.condition);
-  const depth = perSector(cfg.depthMultiplier, i);
+  const depth = sectorDepth(cfg, i);
+  st.overtime = isOvertime(cfg, i) ? i - cfg.sectors + 1 : 0;
   st.mult = depth * (sp.stake === 'hot' ? cfg.gate.hotMultiplier : 1);
   ctx.setPointsMultiplier(st.mult);
   st.contacts.length = 0;
@@ -335,7 +351,7 @@ function enterSector(ctx: ModeContext<SweepState>, sp: SectorPlan): void {
   st.entryEhp = ehp(ctx);
   st.entryScore = ctx.stats.score;
   // The gate after this sector is drawn now, while the screen is cut (it costs a few ms the first time a sector is placed).
-  st.nextGate = i + 1 < cfg.sectors ? planGate(st.plan, sweepEnv(ctx.tunables, ctx.lean)) : null;
+  st.nextGate = i + 1 < cfg.sectors ? planGate(st.plan, sweepEnv(ctx.tunables, ctx.lean)) : planOvertimeGate(st.plan, sweepEnv(ctx.tunables, ctx.lean));
   const ev = enteredEv;
   ev.tick = ctx.simTick;
   ev.t = ctx.timeSec;
@@ -418,6 +434,8 @@ function enterGate(ctx: ModeContext<SweepState>): void {
   const gate = st.nextGate!;
   st.nextGate = null;
   st.gate = { plan: gate, door: -1, chosenTick: 0 };
+  // The Finale's exit gate banks everything earned so far (design §4.7): from here on, points are at risk until a Leave door.
+  if (gate.leave !== undefined && st.banked < 0) st.banked = ctx.stats.score;
   ctx.loadMap(g.mapId);
   ctx.placePlayer(g.entry.x, g.entry.y, g.entry.z, g.entry.yaw);
   const e = gateEnteredEv;
@@ -455,10 +473,15 @@ function gateTick(ctx: ModeContext<SweepState>): void {
     e.stake = door.facts.stake;
     e.role = door.facts.role;
     e.heard = door.facts.heard;
+    e.leave = gate.plan.leave === d;
     ctx.events.emit('gateChosen', e);
     return;
   }
   if (ctx.simTick - gate.chosenTick < secondsToTicks(ctx.tunables.sweep.gate.commitSec)) return;
+  if (gate.plan.leave === gate.door) {
+    leaveRun(ctx);
+    return;
+  }
   enterSector(ctx, commitGate(ctx.state.plan, gate.plan, gate.door));
 }
 
@@ -619,6 +642,39 @@ function endSector(ctx: ModeContext<SweepState>, reason: 'exit' | 'death' | 'qui
   ctx.events.emit('sectorEnded', e);
 }
 
+/** Points earned since the Finale's exit gate and not yet banked (0 before it). */
+export function atRisk(st: SweepState, score: number): number {
+  return st.banked < 0 ? 0 : Math.max(0, score - st.banked);
+}
+
+/** The Leave door was walked through: everything is banked and the run ends (design §4.7). */
+function leaveRun(ctx: ModeContext<SweepState>): void {
+  const st = ctx.state;
+  const e = bankedEv;
+  e.tick = ctx.simTick;
+  e.t = ctx.timeSec;
+  e.points = atRisk(st, ctx.stats.score);
+  e.overtimeSectors = st.overtime;
+  e.score = ctx.stats.score;
+  st.done = true;
+  ctx.events.emit('runBanked', e);
+  ctx.end('left');
+}
+
+/** The run ended in Overtime without a Leave: the points at risk are gone, the route's own points stay (design §4.7). */
+function forfeitOvertime(ctx: ModeContext<SweepState>): void {
+  const st = ctx.state;
+  const lost = ctx.forfeitPoints(atRisk(st, ctx.stats.score));
+  if (lost <= 0 && st.overtime === 0) return;
+  const e = lostEv;
+  e.tick = ctx.simTick;
+  e.t = ctx.timeSec;
+  e.points = lost;
+  e.overtimeSectors = st.overtime;
+  e.score = ctx.stats.score;
+  ctx.events.emit('overtimeLost', e);
+}
+
 function atExit(ctx: ModeContext<SweepState>): boolean {
   const sp = ctx.state.plan.sectors[ctx.state.sector]!;
   const p = ctx.player.pos;
@@ -655,7 +711,7 @@ export const sweep: ModeDef<SweepState> = {
     ctx.state = {
       plan: sweepPlan(ctx.seed, ctx.tunables, ctx.lean, placing), nextGate: null, gate: null, mult: 1, role: 'take', sectorTick0: 0, exitOpen: true,
       exitFallbackTick: Infinity, wonSector: 0, carry: null, nextPlanIndex: 1000, sector: 0, contacts: [], entryEhp: 0, entryScore: 0,
-      nextContactId: 0, won: 0, lost: 0, done: false, dial: new SectorDial(ctx.tunables.dial), trials: trialsFor(ctx),
+      nextContactId: 0, won: 0, lost: 0, done: false, banked: -1, overtime: 0, dial: new SectorDial(ctx.tunables.dial), trials: trialsFor(ctx),
       openerStage: placing ? 0 : -1, openerFought: 0,
     };
     enterSector(ctx, ctx.state.plan.sectors[0]!);
@@ -697,11 +753,6 @@ export const sweep: ModeDef<SweepState> = {
     if (!atExit(ctx)) return;
     endSector(ctx, 'exit');
     if (nextOpenerStage(ctx)) return;
-    if (st.sector + 1 >= ctx.tunables.sweep.sectors) {
-      st.done = true;
-      ctx.end('left');
-      return;
-    }
     enterGate(ctx);
   },
 
@@ -774,8 +825,9 @@ export const sweep: ModeDef<SweepState> = {
     if (st.done) return;
     st.done = true;
     // Stopped in a gate: the sector before it already ended on the way out.
-    if (st.gate) return;
-    endSector(ctx, reason === 'death' ? 'death' : 'quit');
+    if (!st.gate) endSector(ctx, reason === 'death' ? 'death' : 'quit');
+    // Overtime points never banked by a Leave door are lost, whether the run ended in a sector or in a gate between two.
+    forfeitOvertime(ctx);
   },
 };
 

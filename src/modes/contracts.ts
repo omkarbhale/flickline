@@ -285,7 +285,7 @@ export interface PlayerSourceEvents {
 }
 
 /** Events the framework emits. §14.3 names and payloads, plus `beatStarted` and `scoreAwarded`. */
-export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents, SectorEvents, Pick<RunEvents, 'contactSettled'> {
+export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents, SectorEvents, Pick<RunEvents, 'contactSettled' | 'runBanked' | 'overtimeLost'> {
   /** The run moved the player (a mode with several stand points, Spray Wall): the view should face `yaw` again. */
   playerPlaced: { tick: number; x: number; y: number; z: number; yaw: number };
   runReady: { tick: number; mode: ModeId; seed: number; dial: number };

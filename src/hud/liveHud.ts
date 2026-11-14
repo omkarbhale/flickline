@@ -73,6 +73,7 @@ export class LiveHud {
   private readonly el: Record<HudElementId, HTMLElement>;
   private readonly timerV: HTMLElement;
   private readonly scoreV: HTMLElement;
+  private readonly otV: HTMLElement;
   private readonly multV: HTMLElement;
   private readonly chainV: HTMLElement;
   private readonly ringV: HTMLElement;
@@ -93,6 +94,9 @@ export class LiveHud {
 
   private pace: RunPaceSource = NO_PACE;
   private score = 0;
+  /** Overtime (design §4.7, #206): the score banked for good (-1: not in Overtime) and the Overtime sector the run is in. */
+  private bank = -1;
+  private otSector = 0;
   private chain = 0;
   private streak = 0;
   private paceTick = -1;
@@ -124,7 +128,7 @@ export class LiveHud {
       <div class="lh-top">
         <div class="lh-timer" ${ELEMENT_ATTR}="timer"><span data-v>${NO_TIMER}</span></div>
         <div class="lh-scorebox">
-          <div class="lh-score" ${ELEMENT_ATTR}="score"><span data-v>0</span></div>
+          <div class="lh-score" ${ELEMENT_ATTR}="score"><span data-v>0</span><i class="lh-ot" hidden></i></div>
           <div class="lh-mult" ${ELEMENT_ATTR}="multiplier" data-tier="0"><span data-v>×1.0</span></div>
         </div>
         <div class="lh-ghost off" ${ELEMENT_ATTR}="ghost">
@@ -174,6 +178,7 @@ export class LiveHud {
     const v = (id: HudElementId): HTMLElement => el[id].querySelector('[data-v]') as HTMLElement;
     this.timerV = v('timer');
     this.scoreV = v('score');
+    this.otV = el.score.querySelector('.lh-ot') as HTMLElement;
     this.multV = v('multiplier');
     this.chainV = v('chain');
     this.ringNum = v('streak');
@@ -375,7 +380,21 @@ export class LiveHud {
 
   // ---- event handlers -------------------------------------------------------------------------
 
+  /**
+   * Overtime (design §4.7, #206): while the run is past the Finale, the score shown is the **banked** one and the points earned since
+   * are shown apart, in the pill under it, as at risk until a Leave door. `bank` -1 leaves Overtime (the score shows whole again);
+   * `total` replaces the run's total (what the run finally scored once the unbanked points are gone).
+   */
+  setOvertime(bank: number, sector: number, total?: number): void {
+    this.bank = bank;
+    this.otSector = sector;
+    if (total !== undefined) this.score = total;
+    this.setScore(this.score);
+  }
+
   private onRunReady(): void {
+    this.bank = -1;
+    this.otSector = 0;
     this.score = 0;
     this.chain = 0;
     this.streak = 0;
@@ -399,7 +418,11 @@ export class LiveHud {
   }
 
   private setScore(total: number): void {
-    this.scoreV.textContent = formatScore(total);
+    const risk = this.bank >= 0 && this.otSector > 0 ? Math.max(0, total - this.bank) : 0;
+    this.scoreV.textContent = formatScore(this.bank >= 0 ? Math.min(total, this.bank) : total);
+    const show = this.bank >= 0 && this.otSector > 0;
+    if (this.otV.hidden === show) this.otV.hidden = !show;
+    if (show) this.otV.textContent = `OVERTIME ${this.otSector}  +${formatScore(risk)} AT RISK`;
   }
 
   private onChain(count: number): void {

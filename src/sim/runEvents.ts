@@ -104,6 +104,8 @@ export interface SectorEvents {
     stake: 'plain' | 'shield' | 'arms' | 'hot';
     role: SweepSectorRole;
     heard: 'quiet' | 'few' | 'several';
+    /** The door walked through is an Overtime gate's Leave door (design §4.7, #206): the run ends, `stake`, `role` and `heard` are placeholders. */
+    leave?: boolean;
   };
   /** A hold sector's exit opened: every Echo of the sector is dead (design §4.2). A take sector's exit is always open and never announces it. */
   sectorExitOpened: {
@@ -176,8 +178,17 @@ export interface RunEvents extends SprayEvents, SectorEvents {
     stopFirst?: 'player' | 'echo' | 'both' | 'neither';
   };
 
-  /** A Leave gate banked the run (design §4.7, §14.3; Overtime and its gates arrive with #204, so nothing emits this yet): `points` includes the Overtime points that were at risk (design §4.7). */
-  runBanked: { tick: number; t: number; points: number; overtimeSectors: number };
+  /**
+   * The player walked through an Overtime gate's Leave door (design §4.7, §14.3, #206): the run is over and every point is banked.
+   * `points` is the Overtime points that were at risk and are now banked (0 when the run leaves straight after the Finale),
+   * `overtimeSectors` how many Overtime sectors the run played, `score` the run's final score.
+   */
+  runBanked: { tick: number; t: number; points: number; overtimeSectors: number; score: number };
+  /**
+   * The run ended in Overtime without a Leave (death, or a quit): the Overtime points that were still unbanked are gone (design §4.7;
+   * the points of the route's own sectors are never touched). `points` is what was lost, `score` the run's final score after it.
+   */
+  overtimeLost: { tick: number; t: number; points: number; overtimeSectors: number; score: number };
 }
 
 declare module '../core/gameEvents' {

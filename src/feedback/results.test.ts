@@ -9,7 +9,7 @@ import type { RunStory } from './runStory';
 import type { RunStats, TargetStat } from './statTracker';
 import {
   buildCard, DASH, depthLabel, fill, formatDelta, formatThousands, nextSeed, pickFix, ResultsRecorder, shotSplit,
-  statCells, timeToShotBaselineMs, type ResultsEvents, type ShotSplit,
+  statCells, timeToShotBaselineMs, type CardModel, type ResultsEvents, type ShotSplit,
 } from './results';
 
 const tunables = cloneTunables();
@@ -373,7 +373,7 @@ describe('the run results card (design §8.2, #213)', () => {
     won: 1, lost: 0, avoided: 0, kills: 2, hpIn: 100, hpOut: 80, flawless: false, overtime: n > 6, points: 100, ...p,
   });
   const story = (n: number, p: Partial<RunStory> = {}): RunStory => ({
-    sectors: Array.from({ length: n }, (_, i) => tile(i + 1)), situations: [], overtimeSectors: Math.max(0, n - 6), banked: null, total: null, won: n, lost: 0, ...p,
+    sectors: Array.from({ length: n }, (_, i) => tile(i + 1)), situations: [], overtimeSectors: Math.max(0, n - 6), banked: null, overtimeLost: null, total: null, won: n, lost: 0, ...p,
   });
   const make = (st: RunStats, rs: RunStory | undefined, extra: object = {}) =>
     buildCard({ stats: st, split: null, score: 9000, rating: null, pb: null, medals: [], story: rs, ...extra });
@@ -432,13 +432,38 @@ describe('the run results card (design §8.2, #213)', () => {
   it('puts the end label, death cause and Overtime banked or lost in the header', () => {
     const dead = make(sweep(), story(8), { deathCause: 'Lost to a flank you could not see.' });
     expect(dead).toMatchObject({ endLabel: 'Eliminated', depth: 'Overtime 2', deathLine: 'Lost to a flank you could not see.' });
-    expect(dead.overtime).toEqual({ points: '200', state: 'lost' });
+    expect(dead.overtime).toEqual({ points: '200', state: 'lost', sectors: 2 });
     const left = make(sweep({ endReason: 'left' }), story(8), { deathCause: 'ignored' });
     expect(left.endLabel).toBe('Made it out');
     expect(left.deathLine).toBeNull();
-    expect(left.overtime).toEqual({ points: '200', state: 'banked' });
+    expect(left.overtime).toEqual({ points: '200', state: 'banked', sectors: 2 });
     expect(make(sweep(), story(3)).overtime).toBeNull();
     expect(make(sweep(), story(3)).deathLine).toBeNull();
+  });
+
+  it('reads what a Leave door banked and what the end forfeited from the run\'s own events, not from the tiles (#206)', () => {
+    // Tiles say 200 (two Overtime tiles of 100); the run reported 340 banked, or 250 forfeited.
+    const left = make(sweep({ endReason: 'left' }), story(8, { banked: 340 }));
+    expect(left.overtime).toEqual({ points: '340', state: 'banked', sectors: 2 });
+    const dead = make(sweep(), story(8, { overtimeLost: 250 }));
+    expect(dead.overtime).toEqual({ points: '250', state: 'lost', sectors: 2 });
+    // A quit in Overtime is not a Leave: the points are gone too.
+    expect(make(sweep({ endReason: 'quit' }), story(8, { overtimeLost: 250 })).overtime).toEqual({ points: '250', state: 'lost', sectors: 2 });
+  });
+
+  it('the recorder takes the run\'s final score from overtimeLost: the forfeited points are not in it (#206)', () => {
+    const bus = new EventBus<ResultsEvents>();
+    let model: CardModel | null = null;
+    const rec = new ResultsRecorder({
+      bus, run: { log: { mode: 'sweep', seed: 1, dial: 50, events: [], truncated: false }, liveStats: () => sweep() }, ratings: { rating: () => 0 }, skillOf: () => null,
+      story: { snapshot: () => story(8, { overtimeLost: 250 }) }, onCard: (c) => { model = c; },
+    });
+    bus.emit('runReady', { tick: 0, mode: 'sweep', seed: 1, dial: 50 });
+    bus.emit('scoreAwarded', { total: 9000 });
+    bus.emit('overtimeLost', { score: 8750 });
+    bus.emit('runEnded', { tick: 1, t: 1, reason: 'death' });
+    expect(rec.last!.scoreValue).toBe(8750);
+    expect(model!.overtime).toEqual({ points: '250', state: 'lost', sectors: 2 });
   });
 
   it('formats tiles: role, stake and condition words, fights, HP in to out, the gold mark', () => {

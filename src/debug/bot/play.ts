@@ -6,7 +6,7 @@ import { MAPS, rangeMap } from '../../sim/mapLoader';
 import { createTickInput } from '../../sim/types';
 import { Bot, type BotStats } from './bot';
 import { FootworkBot } from './footwork';
-import type { GatePolicy } from './gatePolicy';
+import type { GatePolicy, OvertimePolicy } from './gatePolicy';
 import { SweepBot } from './sweepBot';
 import type { BotGame } from './headless';
 import { clampSkill, resolveParams, type BotParams } from './skill';
@@ -42,6 +42,8 @@ export interface BotRunOptions {
   sweepStopDelaySec?: number;
   /** Sweep: the share of fights the bot never stops in (a planted moving-shot weakness, see `SweepBot`); default 0. */
   sweepMovingShare?: number;
+  /** Sweep: what the bot does at an Overtime gate, leave or push on (default: leave, so the run ends at the Finale). */
+  overtimePolicy?: OvertimePolicy;
   /** Sweep: the scenario cards the run leans toward (design §4.4, #210); default none. */
   lean?: readonly string[];
 }
@@ -159,7 +161,7 @@ export function playMode(game: BotGame, opts: BotRunOptions): BotReport {
   const aimer = new Bot(params, botSeed, game.tunables);
   // Stop & Pop needs feet: the footwork bot strafes, counter-strafes, takes the ring's stance, then lets the aimer fire.
   // Sweep needs feet too: the sweep bot walks each sector entry to exit and stops to fight what it sees.
-  const bot = id === 'stopAndPop' ? new FootworkBot(aimer, game, botSeed) : id === 'sweep' ? new SweepBot(aimer, game, opts.sweepStopDelaySec ?? 0, botSeed, opts.gatePolicy, opts.sweepMovingShare ?? 0) : aimer;
+  const bot = id === 'stopAndPop' ? new FootworkBot(aimer, game, botSeed) : id === 'sweep' ? new SweepBot(aimer, game, opts.sweepStopDelaySec ?? 0, botSeed, opts.gatePolicy, opts.sweepMovingShare ?? 0, opts.overtimePolicy) : aimer;
   const input = createTickInput();
   const maxTicks = secondsToTicks(opts.maxSeconds ?? (id === 'sweep' ? MAX_RUN_SEC : MAX_SIM_SEC));
   const startTick = game.world.tick;
