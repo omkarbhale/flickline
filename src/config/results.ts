@@ -123,6 +123,8 @@ export const results: ResultsTunables = {
     untouched: 'Untouched',
     flawless: 'Flawless',
     ascent: 'Ascent',
+    // The 13th medal (a Daily Baseline that reports "Improved"): its criterion lives with the Baseline series (#151, #153).
+    retained: 'Retained',
   },
   copy: {
     movingShots: {

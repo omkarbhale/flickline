@@ -17,7 +17,7 @@ export const LOGGED_EVENT_TYPES: readonly (keyof AllEvents)[] = [
   'playerJumped', 'playerLanded', 'footstep',
   'targetSpawned', 'targetVisible', 'targetExpired', 'targetShielded',
   'enemyTell', 'enemyFired', 'playerDamaged', 'playerSlowed', 'playerDied',
-  'surgeStarted', 'surgeEnded', 'medalAwarded',
+  'surgeStarted', 'surgeEnded', 'medalAwarded', 'contactSettled',
   'aimOnTarget', 'headHeightSampled', 'playerStopped',
 ];
 

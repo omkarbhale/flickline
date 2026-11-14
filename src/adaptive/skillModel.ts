@@ -98,8 +98,8 @@ export class SkillState {
   private readonly grid: Float64Array;
   private readonly counts = new Uint32Array(SKILL_IDS.length);
   private readonly schedule = new Map<string, ModeSchedule>();
-  private readonly priorMean: number;
-  private readonly priorSd: number;
+  private priorMean: number;
+  private priorSd: number;
   /** Unplayed skills' grids are rebuilt lazily, on the first read after a trial. */
   private unplayedStale = false;
 
@@ -114,6 +114,19 @@ export class SkillState {
     this.priorMean = clamp(p.mean, DIAL_MIN, DIAL_MAX);
     this.priorSd = Math.max(p.sd, this.h);
     for (let k = 0; k < SKILL_IDS.length; k++) this.setGaussian(k, this.priorMean, this.priorSd);
+  }
+
+  /**
+   * Replace the prior of a player who has not played yet (the self-report chips are picked after the model
+   * exists; design §9.2). Returns false and changes nothing once any skill has a trial.
+   */
+  setPrior(prior: SkillPrior): boolean {
+    if (this.counts.some((c) => c > 0)) return false;
+    this.priorMean = clamp(prior.mean, DIAL_MIN, DIAL_MAX);
+    this.priorSd = Math.max(prior.sd, this.h);
+    for (let k = 0; k < SKILL_IDS.length; k++) this.setGaussian(k, this.priorMean, this.priorSd);
+    this.unplayedStale = false;
+    return true;
   }
 
   /** Update `skill`'s posterior with one trial; unplayed skills follow (see the header). */

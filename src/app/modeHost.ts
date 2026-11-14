@@ -85,8 +85,8 @@ export interface PlacementOutcome {
  */
 export class ModeHost {
   readonly runner: ModeRunner;
-  /** The player's skill state (placeholder prior until the profile/persistence work). */
-  readonly skills = new SkillState('skip');
+  /** The player's skill state: restored from the progress save when there is one (`features/progress.ts` saves it after every run), else a prior of 'skip' until the self-report sets it. */
+  readonly skills: SkillState;
   /** Result of the last finished Placement run, or null. */
   placementOutcome: PlacementOutcome | null = null;
   private active: ModeDef<never> | null = null;
@@ -101,8 +101,9 @@ export class ModeHost {
     private readonly bus: EventBus<GameEvents>,
     private readonly map: MapDef,
     private readonly tunables: Tunables,
+    skills: SkillState = new SkillState('skip'),
   ) {
-    const skills = this.skills;
+    this.skills = skills;
     const dial: DialSource = {
       dialFor: (mode, beat, wave) => skills.dialFor(mode, beat, wave),
       axes: (d) => axes(d, undefined, tunables.dial) as unknown as AxisValues,
