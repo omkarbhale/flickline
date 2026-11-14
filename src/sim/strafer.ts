@@ -1,7 +1,7 @@
 import type { StraferTunables } from '../config/enemies';
 import { moveTowards } from '../core/math';
 import { TICK_DT } from '../core/time';
-import type { EnemyAi, StrafeParams } from './enemyAi';
+import { FIRE_WAIT, type EnemyAi, type StrafeParams } from './enemyAi';
 import { fireBusy, fireStep } from './enemyFire';
 import {
   fsmSetTimerRange, fsmSetTimerTicks, STAY, type Behaviour, type BehaviourContext, type BehaviourState,
@@ -47,6 +47,7 @@ export function strafeInit(t: TargetState, ctx: BehaviourContext, p: StrafeParam
   a.vel = 0;
   a.dir = 1;
   a.brakeFrom = 0;
+  a.travel = p?.travel === true && p.laneA !== undefined && p.laneB !== undefined;
   const o = a.laneOrigin;
   if (p?.laneA && p.laneB) {
     let dx = p.laneB.x - p.laneA.x, dz = p.laneB.z - p.laneA.z;
@@ -101,6 +102,12 @@ const leg: BehaviourState = {
     const coin = ctx.rng.next();
     fsmSetTimerRange(t, ctx.rng, cfg.legMinSec, Math.max(cfg.legMinSec, a.legSec));
     if (coin < cfg.reverseChance) a.dir = -a.dir;
+    if (a.travel) {
+      // On its route: towards the far end, with no timer; it stops when it has reacted to the player or runs out of lane.
+      a.dir = 1;
+      t.fsm.timerTicks = -1;
+      return;
+    }
     // Never start towards a wall: turn round instead.
     if (room(a, a.dir) < cfg.minLegRoomM) a.dir = -a.dir;
   },
@@ -110,6 +117,8 @@ const leg: BehaviourState = {
     a.vel = moveTowards(a.vel, a.dir * a.speed, (a.speed / cfg.accelSec) * TICK_DT);
     advance(t);
     fireStep(t, ctx, false);
+    // On its route it keeps moving through its reaction to the player (first sight to the tell), then brakes so the tell starts in the stop.
+    if (a.travel && a.phase === FIRE_WAIT && ctx.tick >= a.readyTick) return STRAFER_DECEL;
     // Brake early enough to stop inside the lane.
     if (room(a, a.vel !== 0 ? Math.sign(a.vel) : a.dir) <= brakeDistance(a.vel, cfg) + 0.02) return STRAFER_DECEL;
     return STAY;
@@ -121,6 +130,8 @@ const decel: BehaviourState = {
   name: 'decel',
   enter(t) {
     t.ai.brakeFrom = Math.abs(t.ai.vel);
+    // The first stop ends the route: from here it strafes on the line.
+    t.ai.travel = false;
   },
   update(t, ctx) {
     const a = t.ai;
