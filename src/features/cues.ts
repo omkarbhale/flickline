@@ -84,6 +84,7 @@ export const feature = defineFeature({
       const spent = e.reason !== 'quit' && skill !== null && mode !== 'placement';
       if (spent) planner.finish(plan);
       options.clean = false;
+      if (plan.clean) options.cuePhase = 'every'; // free play after the clean run is not cue-free
       game.hud.root.classList.remove('hud-clean');
       if (spent) game.profile.set({ runsCompleted: game.profile.get().runsCompleted + 1 });
     });

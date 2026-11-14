@@ -48,7 +48,7 @@ export interface CueTunables {
   rules: Record<CueKind, Record<CuePhase, CueRule>>;
   /** What counts as a large error in the `bandwidth` phase. */
   bandwidth: {
-    /** Moving shot: horizontal speed at or above this (m/s), or airborne. The deadzone is about 1.5 m/s. */
+    /** Moving shot: horizontal speed at or above this (m/s), or airborne. The deadzone is about 1.5 m/s, a shift-walk about 2.7, a run 5.4. */
     movingMps: number;
     /** Miss ghost: only when the shot passed this many degrees from the nearest head or more. */
     ghostDeg: number;
@@ -83,7 +83,7 @@ export const cues: CueTunables = {
     damageNumbers: { every: 'all', bandwidth: 'none', summary: 'none' },
     readout: { every: 'all', bandwidth: 'large', summary: 'none' },
   },
-  bandwidth: { movingMps: 2.7, ghostDeg: 1.5, slowFactor: 1.3, fastFactor: 0.75 },
+  bandwidth: { movingMps: 3.5, ghostDeg: 1.5, slowFactor: 1.3, fastFactor: 0.75 },
   cleanRun: { minRuns: 3 },
   surgeTellFloor: 1,
 };
