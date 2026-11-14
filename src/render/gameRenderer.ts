@@ -14,6 +14,7 @@ import type { Subscribable } from '../core/eventBus';
 import { lerp } from '../core/math';
 import { REFERENCE_ASPECT, verticalFovDeg } from '../core/view';
 import { env, palette } from '../config/palette';
+import type { EchoPresetId } from '../config/palette';
 import { QUALITY_LEVELS, type QualityLevel } from '../config/render';
 import type { Tunables } from '../config/tunables';
 import type { SimEvents } from '../sim/types';
@@ -54,6 +55,7 @@ export class GameRenderer {
   private readonly blobs: BlobShadows;
   private readonly fog: Fog;
   private targetsView: TargetsView | null = null;
+  private echoPreset: EchoPresetId = 'ember';
   private readonly effects: ShotEffects;
   private readonly viewmodel: Mesh;
   private width = 1;
@@ -62,7 +64,7 @@ export class GameRenderer {
 
   constructor(
     canvas: HTMLCanvasElement,
-    bus: Subscribable<SimEvents>,
+    private readonly bus: Subscribable<SimEvents>,
     private readonly tunables: Tunables,
     initialQuality: QualityLevel,
   ) {
@@ -109,6 +111,17 @@ export class GameRenderer {
     this.applyQuality();
   }
 
+  /** Enemy colour preset (design section 11). Applies to existing and future enemies. */
+  setEchoPreset(id: EchoPresetId): void {
+    this.echoPreset = id;
+    this.targetsView?.setPreset(id);
+  }
+
+  /** The enemy view (colour preset, showcase props, shatter clock); null before a level loads. */
+  get enemies(): TargetsView | null {
+    return this.targetsView;
+  }
+
   setQuality(q: QualityLevel): void {
     if (!QUALITY_LEVELS.includes(q)) return;
     this.quality = q;
@@ -119,6 +132,7 @@ export class GameRenderer {
     const p = this.tunables.render.quality[this.quality];
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, p.pixelRatioCap));
     this.post.enabled = p.postProcessing;
+    this.targetsView?.setQuality(p);
     applyEnvQuality(this.envUniforms, p);
     horizonColor(this.envUniforms, this.fog.color); // fog fades to the sky's horizon colour
     this.resize(this.width, this.height);
@@ -133,6 +147,7 @@ export class GameRenderer {
     const pr = this.renderer.getPixelRatio();
     const p = this.tunables.render.quality[this.quality];
     this.post.setSize(Math.floor(this.width * pr), Math.floor(this.height * pr), p.antialias ? 4 : 0);
+    this.targetsView?.setViewport(this.width * pr, this.height * pr);
   }
 
   /**
@@ -156,7 +171,10 @@ export class GameRenderer {
       this.scene.remove(this.targetsView.root);
       this.targetsView.dispose();
     }
-    this.targetsView = new TargetsView(this.tunables, world.targets.length);
+    this.targetsView = new TargetsView(this.tunables, this.bus, world.targets.length, this.tunables.render.quality[this.quality]);
+    this.targetsView.setPreset(this.echoPreset);
+    const pr = this.renderer.getPixelRatio();
+    this.targetsView.setViewport(this.width * pr, this.height * pr);
     this.scene.add(this.targetsView.root);
     // Compile shaders now so the first shot / first frame does not hitch.
     this.renderer.compile(this.scene, this.camera);
@@ -179,7 +197,7 @@ export class GameRenderer {
     this.effects.update(dt);
     this.viewmodel.position.z = this.viewmodelBaseZ + this.effects.kick * 0.04;
     this.viewmodel.rotation.x = this.effects.kick * 0.06;
-    this.targetsView?.update(world, alpha);
+    this.targetsView?.update(world, alpha, dt, this.camera.position.x, this.camera.position.y, this.camera.position.z);
     this.blobs.update(world.targets, this.tunables.targets);
 
     this.renderer.info.reset();

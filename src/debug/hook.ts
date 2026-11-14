@@ -1,4 +1,6 @@
 import type { Game } from '../app/game';
+import { ECHO_PRESET_IDS, type EchoPresetId } from '../config/palette';
+import type { ShowcaseItem } from '../render/targetsView';
 import { decodeCrosshair, encodeCrosshair } from '../settings/crosshair';
 import type { HitZone, TargetKind, TickInput } from '../sim/types';
 
@@ -59,6 +61,15 @@ export interface FlicklineDebug {
   crosshair(): unknown;
   /** Import a crosshair share code through the real parser; returns `{ok, error?}`. */
   setCrosshairCode(code: string): { ok: boolean; error?: string };
+  /** Enemy colour preset: ember, magenta, lime, amber or contrast. Returns false for an unknown id. */
+  echoPreset(id: EchoPresetId): boolean;
+  /**
+   * Draw display-only enemy props (`look`: echo | beacon | gnat) next to the real targets, for
+   * screenshots and the Gnat (no sim kind yet). `null` clears them. Returns how many were set.
+   */
+  echoShowcase(items: ShowcaseItem[] | null): number;
+  /** Pin the Echo clock (kill shards, Gnat spin) at `sec` seconds, or resume it with null. */
+  echoClock(sec: number | null): void;
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
   /** Live tunables object (mutate for experiments; not persisted). */
@@ -162,6 +173,22 @@ export function installDebugHook(game: Game): FlicklineDebug {
       if (!res.ok) return { ok: false, error: res.error };
       game.settings.set({ crosshair: res.params });
       return { ok: true };
+    },
+    echoPreset(id) {
+      if (!(ECHO_PRESET_IDS as readonly string[]).includes(id)) return false;
+      game.renderer.setEchoPreset(id);
+      game.renderNow();
+      return true;
+    },
+    echoShowcase(items) {
+      const view = game.renderer.enemies;
+      if (view) view.showcase = items;
+      game.renderNow();
+      return items?.length ?? 0;
+    },
+    echoClock(sec) {
+      game.renderer.enemies?.setTime(sec);
+      game.renderNow();
     },
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);

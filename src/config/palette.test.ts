@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { contrastFromLuminance, contrastRatio, relativeLuminance } from '../core/color';
 import {
+  ECHO_PRESET_IDS,
+  echoPresets,
   css,
   env,
   horizonLuminance,
@@ -84,4 +86,35 @@ describe('Echo against the environment (>= 7:1)', () => {
     const strongest = Math.max(render.trim.intensity, g.minorWeight, g.majorWeight, g.tickWeight, m.tick, m.major, m.line);
     expect(strongest * trimL).toBeLessThan(echoL);
   });
+});
+
+describe('Echo colour presets (>= 7:1 against every Range surface)', () => {
+  const surfaces: [string, number][] = [
+    ['floor', relativeLuminance(env.floor)],
+    ['wall', relativeLuminance(env.wall)],
+    ['cover', relativeLuminance(env.cover)],
+    ['platform', relativeLuminance(env.platform)],
+    ['void / sky zenith / clear colour', relativeLuminance(env.void)],
+    ['sky at the horizon glow peak', horizonLuminance()],
+  ];
+
+  it('has the five presets of design section 11', () => {
+    expect([...ECHO_PRESET_IDS]).toEqual(['ember', 'magenta', 'lime', 'amber', 'contrast']);
+    expect(echoPresets.ember.color).toBe(palette.ember);
+    expect(echoPresets.contrast.outline).toBe(0x000000);
+    expect(echoPresets.contrast.outlineAlways).toBe(true);
+  });
+
+  for (const id of ECHO_PRESET_IDS) {
+    const p = echoPresets[id];
+    it.each(surfaces)(`${id} body against %s`, (_n, lum) => {
+      expect(contrastFromLuminance(relativeLuminance(p.color), lum)).toBeGreaterThanOrEqual(7);
+    });
+    it.each(surfaces)(`${id} head node against %s`, (_n, lum) => {
+      expect(contrastFromLuminance(relativeLuminance(p.head), lum)).toBeGreaterThanOrEqual(7);
+    });
+    it(`${id}: the head node is at least as bright as the body (it stays the brightest part)`, () => {
+      expect(relativeLuminance(p.head)).toBeGreaterThanOrEqual(relativeLuminance(p.color));
+    });
+  }
 });
