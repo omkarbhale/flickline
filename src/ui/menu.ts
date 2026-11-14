@@ -188,6 +188,11 @@ export class Menu {
           : 'Raw input: off (this browser cannot disable mouse acceleration; turn off "Enhance pointer precision" in your OS)';
   }
 
+  /** Whether the menu is on screen. */
+  get isOpen(): boolean {
+    return this.el.classList.contains('open');
+  }
+
   setVisible(v: boolean): void {
     this.el.style.display = v ? '' : 'none';
     this.el.classList.toggle('open', v);
