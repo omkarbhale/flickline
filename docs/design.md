@@ -1,6 +1,6 @@
 # Flickline — Game Design
 
-Status: v1 of the design, written for the first playable and first release. Decisions are made here, not offered as menus. If a rule in this document conflicts with `docs/mechanics-spec.md` on a *number* (speeds, damage, spread, fire rate, FOV, sensitivity scale), the spec wins. If it conflicts with the "Architecture and conventions (read first)" issue (#54) on a *module boundary or event name*, that issue wins. The spec is on branch `fm/mechanics` / PR #35 until it merges; its section numbers are cited as `spec §x.y`. Everything else here is normative.
+Status: v1 of the design, written for the first playable and first release. Decisions are made here, not offered as menus. If a rule in this document conflicts with `docs/mechanics-spec.md` on a *number* (speeds, damage, spread, fire rate, FOV, sensitivity scale), the spec wins. If it conflicts with the "Architecture and conventions (read first)" issue (#54) on a *module boundary or event name*, that issue wins. The spec is on branch `fm/fl-mechanics` / PR #35 until it merges; its section numbers are cited as `spec §x.y`. Everything else here is normative.
 
 Contents: 1 Pitch and pillars · 2 Core loop · 3 Skills and stat definitions · 4 Modes · 5 Enemies and targets · 6 Weapons · 7 Instant feedback · 8 Results and progression · 9 Skill matching · 10 Maps · 11 Look · 12 Sound · 13 Interface · 14 Technical contracts · 15 Scope · 16 Identity and legal line · 17 Backlog
 
@@ -70,7 +70,7 @@ Nothing in the loop rewards time spent: no XP for playing, no daily-login streak
 | `precision` | Precision | First bullet on the head from a stationary, settled crosshair. | Cold Start |
 | `flick` | Flick | Large, fast, accurate crosshair relocation to a newly seen enemy. | Orbit |
 | `track` | Tracking | Keeping the crosshair on a strafing enemy through a burst. | Strafe Track |
-| `footwork` | Footwork | Counter-strafe, stop, shoot; shooting from the correct movement state (stand / walk / crouch). | Stop & Pop |
+| `footwork` | Footwork | Counter-strafe, stop, shoot; shooting from the correct movement state (stand / crouch). | Stop & Pop |
 | `spray` | Spray control | Counter-recoil during a burst and a full spray. | Spray Wall |
 | `switch` | Target switching | Clearing several enemies without hesitation between kills. | Switchboard |
 | `angles` | Angles | Crosshair placement at head height, pre-aim, peeking and clearing a corner without over-exposing. | Corner Clear |
@@ -182,7 +182,7 @@ First playable: Cold Start, Orbit, Placement run (a fixed hybrid of the two). Ev
 
 ## 5. Enemies and targets
 
-All human-shaped enemies are called **Echoes**: faceless faceted mannequins of light. The story is that you are practising against echoes of opponents; there is no other lore. All Echoes share one proportion model so that head height and chest height transfer.
+All human-shaped enemies are called **Echoes**: faceless faceted mannequins of light. The story is that you are practising against echoes of opponents; there is no other lore. All Echoes share one proportion model so that head height and body height transfer.
 
 ### 5.1 Humanoid hit zones
 
@@ -242,7 +242,7 @@ Original names, simple roles. **All numbers (fire rate, magazine, reload and equ
 
 The spec's `pistol_light` and `pistol_heavy` archetypes are unused in the first release (they are the same role as Pace or a later heavy pistol).
 
-Shared rules: no weapon in a mode with a viewmodel hides crosshair information; tracers are always drawn; magazines are real in Sweep and Spray Wall and infinite in the other drills; reloading is cancelled by weapon swap exactly as the spec says.
+Shared rules: the viewmodel never covers the crosshair or the screen centre; tracers are always drawn; magazines are real in Sweep and Spray Wall and infinite in the other drills; reloading is cancelled by weapon swap exactly as the spec says.
 
 ---
 
@@ -255,7 +255,7 @@ Rule: every event the player causes is answered **in the same frame** with at le
 | Event | See | Hear | Read |
 |---|---|---|---|
 | **Shot fired** | Muzzle flash (one frame sprite) on the viewmodel; tracer (thin bright quad, 80 ms); viewmodel recoil as the spec requires (camera recoil is the spec's; no extra camera shake). | Weapon shot, per weapon (section 12). | Ammo count ticks down. |
-| **Shot fired while moving too fast** | Tracer is **amber**; a small `⇆` glyph flashes under the crosshair for 0.3 s. | A dull, flat "tock" layered under the shot. | "Moving shots" counter in the stat strip increments. |
+| **Shot fired while moving too fast** (coaching cue, toggleable) | Tracer is **amber**; a small `⇆` glyph flashes under the crosshair for 0.3 s. | A dull, flat "tock" layered under the shot. | "Moving shots" counter in the stat strip increments. |
 | **Miss** | Impact spark + decal at the hit point; (option, default on) a faint ghost ring where the nearest target's head was, for 0.25 s, with an offset arrow. | Short "pfft" on the impact surface. | Nothing text-based; miss data goes to the run's miss map. |
 | **Body hit** | White hitmarker tick (4 short lines around the crosshair, 90 ms); target flashes white 60 ms; damage number floats up if enabled. | Low "thock". | Damage number. |
 | **Leg hit** | Dimmer tick, smaller. | Thock, a semitone lower. | — |
@@ -291,7 +291,7 @@ In-world: stance rings (Stop & Pop), checkpoint marks (Corner Clear), the wall d
 
 ## 8. Results and progression
 
-### 8.1 Scoring (single table, all tunable in `tunables.scoring`)
+### 8.1 Scoring (single table, all tunable in the `config/scoring.ts` area file)
 
 Per kill: `score = base(enemy) × precision × speed × streak × difficulty`.
 
@@ -324,7 +324,7 @@ A deterministic rules engine (no model needed) picks one weakness per run:
 1. Compute 12 candidate diagnostics with an *estimated points lost* for each, from the run's own events and the player's skill profile:
    moving shots (hit rate stopped vs moving); late reaction (RT above the player's rating-baseline); flick overshoot or undershoot bias; head-height discipline (aim vertical bias); pre-aim error; spray collapse (the bullet index where per-bullet hit rate drops below 50%); tracking lag or lead; switch hesitation (kill → first shot gap); over-peek damage; overkill bullets; reload in the open; accuracy drop after a streak break (tilt).
 2. Rank by estimated points lost; take the top one, show **one sentence of evidence** and **one sentence of what to do**, and attach a 30-second focused drill (a mini-run of the relevant mode with that skill's axes forced to the player's dial).
-   Example: *"22% of your shots were fired while moving; those hit 31% of the time vs 74% when stopped. Tap the opposite strafe key, wait for the amber tracer to stop, then fire."* → **Practice this (Stop & Pop, 30 s)**.
+   Example: *"22% of your shots were fired while moving; those hit 31% of the time vs 74% when stopped. Tap the opposite strafe key and fire only once your speed has dropped (about 0.1 s)."* → **Practice this (Stop & Pop, 30 s)**.
 3. Two secondary findings are collapsed under it. Rules and copy live in data so they can be improved without code.
 
 ### 8.4 Progression
@@ -365,11 +365,11 @@ Each skill has a latent ability `θ` on the same 0–100 **dial** scale as diffi
 
 Priors: a one-tap self-report before the first run ("New to shooters / Some / Experienced / Competitive") sets the prior mean to dial 15 / 35 / 55 / 75 (skippable → 40), standard deviation 25.
 
-The Placement run (45 s, about 25–30 trials) uses a **2-up/1-down adaptive staircase** on the dial (it converges on the 70.7%-success point): starting step 16, halving at each reversal (16 → 8 → 4 → 2), applying after every trial. The estimate after the run is the posterior from all trials, with the staircase mean of the last four reversals as a sanity bound. Expected accuracy: ±6 dial points after one run; ±3 after four. Because the posterior is shared, one placement run initialises **all seven** skills with a correlation prior (a Flick estimate moves Cold Start's prior by 40%); each skill sharpens when it is first played.
+The Placement run (45 s, about 25–30 trials) uses an adaptive **staircase** on the dial: it gets harder after 2 consecutive successes and easier after 1 failure (the rule that converges on the 70.7%-success point), starting step 16, halving at each reversal (16 → 8 → 4 → 2). The estimate after the run is the posterior from all trials, with the staircase mean of the last four reversals as a sanity bound. Expected accuracy: ±6 dial points after one run; ±3 after four. Because the posterior is shared, one placement run initialises **all seven** skills with a correlation prior (a Flick estimate moves Cold Start's prior by 40%); each skill sharpens when it is first played.
 
 ### 9.3 Steady state: keeping the edge without rubber-banding
 
-1. **Target success rate 70%**: the dial for the next stretch is `θ_est + offset` where `offset` is chosen so the *expected* success rate is 0.70 (solve with the logistic; it is `s × ln(0.7/0.3)` ≈ +7.6 dial points below θ). Easier modes (Cold Start's headshot trial) may set the target in data (0.55 for a first-bullet head drill, as it is harsher).
+1. **Target success rate 70%**: the dial for the next stretch is `θ_est − s × ln(0.7/0.3)` ≈ `θ_est − 7.6`, chosen so the *expected* success rate is 0.70. A mode may set a different target in data: Cold Start's first-bullet-headshot trial is a harder binary event, so it targets 0.55.
 2. **Difficulty is a function of the posterior and a pre-planned wave curve, never of the last few shots.** A run is divided into *beats* (every 10 s in drills; every contact in Sweep). The dial changes only at beat boundaries, by at most ±3 points per beat, and the wave curve (warm-up −8, build, peak +6, breather −6) is applied around it. A streak of misses does not make the next target easier; a streak of hits does not instantly spike difficulty. The player sees structure, not a fight against their score.
 3. **Asymmetric update**: the posterior reacts faster upward than downward (likelihood scale `s` 8 for successes, 10 for failures) so a few lucky hits are not rewarded by a brutal jump, and a bad evening does not collapse the rating.
 4. **No hidden handicaps**: the score table's `difficulty` factor means an easier dial does not hand out free points; the PB is per dial band.
@@ -476,7 +476,7 @@ All audio is **synthesised with Web Audio** at load (an `OfflineAudioContext` re
 | Body hit | 60 ms low "thock" (sine drop from 220 → 110 Hz with a click). | A hit, not a kill. |
 | Leg hit | Same thock a semitone lower and 6 dB quieter. | A low-value hit. |
 | Headshot | The thock plus a bright 1.9 kHz "tink" (two detuned triangles, 120 ms). | Headshot. Learned within a minute and never confusable with body. |
-| Kill | Chime on a pentatonic ladder: 8 steps from a root; step = clean streak mod ladder (caps at step 8); headshot kills add an octave sparkle. | Kill, and streak height, without looking. |
+| Kill | Chime on a pentatonic ladder: 8 steps from a root; step = the clean streak, capped at step 8; headshot kills add an octave sparkle. | Kill, and streak height, without looking. |
 | Miss | Surface "pfft" at the impact point, 20 ms, low gain. | A miss; the surface type. |
 | Moving shot | Flat low "tock" under the shot, no pitch ladder. | "That shot was inaccurate", instantly. |
 | Streak break | Falling minor third, 150 ms, quiet. | Gentle. |
@@ -610,7 +610,7 @@ Aligned with the layout and layering rule in the architecture issue (#54). Pure 
 A build someone can play from a link that demonstrates the loop: Range map; weapons Pace and Kestrel using the spec's numbers; Posts and Beacons; Cold Start and Orbit; the Placement run and the skill model v1 with persistence; the full per-shot feedback of section 7.1 (excluding medals and surge); live stat strip; basic results card with the one-thing-to-fix stub (moving shots, RT); crosshair editor; sensitivity in the reference scale; first-run flow; synthesised sounds for shots, hits, headshots, kills; instant restart; a perf harness and an automated bot playtest; a looked-at playtest pass.
 
 ### First release
-Everything in sections 4–13: all eight modes, four maps, three weapons, six enemy types, damage and slow-on-hit, the full feedback set including callouts and medals, results breakdown with the fix engine and spray trace, skill profile, ranks and PBs, settings, post effects, viewmodels, UI kit, accessibility options, balance, performance and legal passes, and a full playtest.
+Everything in sections 4–13: all eight modes, four maps, four weapons (Pace, Kestrel, Vane, Rill), seven enemy types, damage and slow-on-hit, the full feedback set including callouts and medals, results breakdown with the fix engine and spray trace, skill profile, ranks and PBs, settings, post effects, viewmodels, UI kit, accessibility options, balance, performance and legal passes, and a full playtest.
 
 ### Later (not scheduled)
 Longnail sniper and scoped sensitivity; shotgun; more maps (Stack and others); an in-browser map editor; replays and ghost runs; shareable seeds and daily seeds; online leaderboards (needs a backend); generative music; gamepad; desktop wrapper; localisation.
@@ -635,4 +635,57 @@ Flickline copies **mechanics and feel only**: movement speeds and acceleration, 
 
 ## 17. Backlog
 
-The work is tracked in GitHub issues on `omkarbhale/flickline`. This section is filled with the links when the backlog is created.
+The work is tracked in GitHub issues on `omkarbhale/flickline`; every issue states its goal, the design section it implements, acceptance criteria, dependencies and what is out of scope. Design and backlog tracking: [#8](https://github.com/omkarbhale/flickline/issues/8).
+
+- Prerequisites outside this backlog: code foundation [#6](https://github.com/omkarbhale/flickline/issues/6), mechanics spec [#7](https://github.com/omkarbhale/flickline/issues/7) (PR #35), architecture and conventions [#54](https://github.com/omkarbhale/flickline/issues/54).
+- Phase tracking issues: [#9 first playable](https://github.com/omkarbhale/flickline/issues/9), [#10 first release](https://github.com/omkarbhale/flickline/issues/10), [#11 later (parked ideas)](https://github.com/omkarbhale/flickline/issues/11).
+
+### First playable
+
+- [#12](https://github.com/omkarbhale/flickline/issues/12) research: human performance baselines and skill-transfer evidence for the dial and the drills
+- [#13](https://github.com/omkarbhale/flickline/issues/13) feat(sim): run state machine, event log and stat tracker
+- [#14](https://github.com/omkarbhale/flickline/issues/14) feat(weapons): generic weapon simulation with Pace and Kestrel
+- [#15](https://github.com/omkarbhale/flickline/issues/15) feat(enemies): enemy framework, humanoid hit zones, Post and Beacon
+- [#16](https://github.com/omkarbhale/flickline/issues/16) feat(maps): map data format, loader, lint CLI and the Range map
+- [#17](https://github.com/omkarbhale/flickline/issues/17) feat(skill): difficulty dial, adaptive staircase and grid-posterior skill model
+- [#18](https://github.com/omkarbhale/flickline/issues/18) art: Echo humanoid models, Beacon and Gnat meshes, and the Echo shader
+- [#19](https://github.com/omkarbhale/flickline/issues/19) art(render): Lightline environment look — palette, trim lines, grid floor, sky, fog
+- [#20](https://github.com/omkarbhale/flickline/issues/20) feat(audio): Web Audio engine and the feedback sound set (hit, headshot, kill ladder, miss, moving shot)
+- [#21](https://github.com/omkarbhale/flickline/issues/21) feat(ui): crosshair renderer, editor and share codes
+- [#22](https://github.com/omkarbhale/flickline/issues/22) feat(modes): mode framework — scheduler, scoring table and dial application
+- [#23](https://github.com/omkarbhale/flickline/issues/23) feat(modes): Cold Start, Orbit and the Placement run
+- [#24](https://github.com/omkarbhale/flickline/issues/24) feat(feedback): per-shot visual feedback — hitmarkers, tracers, impacts, kill shatter, screen pulse
+- [#25](https://github.com/omkarbhale/flickline/issues/25) feat(ui): live HUD — score, multiplier, counters, stat strip, ghost-pace and edge meter
+- [#26](https://github.com/omkarbhale/flickline/issues/26) feat(ui): end-of-run results card with stats, rating delta and restart flow
+- [#27](https://github.com/omkarbhale/flickline/issues/27) feat(ui): sensitivity in the reference scale, raw input, and the first-run flow (shooting in ≤ 10 s)
+- [#28](https://github.com/omkarbhale/flickline/issues/28) feat(infra): headless bot playtest harness and frame-time perf harness
+- [#29](https://github.com/omkarbhale/flickline/issues/29) playtest: first playable pass — looked-at gameplay, sound and feel check
+
+### First release
+
+- [#30](https://github.com/omkarbhale/flickline/issues/30) feat(weapons): Rill SMG and Vane precise rifle, weapon swapping and loadouts
+- [#31](https://github.com/omkarbhale/flickline/issues/31) feat(sim): player health, taking damage, slow-on-hit, kill-heal and the damage arc data
+- [#32](https://github.com/omkarbhale/flickline/issues/32) feat(enemies): Strafer and Peeker behaviours, including enemy shooting with tells
+- [#33](https://github.com/omkarbhale/flickline/issues/33) feat(enemies): Rusher, Bulwark and Gnat with waypoint navigation
+- [#34](https://github.com/omkarbhale/flickline/issues/34) feat(maps): Lane and Elbow maps with anchors, checkpoints and peek spots
+- [#36](https://github.com/omkarbhale/flickline/issues/36) feat(maps): Foundry map for Sweep (three lanes, catwalk, six gates, nav graph)
+- [#37](https://github.com/omkarbhale/flickline/issues/37) feat(ui): skill profile screen — radar, tiers, confidence bands, trends
+- [#38](https://github.com/omkarbhale/flickline/issues/38) feat(skill): persistence, medals, ranks, personal bests and ghost pace
+- [#39](https://github.com/omkarbhale/flickline/issues/39) feat(ui): results breakdown — fix engine, one-thing-to-fix card, spray trace and plots
+- [#40](https://github.com/omkarbhale/flickline/issues/40) feat(feedback): chain and streak callouts, medal toasts, Surge and rank-up moments
+- [#41](https://github.com/omkarbhale/flickline/issues/41) feat(audio): weapon sounds, enemy tells, damage, near-miss, footsteps and UI sounds
+- [#42](https://github.com/omkarbhale/flickline/issues/42) feat(ui): settings menu — keybinds, audio, graphics, gameplay, data, accessibility
+- [#43](https://github.com/omkarbhale/flickline/issues/43) feat(ui): menu shell — mode select cards, pause menu, today's session, UI kit and fonts
+- [#44](https://github.com/omkarbhale/flickline/issues/44) feat(render): post effects — cheap bloom, vignette, damage vignette, chromatic pulse
+- [#45](https://github.com/omkarbhale/flickline/issues/45) art: procedural weapon viewmodels, muzzle flashes and recoil animation
+- [#46](https://github.com/omkarbhale/flickline/issues/46) feat(modes): Strafe Track mode
+- [#47](https://github.com/omkarbhale/flickline/issues/47) feat(modes): Stop & Pop mode (counter-strafe and stance discipline)
+- [#48](https://github.com/omkarbhale/flickline/issues/48) feat(modes): Spray Wall mode
+- [#49](https://github.com/omkarbhale/flickline/issues/49) feat(modes): Switchboard mode (target switching)
+- [#50](https://github.com/omkarbhale/flickline/issues/50) feat(modes): Corner Clear mode (peeking and clearing angles)
+- [#51](https://github.com/omkarbhale/flickline/issues/51) feat(modes): Sweep flagship mode and its encounter director
+- [#52](https://github.com/omkarbhale/flickline/issues/52) research: audio and visual cue design — hit, headshot and tell cues that players learn in a minute
+- [#53](https://github.com/omkarbhale/flickline/issues/53) balance: tune dial end-points, scoring, medals and Sweep pressure against bot and human data
+- [#55](https://github.com/omkarbhale/flickline/issues/55) perf: first-release 144 fps pass on Range, Lane, Elbow and Foundry
+- [#56](https://github.com/omkarbhale/flickline/issues/56) playtest: first release pass — every mode, looked at and listened to
+- [#57](https://github.com/omkarbhale/flickline/issues/57) audit: identity and legal check — names, assets, fonts, licences, no copied content
