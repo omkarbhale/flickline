@@ -294,6 +294,7 @@ export class ModeRunner implements ModeContext<unknown> {
     e.success = success;
     e.rtMs = rt >= 0 ? rt : undefined;
     e.extra = opts?.extra;
+    e.source = this.mode.trialSource ?? 'matched';
     this.deps.events.emit('skillTrial', e);
     this.stats.trials++;
     if (success) this.stats.trialsWon++;

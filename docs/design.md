@@ -1,86 +1,108 @@
 # Flickline — Game Design
 
-Status: v1 of the design, written for the first playable and first release. Decisions are made here, not offered as menus. If a rule in this document conflicts with `docs/mechanics-spec.md` on a *number* (speeds, damage, spread, fire rate, FOV, sensitivity scale), the spec wins. If it conflicts with the "Architecture and conventions (read first)" issue (#54) on a *module boundary or event name*, that issue wins. Section numbers of the spec are cited as `spec §x.y`. Everything else here is normative.
+Status: v2 of the design. v2 (#187) replaces the aim-trainer structure of v1 (drills, a Placement run, a Daily Baseline) with one game you replay, Sweep, under vision principle 10; section 4.10 records the fate of every v1 mode. Decisions are made here, not offered as menus. If a rule in this document conflicts with `docs/mechanics-spec.md` on a *number* (speeds, damage, spread, fire rate, FOV, sensitivity scale), the spec wins. If it conflicts with the "Architecture and conventions (read first)" issue (#54) on a *module boundary or event name*, that issue wins. Section numbers of the spec are cited as `spec §x.y`. Everything else here is normative.
 
 Vision: [`docs/vision.md`](vision.md) states what Flickline is for. This design is how we currently pursue it, and every section here is checked against it.
 
-Contents: 1 Pitch and pillars · 2 Core loop · 3 Skills and stat definitions · 4 Modes · 5 Enemies and targets · 6 Weapons · 7 Instant feedback · 8 Results and progression · 9 Skill matching · 10 Maps · 11 Look · 12 Sound · 13 Interface · 14 Technical contracts (incl. 14.7 quality tracks) · 15 Scope · 16 Identity and legal line · 17 Backlog
+Contents: 1 Pitch and pillars · 2 Core loop · 3 Skills and stat definitions · 4 Sweep: the run · 5 Enemies and targets · 6 Weapons · 7 Instant feedback · 8 Results and progression · 9 Skill matching · 10 Maps · 11 Look · 12 Sound · 13 Interface · 14 Technical contracts (incl. 14.7 quality tracks) · 15 Scope · 16 Identity and legal line · 17 Backlog
 
 ---
 
 ## 1. Pitch and pillars
 
-**Pitch.** Flickline is a free browser first-person aim and movement trainer whose shooting, movement, damage and field of view are modelled on a modern tactical shooter, so everything you learn transfers. There are no rounds, teams or objectives: you press a key, a 60-second run starts, every shot answers you instantly with sight, sound and a number, and pressing the key again restarts in under a quarter of a second. The game measures you in the first minute and keeps every target at the edge of your ability, then tells you the one mechanical thing to fix next.
+**Pitch.** Flickline is a free browser first-person shooter whose shooting, movement, damage and field of view are modelled on a modern tactical shooter, so everything you learn transfers. It is **one game, Sweep**: a run through a chain of compact sectors held and patrolled by Echoes, enemies that see, hear, peek, hold, trade and make mistakes like players of your level. Your health carries from fight to fight, every sector is drawn fresh from the run's seed, you choose your route at every gate, and the stakes climb until the Finale. A run takes five to nine minutes and the next one starts in under a quarter of a second. Every shot answers you instantly with sight, sound and a number; every fight tells you why you won or lost it; the game measures you while you play and keeps every fight at the edge of your ability.
+
+There are no drills. Nothing in Flickline is a routine you repeat for the improvement (vision principle 10). The mechanics the reference game demands (first-bullet precision, flicks, tracking, counter-strafing, spray control, switching and clearing angles) are practised the way a match asks for them: inside fights whose information, timing and stakes differ every time (section 3, `docs/research/replay-not-drills.md`).
 
 **Pillars, ranked.** When two pillars conflict, the higher one wins.
 
-1. **Mechanical truth.** The gun, the body and the camera behave like the reference game's, in numbers *and* in feel, which are tracked separately (section 14.7). A drill that teaches a habit that fails in the real game is a bug. Numbers come from `docs/mechanics-spec.md`; we never "game-ify" them (no aim assist, no bullet magnetism, no slow-motion, no hit-box inflation beyond the spec).
-2. **Feedback is the product.** The feedback that makes a shot feel good and informative (hit confirmation, headshot distinction, kill reward, moving-shot flag, time to shot, miss offset, sound, screen response) is product design, not polish. It is specified in section 7 and built in the first playable, not at the end.
-3. **At the edge of your ability.** A new player and an expert should both be missing roughly three targets in ten within the first minute, and stay there as they improve. Difficulty is a measurement we show, not a rubber band we hide (section 9).
-4. **Zero friction.** Shooting within ten seconds of opening the link; restart in under 250 ms; nothing between you and the next run that you did not ask for.
-5. **Readable at 144+ fps.** Targets are the brightest, most saturated things on screen with strong silhouettes; effects are cheap and short; the frame budget (section 14) is a hard constraint on every visual.
-6. **Its own identity.** Original names, shapes, sounds and interface (section 16). Polish, in the narrow sense of atmosphere that does not inform play, is last and never costs a frame or a millisecond of input latency.
+1. **Mechanical truth.** The gun, the body and the camera behave like the reference game's, in numbers *and* in feel, which are tracked separately (section 14.7). A situation or reward that teaches a habit that fails in the real game is a bug. Numbers come from `docs/mechanics-spec.md`; we never "game-ify" them (no aim assist, no bullet magnetism, no slow-motion, no hit-box inflation beyond the spec). Game layers (route choice, score, stakes) sit *around* the mechanics and never change them.
+2. **A game you replay.** Every run must differ from the last in ways that matter to how you fight: where the enemies are, what they know, what you know, what you are carrying, and what you chose. Variety comes from systems (enemy minds, scenario cards, routes, conditions, stakes), never from hand-authored set pieces a player can memorise (section 2.4).
+3. **Feedback is the product.** The feedback that makes a shot feel good and informative (hit confirmation, headshot distinction, kill reward, moving-shot flag, time to shot, miss offset, sound, screen response) is product design, not polish. It is specified in section 7 and built with the core, not at the end.
+4. **At the edge of your ability.** A new player and an expert should both be winning roughly seven fights in ten and stay there as they improve. Difficulty is a measurement we show, not a rubber band we hide (section 9).
+5. **Zero friction.** Shooting within ten seconds of opening the link; a new run in under 250 ms; nothing between you and the next run that you did not ask for.
+6. **Readable at 144+ fps.** Echoes have strong silhouettes and the brightest saturated colour on screen; effects are cheap and short; the frame budget (section 14) is a hard constraint on every visual.
+7. **Its own identity.** Original names, shapes, sounds and interface (section 16). Polish, in the narrow sense of atmosphere that does not inform play, is last and never costs a frame or a millisecond of input latency.
 
-**Not goals.** Teamplay, economy, abilities, narrative, monetisation, realism of ballistics beyond the reference's rules.
+**Not goals.** Teamplay, economy as a shop, abilities, narrative, monetisation, realism of ballistics beyond the reference's rules, and any drill, exercise menu or fixed routine.
 
 ---
 
 ## 2. Core loop
 
-### Second by second (inside a run)
+### 2.1 Second by second (inside a fight)
 
-1. A target becomes visible. Its appearance is the only timer that matters (time to shot starts here).
-2. You aim and fire. The crosshair ticks and the target answers within one frame: hitmarker, sound, flash. A miss answers just as clearly (impact spark and, if the option is on, a miss-offset ghost showing where the head was).
-3. A kill pays out in the same frame: shatter, pitched chime, floating points, chain/streak counters. The time to shot and time to kill of that kill float near the crosshair for 0.6 s.
-4. The next target is already appearing. Gaps between targets are short and seeded-random (0.1–0.9 s by mode) so there is no dead air and no rhythm to memorise.
+1. You move through a sector. An Echo becomes visible, or you hear one first (running footsteps, a reload, a shot), or it hears you. What either side knows decides the fight (section 4.4).
+2. You stop, aim and fire. The crosshair ticks and the target answers within one frame: hitmarker, sound, flash. A miss answers just as clearly. An Echo that has you in sight answers back with real, aimed shots; its hits slow you exactly as the reference game's do.
+3. A kill pays out in the same frame: shatter, pitched chime, floating points, chain and streak counters; the time to shot and time to kill float near the crosshair for 0.6 s while the cues are on (section 7.4).
+4. When the fight (the **contact**) ends, it settles: cleared, reset (you left a fight you were losing and lived) or died, with points for the health you kept and a six-word cause line if it cost you real HP (sections 7, 8.1).
 
-### Minute by minute
+### 2.2 Minute by minute
 
 | Time | What happens |
 |---|---|
-| 0:00 | Page loads (no asset downloads; everything is procedural). |
-| 0:03–0:10 | "Click to play" with a sensitivity field already filled in. First click starts the **Placement run** (section 9). First shot is fired by 0:10. |
-| 0:10–0:55 | Placement run: 45 s of Orbit/Cold-Start hybrid targets that also calibrate difficulty. |
-| 0:55 | Results card: first rating, tier, one thing to fix, `Enter` = next run. |
-| 1:00+ | Real runs. A run is **60 s** (drills) or **up to 5:00, typically about 3:00** (Sweep, the flagship). |
-| every run | Run ends, results card appears *over the frozen last frame* in under 100 ms, `Enter` (or the **Play again** button) starts the next run, `Esc` opens the menu. |
+| 0:00 | Page loads (no asset downloads; everything is procedural) onto the **Lobby**: the Range, with Beacons drifting in it. |
+| 0:03–0:10 | One panel: sensitivity (already filled in), the four self-report chips and **Play**. You can shoot the Beacons before you click; nothing there is scored. |
+| 0:10 | **Play** starts a Sweep run. The first sector, the **Opener**, is gentle and also places a new player (section 9.2). |
+| 0:10–~7:00 | Sectors 1–6: fights, gates and route choices, rising stakes, the **Finale** in sector 6. Health carries throughout. |
+| run end | Death, or you leave after the Finale (or later, from **Overtime**). The results card appears over the frozen last frame in under 100 ms. `Enter` starts the next run on a new seed; `Esc` opens the menu. |
 
-### Definitions
+### 2.3 Definitions
 
-- **Run**: one attempt at one mode with one seed. It has three states: `ready` (0.8 s, targets not live, crosshair and movement work so you can settle), `live`, `result`.
-- **Session**: one sitting, expected 15–25 minutes and 12–25 runs. Sessions are suggested but never enforced: the **Play** button starts "Today's session": the **Daily Baseline** when it is due (section 8.5), then two **Mix** runs, then one Sweep run. The player can ignore it at any time.
-- **Mix run**: a 60-second run on one map with one weapon whose trials are drawn, in random order (at most two of one skill in a row), from the session's chosen skills (lowest-rated, the skill the last results card flagged, a favourite) that share that map and weapon. Each trial runs at its own skill's matched dial and counts for its own skill, as in the Placement run. A skill with fewer than 60 trials gets its own single-skill run first. Interleaving is a tested hypothesis, not a settled fact: the session's schedule is data, and the practice-schedule experiment ([#159](https://github.com/omkarbhale/flickline/issues/159)) decides between interleaved and blocked (`docs/research/transfer.md` §8).
-- **Instant restart**: `Backspace` during a run, `Enter` on the results card. The world is reset from the run seed (no scene rebuild, no asset load); target: key press to first frame of the next `ready` state ≤ 250 ms on the reference rig. The previous run is saved to history before the reset.
+- **Run**: one Sweep from the Opener to death or exit, on one seed. States: `ready` (0.8 s, enemies not live, crosshair and movement work), `live`, `result`.
+- **Sector**: one compact space of a map with its own entry and exit gates, holding one to three contacts (section 4.2). A run is six sectors, then optional Overtime.
+- **Contact**: one fight, from the first information either side has to every enemy in it dead, the player dead, or 2 s with no line of sight either way (section 3; `docs/research/fight-attribution.md` §3.1). Every contact is drawn from a **scenario card** (section 4.4).
+- **Gate**: the short connector between sectors where the player chooses the next sector by walking through one of two doors (section 4.5). There is no menu and no timer at a gate.
+- **Session**: one sitting, expected 15–30 minutes and 2–5 runs. Nothing is suggested or enforced: **Play** always starts a run.
+- **Instant restart**: `Backspace` during a run (asks once, because a run is worth minutes), `Enter` on the results card. The world is reset from the new seed (no asset load); target: key press to first frame of the next `ready` ≤ 250 ms on the reference rig. The previous run is saved to history first.
 
-### What makes the player start another run immediately
+### 2.4 Why the next run is different
 
-1. **Restart cost is zero** (see above); the results card is skippable the instant it appears.
-2. **Ghost pace**: during a run a thin bar under the score shows ahead/behind your personal best at the same elapsed second. Finishing at 97% of a PB is the most reliable "one more" trigger there is.
-3. **A concrete next goal**: the "one thing to fix" card ends with a one-key **Practice this (30 s)** button that launches a focused mini-run targeting exactly that weakness.
-4. **Rating progress**: a bar to the next sub-tier on the results card moves every run, even bad ones, because the estimate sharpens.
-5. **Variety by seed**: each run has a seed shown on the card; `Seed` entry lets you replay an identical run to beat yourself on the same layout.
+A player comes back because the next run will ask something new, not because a counter wants filling. Each of these is drawn from the run's seed or chosen by the player, and each changes how the fights are played, not only how they look:
 
-Nothing in the loop rewards time spent: no XP for playing, no daily-login streak, no currency. Rewards are derived only from mechanics (section 8).
+| Source | What changes | Section |
+|---|---|---|
+| **Route** | Which sectors of which maps, in what order; the player picks one of two doors at every gate. | 4.2, 4.5 |
+| **Scenario cards** | Who knows what before each fight, who must move, how many enemies and in what arrangement. | 4.4 |
+| **Enemy minds** | Every Echo draws its own personality around its profile: reaction, aggression, favourite peeks, whether it re-peeks or repositions, whether it trades. | 5, `player-like-enemies.md` |
+| **Tempo** | Arriving early meets enemies still moving; arriving late meets enemies set up and expecting you. Running is fast and loud, walking is slow and silent. | 4.3 |
+| **Conditions** | A sector's economy (eco, light or full shield and weapons) and loadout, as the reference game's rounds vary. | 4.6 |
+| **Stakes** | Health carried from earlier fights, door rewards taken or refused, a depth multiplier, and Overtime's unbanked points. | 4.5, 4.7 |
+
+The same seed replays the same run exactly (section 14.2); the **Daily Route** (section 4.8) gives every player the same seed for a day.
+
+### 2.5 What brings the player back
+
+1. **The run itself.** Short enough to finish, long enough to have a story ("I took the loud door on 40 HP, held the corridor, then lost the Finale to a crossfire").
+2. **Choices with consequences.** Route, risk and tempo are the player's; a better player makes better ones, and that is visible in the score.
+3. **Enemies worth beating.** Echoes play like people at your level (section 5): you learn to read them, and they keep pace as you improve.
+4. **A concrete next goal without a drill.** The results card names one thing to fix and the next run **leans** toward the situations that exercise it (section 8.3); you practise it by playing.
+5. **Long arcs.** Best runs, deepest Overtime, the Daily Route, situation records, rank, and the cold-opener trend that says whether you are really improving (sections 8.4–8.5).
+6. **Restart cost is zero** and the results card is skippable the instant it appears.
+
+Nothing in the loop rewards time spent: no XP for playing, no daily-login streak, no currency, no unlock gates. Rewards are derived only from mechanics and decisions (section 8).
 
 ---
 
 ## 3. Skills and stat definitions
 
-### The seven trained skills
+### 3.1 The seven measured skills
 
-| Skill id | Name | What it is in the reference game | Primary mode |
+Skills are what the game **measures and reports**, not things the player selects or practises separately. Every one is exercised inside fights, in the form a match asks for it.
+
+| Skill id | Name | What it is in the reference game | Where a run exercises it |
 |---|---|---|---|
-| `precision` | Precision | First bullet on the head from a stationary, settled crosshair. | Cold Start |
-| `flick` | Flick | Large, fast, accurate crosshair relocation to a newly seen enemy. | Orbit |
-| `track` | Tracking | Keeping the crosshair on a strafing enemy through a burst. | Strafe Track |
-| `footwork` | Footwork | Counter-strafe, stop, shoot; shooting from the correct movement state (stand / crouch). | Stop & Pop |
-| `spray` | Spray control | Counter-recoil during a burst and a full spray. | Spray Wall |
-| `switch` | Target switching | Clearing several enemies without hesitation between kills. | Switchboard |
-| `angles` | Angles | Crosshair placement at head height, pre-aim, peeking and clearing a corner without over-exposing. | Corner Clear |
+| `precision` | Precision | First bullet on the head from a stationary, settled crosshair. | Holding an angle an Echo swings; pre-aimed takes; first shots of every duel. |
+| `flick` | Flick | Large, fast, accurate crosshair relocation to a newly seen enemy. | Off-angles, flanks, the second enemy of a trade, enemies first heard and then seen. |
+| `track` | Tracking | Keeping the crosshair on a strafing enemy through a burst. | Duels with Strafers and with Echoes that strafe between bursts; Meet contacts. |
+| `footwork` | Footwork | Counter-strafe, stop, shoot; shooting from the correct movement state (stand / crouch). | Every fight in which an Echo shoots back: a moving shot is inaccurate exactly as in the reference game. |
+| `spray` | Spray control | Counter-recoil during a burst and a full spray. | Close and mid fights against several Echoes, Rushers, Bulwarks; any burst of five or more bullets. |
+| `switch` | Target switching | Clearing several enemies without hesitation between kills. | Trades, crossfires, multi-enemy contacts, Gnat swarms. |
+| `angles` | Angles | Crosshair placement at head height, pre-aim, peeking and clearing a corner without over-exposing. | Moving through every take sector; clearing order; peeking held angles. |
 
-Sweep trains all seven and updates all seven ratings, weighted by what actually happened in the run.
+Each contact produces **trials** for the skills it exercised (section 9.1): the first shot of a duel against a pre-aimed angle is a `precision` trial, a kill that needed a relocation larger than 20° is a `flick` trial, and so on. Trial classification lives in data next to the stat definitions.
 
-### Stat definitions (single source of truth for code and UI)
+### 3.2 Stat definitions (single source of truth for code and UI)
 
 Every stat is computed from the event log (section 14), never from UI state.
 
@@ -88,7 +110,7 @@ Every stat is computed from the event log (section 14), never from UI state.
 - **Headshot rate** = head hits ÷ all hits.
 - **Time to shot (TTS)** of a target = time from `targetVisible` (the first tick the target is in the view frustum and unoccluded from the eye) to the first `shotFired` that is aimed within 5° of it. It includes the aiming movement, so it is **not a reaction time** and is never called one in the UI (research #12 P1; the code identifiers still say `rtMs` until #137). Time to shot is reported per target; the run's is the **median**, not the mean. Context only, never pass/fail: about 0.25–0.35 s pre-aimed, 0.45–0.9 s for a 10–25° relocation, 0.9–1.5 s for a 60–120° flick (#12 §1.2).
 - **Time to kill (TTK)** = time from the first shot fired at the target (a shot that hits it or lands within 1° of it) to its death.
-- **Time on target** = fraction of `live` ticks where the aim ray is within the target's hit volume padded by 0.5° (Strafe Track's main number).
+- **Time on target** = fraction of `live` ticks where the aim ray is within the target's hit volume padded by 0.5° (reported for duels against a strafing Echo).
 - **Moving shot** = a shot fired while the player's horizontal speed is above the accuracy deadzone from the spec (`move.deadzone_fraction`: 27.5% of the equipped weapon's run speed, 15% for the sniper; spec §2.4) or while airborne. It is flagged at the shot, not inferred later.
 - **Stop latency** = time from the last movement key release (or counter-strafe key press) to horizontal speed first falling below the accuracy threshold.
 - **Pre-aim error** = angle between the aim ray and the centre of the head of an enemy at the tick it becomes visible. Smaller is better.
@@ -97,91 +119,102 @@ Every stat is computed from the event log (section 14), never from UI state.
 - **Spray trace** = for a burst, the ordered list of per-bullet impact offsets (in degrees, relative to the aim point at the first bullet) and the player's per-bullet mouse pull. **Ideal trace** = the same burst with the spec's recoil pattern perfectly countered (every bullet at the first bullet's offset plus only the spec's random spread). The comparison drawn is between required pull and actual pull per bullet index.
 - **Clean kill** = a kill on that target with no missed shot at it and no moving shot.
 - **Chain** = isolated kills within 1.5 s of the previous one; a kill made while another live enemy had the player in sight from a second angle (more than 30° away) gets no chain credit (#132). **Clean streak** = consecutive clean kills. (Two different counters; both shown.)
-- **Contact** = one Sweep contact or one Corner Clear angle, from the first information either side has to every enemy dead, the player dead, or 2 s with no line of sight either way (`docs/research/fight-attribution.md` §3.1). **Health kept** = 1 − health+shield lost in the contact ÷ health+shield at its start (kill-heal does not reduce the loss).
+- **Contact** = one fight (section 2.3), from the first information either side has to every enemy dead, the player dead, or 2 s with no line of sight either way (`docs/research/fight-attribution.md` §3.1). **Health kept** = 1 − health+shield lost in the contact ÷ health+shield at its start (kill-heal does not reduce the loss).
 
 ---
 
-## 4. Modes
+## 4. Sweep: the run
 
-Seven drills and one flagship ship in the first release. Every drill is a 60-second run (Spray Wall is five sprays or 60 s, whichever comes first). Every mode shares: the run state machine, scoring table (section 8), the difficulty dial (section 9), the event log, the results card. A mode is data plus a small scheduler; it does not own rendering, input or audio.
+Flickline has one game, Sweep. Section 4.10 records what happened to the drills and modes of the earlier design. A run shares the run state machine, the scoring table (section 8), the difficulty dial (section 9), the event log and the results card with everything else; the run director is data plus a small scheduler and owns no rendering, input or audio.
 
-All modes have `ready` → `live` → `result`; weapon per mode is the default but modes allow swapping with `1`–`3` where a loadout makes sense (Sweep only).
+### 4.1 Shape of a run
 
-### 4.1 Cold Start — trains `precision`  (first playable)
+| Sector | Name | Dial offset (section 9.3) | Depth multiplier | Notes |
+|---|---|---|---|---|
+| 1 | **Opener** | −8 | ×1.0 | Gentle; places a new player (section 9.2); the day's first Opener is the **cold opener** (section 8.5). Always a take sector with one or two contacts. |
+| 2 | — | −3 | ×1.2 | First gate before it. |
+| 3 | — | 0 | ×1.4 | |
+| 4 | — | +3 | ×1.6 | |
+| 5 | — | 0 (breather) | ×1.8 | Fewer contacts, never a crossfire card. |
+| 6 | **Finale** | +6 | ×2.0 | Always a hold sector (section 4.2) with the run's largest contact count, including Rushers and Bulwarks. |
+| 7+ | **Overtime** | +6, then +2 per sector | ×2.2, +0.2 per sector | Optional, see section 4.7. |
 
-- **Map/weapon**: Range, Kestrel (`rifle_spray`), no reload (infinite magazine).
-- **Rule**: one Post (section 5) appears at a time at a random anchor, 5–25° from the current crosshair direction (mostly small adjustments; this is a *placement and click* drill, not a flick). The first bullet fired at it decides the trial: if the target is hit in the head by that bullet it dies (shatter); a body hit makes it flash and leave; a miss makes it leave. Whatever happens, the Post leaves 0.25 s after your first bullet at it, so spraying is pointless by design. If no bullet is fired before its exposure ends it leaves and counts as a miss-by-timeout.
-- **Trial** (for the skill model): success = head hit with the first bullet.
-- **Pace**: 0.5–0.9 s between targets, about 45 trials per run.
-- **Dial axes**: distance (head size on screen, 5 → 35 m), exposure (2.5 s → 1.35 s, Cold Start's own curve, §9.4; generous on purpose, so a failed trial is a precision failure and not a timeout, #170), density fixed at 1.
-- **Score**: first-bullet head kill = 100 base; the precision multiplier is the dominant term (section 8).
-- **Key metrics shown**: first-shot accuracy, pre-aim error, time to shot.
+A matched player reaching the Finale in about half their runs, and clearing it in about a quarter, is the starting tuning target (HYPOTHESIS, settled by the balance pass #53 and the repeat-enjoyment playtest). A full run to the end of the Finale takes five to nine minutes.
 
-### 4.2 Orbit — trains `flick`  (first playable)
+Before the Opener the player picks a primary (Kestrel, Vane or Rill) with `1`–`3` on the `ready` screen (default: last pick); the sidearm is always Pace. Magazines and reloads are real. Health (spec values, 100) and the default heavy shield (50) start full, there is no passive regeneration and a spent shield returns only from a door reward. **Kills heal**: a body kill restores 5 HP, a headshot kill 10 HP, capped at maximum and never restoring shield, so clean play sustains you and sloppy play drains you.
 
-- **Map/weapon**: Range, Pace (sidearm, semi-auto), movement locked, infinite magazine.
-- **Rule**: one Beacon (section 5; a head-sized orb) at a time on a shell 8–25 m from the player. Each new Beacon is placed at an angular distance from the previous one between `Amin` and `Amax` set by the dial (from 20–40° at dial 0 up to 60–120° at dial 100; a rare 120–180° extreme, behind you, above dial 85 and at most 15% of trials is #136), pitch limited to −20°…+25° of horizon and biased towards head height. A Beacon has a time-to-live (exposure); one bullet that hits it kills it; if it expires the trial is a miss.
-- **Trial**: success = killed before expiry. Extra data: flick error, time to shot, flick time (visible → hit).
-- **Pace**: next Beacon appears 0.1 s after a kill, 0.2 s after an expiry; about 70 trials per run.
-- **Dial axes**: size (Beacon scale ×3.0 → ×1.0 of real head size), angle range, exposure (2.5 s → 1.6 s, Orbit's own curve, §9.4).
-- **Key metrics shown**: flick time, overshoot/undershoot bias (the single most useful flick diagnostic), accuracy.
+### 4.2 Sectors
 
-### 4.3 Strafe Track — trains `track`  (first release)
+A sector is a region of a map with an entry gate, an exit gate and placement anchors (section 10.2). Its **role** says who has to move:
 
-- **Map/weapon**: Range, Kestrel. The player may move but does not need to. Strafers (section 5) do **not** shoot back in this mode.
-- **Rule**: 1–3 Strafers alive at once at 10–35 m, strafing left/right with realistic stop-and-shoot rhythm: a strafe leg of 0.35–1.0 s (randomised), a counter-strafe decel of 0.16 s, a stand-still of 0.25–0.4 s, then the next leg, possibly reversed (spec §5.3). Kill them; replacements spawn 0.4 s after a kill from the edge of cover.
-- **Trial**: one Strafer = one trial; success = killed within its time limit (8 s at dial 0 down to 3 s at dial 100). Strafer speeds run from 2.0 m/s (dial 0) to 5.4 m/s (dial 100), the spec's slow/fast values.
-- **Dial axes**: strafe speed, direction-change interval, stop window length, distance, density.
-- **Key metrics shown**: time on target, headshot rate, TTK, lead error sign (are you lagging behind or leading?).
+- **Take** (the player moves in on enemies): the sector's Echoes are placed **before the player can see them** (as the player passes the previous gate), on hold anchors, with initial beliefs from their contact's card (section 4.4). Lines of sight open because the player moves, one slice at a time; nothing is triggered by stepping on a mark (vision review 1, finding 7). The sector is done when its Echoes are dead or the player leaves through the exit gate; leaving enemies alive forfeits the sector-clear bonus and lets the survivors **follow**: they can arrive in the next sector as a flank or trade card.
+- **Hold** (enemies move in on the player): the player enters with the enemies not yet in the sector. One to three contacts **arrive** over 25–45 s along the sector's approach lanes, with honest audio (section 4.4) and real peek patterns. The player may hold one spot, reposition, or push out to meet them; the exit opens when the sector's enemies are dead. There is nothing to defend: the enemies are hunting the player, and the player chooses where to fight them.
+- **Meet** (both sides moving): a rotation corridor where an Echo group is crossing the same space. Who stops first and who holds head height while moving decides it.
 
-### 4.4 Stop & Pop — trains `footwork`  (first release)
+The Opener is always a take; the Finale is always a hold. Sectors 2–5 are drawn so that a run has at least one of each role and never three of the same role in a row (takes 50%, holds 35%, meets 15% of sectors 2–5; HYPOTHESIS, close to `engagement-information.md` §5 question 5's balance of attacker and holder fights).
 
-- **Map/weapon**: Lane, Kestrel.
-- **Rule**: the near end of the lane is a start line; targets (Posts, one at a time) appear at the far end only while you are *moving sideways* (lateral speed ≥ 80% of the equipped run speed; the floor stripe lights up to show the lane is "armed"). Each target carries a **stance ring** on its base: white = stand still, blue = crouched and still (the spec's crouch accuracy bonus). You must kill it with your first bullet fired **in that stance and below the accuracy deadzone** (spec §2.4: 27.5% of run speed, reached about 0.10 s after the stopping input, §2.5). Firing earlier is a *moving shot*: it still fires, exactly as in the reference game (inaccurate by the spec's movement error), and the coaching cue (section 7) flags it. Walking (`Shift`) is not a valid stance because it is above the deadzone in the reference game too.
-- **Trial**: success = killed with the first bullet, fired in the required stance and not a moving shot. Built in #47: "sideways" is along the view's right axis; a wrong-stance shot that is not moving fails the trial but is not flagged as a moving shot (the amber cue and the stat mean exactly the sim's `moving`, §3); each target of a double is its own trial and a double adds 0.4 s of exposure; the ring turns green or red at the first bullet and is drawn through cover, because the Lane's half-walls hide a Post's feet.
-- **Dial axes**: exposure (2.0 s → 0.7 s; 0.5 s was under the 0.55 s minimum of reaction + accuracy gate + a small aim, #12 §4.1), distance, stance mix (dial < 30: stand only; 30–60: stand + crouch; > 60: adds a 20% chance of a "double" of two targets and requires the stop to come from a direction reversal, i.e. a true counter-strafe tap).
-- **Key metrics shown**: stop latency, moving-shot count, stance correctness, accuracy while stopped versus moving.
+### 4.3 Tempo: why you cannot wait forever
 
-### 4.5 Spray Wall — trains `spray`  (first release)
+In a take sector the Echoes **set up** over time. Until the sector's tempo window ends (12–25 s after the player enters, by dial and depth), placed Echoes are still settling: some are moving to their spot, some face elsewhere, cards resolve to `take-unaware`, `meet` or `clear`. After it, unaware Echoes turn to their angles and resolve to `take-expected` or `breach`. Tempo changes the card before the mix is sampled, and the mix rebalances over the rest of the run (`engagement-information.md` §4.5 rule 4). Running footsteps carry (honest channels, section 4.4), so running in early buys time but tells the Echoes you are coming; walking is silent and slow. This is the reference game's attacker trade-off between tempo and information, made without a timer, a spike or a fail state (`engagement-information.md` §4.3; [#100](https://github.com/omkarbhale/flickline/issues/100)).
 
-- **Map/weapon**: Range, Kestrel (full-auto). Fixed distances 12 / 20 / 28 m cycle each spray.
-- **Rule**: five sprays per run. A Post appears (tall wall panel behind it records decals). Fire a full magazine (or the burst length the dial asks for: dial < 30: bursts of 3; 30–60: bursts of 7; > 60: full magazine) at it, reload, and the next Post appears at the next distance. The run ends after five sprays or 60 s.
-- **Trial**: one spray = one trial; success = at least a dial-set fraction of bullets (60% at dial 0 → 85% at dial 100) in head or body zones.
-- **Dial axes**: distance, burst length, required hit fraction. (Posts are static; the difficulty is the recoil.)
-- **Key metrics shown**: per-bullet-index hit rate, spray trace vs ideal, the bullet index where the pull falls apart.
+What tempo pays: arriving in the window keeps the Surge meter filling and adds the tempo bonus to the sector clear (section 8.1). Missing it never costs HP and never ends the run; it only makes the next fights harder, as waiting does in the reference game.
 
-### 4.6 Switchboard — trains `switch`  (first release)
+### 4.4 Fights: scenario cards and honest information
 
-- **Map/weapon**: Range, Kestrel, infinite magazine.
-- **Rule**: a wave of 3–6 Posts and Strafers appears at once spread across a 140° arc at mixed distances. Kill them all; a new wave appears 0.3 s after the last dies. At dial > 60, Gnats (section 5) join waves.
-- **Trial**: one wave = one trial; success = cleared within its par time (par = 1.3 s per enemy at dial 0 down to 0.70 s per enemy at dial 100; 0.55 s was faster than the flick model allows for a 30° switch onto a dial-100 head, #12 P5).
-- **Dial axes**: density, distance, speed (for Strafers), exposure (waves with a lifespan at the highest dials).
-- **Key metrics shown**: switch time (kill → next first shot), overkill bullets, order efficiency (did you clear nearest-angle first).
+Every contact is drawn from a **scenario card** (`docs/research/engagement-information.md` §3–§4): what the player knows, what the Echoes know, how predictable the timing is, who must move, how many Echoes and in what arrangement. The cards are `take-expected`, `take-unaware`, `hold`, `clear`, `trade`, `meet`, `breach`, `crossfire`, `flank` and `known-duel`; the sector role decides which cards it can hold.
 
-### 4.7 Corner Clear — trains `angles`  (first release)
+- **Sampling.** The run director samples cards with the coverage, no-streak and cap rules of `engagement-information.md` §4.5: at least six distinct cards in a run that reaches sector 4, the same card never three times in a row, a flank only after a contact the player won, and the symmetric known duel at most 5% of contacts.
+- **Honest channels only.** Information reaches either side only through sight, positional sound (running footsteps, landings, shots, reloads; walking is silent) and the coarse, delayed callout stand-in; footstep radii are symmetric. No markers, no wall highlights, no radar (`engagement-information.md` §4.2; [#99](https://github.com/omkarbhale/flickline/issues/99)).
+- **Prepared holders** are bound only by the 0.15 s reaction floor and never hold fire for a tell; surprised Echoes keep the full floors (section 9.3, `docs/research/prepared-holders.md`).
+- **The lean.** After the first run, the two cards with the player's lowest win rate over their last 20 contacts gain weight (+50%, never above twice their base share), and the card the last results card named gains the same (section 8.3). That is how the one thing to fix gets practised: in the next run, not in a drill.
+- **Dial and card are separate.** The dial sets Echo profiles and counts; the card sets the situation. Difficulty and situation stay separate variables in the skill model.
 
-- **Map/weapon**: Elbow, Kestrel. Enemies shoot back; health, shield (default heavy, 50, you and the Peekers) and slow-on-hit apply (section 5).
-- **Rule**: a ten-checkpoint route through the map. Reaching a checkpoint (a floor mark) arms an **angle**: 1–3 Peekers (section 5) hold it, cycling peek patterns on a short random timer. Kill them, or after 6 s they retreat and you move on. The run ends at the route's end, at 90 s, or at 0 HP.
-- **Trial**: one angle = one trial; success = every Peeker killed and no damage taken. Shoulder, jiggle and hop peeks are **bait, not trials** (#12 P3): letting one pass is never a failure, and a Peeker that retreats having shown only bait peeks is not required for success, so the dial never penalises correct patience. For the skill model (#17) and the mode (#50).
-- **Dial axes**: exposure (wide peek 1.4 s → 0.45 s), enemy reaction and tell length, enemy accuracy, density, distance.
-- **Key metrics shown**: pre-aim error, head-height discipline, over-peek count (damage taken while you were exposed more than 0.5 s without firing), damage per angle.
-- **Contact settle**: each angle settles as a contact (section 8.1): cleared, disengaged alive or died.
+### 4.5 Gates and route choice
 
-### 4.8 Sweep — the flagship  (first release)
+Between sectors the player walks through a short **gate** with two doors. Each door shows, in-world and in our own visual language, three honest facts about the sector behind it:
 
-Sweep is a game, not a drill: you move through a compact arena that fights back, and the pressure comes from reading the fight rather than from a timer.
+1. its **role** (take, hold or meet) and a silhouette of its sightlines (long or close);
+2. what the player can **hear** through it: footsteps and their rough count ("quiet", "one or two", "several"), using the same sound radii as the fights;
+3. its **stake**: one of **Shield** (the shield refills to 50 on entry; at most once per two sectors), **Arms** (swap the primary for a named one), **Hot** (one extra contact, sector points ×1.5) or **Plain** (none).
 
-- **Map/weapons**: Foundry. At the start of a run pick a primary (Kestrel or Rill) and the sidearm is always Pace. `1`/`2` swap, `R` reloads, magazines are real.
-- **Rule**: the **Sweep Director** (section 9) sends a continuous stream of **contacts** from six spawn gates: a contact is one to four enemies of mixed types arriving by different routes with staggered timing. You have health (spec values) and the default heavy shield (50, as do the enemies), slow-on-hit applies, there is no passive regeneration and a spent shield does not come back. **Kills heal**: a body kill restores 5 HP, a headshot kill 10 HP (tunable), capped at maximum and never restoring shield, so playing cleanly sustains you and sloppy play drains you.
-- **Surge**: chain and clean-streak progress fills a meter (never time). Only isolated kills build chains (section 3), so swinging into a crossfire never fills Surge. When full it triggers an 8-second Surge: score ×2, enemy tells are drawn brighter (more readable), the HUD frame glows. Surge changes no mechanic.
-- **Run end**: 0 HP or 5:00. A typical run for a matched player lasts about 3:00.
-- **Waves of intent** (director pacing, not difficulty): warm-up 0:00–0:20 at dial −8; build to the player's dial by 1:00; two *peaks* (+6 dial) around 2:00 and 4:00 each lasting 20 s; a short *breather* (−6) after each peak.
-- **Scoring/rating**: standard table, including the contact settle (section 8.1): every contact pays for how it ended and the health you kept, so leaving a fight you are losing is rewarded and swinging into every fight is not. Contributes to all seven skill ratings through the trials it contains.
-- **Key metrics shown**: all of the above plus damage taken per contact and the single biggest HP loss ("you lost 40 HP to Rushers while reloading").
+Walking through a door commits; the other closes. A door is never a trap: the information it shows is true. The player who reads the gate well (taking the Shield on 30 HP, taking Hot at full health) scores more and lives longer; that is a decision the reference game also asks (when to take a fight, when to save), not a mechanic it lacks.
 
-### Mode phasing
+### 4.6 Conditions
 
-First playable: Cold Start, Orbit, Placement run (a fixed hybrid of the two). Everything else: first release.
+A sector may carry an **economy condition** (`config/economy.ts`, section 5.2): `full` (heavy shield, rifles; the default), `light` (light shield 25) or `eco` (no shields, sidearms only, for the Echoes and the player alike, the player's primary holstered for the sector). Eco and light sectors are rare (at most one of each per run, never the Opener or the Finale) and announced on the door. They exist because the reference game's fights really do change with them: bullet counts, one-tap ranges and how far you can trust a body shot (vision review 1, finding 5).
+
+### 4.7 Overtime: bank or push
+
+After the Finale the exit gate offers **Leave** (the run ends and every point is banked) or **Overtime**: another sector, harder (+2 dial per sector) and with a higher multiplier. Overtime points are **at risk**: they are banked only when the player leaves at an Overtime exit gate; dying in Overtime loses the unbanked Overtime points (never the points of sectors 1–6). This gives an expert a ceiling to chase and every player a real decision about when a life is worth more than more points, which is the reference game's lesson about saving (`docs/research/survival-rewards.md`).
+
+### 4.8 The Daily Route
+
+One seed per calendar date (local time) gives every player the same route, cards, Echo personalities and doors that day (only the dial differs, because Echo profiles follow each player's own skill). The Daily Route is on the **Play** menu next to **Play**; its best score for the day is kept separately. No backend is needed and nothing is sent anywhere; online leaderboards stay *Later* (section 15).
+
+### 4.9 Run end and scoring summary
+
+The run ends at 0 HP, at a Leave gate, or when the player quits. Scoring follows the standard table (section 8.1): kill points, contact settles, sector clears, tempo bonus, door stakes, all multiplied by the depth multiplier of the sector they happened in; Surge doubles while active. The run contributes to all seven skill ratings through the trials its contacts contain (section 9.1).
+
+### 4.10 What happened to the drills and modes
+
+The earlier design was an aim trainer: seven 60-second drills, a Placement run, a Daily Baseline, Mix runs, Today's session and a flagship. The owner's principle (vision principle 10) retires the drills as things a player chooses. Their code is reused where it measures or builds fights; their routines are not.
+
+| Old mode | Fate | What is kept, and where |
+|---|---|---|
+| **Cold Start** (merged) | Retired as a mode. | Its first-bullet trial bookkeeping, exposure-from-visibility and item difficulty become the `precision` trial classifier for duels (section 3.1). Posts remain an enemy type for the Lobby and for Echo poses. |
+| **Orbit** (merged) | Retired as a mode. | Flick error, flick time and the must-flick trial type become the `flick` trial classifier. Beacons drift in the Lobby as an unscored toy (section 13.4). |
+| **Placement run** (merged) | Retired. | The staircase and the self-report prior place a new player inside the Opener (section 9.2). |
+| **Stop & Pop** (merged, #185) | Retired as a mode; the stance ring cue is retired with it (it has no counterpart in the reference game). | Stop latency, stance correctness and moving-shot stats are measured in every fight. The Lane map becomes a source of meet and take sectors. |
+| **Spray Wall** (merged, #189) | Retired as a mode. | The spray trace and per-bullet-index analysis are drawn from real sprays in fights (section 8.2). |
+| **Strafe Track** (merged, #192) | Retired as a mode. | Strafers fight in duels and meet contacts; time on target is reported for duels against a strafing Echo. |
+| **Switchboard** (never built) | Retired. | Trades, crossfires, multi-enemy contacts and Gnats; switch time is a stat of every multi-kill contact. |
+| **Corner Clear** (never built) | Absorbed: it *is* a take sector. | Elbow's checkpoints and peek spots become take sectors; placed holders and the clearing-order stats of vision review 1 finding 7 apply. |
+| **Vigil** (never built) | Absorbed: it *is* a hold sector. | Hold cards, approach lanes and the Finale. |
+| **Daily Baseline** (open PR #190) | Replaced by the **cold opener** (section 8.5). | The stored item sets and their generator, the version guard, the levels, keeping its trials out of the matched posterior, the due rule, the noise band and the verdict survive; the separate routine does not. |
+| **Mix runs** (not built), **Today's session** (merged) | Removed. | Every run interleaves all seven skills by construction. |
+| **Practice this (30 s)** | Removed. | Replaced by the lean (section 4.4). |
+| **Sweep** (#51, never built as a mode) | Becomes the whole game. | Its director, kill-heal, Surge, contact settle and tempo become the run's. |
+| **Free play** (merged) | Becomes the **Lobby**. | The Range with drifting Beacons behind the menu; nothing is scored or rated there. |
 
 ---
 
@@ -201,27 +234,27 @@ Hit zones follow the spec's three-zone hitbox (spec §5.1, PLACEHOLDER dimension
 
 As fractions of the 1.80 m standing height (the fallback if the spec's numbers move): head 0.84–1.00 H, body 0.44–0.84 H, legs 0–0.44 H. A standing player's eye (1.62 m) is inside the head zone, 0.04 m below the head centre, which is why head-height crosshair discipline (section 3) is measured against the head centre.
 
-Hit detection is hitscan against these shapes in the simulation (the same shapes the renderer's silhouette is built from; the render mesh never decides hits). A **head node** (a slightly brighter emissive core inside the head, drawn *without* enlarging the hitbox) marks the head. Health is 100 HP for players and Echoes. **Shields** (spec §4.1 armour) sit on top of it **in the modes where enemies shoot back** (Corner Clear, Vigil, Sweep), for the player and for every humanoid Echo alike: a shield absorbs 66% of each hit until it has absorbed its capacity (light 25, heavy 50), the rest goes to health, so the total damage to kill is `100 + shield`. Drills have no shields (nothing shoots the player, and the bullet counts the drills train are the unarmoured ones). Orbs (Beacon) and the Gnat carry none. Reversed from the first draft's "no armour in the first release": rifle duels in the reference game are mostly fought by players who bought shields (rifles and full shields are bought together), so training only the unarmoured bullet counts would teach thresholds that fail there (vision review 1, #131).
+Hit detection is hitscan against these shapes in the simulation (the same shapes the renderer's silhouette is built from; the render mesh never decides hits). A **head node** (a slightly brighter emissive core inside the head, drawn *without* enlarging the hitbox) marks the head. Health is 100 HP for players and Echoes. **Shields** (spec §4.1 armour) sit on top of it **in every run**, for the player and for every humanoid Echo alike: a shield absorbs 66% of each hit until it has absorbed its capacity (light 25, heavy 50), the rest goes to health, so the total damage to kill is `100 + shield`. Eco sectors have none, light sectors carry 25 (section 4.6). Orbs (Beacon) and the Gnat carry none. Reversed from the first draft's "no armour in the first release": rifle duels in the reference game are mostly fought by players who bought shields (rifles and full shields are bought together), so training only the unarmoured bullet counts would teach thresholds that fail there (vision review 1, #131).
 
 ### 5.2 Roster
 
 | Enemy | Shape | Moves | Threat | Used in |
 |---|---|---|---|---|
-| **Post** | Standing Echo, idle sway only. | Stationary. | None. | Cold Start, Spray Wall, Switchboard, Stop & Pop |
-| **Beacon** | Head-sized glowing orb on nothing. | Stationary. | None. | Orbit, Placement run |
-| **Strafer** | Echo that mirrors a strafing player. | Strafe legs (0.35–1.0 s) → counter-strafe decel (0.16 s) → stand-still (0.25–0.4 s) → strafe, reversing on a seeded coin; speed 2.0–5.4 m/s by dial (spec §5.3). Stops are *real stops* with the spec's braking, so the stand-still is exactly the window where a player's counter-strafed shot is accurate. | In Sweep and Corner Clear it fires in its stop windows. | Strafe Track, Switchboard, Sweep |
-| **Peeker** | Echo behind low or full cover. | Peek patterns: **shoulder** (exposes 40% of body, 0.3 s), **wide** (full body, 0.8–1.2 s), **jiggle** (shoulder out-in-out), **hop** (rises above low cover for 0.35 s, head and upper body only). | Fires one or two bursts during a wide peek. | Corner Clear, Sweep |
-| **Rusher** | Echo with a forward-leaning stance. | Sprints at the player along nav nodes from ≥ 15 m, slows and fires from 8–12 m, then keeps closing. | Threatens in the open; forces you to leave cover or reposition. | Sweep |
-| **Bulwark** | Echo with a front plate across the torso. | Walks slowly towards the player. | Fires steadily; the plate absorbs body shots from the front (sparks and a muted tick, no damage), so only the head and legs are valid. | Sweep, high dials |
-| **Gnat** | Small spinning octahedron (hand-sized). | Hovers at head height and darts on a 3D curve (seeded Lissajous with random impulses), 1 bullet kills. | None; its job is vertical tracking and fast re-targeting. | Switchboard, Sweep |
+| **Post** | Standing Echo, idle sway only. | Stationary. | None. | Lobby; also the pose of a placed holder before it is alerted |
+| **Beacon** | Head-sized glowing orb on nothing. | Stationary. | None. | Lobby (unscored) |
+| **Strafer** | Echo that mirrors a strafing player. | Strafe legs (0.35–1.0 s) → counter-strafe decel (0.16 s) → stand-still (0.25–0.4 s) → strafe, reversing on a seeded coin; speed 2.0–5.4 m/s by dial (spec §5.3). Stops are *real stops* with the spec's braking, so the stand-still is exactly the window where a player's counter-strafed shot is accurate. | Fires in its stop windows. | Sweep: duels, meet contacts |
+| **Peeker** | Echo behind low or full cover. | Peek patterns: **shoulder** (exposes 40% of body, 0.3 s), **wide** (full body, 0.8–1.2 s), **jiggle** (shoulder out-in-out), **hop** (rises above low cover for 0.35 s, head and upper body only). | Fires one or two bursts during a wide peek. | Sweep: take and hold sectors |
+| **Rusher** | Echo with a forward-leaning stance. | Sprints at the player along nav nodes from ≥ 15 m, slows and fires from 8–12 m, then keeps closing. | Threatens in the open; forces you to leave cover or reposition. | Sweep: hold sectors, the Finale |
+| **Bulwark** | Echo with a front plate across the torso. | Walks slowly towards the player. | Fires steadily; the plate absorbs body shots from the front (sparks and a muted tick, no damage), so only the head and legs are valid. | Sweep: the Finale, Overtime, high dials |
+| **Gnat** | Small spinning octahedron (hand-sized). | Hovers at head height and darts on a 3D curve (seeded Lissajous with random impulses), 1 bullet kills. | None; its job is vertical tracking and fast re-targeting. | Sweep: mixed contacts |
 
 All Echoes use HP, damage-per-zone, shield and bullet-count rules identical to the player's side of the spec (`health.max` 100 HP). **Unshielded**, a rifle headshot kills and three body bullets kill. **With the default heavy shield (50)** the bullet counts of spec §6 apply: a Kestrel needs four body bullets (a headshot beyond 20 m needs two), a Pace needs two headshots (not one), a Rill six body bullets.
 
-**Economy.** The shield level is a scenario variable (`config/economy.ts`): `full` = heavy shield (50) and the rifle, `light` = light shield (25), `eco` = none and the sidearm. A scenario card carries `economy`; a mode that fires back and has no card setting uses `defaultEnemyFire` (`full`). The player and the Echoes get the same tier, as in a real full-buy or eco round. Kill-heal restores health only, never shield (section 4.8). Results and the fix engine name the difference when it mattered: "your Pace needed two headshots on an armoured target".
+**Economy.** The shield level is a scenario variable (`config/economy.ts`): `full` = heavy shield (50) and the rifle, `light` = light shield (25), `eco` = none and the sidearm. A sector condition (section 4.6) or a scenario card carries `economy`; without one the run uses `defaultEnemyFire` (`full`). The player and the Echoes get the same tier, as in a real full-buy or eco round. Kill-heal restores health only, never shield (section 4.8). Results and the fix engine name the difference when it mattered: "your Pace needed two headshots on an armoured target".
 
 ### 5.3 How enemies shoot back (where they do)
 
-Only in **Corner Clear** and **Sweep** (and they never shoot in drills). The rules are designed so damage is *readable and mostly your fault*, and so slow-on-hit matters:
+Every humanoid Echo in a run shoots back (Posts and Beacons in the Lobby never do). The rules are designed so damage is *readable and mostly your fault*, and so slow-on-hit matters:
 
 *Adopted from research (#130): tell and floor from #12 P5/P6 and #52 R8; aimed shots from #71 (`docs/research/player-like-enemies.md` §5.6).*
 
@@ -243,15 +276,15 @@ Original names, simple roles. **All numbers (fire rate, magazine, reload and equ
 
 | Weapon | Spec archetype (config key) | Role | Why it exists | Phase |
 |---|---|---|---|---|
-| **Pace** | `pistol_accurate` | Accurate semi-auto sidearm, one-tap head up close. | Orbit flicks; Sweep sidearm; first-bullet discipline. | First playable |
-| **Kestrel** | `rifle_spray` | Controllable full-auto rifle with a learnable recoil pattern. | The drill weapon: Cold Start, Strafe Track, Stop & Pop, Spray Wall, Corner Clear, Sweep. | First playable |
-| **Vane** | `rifle_precise` | One-tap rifle: high damage, no falloff, punishes spraying. | Alternative primary for Cold Start and Sweep; teaches tap and burst discipline. | First release |
-| **Rill** | `smg` | Close-range full-auto, fast movement, low recoil. | Sweep close-range alternative; teaches range discipline. | First release |
+| **Pace** | `pistol_accurate` | Accurate semi-auto sidearm, one-tap head up close. | Sidearm in every run; eco sectors; first-bullet discipline. | First playable |
+| **Kestrel** | `rifle_spray` | Controllable full-auto rifle with a learnable recoil pattern. | Default primary: the controllable spray rifle most fights are fought with. | First playable |
+| **Vane** | `rifle_precise` | One-tap rifle: high damage, no falloff, punishes spraying. | Alternative primary (run start or an Arms door); teaches tap and burst discipline. | First release |
+| **Rill** | `smg` | Close-range full-auto, fast movement, low recoil. | Close-range alternative primary; teaches range discipline. | First release |
 | **Longnail** | `sniper` | Bolt-action sniper (scoped, one-shot body kill, 15% deadzone). | Scoped flicks and holding angles. | **Later** (needs scoped sensitivity; keep out of first release) |
 
 The spec's `pistol_light` and `pistol_heavy` archetypes are unused in the first release (they are the same role as Pace or a later heavy pistol).
 
-Shared rules: the viewmodel never covers the crosshair or the screen centre; tracers are always drawn; magazines are real in Sweep and Spray Wall and infinite in the other drills; reloading is cancelled by weapon swap exactly as the spec says.
+Shared rules: the viewmodel never covers the crosshair or the screen centre; tracers are always drawn; magazines are real in runs and infinite in the Lobby; reloading is cancelled by weapon swap exactly as the spec says.
 
 ---
 
@@ -273,36 +306,36 @@ Rule: every event the player causes is answered **in the same frame** with at le
 | **Chain** (kill within 1.5 s of previous) | Counter above the crosshair: "×2", "×3", "×4", "×5+", pulsing once. | An extra layered chime step. | Chain count. |
 | **Clean streak** | Streak number under the score, fills a ring around it; multiplier shown (×1.0 → ×3.0). | The chime pitch ladder above. | Multiplier. |
 | **Streak break** | Ring empties with a short desaturate; no shake. | A soft falling interval (never harsh). | — |
-| **Contact settled** (Sweep, Corner Clear) | `+score` under the score with one word: **Clean** (cleared untouched), **Clear** (cleared, hurt), **Reset** (left a losing fight alive). Nothing for died or left unhurt. Hidden while an enemy is visible or a tell runs. | A short soft resolve, brighter for Clean. | The settle points. |
+| **Contact settled** | `+score` under the score with one word: **Clean** (cleared untouched), **Clear** (cleared, hurt), **Reset** (left a losing fight alive). Nothing for died or left unhurt. Hidden while an enemy is visible or a tell runs. | A short soft resolve, brighter for Clean. | The settle points. |
 | **Medal earned** (*FR*) | Toast at the upper centre for 1.2 s, then stored in the results card. | Short fanfare phrase (section 12). | Medal name and what earned it. |
 | **Surge ready/active** (*FR*) | Frame glow, brighter tells. | Rising whoosh; sustained shimmer. | Timer. |
-| **Taking damage** (Corner Clear, Sweep) | Directional red arc towards the shooter, brief screen vignette narrowing, desaturation for 150 ms, slow-on-hit applies exactly as in the spec. | Low, dry thud in the player's ear with a 300 ms low-pass dip. | HP bar flashes. |
+| **Taking damage** | Directional red arc towards the shooter, brief screen vignette narrowing, desaturation for 150 ms, slow-on-hit applies exactly as in the spec. | Low, dry thud in the player's ear with a 300 ms low-pass dip. | HP bar flashes. |
 | **Near miss against the player** | Tracer past the head. | Directional whiz. | — |
 | **Run end** | Last frame freezes, results card slides in (80 ms). | One closing note, resolving the streak pitch. | Section 8. |
 
 ### 7.2 Live readouts (all toggleable; default: **minimal**)
 
-Always on: crosshair, ammo, timer, score, multiplier, chain/streak counters, HP and shield (modes with enemy fire; the shield bar sits above the HP bar and is drawn only when the fight has one).
+Always on: crosshair, ammo, sector and depth ("3 / 6"), score with Overtime's unbanked points apart, multiplier, chain/streak counters, HP and shield (the shield bar sits above the HP bar and is drawn only when the sector has one).
 
-Stat strip (bottom-left, small, default **on** so the feedback is learnable; each item toggleable): **Acc %**, **HS %**, **Median TTS** (time to shot), **Median TTK**, **Moving shots**. A single combined "pace vs PB" bar sits under the score.
+Stat strip (bottom-left, small, default **on** so the feedback is learnable; each item toggleable): **Acc %**, **HS %**, **Median TTS** (time to shot), **Median TTK**, **Moving shots**. A single "pace vs best run" bar sits under the score: ahead or behind your best run's score at the same sector.
 
-In-world: stance rings (Stop & Pop), checkpoint marks (Corner Clear), the wall decals in Spray Wall (persist for the spray, wiped before the next).
+In-world: the gate doors and their three facts (section 4.5), a quiet trim pulse on the exit gate once a sector is done; nothing marks an enemy.
 
 ### 7.3 Rewards (mechanics-derived only)
 
 - **Streak multiplier** (clean streak ×1.0 → ×3.0 at 20).
-- **Contact settle** (Sweep, Corner Clear): pays for surviving a fight, scaled by the health kept (section 8.1).
+- **Contact settle**: pays for surviving a fight, scaled by the health kept (section 8.1).
 - **Chain callouts**: `Pair` ×2, `Triple` ×3, `Quad` ×4, `Surge chain` ×5+.
 - **Medals** (named in section 8) with thresholds designed to be reachable by the matched player: they are awarded relative to the dial and the run's context, not to account age.
-- **Personal bests** per mode and difficulty dial band, per skill; the live ghost-pace bar compares against them.
-- **Flawless** (no miss, no moving shot, full run) — gold card frame.
+- **Run bests**: best run score per dial band, deepest sector reached, the Daily Route's best for the day; the pace bar compares against the best run.
+- **Flawless** (a sector with no miss and no moving shot) — gold sector mark on the card.
 - **Rank progress** (section 8).
 
 ### 7.4 Fading cues: feedback that goes away as you improve
 
 The augmented cues above (violet moving-shot tracer, `⇆`, "tock", miss ghost, damage numbers, the RT/TTK readout, and the enemy tells of section 5.3) teach what happened, but none of them exists in the reference game. A player who waits for the tell's laser before strafing, or knows they moved because they heard the tock, has built a habit that fails there (vision principle 1). Feedback on every trial also trains learners to lean on it instead of their own senses; reducing its frequency costs a little practice performance and helps retention (guidance hypothesis, Winstein and Schmidt 1990). So the answer stays instant and specific (principle 3) but **stops being constant** (issue #129; `config/cues.ts`, `adaptive/cueFade.ts`, `feedback/cueGate.ts`, `feedback/cuePlanner.ts`).
 
-**Phase per skill.** At each run start the mode's skill (the Line rating for modes that train several) is read from the posterior (section 9.1) and put in one phase. Both gates must hold, so a lucky minute that lifts the mean but leaves a wide band does not strip the cues:
+**Phase per skill.** At each run start the Line rating (section 8.4) is read from the posterior (section 9.1) and put in one phase. Both gates must hold, so a lucky minute that lifts the mean but leaves a wide band does not strip the cues:
 
 | Phase | Enters when (starting values, HYPOTHESIS) | What the player gets |
 |---|---|---|
@@ -316,11 +349,11 @@ A player already in a phase stays in it until the rating falls 3 dial points bel
 
 **Tells are a dial axis.** `axes(dial).tellCue` is 1 up to dial 35 and falls in a straight line to 0 at dial 60. It scales the **added** tell cues (head-node flare, laser line, rising tone). The windup itself, its duration and its floor are untouched, so a fight is not made unfair; what changes is that the player learns to read the real signs. Surge (first release) may bring the tells back as a reward (`FeedbackOptions.surge`).
 
-**The clean run.** The first scored run of a session, once the player has completed three scored runs ever, has **no coaching cues at all, no added tells, and a reference-like HUD**: the stat strip, edge meter and ghost-pace bar are hidden (crosshair, timer, ammo, health and the reward counters stay). It is never the Placement run. It is spent only when it ends for real; quitting it early offers it again. Its results card says so. It is the cold-open benchmark for the transfer question (#128): a score earned the way the reference game would let you earn it.
+**The clean opener.** The Opener (sector 1) of a session's first run, once the player has completed three runs ever, has **no coaching cues at all, no added tells, and a reference-like HUD**: the stat strip, edge meter and pace bar are hidden (crosshair, ammo, health and the reward counters stay). Cues return at the first gate. It is spent only when the Opener ends for real (cleared, left or died); quitting during it offers it again. The results card marks the sector as clean. The day's first clean opener is also the cold opener, Flickline's learning measurement (section 8.5).
 
-**Settings (section 13.3).** *Coaching cues* remains the master switch (off = no cue, no added tell, always). *Fade cues as I improve* (default on) off keeps every cue at full forever. *One clean run per session* (default on).
+**Settings (section 13.3).** *Coaching cues* remains the master switch (off = no cue, no added tell, always). *Fade cues as I improve* (default on) off keeps every cue at full forever. *Clean opener each session* (default on).
 
-**Settling experiment (open, tracked in its own issue).** Two groups practise Stop & Pop for a week, one with fading off and one on, then play a cues-off retention test (a clean run). If faded cues retain as well or better, fading stays the default; if not, the thresholds in `config/cues.ts` move or the default flips.
+**Settling experiment (open, tracked in its own issue).** Two groups play Sweep for a week, one with fading off and one on, then compare their cold openers (section 8.5), which are cue-free by construction. If faded cues retain as well or better, fading stays the default; if not, the thresholds in `config/cues.ts` move or the default flips.
 
 Known limits: the posterior is saved in the progress save (§14.5) after every run, so cues resume where they were; a new player starts at full cues; the enemy tell visuals and tone (#32, #41) read `tellStrength()` when they land.
 
@@ -336,15 +369,27 @@ Per kill: `score = base(enemy) × precision × speed × streak × difficulty`.
 |---|---|
 | `base` | Post 100, Beacon 100, Strafer 150, Peeker 200, Rusher 150, Bulwark 250, Gnat 120 |
 | `precision` | ×1.5 if the killing bullet hit the head; ×1.25 if the killing bullet was the first bullet at that target; they stack to ×1.875 |
-| `speed` | `1 + 0.5 × clamp((par − TTK)/par, 0, 1)` where `par` is the mode's par time for that enemy |
+| `speed` | `1 + 0.5 × clamp((par − TTK)/par, 0, 1)` where `par` is the enemy type's par time at the dial |
 | `streak` | `1 + 0.1 × min(cleanStreak, 20)` (×1.0 → ×3.0) |
 | `difficulty` | `2^((dial − 50)/25)`, so dial 75 = ×2 and dial 25 = ×0.5 (score is comparable across ability; adapting the dial never gives free points or takes them away) |
 
 No negative scores: missing costs you the clean streak, the first-shot bonus and time, never points directly. Surge doubles the total.
 
-`speed` uses TTK, which starts at the first shot, so it pays for killing efficiently once committed and never for rushing into a fight; it applies on every card, holding cards included (#132).
+`speed` uses TTK, which starts at the first shot, so it pays for killing efficiently once committed and never for rushing into a fight; it applies on every card, holding cards included (#132). `par` lives in `config/scoring.ts`.
 
-**Contact settle** (Sweep and Corner Clear, #132; research and settling experiment: `docs/research/survival-rewards.md`). Kills alone would pay "take every fight, fast", the over-aggression the reference game punishes; there survival is the currency. So when a contact ends (section 3) it pays once, on top of its kill points:
+**Run terms** (all tunable, starting values HYPOTHESIS until the balance pass #53):
+
+| Term | Value |
+|---|---|
+| **Sector clear** | every Echo of the sector dead and the player alive: `3 × kill × kept_sector`, with `kept_sector` = health+shield at the exit ÷ at the entry, capped at 1 |
+| **Tempo bonus** | a take sector cleared with its first contact begun inside the tempo window (section 4.3): +25% on that sector's clear |
+| **Door stake** | Hot: the sector's points ×1.5. Shield, Arms, Plain: no score change |
+| **Depth multiplier** | applied to everything earned in a sector (section 4.1: ×1.0 in the Opener to ×2.0 in the Finale, then +0.2 per Overtime sector) |
+| **Overtime** | earned the same way but held **unbanked** until a Leave gate (section 4.7) |
+
+The depth multiplier rewards getting further alive, never time spent: a slow run and a fast run that reach the same sector with the same fights earn the same.
+
+**Contact settle** (every contact, #132; research and settling experiment: `docs/research/survival-rewards.md`). Kills alone would pay "take every fight, fast", the over-aggression the reference game punishes; there survival is the currency. So when a contact ends (section 3) it pays once, on top of its kill points:
 
 | Outcome | Settle |
 |---|---|
@@ -358,13 +403,15 @@ No negative scores: missing costs you the clean streak, the first-shot bonus and
 
 A single screen, readable in under 5 seconds, scannable in 15:
 
-1. **Header**: mode, run seed, score, **PB delta** (green/red), grade-free.
-2. **Rating**: the mode's skill rating before → after, the run's delta ("+14"), the tier badge, a progress bar to the next sub-tier.
-3. **Headline stats**: Accuracy, HS rate, median time to shot, median TTK, moving shots, and the mode's two key metrics (section 4).
-4. **Medals** earned this run.
-5. **One thing to fix** card (below), with the `Practice this` button.
-6. **Detail** (collapsible): per-target timeline strip (each target a bar: visible → first shot → kill, colour coded), miss map (all misses plotted relative to the nearest target head, centred, so bias is obvious), **spray trace vs ideal** with the per-bullet-index pull curve (Spray Wall, Sweep), pre-aim error distribution (Corner Clear, Sweep), flick error histogram (Orbit).
-7. `Enter` = **Play again**, `P` = **Practice the fix**, `Esc` = menu.
+1. **Header**: run score (with Overtime banked or lost shown apart), depth reached ("Sector 5 of 6", "Finale cleared", "Overtime 2"), how it ended (the death cause line, `docs/research/fight-attribution.md` §7.3), seed, and **best-run delta** (green/red). The Daily Route shows its day best instead.
+2. **The route**: one strip of the run's sectors, each a small tile with its role, condition, door stake, contacts won and lost, HP in and out, and a gold mark for a Flawless sector. It is the run's story at a glance.
+3. **Fights by situation**: the cards the player fought this run with their outcomes, and the running win rate per card (from [#104](https://github.com/omkarbhale/flickline/issues/104)).
+4. **Rating**: the Line rating before → after, the tier badge and a progress bar to the next sub-tier; the seven skills' deltas under a fold.
+5. **Headline stats**: Accuracy, HS rate, median time to shot, median TTK, moving shots, stop latency.
+6. **Medals** earned this run.
+7. **One thing to fix** card (section 8.3), ending with what the next run leans toward.
+8. **Detail** (collapsible): where your HP went (Aim / Play / Dealt, [#124](https://github.com/omkarbhale/flickline/issues/124)), per-contact timeline, miss map, **spray trace vs ideal** with the per-bullet-index pull curve from real sprays, pre-aim error distribution, flick error histogram.
+9. `Enter` = **Play again** (new seed), `R` = **Replay this seed**, `Esc` = menu.
 
 ### 8.3 The one thing to fix
 
@@ -372,14 +419,16 @@ A deterministic rules engine (no model needed) picks one weakness per run:
 
 1. Compute 12 candidate diagnostics with an *estimated points lost* for each, from the run's own events and the player's skill profile:
    moving shots (hit rate stopped vs moving); late shot (time to shot above the player's rating-baseline); flick overshoot or undershoot bias; head-height discipline (aim vertical bias); pre-aim error; spray collapse (the bullet index where per-bullet hit rate drops below 50%); tracking lag or lead; switch hesitation (kill → first shot gap); over-peek damage; overkill bullets; reload in the open; accuracy drop after a streak break (tilt).
-2. Rank by estimated points lost; take the top one, show **one sentence of evidence** and **one sentence of what to do**, and attach a 30-second focused drill (a mini-run of the relevant mode with that skill's axes forced to the player's dial).
-   Example: *"22% of your shots were fired while moving; those hit 31% of the time vs 74% when stopped. Tap the opposite strafe key and fire only once your speed has dropped (about 0.1 s)."* → **Practice this (Stop & Pop, 30 s)**.
+2. Rank by estimated points lost, counting only the Aim and Play causes of `docs/research/fight-attribution.md` §6 (never Dealt); take the top one, show **one sentence of evidence** and **one sentence of what to do**, and name what the **next run leans toward**: the scenario cards that exercise that weakness gain weight in the next run's sampler (section 4.4). There is no separate practice run.
+   Example: *"22% of your shots were fired while moving; those hit 31% of the time vs 74% when stopped. Tap the opposite strafe key and fire only once your speed has dropped (about 0.1 s)."* → *Next run leans: meets and takes against expecting enemies, where the stop decides the fight.*
 3. Two secondary findings are collapsed under it. Rules and copy live in data so they can be improved without code.
 
 ### 8.4 Progression
 
-Progress is **rating**, **tiers**, **medals** and **personal bests** for practice, and the **Daily Baseline** (section 8.5) for learning; time played earns nothing.
+Progress is **runs**, **ratings**, **tiers**, **situation records** and **medals** for how you play, and the **cold opener** (section 8.5) for whether you are learning; time played earns nothing and nothing is unlocked by playing.
 
+- **Run records**: best run score per dial band (bands: Chalk/Brass, Steel/Cobalt, Neon, Prism/Zenith, so a best at an easier band does not hide a harder band's), deepest sector and deepest Overtime, Finales cleared, the Daily Route's best per date; each stored with seed, date, score and the route strip, so any best can be replayed.
+- **Situation records**: win rate and HP kept per scenario card over the last 50 contacts ("Holds 74% · Takes against an expecting enemy 41%"), the thing a reference-game player most wants to know about their own fights.
 - **Rating**: each of the seven skills has a rating 0–3000 (dial × 30). The **Line Rating** shown on the profile is their mean (equal weights, tunable).
 - **Tiers** (dial bands): **Chalk** 0–14, **Brass** 14–28, **Steel** 28–42, **Cobalt** 42–58, **Neon** 58–72, **Prism** 72–86, **Zenith** 86–100. Each tier except Zenith has divisions I–III (thirds of the band). Zenith shows the number only. Ranks go up *and down*: no permanent promotion, only a demotion buffer (a tier changes only after the estimate stays across the boundary for two consecutive runs).
 - **Medals** (awarded in-run, listed on the card):
@@ -388,33 +437,35 @@ Progress is **rating**, **tiers**, **medals** and **personal bests** for practic
 |---|---|
 | **Needle** | 5 headshots in a row (consecutive hits, first bullets). |
 | **Cold Open** | 5 first-bullet kills in a row. |
-| **Planted** | 10 kills with no moving shot (Stop & Pop: 10 stance-correct). |
-| **Hairline** | Headshot within 0.15° of head centre (Cold Start/Orbit). |
-| **Metronome** | 6 kills whose intervals are within ±12% of each other. |
-| **Pendulum** | ≥ 85% time on target for 4 s (Strafe Track). |
-| **Thread** | A full spray where every bullet after the 3rd lands within the body-or-head zone (Spray Wall). |
+| **Planted** | 10 kills in a run with no moving shot. |
+| **Hairline** | A first-bullet headshot within 0.15° of head centre on an Echo that was moving. |
+| **Pendulum** | ≥ 85% time on target for 2 s against a strafing Echo. |
+| **Thread** | A spray of 8+ bullets in a fight where every bullet after the 3rd lands within the body-or-head zone. |
 | **Quick Study** | Median time to shot lower than your 20-run median by 10% (once per run). |
-| **Clean Corner** | 5 angles cleared with no damage (Corner Clear, Sweep). |
-| **Untouched** | A Sweep contact of 3+ enemies cleared without taking damage. |
-| **Flawless** | A run with no miss and no moving shot. |
+| **Clean Corner** | 5 contacts in one run cleared with no damage. |
+| **Untouched** | A contact of 3+ Echoes cleared without taking damage. |
+| **Flawless** | A sector with no miss and no moving shot. |
+| **Closer** | The Finale cleared. |
+| **Cashed** | Left Overtime alive with unbanked points, at least once. |
 | **Ascent** | Rank up to a new sub-tier. |
-| **Retained** | A Daily Baseline whose trend reports "Improved" (section 8.5); at most once per 7 days. |
+| **Retained** | A cold opener whose trend reports "Improved" (section 8.5); at most once per 7 days. |
 
-- **Personal bests**: per mode, per dial band (bands: Chalk/Brass, Steel/Cobalt, Neon, Prism/Zenith, so a PB at an easier band doesn't hide a harder band's), stored with seed, date, score, stats. The live ghost-pace bar uses the PB for your current band.
+(Metronome, a drill-rhythm medal, is retired with the drills.)
+
 - **Persistence**: all progress lives in `localStorage` as one versioned save object with a manual export/import JSON file. No accounts, no telemetry.
-- **Ratings and tiers are practice performance**: they say where the targets are set and they move within a session. Whether the player *learned* is the Daily Baseline's job (section 8.5).
+- **Ratings and tiers are practice performance**: they say where the Echoes are set and they move within a session. Whether the player *learned* is the cold opener's job (section 8.5).
 
-### 8.5 The Daily Baseline: learning, not warm-up
+### 8.5 The cold opener: learning, measured inside play
 
-Ratings are measured inside a session, after warm-up, on an adaptive dial, so they climb within an evening whether or not anything was learned. The progress claim therefore comes from one cold, fixed measurement a day. Full rules, evidence and hypotheses: `docs/research/transfer.md` §5.
+Ratings are measured inside a session, after warm-up, on an adaptive dial, so they climb within an evening whether or not anything was learned. The progress claim therefore comes from one cold, comparable measurement a day (`docs/research/transfer.md` §3, §5). v1 made that a separate fixed run, the Daily Baseline; under vision principle 10 a routine repeated daily is exactly what Flickline must not ask for, so the measurement moves **inside the first sector of the day**. The player plays a run as always; the game measures the start of it.
 
-- **When**: the first run after at least 8 hours without a finished run is the Baseline (the Play button's first run; skippable like any run). Only the first Baseline of a calendar day enters the trend. After the run, one optional key answers "Aimed in any game in the last hour?"; a yes marks it **warm** and keeps it out of the trend.
-- **What** (version 1): 40 trials on the Range with the Kestrel, 20 Orbit-style (`flick`) and 20 Cold-Start-style (`precision`), alternating, at the player's **Baseline level** per skill (dial 15, 30, 45, 60, 75 or 90, moved only after 3 of 5 Baselines above 85% or below 35% success). Each level has a fixed, stored item set; the run's seed only shuffles the order and mirrors items, so every Baseline is equally hard and none can be memorised. No adaptation inside the run.
-- **How it looks**: reference-like. Only the shot, the target's reaction and the hit and kill sounds; no coaching cues, numbers, stat strip, ghost pace or edge meter during the run. The results card shows everything afterwards.
-- **The number**: per skill, an estimate from that run's trials alone (flat prior, `s = 9`), independent of the matched posterior; the Baseline score is their mean on the rating scale. One Baseline is good to about ±3 dial points.
-- **The verdict**: the mean of the last `k` valid Baselines against the `k` before (`k` up to 7, at least 3), with a noise band from the player's own day-to-day spread. "**Improved**" only beyond the band, otherwise "**Steady**" or "**Lower**". It is the headline of the profile (section 9.5) and earns the Retained medal.
-- **Reference check-in** (optional, weekly, local only): the player types their reference-game shooting-test scores and 20-match headshot % (`docs/research/transfer.md` §6); the profile shows them beside the Baseline trend and claims nothing about the relationship. Nothing is ever sent anywhere.
-- Each change to the Baseline's content is a new version and a new series. Built in [#150](https://github.com/omkarbhale/flickline/issues/150), [#151](https://github.com/omkarbhale/flickline/issues/151), [#153](https://github.com/omkarbhale/flickline/issues/153) and [#154](https://github.com/omkarbhale/flickline/issues/154).
+- **When**: the Opener of the first run after at least 8 hours without a finished run is the **cold opener**. It is always also a clean opener (section 7.4). Only the first one of a calendar day enters the trend. After the run, one optional key answers "Aimed in any game in the last hour?"; a yes marks it **warm** and keeps it out of the trend.
+- **What**: a cold opener is an ordinary Opener drawn from a **calibrated pool** instead of the open sampler: each of six **levels** (dial 15, 30, 45, 60, 75, 90) has a stored set of about 30 opener contacts (sector, card, Echo placements, Echo personality seeds and profile at that level), generated once from a fixed generator seed and checked in as data. Each day the run's seed picks 4 to 6 of them, in a shuffled order and mirrored left or right, from at least two maps. Every cold opener at a level is therefore equally hard on average while no two days look alike and none can be memorised; it plays like any other Opener and leads straight into sector 2. No adaptation inside it. Its level moves only after 3 of 5 cold openers above 85% or below 35% contact wins (as `transfer.md` §5.3).
+- **The number**: per skill, an estimate from the cold opener's trials alone (flat prior, `s = 9`), independent of the matched posterior; the **cold score** is their mean on the rating scale, plus the raw facts kept for comparison within a level (first-bullet head rate, median time to shot, moving-shot share, contacts won and HP kept). Fewer and noisier trials than the 40-trial Baseline it replaces, so one cold opener is good to about ±5 dial points (HYPOTHESIS, to be measured by the bot harness before the verdict is shown), and the trend window widens to match (below).
+- **The verdict**: the mean of the last `k` valid cold openers against the `k` before (`k` up to 10, at least 4), with a noise band from the player's own day-to-day spread (`transfer.md` §5.6). "**Improved**" only beyond the band, otherwise "**Steady**" or "**Lower**". It is the headline of the profile (section 9.5) and earns the Retained medal.
+- **Reference check-in** (optional, weekly, local only): the player types their reference-game shooting-test scores and 20-match headshot % (`docs/research/transfer.md` §6); the profile shows them beside the cold-opener trend and claims nothing about the relationship. Nothing is ever sent anywhere.
+- **Guards** (`transfer.md` §5.8, unchanged in kind): a change to the pool or to the dial axes it uses bumps the cold-opener version and starts a new series; "taken X of the last 14 days" is shown; a sensitivity change is marked on the trend; no verdict before 8 valid cold openers.
+- Built by re-scoping [#150](https://github.com/omkarbhale/flickline/issues/150) (the pool and the cold opener), [#151](https://github.com/omkarbhale/flickline/issues/151) (estimate, series and trend), [#153](https://github.com/omkarbhale/flickline/issues/153) (results card and profile headline) and [#154](https://github.com/omkarbhale/flickline/issues/154) (reference check-in).
 
 ---
 
@@ -422,60 +473,54 @@ Ratings are measured inside a session, after warm-up, on an adaptive dial, so th
 
 ### 9.1 The model
 
-Each skill has a latent ability `θ` on the same 0–100 **dial** scale as difficulty (rating = 30 × dial). Every target engagement in a mode is an **item** with a difficulty `d` that is a function of the dial settings in force when it spawned. The probability that a player at ability `θ` succeeds on an item of difficulty `d` is `p = σ((θ − d)/s)` with `s = 9` (tunable). We keep a **grid posterior** over θ ∈ {0, 0.5, …, 100} (201 points; a few hundred multiplies per update, irrelevant to performance), updated after every trial with the logistic likelihood. The rating shown is the posterior mean; the posterior standard deviation is the **confidence**, shown as a band.
+Each skill has a latent ability `θ` on the same 0–100 **dial** scale as difficulty (rating = 30 × dial). Every trial a contact produces (section 3.1) is an **item** with a difficulty `d` that is a function of the dial settings in force when its Echo was placed and of its scenario card. The probability that a player at ability `θ` succeeds on an item of difficulty `d` is `p = σ((θ − d)/s)` with `s = 9` (tunable). We keep a **grid posterior** over θ ∈ {0, 0.5, …, 100} (201 points; a few hundred multiplies per update, irrelevant to performance), updated after every trial with the logistic likelihood. The rating shown is the posterior mean; the posterior standard deviation is the **confidence**, shown as a band.
 
-An item's **trial type** is one of its properties, next to its difficulty: *pre-aimed* (the crosshair is already within about 2° of where the target appears) or *must-flick* (the crosshair has to move). Their feasible times differ, so the model never compares a pre-aimed 0.45 s trial with a 135° flick as the same kind of item (#12 P4). How the type enters the likelihood (a difficulty offset or its own scale) is for the skill model (#17) and the mode framework (#22); bait peeks (§4.7) are not items at all (#12 P3).
+An item's **trial type** is one of its properties, next to its difficulty: *pre-aimed* (the crosshair is already within about 2° of where the target appears) or *must-flick* (the crosshair has to move). Their feasible times differ, so the model never compares a pre-aimed 0.45 s trial with a 135° flick as the same kind of item (#12 P4). How the type enters the likelihood (a difficulty offset or its own scale) is for the skill model (#17); bait peeks (shoulder, jiggle and hop peeks the player lets pass) are not items at all (#12 P3).
 
-### 9.2 The first minute: the probe
+### 9.2 The first run: placing a player inside play
 
-Priors: a one-tap self-report before the first run ("New to shooters / Some / Experienced / Competitive") sets the prior mean to dial 15 / 35 / 55 / 75 (skippable → 40), standard deviation 25.
+Priors: a one-tap self-report on the first panel ("New to shooters / Some / Experienced / Competitive") sets the prior mean to dial 15 / 35 / 55 / 75 (skippable → 40), standard deviation 25.
 
-The Placement run (45 s, about 25–30 trials) uses an adaptive **staircase** on the dial: it gets harder after 2 consecutive successes and easier after 1 failure (the rule that converges on the 70.7%-success point), starting step 16, halving at each reversal (16 → 8 → 4 → 2). The estimate after the run is the posterior from all trials, with the staircase mean of the last four reversals as a sanity bound. Expected accuracy: ±6 dial points after one run; ±3 after four. Because the posterior is shared, one placement run initialises **all seven** skills with a correlation prior (a Flick estimate moves Cold Start's prior by 40%); each skill sharpens when it is first played.
+There is no placement test. A new player's first **Opener** is longer (four to six short contacts instead of one or two) and is run on an adaptive **staircase** between contacts: the next contact's dial goes up after 2 consecutive contacts won without losing more than half the shield, and down after 1 lost, starting step 16 and halving at each reversal (16 → 8 → 4), the rule that converges near the 70% point. The contacts are the gentlest cards (`take-unaware`, `clear`, `hold`) with single Echoes, so each one is short and readable. The staircase updates the shared posterior through the contacts' trials as every fight does; the correlation prior spreads the estimate to all seven skills (a flick estimate moves precision's prior by 40%), and each skill sharpens as the run exercises it. Expected accuracy after the first run: about ±8 dial points (HYPOTHESIS: fewer, noisier trials than the 45-second Placement run it replaces; checked by the simulated-player harness, section 9.6).
 
 ### 9.3 Steady state: keeping the edge without rubber-banding
 
-1. **Target success rate 70%**: the dial for the next stretch is `θ_est − s × ln(0.7/0.3)` ≈ `θ_est − 7.6`, chosen so the *expected* success rate is 0.70. A mode may set a different target in data, but it must stay inside the 60–80% flow band (the edge meter's shaded zone, §9.5). Cold Start's first-bullet-headshot trial was set to 0.55 at first; the first playable playtest (#29) found it settled below the band with 94–99% of failures being exposure timeouts, so it now targets 0.70 like every other drill and its exposure no longer binds (#170).
-2. **Difficulty is a function of the posterior and a pre-planned wave curve, never of the last few shots.** A run is divided into *beats* (every 10 s in drills; every contact in Sweep). The dial changes only at beat boundaries, by at most ±3 points per beat, and the wave curve (warm-up −8, build, peak +6, breather −6) is applied around it. A streak of misses does not make the next target easier; a streak of hits does not instantly spike difficulty. The player sees structure, not a fight against their score.
+1. **Target success rate 70%**: the dial for the next stretch is `θ_est − s × ln(0.7/0.3)` ≈ `θ_est − 7.6`, chosen so the *expected* success rate is 0.70. The target is for **contacts won**; trial types may set their own target in data, but it must stay inside the 60–80% flow band (the edge meter's shaded zone, §9.5): the drills' first-bullet-headshot trial was set to 0.55 at first, settled below the band with most failures being timeouts, and was moved to 0.70 (#170).
+2. **Difficulty is a function of the posterior and a pre-planned wave curve, never of the last few shots.** A run changes its dial only at **sector boundaries**, by at most ±3 points per sector from the posterior, and the run's depth curve (section 4.1: Opener −8, build, Finale +6, breather in sector 5) is applied around it. A streak of misses does not make the next target easier; a streak of hits does not instantly spike difficulty. The player sees structure, not a fight against their score.
 3. **Asymmetric update**: the posterior reacts faster upward than downward (likelihood scale `s` 8 for successes, 10 for failures) so a few lucky hits are not rewarded by a brutal jump, and a bad evening does not collapse the rating.
-4. **No hidden handicaps**: the score table's `difficulty` factor means an easier dial does not hand out free points; the PB is per dial band.
-5. **Fairness floors** (*adopted from #12 P6 and #52 R8 in #130*): tell ≥ 0.25 s; exposure ≥ 0.45 s for any timed target (the pre-aimed minimum), and per mode ≥ the minimum feasible time, reaction plus aiming movement (Orbit 1.25 s, Cold Start 0.8 s, Stop & Pop 0.55 s, #12 §4.1); exposure is measured from when the target becomes visible (`targetVisible`), never from its spawn, so an off-screen spawn does not eat the clock (the drills count from spawn today: #143); target size never below the spec's real head size; enemy reaction ≥ 0.25 s; **no target spawns (or becomes armed) closer than 4 m in any direction, and none inside the view cone (±51.5°, half the 103° FOV) closer than 5 m** (no point-blank ambush; a target behind you at 2 m is just as unreactable as one in front). The 4 m rule also binds enemies that walk closer in modes where they shoot (#32, #51). The reaction and tell floors protect the player from an enemy they **surprised**. A **prepared** holder (one that expects the player at this spot) is bound only by a 0.15 s reaction floor and never holds fire for a tell, because flooring it would let a wide swing beat a pre-aimed angle, the opposite of the reference game (#127, `docs/research/prepared-holders.md`).
-6. **Pin difficulty** (setting): fixes a mode's dial to a value you choose for fair comparison and drills; matched adaptation is the default.
+4. **No hidden handicaps**: the score table's `difficulty` factor means an easier dial does not hand out free points; run bests are per dial band.
+5. **Fairness floors** (*adopted from #12 P6 and #52 R8 in #130*): tell ≥ 0.25 s; exposure ≥ 0.45 s for any timed target (the pre-aimed minimum), and any exposure ≥ the minimum feasible time, reaction plus the aiming movement it asks for (about 1.25 s for a 135° relocation, 0.8 s for a small adjustment, #12 §4.1); exposure is measured from when the target becomes visible (`targetVisible`), never from its spawn, so an off-screen spawn does not eat the clock (#143); target size never below the spec's real head size; enemy reaction ≥ 0.25 s; **no target spawns (or becomes armed) closer than 4 m in any direction, and none inside the view cone (±51.5°, half the 103° FOV) closer than 5 m** (no point-blank ambush; a target behind you at 2 m is just as unreactable as one in front). The 4 m rule also binds Echoes that walk closer, such as arrivals in hold sectors (#32, #204). The reaction and tell floors protect the player from an enemy they **surprised**. A **prepared** holder (one that expects the player at this spot) is bound only by a 0.15 s reaction floor and never holds fire for a tell, because flooring it would let a wide swing beat a pre-aimed angle, the opposite of the reference game (#127, `docs/research/prepared-holders.md`).
+6. **Pin difficulty** (setting): fixes the run's base dial to a value you choose, for fair comparison with a friend on the same seed; matched adaptation is the default.
 
 ### 9.4 Where each difficulty axis goes
 
-The dial 0–100 maps to the seven axes (each mode uses a subset; linear unless marked geometric ("g")):
+The dial 0–100 maps to these axes (linear unless marked geometric ("g")):
 
 | Axis | Dial 0 | Dial 100 | Applies to |
 |---|---|---|---|
-| Beacon scale (×real head) | 3.0 | 1.0 | Orbit |
-| Distance (m) | 5 | 35 (g); 50 m only as a fixed-distance option, never a dial value | Humanoid modes |
-| Flick angle range (°) | 20–40 | 60–120 (a rare 120–180° above dial 85 is #136) | Orbit |
+| Distance (m) | 5 | 35 (g); 50 m only as a fixed-distance option, never a dial value | Every Echo placement |
 | Strafe speed (m/s) | 2.0 | 5.4 | Strafer |
 | Strafe leg interval (s) / stand-still window (s) | 1.0 / 0.4 | 0.35 / 0.25 (after the 0.16 s decel) | Strafer |
-| Strafer time limit (s), spawn to kill | 8 | 3 | Strafer (Strafe Track, §4.3) |
-| Exposure, pre-aimed timed targets (s) | 3.0 (g) | 0.45 | Any timed target without its own curve |
-| Exposure, Orbit (s) | 2.5 (g) | 1.6 | Orbit, Placement run (Orbit-style trials) |
-| Exposure, Cold Start (s) | 2.5 (g) | 1.35 | Cold Start, Placement run (Cold-Start-style trials) |
-| Exposure, Stop & Pop (s) | 2.0 (g) | 0.7 | Stop & Pop |
-| Exposure, Peeker wide peek (s) | 1.4 (g) | 0.45 | Corner Clear, Sweep |
-| Exposure, Gnat (s) | 1.5 | 0.6 | Switchboard, Sweep (axis added with the Gnat) |
-| Enemy reaction (s) / tell (s) | 1.2 / 0.7 | 0.3 / 0.30 | Sweep, Corner Clear |
-| Tell cue strength (head-node flare, laser, tone; the windup is not scaled) | 1 up to dial 35 | 0 from dial 60 | Sweep, Corner Clear (section 7.4) |
-| Enemy hit chance at standstill | 0.15 | 0.6 | Sweep, Corner Clear (a calibration target, §5.3) |
-| Density (simultaneous targets) | 1 | 6 (step) | Switchboard, Sweep, Strafe Track |
+| Exposure, pre-aimed timed targets (s) | 3.0 (g) | 0.45 | Any timed exposure without its own curve (an Echo's peek) |
+| Exposure, Peeker wide peek (s) | 1.4 (g) | 0.45 | Sweep |
+| Exposure, Gnat (s) | 1.5 | 0.6 | Sweep (axis added with the Gnat) |
+| Enemy reaction (s) / tell (s) | 1.2 / 0.7 | 0.3 / 0.30 | Sweep |
+| Tell cue strength (head-node flare, laser, tone; the windup is not scaled) | 1 up to dial 35 | 0 from dial 60 | Sweep (section 7.4) |
+| Enemy hit chance at standstill | 0.15 | 0.6 | Sweep (a calibration target, §5.3) |
+| Density (Echoes per contact) | 1 | 4 (step; the Finale and Overtime may reach 6) | Sweep |
 
-*Adopted from research #12 (§4, P5) and #52 (R8) in #130.* Why the dial-100 values moved: a 50 m head (0.32°) sits inside the first-shot spread cone, so success there measures luck; 90–180° flicks are mostly off-screen, found by sound rather than sight, with no evidence behind them; a 0.20 s stand-still and a 0.18 s tell are shorter than mean simple reaction time (0.218 s); and one 0.45 s exposure for every target cannot cover a flick (a 135° flick onto a real-size head needs about 1.25 s). An item that no ability can pass pushes success towards zero at high dials, so the posterior saturates below the top tiers and strong players are mis-rated. Exposure therefore has one curve per mode, each about 1.3× the minimum feasible time (reaction plus aiming movement for the mode's angles and sizes, #12 §4.1). These end points are starting values; the balance pass (#53) tunes them against human data.
+The drill-only axes of v1 (Beacon scale, flick angle range, the Strafer time limit, and the Orbit, Cold Start and Stop & Pop exposure curves) are retired with the drills (section 4.10) and leave `config/dial.ts` in the retirement refactor; the reasoning below still governs the Echo axes. *Adopted from research #12 (§4, P5) and #52 (R8) in #130.* Why the dial-100 values moved: a 50 m head (0.32°) sits inside the first-shot spread cone, so success there measures luck; 90–180° flicks are mostly off-screen, found by sound rather than sight, with no evidence behind them; a 0.20 s stand-still and a 0.18 s tell are shorter than mean simple reaction time (0.218 s); and one 0.45 s exposure for every target cannot cover a flick (a 135° flick onto a real-size head needs about 1.25 s). An item that no ability can pass pushes success towards zero at high dials, so the posterior saturates below the top tiers and strong players are mis-rated. Exposure therefore has one curve per mode, each about 1.3× the minimum feasible time (reaction plus aiming movement for the mode's angles and sizes, #12 §4.1). These end points are starting values; the balance pass (#53) tunes them against human data.
 
 ### 9.5 Showing the estimate to the player
 
-- **Before a run**: the mode card shows "Matched to you: Cobalt II · dial 51", with a one-line explanation on hover: "Targets are set to ~70% hit rate for you."
+- **Before a run**: the Play panel shows "Matched to you: Cobalt II · dial 51", with a one-line explanation on hover: "Echoes are set so you win about 7 fights in 10."
 - **After a run**: rating, delta, tier, progress bar (section 8.2).
-- **Skill profile screen** (from the menu): headed by the **Daily Baseline trend** (section 8.5): the verdict line, the noise band, "taken X of the last 14 days", the warm-up gap (today's Baseline against today's best matched rating) and, if the player uses it, the reference check-in beside it. Below it, labelled "matched rating: where your targets are set": a seven-axis radar, each axis with tier badge, rating, a shaded confidence band, and a sparkline of the last 20 runs; the weakest axis is highlighted.
-- **While playing**: a thin **edge meter** in the HUD corner shows the rolling success rate (target zone 60–80% shaded); outside the zone it just shows the number. It is purely informational.
+- **Skill profile screen** (from the menu): headed by the **cold-opener trend** (section 8.5): the verdict line, the noise band, "taken X of the last 14 days", the warm-up gap (today's cold opener against today's best matched rating) and, if the player uses it, the reference check-in beside it. Below it, labelled "matched rating: where your targets are set": a seven-axis radar, each axis with tier badge, rating, a shaded confidence band, and a sparkline of the last 20 runs; the weakest axis is highlighted. Beside it, the **situation records** (section 8.4) and the run records.
+- **While playing**: a thin **edge meter** in the HUD corner shows the rolling contact win rate (target zone 60–80% shaded); outside the zone it just shows the number. It is purely informational.
 
 ### 9.6 Verification
 
-A pure module with unit tests and a simulated-player harness (backlog): simulated players of known ability must converge to within ±6 dial points inside a 45-second placement run and keep a success rate within 60–80% over a 10-minute session at stable ability, with no oscillation larger than ±4 dial points. This runs in CI in seconds.
+A pure module with unit tests and a simulated-player harness (backlog): simulated players of known ability must converge to within ±8 dial points by the end of their first Opener and ±4 after three runs, and keep a contact win rate within 60–80% over a 30-minute session at stable ability, with no oscillation larger than ±4 dial points. This runs in CI in seconds.
 
 ---
 
@@ -483,17 +528,18 @@ A pure module with unit tests and a simulated-player harness (backlog): simulate
 
 Compact, original arenas. Distances are chosen from what actually happens in the reference genre: most duels at 5–25 m, long angles to about 35–45 m, doorways about 2 m wide, lanes 3–6 m wide. Heights come from the spec's body numbers (standing 1.80 m, crouched 1.30 m): **low cover** ≈ 1.0 m (hides a crouched player), **half cover** ≈ 1.3 m (head and shoulders show on a standing player only if they lean), **full cover** ≥ 2.0 m (hides a standing player).
 
-### 10.1 First-release maps (4)
+### 10.1 Maps and their sectors
 
-| Map | Footprint | Purpose | Features |
+A map is a set of **sectors** (section 4.2). A run's route chains sectors across maps: walking through a gate door moves the player to the next sector's entry, loading that map if it is a different one (maps are small JSON files and procedural meshes; target ≤ 150 ms behind a short fade, measured by the perf harness). More maps mean more routes, so each new map multiplies variety rather than adding one more place.
+
+| Map | Footprint | Sectors | Features |
 |---|---|---|---|
-| **Range** | 54 × 24 m hall, 8 m ceiling (long enough for the spec's 5, 10, 20, 30, 50 m target positions) | Cold Start, Orbit, Strafe Track, Switchboard, Spray Wall, Placement run. | Open floor, three free-standing pillars as anchor points, distance ticks on the floor every 5 m, an alcove wall for Spray Wall at 12, 20, 28 m. |
-| **Lane** | 6 × 30 m corridor | Stop & Pop. | Five alternating half-wall stops, a start line, an "armed" floor stripe, a far-end target alcove. |
-| **Elbow** | 26 × 26 m | Corner Clear. | L-shaped corridors, three doorways, crate stacks at low/half/full heights, ten checkpoints with a mix of close (5–8 m), mid (12–16 m) and long (22–26 m) angles, six peek spots with defined peek types. |
-| **Foundry** | 38 × 34 m, 9 m ceiling | Sweep. | Three lanes (long flank, mid courtyard with pillars, short flank), a 3 m high catwalk, six enemy gates, sightlines 8–22 m typical, 32 m max, cover at all three heights. |
+| **Range** | 54 × 24 m hall, 8 m ceiling | None: the **Lobby** behind the menu. | Open floor, three pillars, distance ticks every 5 m, Beacons drifting; nothing scored. |
+| **Elbow** | 26 × 26 m | 3 take sectors (from its ten checkpoints and six peek spots), 1 hold sector. | L-shaped corridors, three doorways, crate stacks at low/half/full heights, close (5–8 m), mid (12–16 m) and long (22–26 m) angles. |
+| **Lane** | 6 × 30 m corridor | 1 meet sector, 1 take sector. | Five alternating half-wall stops; the drill-only start line and "armed" stripe are retired. |
+| **Foundry** | 38 × 34 m, 9 m ceiling | 4 sectors (one per lane plus the catwalk), the default Finale. | Three lanes (long flank, mid courtyard with pillars, short flank), a 3 m high catwalk, six approach gates, sightlines 8–22 m typical, 32 m max, cover at all three heights. |
 
-First playable: Range only (an upgraded version of the foundation's flat test room).
-Later: **Stack** (a container yard for Sweep variety), more Elbow-style maps.
+First release: Elbow, Lane and Foundry as sector maps (about 12 sectors, so a six-sector run rarely repeats its route). Later: **Stack** (a container yard) and more; a new sector map is the cheapest way to add replay value.
 
 ### 10.2 Maps as data
 
@@ -504,10 +550,12 @@ Maps extend the foundation's `LevelDef` (`src/sim/levels.ts`: `boxes`, `spawn`, 
 interface MapDef extends LevelDef {           // LevelDef already has boxes (AABB + tag), spawn, targets
   schema: 1; id: string; name: string;
   bounds: { min: Vec3; max: Vec3 };
-  anchors: Anchor[];     // where modes may place things; typed
+  anchors: Anchor[];     // where the run director may place things; typed
   nav: { nodes: { id: string; pos: Vec3 }[]; edges: [string, string][] };
   lanes?: { id: string; start: Vec3; end: Vec3; width: number }[];
   checkpoints?: { id: string; pos: Vec3; angleAnchors: string[] }[];
+  sectors?: { id: string; role: ('take'|'hold'|'meet')[]; region: { min: Vec3; max: Vec3 };
+              entry: Vec3; exit: Vec3; holdAnchors: string[]; approaches?: string[] }[];  // section 4.2
   look: { sky: string; fog: [number, number]; palette: string };
 }
 // BoxDef.tag: 'floor'|'wall'|'cover'|'trim'|'glass'
@@ -520,7 +568,7 @@ type Anchor =
   | { id: string; kind: 'drone-volume'; min: Vec3; max: Vec3 };
 ```
 
-Coordinates are metres, Y up. The mode scheduler picks anchors by tag and distance band; nothing else in the code knows a map's contents.
+Coordinates are metres, Y up. The run director picks sectors by role and anchors by tag and distance band; nothing else in the code knows a map's contents. The map lint also checks every sector: entry and exit reachable from each other on foot, every hold anchor inside the region and out of sight of the entry (so a take sector never opens with an enemy already in view), and every approach lane reaching the region.
 
 ---
 
@@ -570,12 +618,12 @@ All audio is **synthesised with Web Audio** at load (an `OfflineAudioContext` re
 ### 13.1 HUD (default layout)
 
 ```
-                       [ Timer ]  [ Score ·  ×mult ]  [ ghost-pace bar ]
+                  [ Sector 3/6 ×1.4 ]  [ Score ·  ×mult ]  [ pace vs best run ]
                        chain  streak ring
  [stat strip:                          +  (crosshair)
   Acc 74% · HS 38% ·
   TTS 182ms · TTK 0.41s ·                       
-  Moving 3]                                    [SH ▮▮▮▮▯▯▯▯ / HP ▮▮▮▮▮▮▯▯]  (modes with damage)
+  Moving 3]                                    [SH ▮▮▮▮▯▯▯▯ / HP ▮▮▮▮▮▮▯▯]
  [edge meter]                                  [ammo 18 / 90]
 ```
 
@@ -596,17 +644,17 @@ Rendered in a dedicated lightweight overlay (CSS or one 2D canvas drawn on chang
 | **Keys** | Fully rebindable; defaults: `WASD` move, `Shift` walk, `Ctrl` crouch, `Space` jump, `1`–`3` weapons, `R` reload, `Backspace` restart run, `Enter` next run / confirm, `Esc` menu, `Tab` hold for the stat sheet, `F11` fullscreen. |
 | **Audio** | Master, weapons, hits, enemies, UI volumes; "hit sound style" (Standard, Soft); mono option; enemy tell volume. |
 | **Graphics** | Preset (Low/Medium/High), render scale, FPS cap (60 / 144 / 240 / uncapped), show FPS and 1% lows, post effects, enemy outline, enemy colour preset, **Reduce flashing**, viewmodel (on/off, left/right). |
-| **Gameplay** | **Coaching cues** (violet moving-shot tracer, `⇆` glyph, miss ghost; on by default for learning, off for a pure reference-like view), **Fade cues as I improve** (default on), **One clean run per session** (default on; section 7.4), show damage numbers, stat strip items, HUD scale, difficulty pin (per mode). |
+| **Gameplay** | **Coaching cues** (violet moving-shot tracer, `⇆` glyph, miss ghost; on by default for learning, off for a pure reference-like view), **Fade cues as I improve** (default on), **Clean opener each session** (default on; section 7.4), show damage numbers, stat strip items, HUD scale, difficulty pin (section 9.3). |
 | **Data** | Export/import save (JSON), reset progress (confirm), reference check-in prompt (on by default; section 8.5). |
 
 Settings persist immediately and apply live.
 
 ### 13.4 First-run experience (target: shooting in ≤ 10 s)
 
-1. The page opens on the Range with a Beacon floating ahead and the crosshair visible. A single panel, bottom-centre: **Sensitivity** (prefilled with a sensible default, one numeric field, "reference scale"), **Self-report** chips (New · Some · Experienced · Competitive), and **Click to play**.
-2. Click enters pointer lock and starts the Placement run immediately; no countdown, no tutorial text. One floating in-world hint ("Click the orb") disappears after the first hit.
-3. After 45 s: the first results card with the player's first rating. The next click is the real game.
-4. Pointer lock lost (Esc, alt-tab): the pause menu opens with `Click to resume` and `Backspace` restart.
+1. The page opens on the **Lobby** (the Range) with Beacons drifting ahead and the crosshair visible. A single panel, bottom-centre: **Sensitivity** (prefilled with a sensible default, one numeric field, "reference scale"), **Self-report** chips (New · Some · Experienced · Competitive), and **Play**. Clicking the canvas instead locks the pointer in the Lobby so the player can try their sensitivity on the Beacons; nothing there is scored, and `Enter` starts the run from there too.
+2. **Play** enters pointer lock and starts the first run immediately: a long, gentle Opener on a staircase (section 9.2); no countdown and no tutorial text. One in-world hint per new idea, each shown once: "Stop to shoot" the first time a moving shot misses, "Walk to stay quiet" the first time an Echo hears the player, "Pick a door" at the first gate.
+3. The first results card shows the run and the player's first rating. `Enter` starts the next run.
+4. Pointer lock lost (Esc, alt-tab): the pause menu opens with `Click to resume`, **New run** and **Menu**.
 5. Everything the first-time player sees is also available to expert players one key later; there is no unskippable step.
 
 ---
@@ -646,7 +694,11 @@ playerDamaged { amount (HP lost), absorbed, hp, shield, dir, sourceId }   player
 chainUpdated { count }                    streakUpdated { streak, mult }   surgeStarted { }  surgeEnded { }
 contactSettled { contactId, outcome: 'cleared'|'disengaged'|'avoided'|'died', kept, points }
 medalAwarded { id }                       skillTrial { skill, itemDifficulty, success, rtMs?, extra }
+sectorEntered { sectorId, index, role, condition, stake, dial }    sectorEnded { sectorId, cleared, keptSector, tempo: boolean, points }
+gateChosen { index, door: 0|1, stake, role, heard }               runBanked { points, overtimeSectors }   (a Leave gate)
 ```
+
+`runEnded.reason` gains `'left'` (a Leave gate); `'timer'` is retired with the drills. A run's `mode` is `sweep`; the cold opener is flagged on `sectorEntered` (`condition: 'cold'`), not as a mode.
 
 Event naming follows the architecture issue: camelCase past-tense facts, plain-data read-only payloads valid only during the callback, no allocation on emit. Each owner declares its event map next to its code and merges it into the open `GameEvents` interface (`core/gameEvents.ts`) with `declare module`; no shared list is edited.
 
@@ -658,7 +710,7 @@ All numbers in this document that are marked tunable live in the typed `config/`
 
 ### 14.5 Persistence
 
-One versioned `save` object (`version`, `profile` (self-report, sensitivity), `ratings` (posterior grids per skill, compact), `bests`, `medals`, `history` (last 200 runs, summary stats only), `baselines` (every Baseline record, compact) and `baselineLevels` (section 8.5), `checkins` (reference check-ins, never sent anywhere), `settings`), stored in `localStorage` under `flickline.save.v1` (separate from the foundation's `flickline.settings.v1`) with a migration function per version and JSON export/import. As built (#38): `progress/` holds the save (`ratings`, `ranks`, `bests` per mode and dial band with a 1 s score curve for the ghost, `medals`, `history`, `plays`, `flaggedSkill`, plus empty slots for `baselines`, `baselineLevels`, `checkins`); the settings and profile keep their own keys and the export file wraps them around the save (version 2; version 1 was the first export file). Rank-ups are immediate and demotion needs two runs (`config/progress.ts`); Ascent is a new peak sub-tier.
+One versioned `save` object (`version`, `profile` (self-report, sensitivity), `ratings` (posterior grids per skill, compact), `bests`, `medals`, `history` (last 200 runs, summary stats only), `coldOpeners` (every cold-opener record, compact) and `coldOpenerLevels` (section 8.5), `runBests` and `situations` (section 8.4), `checkins` (reference check-ins, never sent anywhere), `settings`), stored in `localStorage` under `flickline.save.v1` (separate from the foundation's `flickline.settings.v1`) with a migration function per version and JSON export/import. As built (#38): `progress/` holds the save (`ratings`, `ranks`, `bests` per mode and dial band with a 1 s score curve for the ghost, `medals`, `history`, `plays`, `flaggedSkill`, plus empty slots for `baselines`, `baselineLevels`, `checkins`); the settings and profile keep their own keys and the export file wraps them around the save (version 2). Rank-ups are immediate and demotion needs two runs (`config/progress.ts`); Ascent is a new peak sub-tier. The redesign moves `bests` to run bests and the Baseline slots to the cold opener in a save migration (#209, #217).
 
 ### 14.6 Where the code lives
 
@@ -667,7 +719,7 @@ Aligned with the layout and layering rule in the architecture issue (#54). Pure 
 | Part | Directory | Pure? |
 |---|---|---|
 | Weapon sim, enemy FSMs and hit zones, player damage and tagging, movement, map data and loader | `sim/` (+ `sim/levels/*.json`) | yes |
-| Run state machine, mode framework, individual modes, sweep director | new `modes/` | yes (add to the architecture test's pure list in the same PR) |
+| Run state machine, mode framework, the run director, sectors, gates and the scenario sampler | `modes/` | yes (add to the architecture test's pure list in the same PR) |
 | Stats, scoring, streaks, medals, fix engine | `feedback/` | yes |
 | Skill model, dial mapping, staircase | `adaptive/` (implements and extends `DifficultyModel`) | yes |
 | Save object, PBs, rank state (injected storage) | new `progress/` | yes |
@@ -676,6 +728,7 @@ Aligned with the layout and layering rule in the architecture issue (#54). Pure 
 | Echo shader, look, post, viewmodels, effects | `render/` | no |
 | Synthesis and cue wiring | `audio/` | no |
 | Bot harness, perf harness | `debug/` (and `scripts/`) | no |
+| Spec conformance suite: spec snapshot, rows, `docs/conformance.md` (`npm run conformance`) | `conformance/` (and `scripts/conformance.mjs`) | yes (reads files only in the script and the tests) |
 
 ### 14.7 Four quality tracks: numbers, feel, fun, transfer
 
@@ -685,15 +738,15 @@ Four different questions are asked of the game, tracked in four separate long-li
 |---|---|---|---|
 | **Numbers conformance** | Does every implemented mechanic value and measurable behaviour equal `docs/mechanics-spec.md`? | Automated first. A conformance suite and a generated conformance table, `docs/conformance.md`: one row per spec value or behaviour with the spec value and section, the implemented value, the test, and a status (match / deviation with a written reason / not implemented yet / placeholder-or-estimate flagged by the spec). Pass: every in-scope value has a row, zero unexplained mismatches. | [#61](https://github.com/omkarbhale/flickline/issues/61) |
 | **Feel similarity** | Independent of the numbers, do recoil, movement, shot sounds, hit and kill sounds, hit response and timing feel like the reference game? | Looked-at and listened-to passes scored against a written checklist, `docs/feel-checklist.md`: items per area (recoil feel, movement feel, shot sounds, hit and kill sounds, hit response, timing, view), each scored 0/1/2 with evidence (frame captures, audio renders and measurements, latency numbers). Pass: a percentage of points, a floor per area, no critical zero. | [#62](https://github.com/omkarbhale/flickline/issues/62) |
-| **Fun** | Is it compelling to play: does it pull you into another run, hold you at the edge of your ability, and reward good mechanics clearly? | Playtest passes following `docs/fun-criteria.md`: a fixed human question set, measured proxies (restart friction, edge-of-ability success rate, dead-air gaps, reward cadence) and an explicit verdict on whether Sweep plays like a game rather than a drill. | [#63](https://github.com/omkarbhale/flickline/issues/63) |
-| **Transfer** | Does skill earned here carry over to the reference game, and does every mode teach only habits that are also right there? | `docs/transfer-checklist.md`: a habit review per mode (items scored *same* / *different but harmless* / *harmful*, harmful being a bug), the Daily Baseline's bot tests and data (section 8.5), and the transfer pilot's verdict. Pass: per phase, no open critical harmful habit and learning measured honestly; transfer itself is claimed only by a study large enough to show it. | [#149](https://github.com/omkarbhale/flickline/issues/149) |
+| **Fun** | Is it compelling to play: does it pull you into another run, hold you at the edge of your ability, and reward good mechanics clearly? | Playtest passes following `docs/fun-criteria.md`: a fixed human question set, measured proxies (restart friction, edge-of-ability success rate, dead-air gaps, reward cadence) and an explicit **repeat-enjoyment verdict**: do players start another run because they want to, and come back on another day without being asked (vision principle 10)? | [#63](https://github.com/omkarbhale/flickline/issues/63) |
+| **Transfer** | Does skill earned here carry over to the reference game, and does every situation teach only habits that are also right there? | `docs/transfer-checklist.md`: a habit review per situation, sector role, condition and reward (items scored *same* / *different but harmless* / *harmful*, harmful being a bug), the cold opener's bot tests and data (section 8.5), and the transfer pilot's verdict. Pass: per phase, no open critical harmful habit and learning measured honestly; transfer itself is claimed only by a study large enough to show it. | [#149](https://github.com/omkarbhale/flickline/issues/149) |
 
 Rules that keep the four honest:
 
 - **Feel is judged against descriptions, never assets.** The checklist describes behaviours, relationships and timings in our own words. No reference audio, video or image is copied, recorded, ripped, embedded or used as a synthesis target (section 16). Sounds stay synthesised from code and are tuned until the checklist items pass.
 - **Numbers belong to the spec, not to the feel pass.** Tuning for feel changes presentation parameters (viewmodel kick curves, hit-marker timing, synthesis parameters, flinch and tagging presentation), never a value that has a row in the conformance table. If feel can only be reached by changing such a value, that is an issue on the numbers track.
 - **Conflicts are filed, not silently resolved.** Mechanical truth (pillar 1) outranks fun for everything inside the mechanics; fun outranks feel-polish for everything around the mechanics (pacing, rewards, results flow).
-- **A harmful habit is a mechanical-truth defect.** A mode that rewards a habit that fails in the reference game is fixed in the mode, however fun it is; the mechanics' numbers stay the spec's.
+- **A harmful habit is a mechanical-truth defect.** A situation or game layer that rewards a habit that fails in the reference game is fixed where it arises, however fun it is; the mechanics' numbers stay the spec's.
 - **Every playtest pass reports the four verdicts separately**, in four sections of its report, each also posted on its tracking issue; every defect is filed with the matching `quality:numbers`, `quality:feel`, `quality:fun` or `quality:transfer` label.
 - Owners: the conformance suite [#64](https://github.com/omkarbhale/flickline/issues/64), the feel checklist [#65](https://github.com/omkarbhale/flickline/issues/65) and feel tuning [#67](https://github.com/omkarbhale/flickline/issues/67), the fun criteria [#66](https://github.com/omkarbhale/flickline/issues/66) and fun tuning [#68](https://github.com/omkarbhale/flickline/issues/68), the transfer checklist and research (`docs/transfer-checklist.md`, `docs/research/transfer.md`, from [#128](https://github.com/omkarbhale/flickline/issues/128)) with the first habit review [#160](https://github.com/omkarbhale/flickline/issues/160) and the transfer pilot [#158](https://github.com/omkarbhale/flickline/issues/158); the playtests are [#29](https://github.com/omkarbhale/flickline/issues/29) and [#56](https://github.com/omkarbhale/flickline/issues/56).
 
@@ -701,17 +754,19 @@ Rules that keep the four honest:
 
 ## 15. Scope
 
-### First playable (the earliest build that proves the thing)
-A build someone can play from a link that demonstrates the loop: Range map; weapons Pace and Kestrel using the spec's numbers; Posts and Beacons; Cold Start and Orbit; the Placement run and the skill model v1 with persistence; the full per-shot feedback of section 7.1 (excluding medals and surge); live stat strip; basic results card with the one-thing-to-fix stub (moving shots, time to shot); crosshair editor; sensitivity in the reference scale; first-run flow; synthesised sounds for shots, hits, headshots, kills; instant restart; a perf harness and an automated bot playtest; the conformance suite and the feel and fun checklists; a looked-at playtest pass reporting numbers, feel and fun separately.
+### First playable (the earliest build that proves the game)
+
+Re-scoped by #187: the first playable proves **the game**, not the drills. A build someone can play from a link in which **Play** starts a Sweep run: take sectors on Elbow and Lane with placed, shooting Strafers and Peekers drawn from a first set of scenario cards; health and shield carried from fight to fight with kill-heal; contact settles, sector clears and a run score; the run's results card; the skill model fed by the contacts' trials; a new run on a new seed in ≤ 250 ms. It stands on the foundation already built for v1's first playable: Pace and Kestrel on the spec's numbers, the full per-shot feedback of section 7.1, synthesised sounds, crosshair editor, sensitivity in the reference scale, the live HUD, the bot and perf harnesses, and the conformance suite and the feel and fun checklists. The drills leave the menu. A looked-at playtest reports numbers, feel, fun and transfer separately, and the fun verdict includes repeat enjoyment.
 
 ### First release
-Everything in sections 4–13: all eight modes, four maps, four weapons (Pace, Kestrel, Vane, Rill), seven enemy types, damage and slow-on-hit, the full feedback set including callouts and medals, results breakdown with the fix engine and spray trace, skill profile, ranks and PBs, the Daily Baseline and reference check-in, Mix runs, settings, post effects, viewmodels, UI kit, accessibility options, balance, performance and legal passes, a full playtest, and the transfer pilot.
+
+Everything in sections 4–13: six-sector runs with take, hold and meet sectors, gates and door stakes, tempo, conditions, Overtime and the Daily Route; Elbow, Lane and Foundry as sector maps; four weapons (Pace, Kestrel, Vane, Rill); the enemy mind (#70) with the scenario sampler and honest information (#74); seven enemy types; damage and slow-on-hit; the full feedback set including callouts, medals and Surge; fight attribution (#110); the results card with the fix engine and the lean; the profile with situation records and the cold-opener trend; the reference check-in; settings, post effects, viewmodels, UI kit, accessibility options; balance, performance and legal passes; a full playtest with a repeat-enjoyment verdict; and the transfer pilot.
 
 ### Later (not scheduled)
-Longnail sniper and scoped sensitivity; shotgun; more maps (Stack and others); an in-browser map editor; replays and ghost runs; shareable seeds and daily seeds; online leaderboards (needs a backend); generative music; gamepad; desktop wrapper; localisation.
+Longnail sniper and scoped sensitivity; shotgun; more maps (Stack and others); an in-browser map editor; replays and ghost runs; shareable seed links; online leaderboards for the Daily Route (needs a backend); **Rivals** (an Echo personality that beat you can turn up again in a later run, HYPOTHESIS that a recurring opponent adds pull); generative music; gamepad; desktop wrapper; localisation.
 
 ### Explicitly out
-Multiplayer, teams, rounds, an objective to plant, abilities, economy and buy phases, accounts, monetisation, mobile and touch input, console, VR, anti-cheat, any aim assist or bullet magnetism, and any content copied from existing games.
+Drills, exercise menus and fixed practice routines (vision principle 10); multiplayer, teams, rounds, an objective to plant, abilities, economy and buy phases, accounts, monetisation, mobile and touch input, console, VR, anti-cheat, any aim assist or bullet magnetism, and any content copied from existing games.
 
 ---
 
@@ -719,7 +774,7 @@ Multiplayer, teams, rounds, an objective to plant, abilities, economy and buy ph
 
 Flickline copies **mechanics and feel only**: movement speeds and acceleration, counter-strafe timing, accuracy rules, recoil behaviour, damage and slow-on-hit rules, field of view, sensitivity scale. It copies **no** names, characters, abilities, maps, art, audio, logos or interface look from any existing game. Specifically:
 
-- All names are original: Flickline, Echoes, Post, Beacon, Strafer, Peeker, Rusher, Bulwark, Gnat, Pace, Kestrel, Rill, Longnail, Range, Lane, Elbow, Foundry, Sweep, Surge, the tier names, the medal names, the mode names. Any contributor who adds a name must check it is not a protected name from a known game.
+- All names are original: Flickline, Echoes, Post, Beacon, Strafer, Peeker, Rusher, Bulwark, Gnat, Pace, Kestrel, Rill, Longnail, Range, Lane, Elbow, Foundry, Sweep, Surge, Lobby, Opener, Finale, Overtime, Daily Route, the door stakes, the tier names, the medal names. Any contributor who adds a name must check it is not a protected name from a known game.
 - All art is procedural and original; no textures from any source. All fonts are open-licence and listed in `docs/credits.md` with their licences.
 - All audio is synthesised from code written for this project.
 - UI is the project's own: dark panels with a single trim colour and thin borders, no resemblance to the reference game's layout, icons, fonts or typographic style.
@@ -730,71 +785,30 @@ Flickline copies **mechanics and feel only**: movement speeds and acceleration, 
 
 ## 17. Backlog
 
-The work is tracked in GitHub issues on `omkarbhale/flickline`; every issue states its goal, the design section it implements, acceptance criteria, dependencies and what is out of scope. Design and backlog tracking: [#8](https://github.com/omkarbhale/flickline/issues/8).
+The work is tracked in GitHub issues on `omkarbhale/flickline`; every issue states its goal, the design section it implements, acceptance criteria, dependencies and what is out of scope. Design and backlog tracking: [#8](https://github.com/omkarbhale/flickline/issues/8); the v2 redesign: [#187](https://github.com/omkarbhale/flickline/issues/187), tracked on [#188](https://github.com/omkarbhale/flickline/issues/188).
 
 - Prerequisites outside this backlog: code foundation [#6](https://github.com/omkarbhale/flickline/issues/6) (merged), mechanics spec [#7](https://github.com/omkarbhale/flickline/issues/7) (merged), architecture and conventions [#54](https://github.com/omkarbhale/flickline/issues/54).
-- Phase tracking issues: [#9 first playable](https://github.com/omkarbhale/flickline/issues/9), [#10 first release](https://github.com/omkarbhale/flickline/issues/10), [#11 later (parked ideas)](https://github.com/omkarbhale/flickline/issues/11).
+- Phase tracking issues: [#9 first playable](https://github.com/omkarbhale/flickline/issues/9), [#10 first release](https://github.com/omkarbhale/flickline/issues/10), [#11 later (parked ideas)](https://github.com/omkarbhale/flickline/issues/11). Their v1 lists are kept there as history; the v2 order below supersedes them.
 - Quality tracking issues (long-lived, section 14.7): [#61 numbers conformance](https://github.com/omkarbhale/flickline/issues/61), [#62 feel similarity](https://github.com/omkarbhale/flickline/issues/62), [#63 fun](https://github.com/omkarbhale/flickline/issues/63), [#149 transfer](https://github.com/omkarbhale/flickline/issues/149).
 
-### First playable
+### The order to a replayable game (v2)
 
-- [#12](https://github.com/omkarbhale/flickline/issues/12) research: human performance baselines and skill-transfer evidence for the dial and the drills
-- [#13](https://github.com/omkarbhale/flickline/issues/13) feat(sim): run state machine, event log and stat tracker
-- [#14](https://github.com/omkarbhale/flickline/issues/14) feat(weapons): generic weapon simulation with Pace and Kestrel
-- [#15](https://github.com/omkarbhale/flickline/issues/15) feat(enemies): enemy framework, humanoid hit zones, Post and Beacon
-- [#16](https://github.com/omkarbhale/flickline/issues/16) feat(maps): map data format, loader, lint CLI and the Range map
-- [#17](https://github.com/omkarbhale/flickline/issues/17) feat(skill): difficulty dial, adaptive staircase and grid-posterior skill model
-- [#18](https://github.com/omkarbhale/flickline/issues/18) art: Echo humanoid models, Beacon and Gnat meshes, and the Echo shader
-- [#19](https://github.com/omkarbhale/flickline/issues/19) art(render): Lightline environment look — palette, trim lines, grid floor, sky, fog
-- [#20](https://github.com/omkarbhale/flickline/issues/20) feat(audio): Web Audio engine and the feedback sound set (hit, headshot, kill ladder, miss, moving shot)
-- [#21](https://github.com/omkarbhale/flickline/issues/21) feat(ui): crosshair renderer, editor and share codes
-- [#22](https://github.com/omkarbhale/flickline/issues/22) feat(modes): mode framework — scheduler, scoring table and dial application
-- [#23](https://github.com/omkarbhale/flickline/issues/23) feat(modes): Cold Start, Orbit and the Placement run
-- [#24](https://github.com/omkarbhale/flickline/issues/24) feat(feedback): per-shot visual feedback — hitmarkers, tracers, impacts, kill shatter, screen pulse
-- [#25](https://github.com/omkarbhale/flickline/issues/25) feat(ui): live HUD — score, multiplier, counters, stat strip, ghost-pace and edge meter
-- [#26](https://github.com/omkarbhale/flickline/issues/26) feat(ui): end-of-run results card with stats, rating delta and restart flow
-- [#27](https://github.com/omkarbhale/flickline/issues/27) feat(ui): sensitivity in the reference scale, raw input, and the first-run flow (shooting in ≤ 10 s)
-- [#28](https://github.com/omkarbhale/flickline/issues/28) feat(infra): headless bot playtest harness and frame-time perf harness
-- [#64](https://github.com/omkarbhale/flickline/issues/64) test: spec conformance suite and generated conformance table (numbers quality)
-- [#65](https://github.com/omkarbhale/flickline/issues/65) research: reference-feel checklist for recoil, movement, sounds, hit response and timing (feel quality)
-- [#66](https://github.com/omkarbhale/flickline/issues/66) research: fun criteria and playtest protocol (fun quality)
-- [#160](https://github.com/omkarbhale/flickline/issues/160) review: first transfer habit review of Cold Start, Orbit and the Placement run (transfer quality)
-- [#29](https://github.com/omkarbhale/flickline/issues/29) playtest: first playable pass — reports numbers, feel and fun separately
+The order puts a replayable game on the live link soonest: after step 3, **Play** starts a seeded run of take sectors against shooting Echoes with carried health and a score, and every run differs. Steps without an arrow between them can run in parallel once their dependencies are merged.
 
-### First release
+0. [#184](https://github.com/omkarbhale/flickline/issues/184) load a map without a page reload (prerequisite of step 2; can run beside step 1)
+1. [#200](https://github.com/omkarbhale/flickline/issues/200) sectors in the map schema, Elbow and Lane sectors
+2. [#201](https://github.com/omkarbhale/flickline/issues/201) Sweep run v0: take sectors, placed Echoes, carried health, run score
+3. [#202](https://github.com/omkarbhale/flickline/issues/202) Play starts a run; drills leave the menu; the first click starts the first run. **Replayable game on the live link.**
+4. [#203](https://github.com/omkarbhale/flickline/issues/203) skill matching inside the run · [#213](https://github.com/omkarbhale/flickline/issues/213) run results card · [#205](https://github.com/omkarbhale/flickline/issues/205) gates and route choice
+5. [#204](https://github.com/omkarbhale/flickline/issues/204) hold sectors and the Finale · [#211](https://github.com/omkarbhale/flickline/issues/211) retire the drill code
+6. [#97](https://github.com/omkarbhale/flickline/issues/97) scenario sampler with [#98](https://github.com/omkarbhale/flickline/issues/98) Echo setup and [#99](https://github.com/omkarbhale/flickline/issues/99) honest audio · [#100](https://github.com/omkarbhale/flickline/issues/100) tempo in take sectors · [#207](https://github.com/omkarbhale/flickline/issues/207) conditions and the primary pick
+7. [#214](https://github.com/omkarbhale/flickline/issues/214) repeat-enjoyment playtest (needs steps 3–5)
+8. [#206](https://github.com/omkarbhale/flickline/issues/206) Overtime · [#217](https://github.com/omkarbhale/flickline/issues/217) run and situation records · [#208](https://github.com/omkarbhale/flickline/issues/208) Daily Route
+9. [#209](https://github.com/omkarbhale/flickline/issues/209) the cold opener, then [#151](https://github.com/omkarbhale/flickline/issues/151), [#153](https://github.com/omkarbhale/flickline/issues/153), [#154](https://github.com/omkarbhale/flickline/issues/154) on it · [#210](https://github.com/omkarbhale/flickline/issues/210) the lean (with [#39](https://github.com/omkarbhale/flickline/issues/39))
+10. [#212](https://github.com/omkarbhale/flickline/issues/212) meet sectors (with the mind's body [#87](https://github.com/omkarbhale/flickline/issues/87) and decisions [#91](https://github.com/omkarbhale/flickline/issues/91)) · [#36](https://github.com/omkarbhale/flickline/issues/36) Foundry sectors · [#33](https://github.com/omkarbhale/flickline/issues/33) Rusher, Bulwark and Gnat
 
-- [#30](https://github.com/omkarbhale/flickline/issues/30) feat(weapons): Rill SMG and Vane precise rifle, weapon swapping and loadouts
-- [#31](https://github.com/omkarbhale/flickline/issues/31) feat(sim): player health, taking damage, slow-on-hit, kill-heal and the damage arc data
-- [#32](https://github.com/omkarbhale/flickline/issues/32) feat(enemies): Strafer and Peeker behaviours, including enemy shooting with tells
-- [#33](https://github.com/omkarbhale/flickline/issues/33) feat(enemies): Rusher, Bulwark and Gnat with waypoint navigation
-- [#34](https://github.com/omkarbhale/flickline/issues/34) feat(maps): Lane and Elbow maps with anchors, checkpoints and peek spots
-- [#36](https://github.com/omkarbhale/flickline/issues/36) feat(maps): Foundry map for Sweep (three lanes, catwalk, six gates, nav graph)
-- [#37](https://github.com/omkarbhale/flickline/issues/37) feat(ui): skill profile screen — radar, tiers, confidence bands, trends
-- [#38](https://github.com/omkarbhale/flickline/issues/38) feat(skill): persistence, medals, ranks, personal bests and ghost pace
-- [#39](https://github.com/omkarbhale/flickline/issues/39) feat(ui): results breakdown — fix engine, one-thing-to-fix card, spray trace and plots
-- [#40](https://github.com/omkarbhale/flickline/issues/40) feat(feedback): chain and streak callouts, medal toasts, Surge and rank-up moments
-- [#41](https://github.com/omkarbhale/flickline/issues/41) feat(audio): weapon sounds, enemy tells, damage, near-miss, footsteps and UI sounds
-- [#42](https://github.com/omkarbhale/flickline/issues/42) feat(ui): settings menu — keybinds, audio, graphics, gameplay, data, accessibility
-- [#43](https://github.com/omkarbhale/flickline/issues/43) feat(ui): menu shell — mode select cards, pause menu, today's session, UI kit and fonts
-- [#44](https://github.com/omkarbhale/flickline/issues/44) feat(render): post effects — cheap bloom, vignette, damage vignette, chromatic pulse
-- [#45](https://github.com/omkarbhale/flickline/issues/45) art: procedural weapon viewmodels, muzzle flashes and recoil animation
-- [#46](https://github.com/omkarbhale/flickline/issues/46) feat(modes): Strafe Track mode
-- [#47](https://github.com/omkarbhale/flickline/issues/47) feat(modes): Stop & Pop mode (counter-strafe and stance discipline)
-- [#48](https://github.com/omkarbhale/flickline/issues/48) feat(modes): Spray Wall mode
-- [#49](https://github.com/omkarbhale/flickline/issues/49) feat(modes): Switchboard mode (target switching)
-- [#50](https://github.com/omkarbhale/flickline/issues/50) feat(modes): Corner Clear mode (peeking and clearing angles)
-- [#51](https://github.com/omkarbhale/flickline/issues/51) feat(modes): Sweep flagship mode and its encounter director
-- [#52](https://github.com/omkarbhale/flickline/issues/52) research: audio and visual cue design — hit, headshot and tell cues that players learn in a minute
-- [#53](https://github.com/omkarbhale/flickline/issues/53) balance: tune dial end-points, scoring, medals and Sweep pressure against bot and human data
-- [#55](https://github.com/omkarbhale/flickline/issues/55) perf: first-release 144 fps pass on Range, Lane, Elbow and Foundry
-- [#67](https://github.com/omkarbhale/flickline/issues/67) balance: feel tuning pass — recoil, movement, sounds, hit response and timing against the checklist (feel quality)
-- [#68](https://github.com/omkarbhale/flickline/issues/68) balance: fun tuning pass — pacing, reward cadence, restart friction and the flagship's game feel (fun quality)
-- [#150](https://github.com/omkarbhale/flickline/issues/150) feat(modes): Daily Baseline run — fixed item sets, levels, daily shuffle and reference-like presentation
-- [#151](https://github.com/omkarbhale/flickline/issues/151) feat(skill): Baseline estimate, series and trend — progress beyond the player's own noise
-- [#153](https://github.com/omkarbhale/flickline/issues/153) feat(ui): Baseline on the results card and as the profile headline — verdict, warm-up gap, Retained medal
-- [#154](https://github.com/omkarbhale/flickline/issues/154) feat(ui): reference check-in — weekly, local-only reference-game numbers beside the Baseline trend
-- [#157](https://github.com/omkarbhale/flickline/issues/157) feat(modes): Mix runs and the interleaved Today's session
-- [#158](https://github.com/omkarbhale/flickline/issues/158) playtest: transfer pilot — two arms, two weeks, cold reference-game test before and after (transfer quality)
-- [#159](https://github.com/omkarbhale/flickline/issues/159) playtest: practice-schedule experiment — interleaved Mix against blocked drills, Baseline retention
-- [#56](https://github.com/omkarbhale/flickline/issues/56) playtest: first release pass — reports numbers, feel and fun separately
-- [#57](https://github.com/omkarbhale/flickline/issues/57) audit: identity and legal check — names, assets, fonts, licences, no copied content
+Parallel tracks that the redesign keeps as they were: the enemy mind ([#70](https://github.com/omkarbhale/flickline/issues/70): [#86](https://github.com/omkarbhale/flickline/issues/86)–[#96](https://github.com/omkarbhale/flickline/issues/96)), fight attribution ([#110](https://github.com/omkarbhale/flickline/issues/110): [#120](https://github.com/omkarbhale/flickline/issues/120)–[#125](https://github.com/omkarbhale/flickline/issues/125)), the movement model [#73](https://github.com/omkarbhale/flickline/issues/73), the quality yardsticks and passes ([#64](https://github.com/omkarbhale/flickline/issues/64)–[#68](https://github.com/omkarbhale/flickline/issues/68)), the profile [#37](https://github.com/omkarbhale/flickline/issues/37), callouts and medals [#40](https://github.com/omkarbhale/flickline/issues/40), balance [#53](https://github.com/omkarbhale/flickline/issues/53), performance [#55](https://github.com/omkarbhale/flickline/issues/55), the first-release playtest [#56](https://github.com/omkarbhale/flickline/issues/56), the identity audit [#57](https://github.com/omkarbhale/flickline/issues/57), the transfer pilot [#158](https://github.com/omkarbhale/flickline/issues/158) and the first habit review [#160](https://github.com/omkarbhale/flickline/issues/160) (now of the first playable run).
+
+### Closed by the redesign
+
+Superseded or obsolete, each closed with a comment linking its replacement: Switchboard #49, Corner Clear #50, the Sweep flagship #51 (split into the issues above), Vigil #101, cued drill trials #102, Corner Clear cards #103, Orbit's rare flicks #136, the Daily Baseline run #150, Mix runs #157, the practice-schedule experiment #159, and the Cold Start and Placement follow-ups #171–#174, #193, #196. Merged drill modes (Cold Start, Orbit, Placement, Stop & Pop, Strafe Track, Spray Wall) are retired from the code by #211.

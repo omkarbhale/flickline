@@ -2,7 +2,7 @@
 
 Start with the vision: [docs/vision.md](docs/vision.md) says what Flickline is for, and every design decision is checked against it.
 
-A first-person aim and movement trainer with tactical-shooter gunplay, instant feedback, and skill-matched difficulty. Browser game: TypeScript, three.js (WebGL), Vite, hosted on GitHub Pages.
+A first-person shooter you replay, not an aim trainer: runs through sectors of fights against enemies that play like people, with tactical-shooter gunplay, instant feedback and skill-matched difficulty. Browser game: TypeScript, three.js (WebGL), Vite, hosted on GitHub Pages.
 
 ## Run
 
@@ -11,6 +11,7 @@ npm install
 npm run dev         # play at http://127.0.0.1:5173/ (click to lock the mouse)
 npm run typecheck
 npm test
+npm run conformance # regenerate docs/conformance.md (spec numbers vs the game; npm test fails when it is stale)
 npm run build       # production build in dist/
 ```
 
