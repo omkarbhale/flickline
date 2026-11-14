@@ -14,12 +14,14 @@ declare module '../debug/hook' {
     /**
      * End-of-run results card (design 8.2). `state()` reads whether it is open, the card's data and the
      * measured timings (ms from `runEnded` to the DOM being written, and to the next painted frame; key press
-     * to the first drawn `ready` frame of the next run). `playAgain()` is the `Enter` path. `pb(n)` installs a
+     * to the first drawn `ready` frame of the next run). `playAgain()` is the `Enter` path (a new run on a new
+     * seed) and `replay()` the `R` path (this seed again). `pb(n)` installs a
      * fake personal best score for the PB line (`null` = no personal best yet).
      */
     readonly results: {
       state(): { open: boolean; card: CardModel | null; buildMs: number; appearMs: number; restartToFrameMs: number; budgetMs: number };
       playAgain(): boolean;
+      replay(): boolean;
       pb(score: number | null): void;
       /**
        * Play a scripted, seeded Sweep run (sectors, contacts with their cards, kills, damage) through the event bus and
@@ -41,7 +43,7 @@ function skillOf(mode: string): RatedSkill | null {
 
 /**
  * The results card: shown over the frozen last frame inside the `runEnded` dispatch, `Enter` plays
- * again (next seed, no scene rebuild), `Esc` opens the menu. Presentation stage: the run controller
+ * a new run (next seed, no scene rebuild), `R` replays the seed, `Esc` opens the menu. Presentation stage: the run controller
  * has already frozen its stats when this hears `runEnded`.
  */
 export const feature = defineFeature({
@@ -82,7 +84,8 @@ export const feature = defineFeature({
     let fakeCause: string | null = null;
     const runModes = game.tunables.progress.runModes;
     game.bus.on('runReady', (e) => {
-      before = runModes.includes(e.mode) ? (game.progress.bestRun(e.dial)?.score ?? null) : null;
+      // The Daily Route compares with the day best instead of the run best (design §4.8, §8.2).
+      before = !runModes.includes(e.mode) ? null : game.dailyKey !== null ? (game.progress.dailyBest(game.dailyKey)?.score ?? null) : (game.progress.bestRun(e.dial)?.score ?? null);
     });
     // The run's story (route strip, fights by situation) is folded from the run director's facts (#201, design §14.3:
     // `sectorEntered`, `sectorEnded`, `contactSettled` with its card, `runBanked`) and the player's health events. The
@@ -119,11 +122,11 @@ export const feature = defineFeature({
       skillOf,
       pb: { best: () => (fake === undefined ? before : fake), keepsBest: (mode) => runModes.includes(mode) },
       onCard: (model) => {
-        card.setPlayLabel(game.nextRunLabel());
         card.show(model, endedAt);
       },
       onNewRun: () => card.hide(),
       isClean: () => clean,
+      dailyDate: () => game.dailyKey,
       firstRating: (mode) => mode === PLACEMENT_MODE,
     });
     game.onReset(() => {
@@ -147,6 +150,7 @@ export const feature = defineFeature({
           budgetMs: game.tunables.results.appearBudgetMs,
         }),
         playAgain: () => game.playAgain(performance.now()),
+        replay: () => game.replaySeed(performance.now()),
         pb(score) {
           fake = score;
         },

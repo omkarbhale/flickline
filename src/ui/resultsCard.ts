@@ -32,7 +32,7 @@ interface RowEls {
 }
 
 export interface ResultsCardHandlers {
-  /** `Enter` / the Play again button. `pressedAt` is the key event's timestamp (performance.now() base). */
+  /** `Enter` / the New run button: a new run on a new seed. `pressedAt` is the key event's timestamp (performance.now() base). */
   onPlayAgain(pressedAt: number): void;
   /** `R` / the Replay button: the same seed again (design §8.2). */
   onReplay(pressedAt: number): void;
@@ -49,9 +49,9 @@ export interface ResultsCardHandlers {
  * strip, fights by situation, rating, headline stats, medals, one thing to fix and the flow keys.
  * Built from the UI kit (palette tokens, panel, buttons). Static markup built once; tiles and rows
  * are pooled and `show()` only writes text into them, so showing the card costs a few dozen DOM
- * writes inside the `runEnded` dispatch. Keyboard: `Enter` plays again, `R` replays the seed, `Esc`
+ * writes inside the `runEnded` dispatch. Keyboard: `Enter` starts a new run on a new seed, `R` replays the seed, `Esc`
  * opens the menu (under pointer lock the browser takes `Esc` and the menu opens through the lock
- * change instead). Tab order is Play again, Replay seed, Menu.
+ * change instead). Tab order is New run, Replay seed, Menu.
  */
 export class ResultsCard {
   readonly el: HTMLElement;
@@ -142,7 +142,7 @@ export class ResultsCard {
     this.medalsList = this.q('medals');
     this.routeList = this.q('route');
     this.fightsList = this.q('fights');
-    this.play = button('Play again', { variant: 'primary', key: 'Enter', onClick: () => undefined });
+    this.play = button('New run', { variant: 'primary', key: 'Enter', onClick: () => undefined });
     this.replayBtn = button('Replay seed', { variant: 'secondary', key: 'R', onClick: () => undefined });
     this.menuBtn = button('Menu', { variant: 'ghost', key: 'Esc', onClick: () => undefined });
     this.q('actions').append(this.play, this.replayBtn, this.menuBtn);
@@ -185,12 +185,6 @@ export class ResultsCard {
   setConfirmLabel(label: string): void {
     const k = this.play.querySelector('kbd');
     if (k) k.textContent = label;
-  }
-
-  /** Rename the primary button ("Next: Orbit" inside Today's session); null restores "Play again". */
-  setPlayLabel(label: string | null): void {
-    const t = this.play.querySelector('.fl-btn-label');
-    if (t) t.textContent = label ?? 'Play again';
   }
 
   /** Show or hide the Replay button (a session step has no same-seed replay of its own). */

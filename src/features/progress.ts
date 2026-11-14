@@ -32,7 +32,8 @@ declare module '../debug/hook' {
 /**
  * Persistence and the ranked parts of progress (#38, #217). At `runReady` it arms the pace bar with the best run of
  * the run's dial band as it stood before the run; during the run the recorder folds the run's events (sectors,
- * contacts and their cards, score, the Flawless marks) into a route strip; at `runEnded` it settles Quick Study,
+ * contacts and their cards, score, the Flawless marks) into a route strip (the Daily Route arms the pace bar with the day
+ * best instead, and its run is recorded under its date); at `runEnded` it settles Quick Study,
  * updates the ranks (Ascent) and records the run: history, run count and, for a run mode, the band's run records and
  * the situation records. A quit keeps only its contacts. The skill posterior is saved after each run. A producer,
  * so its medals reach the results card (a presentation feature) built in the same dispatch.
@@ -64,7 +65,8 @@ export const feature = defineFeature({
     bus.on('runReady', (e) => {
       recorder.begin(e.seed, e.dial);
       earned.length = 0;
-      if (cfg.runModes.includes(e.mode)) pace.arm(store.bestRun(e.dial));
+      // The Daily Route paces against the day best (design §4.8, §8.4); every other run against the band's best run.
+      if (cfg.runModes.includes(e.mode)) pace.arm(game.dailyKey !== null ? store.dailyBest(game.dailyKey) : store.bestRun(e.dial));
       else pace.clear();
     });
     bus.on('scoreAwarded', (e) => recorder.scored(e.total));
@@ -110,8 +112,8 @@ export const feature = defineFeature({
         store.recordRun(
           summariseRun(stats, score, new Date().toISOString(), earned),
           isRun ? recorder.finish(score) : null,
-          // The Daily Route's date goes here when that route exists (design §4.8); until then no run is the day's.
-          null,
+          // The Daily Route's date (design §4.8): the run may set the day best of that date.
+          isRun ? game.dailyKey : null,
         );
       });
     });

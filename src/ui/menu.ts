@@ -4,46 +4,44 @@ import type { Tunables } from '../config/tunables';
 import type { ProfileStore } from '../settings/profile';
 import type { SettingsStore } from '../settings/settings';
 import { keyLabel, type KeyAction } from '../settings/keys';
-import { icon } from './kit/icons';
 import { applyPalette, button, h, panel } from './kit/kit';
 import { wordmark } from './kit/wordmark';
-import type { CardModel, SessionView } from './menuModel';
 import { gridMove, resolveKey, type NavAction, type NavKeys, type NavState, type RunPhase, type Screen } from './navigation';
 import { rawInputText } from './rawInputText';
 import { SettingsPanel, type SettingsHost, type SettingsTab } from './settingsPanel';
 
 /**
- * - `firstRun`: a new player (design 13.4): compact bottom-centre panel over the live Range with
- *   the sensitivity field, self-report chips and Click to play. No tutorial text.
- * - `main`: the landing menu: Play (today's session), the mode cards, settings.
- * - `pause`: the pointer lock was lost (Esc, alt-tab): Resume, Restart, Settings, Menu.
+ * - `firstRun`: a new player (design 13.4): compact bottom-centre panel over the live Range (the Lobby)
+ *   with the sensitivity field, self-report chips and Play. No tutorial text.
+ * - `main`: the landing menu: Play (a Sweep run on a new seed) and settings.
+ * - `pause`: the pointer lock was lost (Esc, alt-tab): Click to resume, New run, Settings, Menu.
  * `settings` is reached from `main` and `pause` and goes back to where it came from.
  */
 export type MenuMode = 'firstRun' | 'main' | 'pause';
 
+/** What the Daily Route button shows: today's date ("Sun 15 Nov") and the day best score so far. */
+export interface DailyView {
+  label: string;
+  best: number | null;
+}
+
 /** What the menu asks of the game, and what it reads from it. */
 export interface MenuHost extends SettingsHost {
-  /** First run: enter the game (and take pointer lock); needs a user gesture. */
+  /** Play: a Sweep run on a new seed, with the pointer lock (needs a user gesture). The first one applies the self-report. */
   play(): void;
+  /** Start today's Daily Route (design §4.8): Sweep on the seed of the local date, with the pointer lock. */
+  playDaily(): void;
+  /** The Daily Route of today: its date label and the day best so far (null before the first scoring run of the day). */
+  daily(): DailyView;
   /** Take the pointer lock back and carry on. */
   resume(): void;
-  /** Restart the current run from its seed (and take the lock). */
-  restart(): void;
+  /** Start a new run on a new seed (and take the lock). */
+  newRun(): void;
   /** Leave the run and show the main menu. */
   toMenu(): void;
-  /** Start Today's session (its first step, or the next one when it is under way). */
-  playSession(): void;
-  /** Skip the current step of the session. */
-  skipStep(): void;
-  /** Start one mode from its card. */
-  launchMode(modeId: string): void;
   /** The run clock's phase (for the in-run keys). */
   runPhase(): RunPhase;
-  /** Cards for the registered modes. */
-  cards(): CardModel[];
-  /** Today's session: the plan, or the progress through it. */
-  session(): SessionView;
-  /** Name of the mode in progress ("Orbit") for the pause title, or null. */
+  /** What the pause menu says about the run in progress ("Sweep"), or null when there is none. */
   runLabel(): string | null;
 }
 
@@ -60,24 +58,16 @@ export class Menu {
   private readonly settingsBasicsHome: HTMLElement;
   private readonly chips: HTMLButtonElement[];
   private readonly rawNotes: HTMLElement[] = [];
-  private readonly cardsEl: HTMLElement;
-  private readonly sessionEl: HTMLElement;
-  private readonly mainButtons: HTMLElement;
-  private readonly pauseTitle: HTMLElement;
   private readonly pauseSub: HTMLElement;
-  private readonly pauseSession: HTMLElement;
-  private readonly pauseSkip: HTMLButtonElement;
   private readonly cfg: MenuTunables;
-  /** The controls reminder under the mode cards and the Restart button's key hint: both follow the player's bindings. */
+  /** The controls reminder under Play and the New run button's key hint: both follow the player's bindings. */
   private readonly keysLine = h('p', { class: 'keys' });
   private restartBtn!: HTMLButtonElement;
   private screen: Screen = 'main';
   private settingsReturn: Exclude<Screen, 'settings'> = 'main';
   private open = false;
-  private lastView: SessionView = { active: false, steps: [], progressText: '' };
-  private cardEls: HTMLButtonElement[] = [];
   private playBtn!: HTMLButtonElement;
-  private skipBtn!: HTMLButtonElement;
+  private dailyNote!: HTMLElement;
 
   constructor(
     root: HTMLElement,
@@ -109,56 +99,49 @@ export class Menu {
       return c;
     });
     this.firstRunHost = h('div', { class: 'first-basics' });
-    const firstPlay = button('Click to play', { variant: 'primary', icon: 'play', onClick: () => host.play() });
+    const firstPlay = button('Play', { variant: 'primary', icon: 'play', key: 'Enter', onClick: () => host.play() });
     firstPlay.classList.add('play-wide');
     const firstPanel = panel({ class: 'first-panel' });
     firstPanel.body.append(
-      h('div', { class: 'first-head' }, [wrapHtml(wordmark(22)), h('span', { class: 'first-tag', text: 'First-person aim and movement trainer' })]),
+      h('div', { class: 'first-head' }, [wrapHtml(wordmark(22)), h('span', { class: 'first-tag', text: this.cfg.tagline })]),
       this.firstRunHost,
       chipRow,
       firstPlay,
+      h('p', { class: 'first-lobby', text: this.cfg.lobbyNote }),
       this.rawNote(),
     );
 
     // --- Main ---
-    this.sessionEl = h('div', { class: 'session-steps' });
-    this.playBtn = button("Play today's session", { variant: 'primary', icon: 'play', key: 'Enter', onClick: () => host.playSession() });
-    this.skipBtn = button('Skip step', { variant: 'ghost', icon: 'skip', key: 'K', onClick: () => host.skipStep() });
+    this.playBtn = button('Play', { variant: 'primary', icon: 'play', key: 'Enter', onClick: () => host.play() });
+    this.playBtn.classList.add('play-wide');
+    const dailyBtn = button('Daily Route', { variant: 'secondary', icon: 'play', key: 'D', onClick: () => host.playDaily() });
+    this.dailyNote = h('span', { class: 'fl-btn-sub' });
+    dailyBtn.querySelector('.fl-btn-label')!.after(this.dailyNote);
+    dailyBtn.classList.add('daily-btn');
     const settingsBtn = button('Settings', { variant: 'ghost', icon: 'settings', key: 'S', onClick: () => this.openSettings() });
-    this.mainButtons = h('div', { class: 'session-actions' }, [this.playBtn, this.skipBtn]);
-    const sessionPanel = panel({ title: "Today's session", class: 'session-panel' });
-    sessionPanel.body.append(this.sessionEl, this.mainButtons);
-    this.cardsEl = h('div', { class: 'cards', attrs: { role: 'group', 'aria-label': 'Modes' } });
-    const modesHead = h('div', { class: 'modes-head' }, [h('h2', { class: 'fl-panel-title', text: 'Modes' }), h('span', { class: 'modes-hint', text: 'Press 1–9 to start one' })]);
-    const mainHead = h('header', { class: 'main-head' }, [wrapHtml(wordmark(34)), settingsBtn]);
-    const mainScreen = h('div', { class: 'screen screen-main' }, [
-      mainHead,
-      sessionPanel.el,
-      h('section', { class: 'modes' }, [modesHead, this.cardsEl]),
-      h('footer', { class: 'main-foot' }, [
-        this.rawNote(),
-        this.keysLine,
-      ]),
-    ]);
+    const mainPanel = panel({ class: 'main-panel' });
+    mainPanel.body.append(
+      h('div', { class: 'main-brand' }, [wrapHtml(wordmark(40))]),
+      h('p', { class: 'main-tag', text: this.cfg.tagline }),
+      h('div', { class: 'main-actions' }, [this.playBtn, dailyBtn, settingsBtn]),
+      this.rawNote(),
+      this.keysLine,
+    );
+    const mainScreen = h('div', { class: 'screen screen-main' }, [mainPanel.el]);
 
     // --- Pause ---
-    this.pauseTitle = h('h1', { class: 'pause-title', text: 'Paused' });
     this.pauseSub = h('p', { class: 'pause-sub' });
-    this.pauseSession = h('p', { class: 'pause-session' });
-    this.pauseSkip = button('Skip step', { variant: 'ghost', icon: 'skip', key: 'K', onClick: () => host.skipStep() });
     const pausePanel = panel({ class: 'pause-panel' });
     pausePanel.body.append(
       h('div', { class: 'pause-head' }, [wrapHtml(wordmark(20))]),
-      this.pauseTitle,
+      h('h1', { class: 'pause-title', text: 'Paused' }),
       this.pauseSub,
       h('div', { class: 'pause-actions', attrs: { 'data-nav': 'list' } }, [
-        button('Resume', { variant: 'primary', icon: 'resume', key: 'Esc', onClick: () => host.resume() }),
-        (this.restartBtn = button('Restart', { icon: 'restart', key: 'Backspace', onClick: () => host.restart() })),
+        button('Click to resume', { variant: 'primary', icon: 'resume', key: 'Esc', onClick: () => host.resume() }),
+        (this.restartBtn = button('New run', { icon: 'restart', key: 'Backspace', onClick: () => host.newRun() })),
         button('Settings', { icon: 'settings', key: 'S', onClick: () => this.openSettings() }),
         button('Menu', { icon: 'menu', key: 'M', onClick: () => host.toMenu() }),
       ]),
-      this.pauseSession,
-      this.pauseSkip,
     );
     const pauseScreen = h('div', { class: 'screen screen-pause' }, [pausePanel.el]);
 
@@ -205,11 +188,11 @@ export class Menu {
     return c === undefined ? '—' : keyLabel(c);
   }
 
-  /** Controls reminder and the Restart hint, from the current bindings. */
+  /** Controls reminder and the New run hint, from the current bindings. */
   private renderKeyHints(): void {
     const n = (a: KeyAction): string => this.keyName(a);
     this.keysLine.textContent =
-      `${n('forward')}${n('left')}${n('back')}${n('right')} move · ${n('jump')} jump · ${n('crouch')} crouch · ${n('walk')} walk · LMB shoot · ${n('reload')} reload · ${n('restart')} restart · Esc menu`;
+      `${n('forward')}${n('left')}${n('back')}${n('right')} move · ${n('jump')} jump · ${n('crouch')} crouch · ${n('walk')} walk · LMB shoot · ${n('reload')} reload · ${n('restart')} new run · Esc pause`;
     const kbd = this.restartBtn.querySelector('.fl-kbd');
     if (kbd) kbd.textContent = n('restart');
     if (this.open && this.screen === 'pause') this.renderPause();
@@ -223,11 +206,11 @@ export class Menu {
     for (const chip of this.chips) chip.setAttribute('aria-pressed', String(chip.dataset.chip === picked));
   }
 
-  /** Rebuild what the main and pause screens show (cards, bests, session) if they are on screen. */
+  /** Rebuild what the pause screen (the run in progress) and the main screen (the Daily Route's day best) show, if on screen. */
   refresh(): void {
     if (!this.open) return;
-    if (this.screen === 'main') this.renderMain();
-    else if (this.screen === 'pause') this.renderPause();
+    if (this.screen === 'pause') this.renderPause();
+    else if (this.screen === 'main') this.renderDaily();
   }
 
   /** Go to a base screen (the pointer lock changed): the first-run panel, the landing menu or the pause menu. */
@@ -242,8 +225,8 @@ export class Menu {
     // The sensitivity fields live in the first-run panel on that screen and in the Mouse tab otherwise.
     const home = screen === 'firstRun' ? this.firstRunHost : this.settingsBasicsHome;
     if (this.settingsPanel.basics.parentElement !== home) home.prepend(this.settingsPanel.basics);
-    if (screen === 'main') this.renderMain();
-    else if (screen === 'pause') this.renderPause();
+    if (screen === 'pause') this.renderPause();
+    if (screen === 'main') this.renderDaily();
     if (this.open) this.focusDefault();
   }
 
@@ -279,72 +262,16 @@ export class Menu {
 
   // --- Screens -------------------------------------------------------------------------------
 
-  private renderMain(): void {
-    const cards = this.host.cards();
-    const view = this.host.session();
-    this.lastView = view;
-    this.cardEls = [];
-    this.cardsEl.replaceChildren();
-    if (cards.length === 0) this.cardsEl.append(h('p', { class: 'cards-empty', text: this.cfg.emptyModes }));
-    cards.forEach((c, i) => {
-      const card = h('button', {
-        class: 'fl-card',
-        attrs: { type: 'button', 'data-mode': c.id, 'aria-label': `${c.name}. ${c.skillLabel}. Best ${c.bestText}. ${c.matchedText}` },
-      });
-      const skillIcon = c.skill;
-      card.innerHTML = `
-        <span class="card-top">${icon(skillIcon, 20)}<span class="card-skill"></span>${i < 9 ? '<kbd class="fl-kbd"></kbd>' : ''}</span>
-        <span class="card-name"></span>
-        <span class="card-blurb"></span>
-        <span class="card-foot">
-          <span class="card-best"><span class="k">BEST</span><span class="v"></span></span>
-          <span class="card-match"></span>
-        </span>`;
-      card.querySelector('.card-skill')!.textContent = c.skillLabel;
-      const kbd = card.querySelector('.fl-kbd');
-      if (kbd) kbd.textContent = String(i + 1);
-      card.querySelector('.card-name')!.textContent = c.name;
-      card.querySelector('.card-blurb')!.textContent = c.blurb;
-      const best = card.querySelector('.card-best .v') as HTMLElement;
-      best.textContent = c.bestText;
-      best.dataset.empty = String(c.best === null);
-      const match = card.querySelector('.card-match') as HTMLElement;
-      match.textContent = c.matchedText;
-      if (c.matchedText) card.title = this.cfg.matchedHint;
-      card.addEventListener('click', () => this.host.launchMode(c.id));
-      this.cardsEl.append(card);
-      this.cardEls.push(card);
-    });
-    this.renderSteps(this.sessionEl, view);
-    this.playBtn.querySelector('.fl-btn-label')!.textContent = view.active ? 'Continue today’s session' : 'Play today’s session';
-    this.skipBtn.hidden = !view.active;
-  }
-
-  private renderSteps(into: HTMLElement, view: SessionView): void {
-    into.replaceChildren();
-    if (view.steps.length === 0) {
-      into.append(h('p', { class: 'session-empty', text: 'Free play: no modes are registered yet.' }));
-      return;
-    }
-    view.steps.forEach((s, i) => {
-      const step = h('div', { class: `session-step is-${s.state}`, attrs: { title: s.reason } }, [
-        h('span', { class: 'step-n', text: String(i + 1) }),
-        h('span', { class: 'step-body' }, [h('span', { class: 'step-name', text: s.name }), h('span', { class: 'step-why', text: s.reason })]),
-      ]);
-      into.append(step);
-    });
-    if (view.progressText) into.append(h('span', { class: 'session-progress', text: view.progressText }));
+  /** The Daily Route button's line: the date and the day best, read when the main menu shows (so it follows local midnight). */
+  private renderDaily(): void {
+    const d = this.host.daily();
+    this.dailyNote.textContent = `${d.label} · ${d.best === null ? 'no run yet' : `day best ${d.best.toLocaleString('en-US')}`}`;
   }
 
   private renderPause(): void {
     const label = this.host.runLabel();
-    const view = this.host.session();
-    this.lastView = view;
     const restart = this.keyName('restart');
-    this.pauseSub.textContent = label ? `${label} · ${restart} restarts` : `${restart} restarts`;
-    this.pauseSession.textContent = view.active ? `Today’s session · ${view.progressText}` : '';
-    this.pauseSession.hidden = !view.active;
-    this.pauseSkip.hidden = !view.active;
+    this.pauseSub.textContent = label ? `${label} · ${restart} starts a new run` : `${restart} starts a new run`;
   }
 
   /** Show the settings screen; Back returns to the screen it was opened from. */
@@ -395,20 +322,22 @@ export class Menu {
       runPhase: this.host.runPhase(),
       typing,
       onButton: a instanceof HTMLButtonElement && this.el.contains(a),
-      sessionActive: this.lastView.active,
     };
   }
 
   private perform(a: NavAction): void {
     switch (a.type) {
-      case 'playSession':
-        this.host.playSession();
+      case 'play':
+        this.host.play();
+        break;
+      case 'playDaily':
+        this.host.playDaily();
         break;
       case 'resume':
         this.host.resume();
         break;
-      case 'restart':
-        this.host.restart();
+      case 'newRun':
+        this.host.newRun();
         break;
       case 'openSettings':
         this.openSettings();
@@ -419,55 +348,22 @@ export class Menu {
       case 'toMenu':
         this.host.toMenu();
         break;
-      case 'skipStep':
-        this.host.skipStep();
-        break;
-      case 'launchCard': {
-        const c = this.cardEls[a.index];
-        if (c) this.host.launchMode(c.dataset.mode!);
-        break;
-      }
     }
   }
 
-  /** Arrow keys move the focus: over the card grid, along the top buttons, down the pause list. */
+  /** Arrow keys move the focus: down the pause list, and between Play and Settings on the main screen. */
   private readonly onArrowKey = (e: KeyboardEvent): void => {
     if (!this.open || !e.key.startsWith('Arrow')) return;
     const a = document.activeElement as HTMLElement | null;
     if (!a || a instanceof HTMLInputElement || a instanceof HTMLSelectElement || a.closest('.fl-tabs')) return;
     let items: HTMLElement[] = [];
-    let cols = 1;
-    if (this.screen === 'pause') {
-      items = Array.from(this.screens.pause.querySelectorAll<HTMLElement>('.pause-actions button'));
-    } else if (this.screen === 'main') {
-      const top = [this.playBtn, this.skipBtn, this.screens.main.querySelector<HTMLElement>('.main-head .fl-btn')!].filter((b) => !b.hidden);
-      if (top.includes(a)) {
-        const i = top.indexOf(a);
-        if (e.key === 'ArrowRight' && i < top.length - 1) top[i + 1]!.focus();
-        else if (e.key === 'ArrowLeft' && i > 0) top[i - 1]!.focus();
-        else if (e.key === 'ArrowDown') (this.cardEls[0] ?? a).focus();
-        else return;
-        e.preventDefault();
-        return;
-      }
-      items = this.cardEls;
-      cols = this.columns();
-      const idx = items.indexOf(a as HTMLButtonElement);
-      if (idx >= 0 && e.key === 'ArrowUp' && idx < cols) {
-        this.playBtn.focus();
-        e.preventDefault();
-        return;
-      }
-    }
+    if (this.screen === 'pause') items = Array.from(this.screens.pause.querySelectorAll<HTMLElement>('.pause-actions button'));
+    else if (this.screen === 'main') items = Array.from(this.screens.main.querySelectorAll<HTMLElement>('.main-actions button'));
     const idx = items.indexOf(a);
     if (idx < 0) return;
-    const next = gridMove(idx, e.key, cols, items.length);
-    if (next !== idx) {
-      items[next]!.focus();
-      e.preventDefault();
-    } else if (e.key.startsWith('Arrow')) {
-      e.preventDefault();
-    }
+    const next = gridMove(idx, e.key, this.screen === 'main' ? items.length : 1, items.length);
+    if (next !== idx) items[next]!.focus();
+    e.preventDefault();
   };
 
   /** The menus are laid out for 1280 x 720; larger windows scale them up to 2x so they stay readable (like the results card). */
@@ -475,18 +371,6 @@ export class Menu {
     const z = Math.max(1, Math.min(2, Math.min(window.innerWidth / 1280, window.innerHeight / 720)));
     this.el.style.setProperty('--menu-zoom', z.toFixed(3));
   };
-
-  /** Cards per row, read from the layout (the first row is the cards that share the first card's top). */
-  private columns(): number {
-    const first = this.cardEls[0];
-    if (!first) return 1;
-    let n = 0;
-    for (const c of this.cardEls) {
-      if (c.offsetTop !== first.offsetTop) break;
-      n++;
-    }
-    return Math.max(1, n);
-  }
 
   private focusDefault(): void {
     const target =

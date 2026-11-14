@@ -220,6 +220,16 @@ describe('buildCard', () => {
     expect(buildCard(input({ pb: 12000, stats: stats({ endReason: 'quit' }) })).pbKind).toBe('none');
   });
 
+  it('the Daily Route compares with the day best instead of the run best, and the header names its day (#208)', () => {
+    const day = (p: Partial<Parameters<typeof buildCard>[0]> = {}) => input({ stats: stats({ mode: 'sweep' }), daily: '2026-11-15', ...p });
+    expect(buildCard(day({ pb: null }))).toMatchObject({ pbKind: 'first', pbLabel: 'New day best', daily: '2026-11-15', modeLabel: 'Daily Route · Sun 15 Nov' });
+    expect(buildCard(day({ pb: 12000 }))).toMatchObject({ pbKind: 'beat', pbLabel: 'New day best +345' });
+    expect(buildCard(day({ pb: 13000 }))).toMatchObject({ pbKind: 'none', pbLabel: '−655 vs day best' });
+    // An ordinary Sweep run keeps the run best and no date; a drill never claims a daily.
+    expect(buildCard(input({ stats: stats({ mode: 'sweep' }), pb: 13000 }))).toMatchObject({ pbLabel: '−655 vs best run', daily: null });
+    expect(buildCard(input({ pb: 13000, daily: '2026-11-15' })).daily).toBeNull();
+  });
+
   it('shows a dash for the PB delta without a PB, and tones the delta with one', () => {
     expect(buildCard(input()).pbText).toBe(DASH);
     expect(buildCard(input({ score: null })).pbTone).toBe('none');
