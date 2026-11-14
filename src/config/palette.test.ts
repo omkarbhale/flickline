@@ -80,7 +80,8 @@ describe('Echo against the environment (>= 7:1)', () => {
     const echoL = relativeLuminance(palette.ember);
     const trimL = relativeLuminance(palette.trim);
     const g = render.grid;
-    const strongest = Math.max(render.trim.intensity, g.minorWeight, g.majorWeight, g.tickWeight);
+    const m = render.trim.marks;
+    const strongest = Math.max(render.trim.intensity, g.minorWeight, g.majorWeight, g.tickWeight, m.tick, m.major, m.line);
     expect(strongest * trimL).toBeLessThan(echoL);
   });
 });

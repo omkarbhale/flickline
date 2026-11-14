@@ -21,6 +21,7 @@ import { env, palette } from '../config/palette';
 import { QUALITY_LEVELS, type QualityLevel } from '../config/render';
 import type { Tunables } from '../config/tunables';
 import type { SimEvents } from '../sim/types';
+import type { MapDef } from '../sim/mapTypes';
 import type { World } from '../sim/world';
 import { ShotEffects } from './effects';
 import { BlobShadows } from './blobShadows';
@@ -143,11 +144,19 @@ export class GameRenderer {
     this.post.setSize(Math.floor(this.width * pr), Math.floor(this.height * pr), p.antialias ? 4 : 0);
   }
 
-  /** Build visuals for a level and its targets. */
-  loadLevel(world: World): void {
+  /**
+   * Build visuals for a level and its targets. With a `MapDef`, also applies its fog range and
+   * floor markings (its sky/fog colours and palette name are superseded by the Lightline palette).
+   */
+  loadLevel(world: World, map?: MapDef): void {
     this.level?.dispose();
     if (this.level) this.scene.remove(this.level.root);
-    this.level = buildLevelMesh(world.level, this.envUniforms, this.tunables.render);
+    if (map) {
+      // Lightline owns the colours (one palette, design section 11); a map only sets how far the fog reaches.
+      this.fog.near = map.look.fog[0];
+      this.fog.far = map.look.fog[1];
+    }
+    this.level = buildLevelMesh(world.level, this.envUniforms, this.tunables.render, { marks: map?.marks });
     this.scene.add(this.level.root);
     this.blobs.setLevel(world.level.boxes);
     this.applyQuality();

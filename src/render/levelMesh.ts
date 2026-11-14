@@ -9,11 +9,17 @@ import {
   LineSegments,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
+  PlaneGeometry,
+  Quaternion,
+  Vector3,
   type Object3D,
   type ShaderMaterial,
 } from 'three';
-import { env } from '../config/palette';
+import { scaleLinear } from '../core/color';
+import { env, palette } from '../config/palette';
 import type { RenderTunables } from '../config/render';
+import type { FloorMark } from '../sim/mapTypes';
 import type { BoxTag, LevelDef } from '../sim/types';
 import { trimSegments } from './envLayout';
 import { createBoxMaterial, createFloorMaterial, type EnvUniforms } from './envShaders';
@@ -24,7 +30,19 @@ const TAG_COLORS: Record<BoxTag, number> = {
   wall: env.wall,
   crate: env.cover,
   platform: env.platform,
+  cover: env.cover,
+  pillar: env.platform,
+  panel: env.cover,
+  ceiling: env.wall,
 };
+
+/** Floor markings are thin lines of light: trim colour at a weight, never brighter than an Echo. */
+const MARK_LIFT = 0.012; // marks float this far above the floor to avoid z-fighting
+
+export interface LevelMeshOptions {
+  /** Flat floor markings (distance ticks, start lines). Visual only. */
+  marks?: readonly FloorMark[];
+}
 
 export interface LevelMesh {
   root: Object3D;
@@ -35,7 +53,12 @@ export interface LevelMesh {
  * Static level visuals in the Lightline style, no textures. Draw calls: one InstancedMesh for all
  * non-floor boxes, one merged grid-floor mesh, one LineSegments for every trim edge.
  */
-export function buildLevelMesh(level: LevelDef, uniforms: EnvUniforms, r: RenderTunables): LevelMesh {
+export function buildLevelMesh(
+  level: LevelDef,
+  uniforms: EnvUniforms,
+  r: RenderTunables,
+  options: LevelMeshOptions = {},
+): LevelMesh {
   const root = new Group();
   const disposables: { dispose(): void }[] = [];
 
@@ -109,10 +132,44 @@ export function buildLevelMesh(level: LevelDef, uniforms: EnvUniforms, r: Render
     root.add(lines);
   }
 
+  const marks = options.marks ?? [];
+  const markColors = {
+    tick: scaleLinear(palette.trim, r.trim.marks.tick),
+    major: scaleLinear(palette.trim, r.trim.marks.major),
+    line: scaleLinear(palette.trim, r.trim.marks.line),
+  };
+  let markGeo: PlaneGeometry | null = null;
+  let markMat: MeshBasicMaterial | null = null;
+  let markMesh: InstancedMesh | null = null;
+  if (marks.length > 0) {
+    markGeo = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2); // lies in XZ, local X = stripe length
+    markMat = new MeshBasicMaterial({ color: 0xffffff, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    markMesh = new InstancedMesh(markGeo, markMat, marks.length);
+    const pos = new Vector3();
+    const quat = new Quaternion();
+    const scale = new Vector3();
+    const up = new Vector3(0, 1, 0);
+    marks.forEach((mk, i) => {
+      const dx = mk.b.x - mk.a.x, dz = mk.b.z - mk.a.z;
+      pos.set((mk.a.x + mk.b.x) / 2, (mk.a.y + mk.b.y) / 2 + MARK_LIFT, (mk.a.z + mk.b.z) / 2);
+      quat.setFromAxisAngle(up, -Math.atan2(dz, dx));
+      scale.set(Math.hypot(dx, dz), 1, mk.width);
+      markMesh!.setMatrixAt(i, m.compose(pos, quat, scale));
+      markMesh!.setColorAt(i, col.setHex(markColors[mk.kind]));
+    });
+    markMesh.instanceMatrix.needsUpdate = true;
+    if (markMesh.instanceColor) markMesh.instanceColor.needsUpdate = true;
+    markMesh.matrixAutoUpdate = false;
+    root.add(markMesh);
+  }
+
   return {
     root,
     dispose() {
       for (const d of disposables) d.dispose();
+      markGeo?.dispose();
+      markMat?.dispose();
+      markMesh?.dispose();
     },
   };
 }
