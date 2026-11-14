@@ -239,6 +239,10 @@ export interface ModeContext<S = unknown> {
    * Returns false for an unknown map.
    */
   loadMap(id: string): boolean;
+  /** Fill the player's shield up to `to` (Sweep's Shield door); returns what was added (0 when it was already there). */
+  refillShield(to: number): number;
+  /** Put another primary weapon in the player's primary slot and in hand (Sweep's Arms door); false when it is not a primary. */
+  setPrimary(weaponId: string): boolean;
   /** End the run (`death`, `complete`, `quit`, `left`; the timer ends it by itself). */
   end(reason: RunEndReason): void;
 }

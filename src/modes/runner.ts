@@ -27,6 +27,10 @@ export interface RunnerDeps {
   vitals?: VitalsView;
   /** Load another map mid-run, returning the anchors of the new one (null: unknown map). Absent: `loadMap` fails. */
   loadMap?: (id: string) => AnchorSource | null;
+  /** Fill the player's shield up to a value (a Shield door); returns what was added. Absent: nothing happens. */
+  refillShield?: (to: number) => number;
+  /** Swap the player's primary weapon for another (an Arms door); false when it cannot be done. Absent: it cannot. */
+  setPrimary?: (weaponId: string) => boolean;
 }
 
 const FULL_VITALS: VitalsView = { hp: 100, maxHp: 100, shield: 0, maxShield: 0, alive: true };
@@ -303,6 +307,14 @@ export class ModeRunner implements ModeContext<unknown> {
     if (!anchors) return false;
     this.scheduler.setAnchors(anchors);
     return true;
+  }
+
+  refillShield(to: number): number {
+    return this.deps.refillShield?.(to) ?? 0;
+  }
+
+  setPrimary(weaponId: string): boolean {
+    return this.deps.setPrimary?.(weaponId) ?? false;
   }
 
   spawn(kind: EnemyKind, pos: Vec3, opts?: SpawnOptions): number {

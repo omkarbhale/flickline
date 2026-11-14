@@ -152,6 +152,8 @@ export class ModeHost {
       placePlayer: (x, y, z, yaw) => this.placePlayer(x, y, z, yaw),
       vitals: world.health,
       loadMap: (mapId) => (this.loadMap(mapId) ? this.anchors : null),
+      refillShield: (to) => this.world.refillShield(to, this.bus),
+      setPrimary: (id) => this.setPrimary(id),
     });
     this.runner.attach(bus);
     this.anchors = this.anchorsOf(map);
@@ -199,6 +201,15 @@ export class ModeHost {
     this.mapEv.mapId = next.id;
     this.bus.emit('mapLoaded', this.mapEv);
     return true;
+  }
+
+  /** An Arms door (design §4.5): the named primary takes the primary slot (the sidearm stays) and goes in hand. */
+  private setPrimary(id: string): boolean {
+    const w = this.world;
+    if (this.tunables.weapon[id as WeaponId]?.slotClass !== 'primary') return false;
+    if (w.loadout[0] === id) return true;
+    if (!w.setLoadout({ primary: id, sidearm: w.loadout[1]! }).ok) return false;
+    return w.equipWeapon(id as WeaponId);
   }
 
   start(id: string, opts: Partial<RunOptions> = {}): boolean {

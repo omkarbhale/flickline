@@ -25,7 +25,7 @@ export interface HudClock {
 
 type LiveHudEvents = Pick<
   SimEvents,
-  'shotFired' | 'targetHit' | 'targetKilled' | 'reloadStarted' | 'reloadCompleted' | 'reloadCancelled' | 'weaponSwitched' | 'playerDamaged' | 'playerHealed'
+  'shotFired' | 'targetHit' | 'targetKilled' | 'reloadStarted' | 'reloadCompleted' | 'reloadCancelled' | 'weaponSwitched' | 'playerDamaged' | 'playerHealed' | 'playerShielded'
 > &
   Pick<ModeEvents, 'runReady' | 'runStarted' | 'runEnded' | 'scoreAwarded' | 'chainUpdated' | 'streakUpdated'> &
   SettingsEvents;
@@ -204,6 +204,7 @@ export class LiveHud {
       restart(this.hpBars, 'lh-hit');
     });
     bus.on('playerHealed', (e) => this.setHp(e.hp, e.maxHp, this.shNow, this.shMax));
+    bus.on('playerShielded', (e) => this.setHp(e.hp, e.maxHp, e.shield, e.maxShield));
     bus.on('runReady', () => this.onRunReady());
     bus.on('runStarted', () => { this.paceDirty = true; });
     bus.on('runEnded', () => { this.paceDirty = true; });

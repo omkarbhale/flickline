@@ -1,3 +1,4 @@
+import { GATE_POLICIES, type GatePolicy } from './gatePolicy';
 import { HeadlessGame } from './headless';
 import { playMode } from './play';
 
@@ -22,6 +23,8 @@ export interface SweepRunFacts {
   kills: number;
   /** Cards dealt, in order. */
   cards: string[];
+  /** Stakes of the sectors entered through a door, in order (design §4.5). */
+  stakes: string[];
 }
 
 export interface SweepSkillRow {
@@ -42,15 +45,16 @@ export interface SweepSkillRow {
 }
 
 /** One seeded run at one skill, with the sweep facts taken from the bus. */
-export function sweepRun(skill: number, seed: number, pinDial?: number): SweepRunFacts {
+export function sweepRun(skill: number, seed: number, pinDial?: number, gatePolicy?: GatePolicy): SweepRunFacts {
   const g = new HeadlessGame({ seed });
   const f: SweepRunFacts = {
     seed, endReason: null, reached: 0, sectors: 0, ehpAtExit: [], contacts: { cleared: 0, disengaged: 0, avoided: 0, died: 0 },
-    liveSec: 0, score: 0, kills: 0, cards: [],
+    liveSec: 0, score: 0, kills: 0, cards: [], stakes: [],
   };
   g.bus.on('sectorEntered', (e) => {
     f.reached = e.index + 1;
     f.sectors = e.of;
+    if (e.index > 0) f.stakes.push(e.stake);
   });
   g.bus.on('sectorEnded', (e) => {
     if (e.reason === 'exit') f.ehpAtExit[e.index] = g.world.health.hp + g.world.health.shield;
@@ -59,7 +63,7 @@ export function sweepRun(skill: number, seed: number, pinDial?: number): SweepRu
     f.contacts[e.outcome]++;
     if (e.card) f.cards.push(e.card);
   });
-  const r = playMode(g, { mode: 'sweep', skill, seed, pinDial });
+  const r = playMode(g, { mode: 'sweep', skill, seed, pinDial, gatePolicy });
   f.endReason = r.stats.endReason;
   f.liveSec = r.stats.liveSec;
   f.score = r.modeRun?.score ?? 0;
@@ -67,12 +71,12 @@ export function sweepRun(skill: number, seed: number, pinDial?: number): SweepRu
   return f;
 }
 
-export function sweepReport(skills: readonly number[], runs: number, firstSeed = 1, pinDial?: number): { rows: SweepSkillRow[]; runs: SweepRunFacts[] } {
+export function sweepReport(skills: readonly number[], runs: number, firstSeed = 1, pinDial?: number, gatePolicy?: GatePolicy): { rows: SweepSkillRow[]; runs: SweepRunFacts[] } {
   const all: SweepRunFacts[] = [];
   const rows: SweepSkillRow[] = [];
   for (const skill of skills) {
     const list: SweepRunFacts[] = [];
-    for (let i = 0; i < runs; i++) list.push(sweepRun(skill, firstSeed + i, pinDial));
+    for (let i = 0; i < runs; i++) list.push(sweepRun(skill, firstSeed + i, pinDial, gatePolicy));
     all.push(...list);
     let won = 0, fought = 0, reached = 0, finished = 0, live = 0, score = 0;
     const ehpSum: number[] = [], ehpN: number[] = [];
@@ -115,6 +119,73 @@ export function formatSweepReport(rows: readonly SweepSkillRow[]): string[] {
     const ehp = [0, 1, 2, 3].map((k) => (r.exitsSeen[k] ? `${r.meanEhpAtExit[k]!.toFixed(0)} (n ${r.exitsSeen[k]})` : '—')).join(' / ');
     out.push(
       `| ${r.skill} | ${r.runs} | ${(r.contactWinRate * 100).toFixed(0)} % | ${r.contactsPerRun.toFixed(1)} | ${r.meanReached.toFixed(2)} | ${(r.finishedShare * 100).toFixed(0)} % | ${ehp} | ${r.meanLiveSec.toFixed(1)} | ${r.meanScore.toFixed(0)} |`,
+    );
+  }
+  return out;
+}
+
+/** One policy at one skill over seeded runs (#205): what the gate choice is worth. */
+export interface GatePolicyRow {
+  policy: string;
+  skill: number;
+  runs: number;
+  meanScore: number;
+  /** Mean sectors entered (depth reached, of the run's sectors) and the share that left through the last exit. */
+  meanDepth: number;
+  finishedShare: number;
+  /** Share of the sectors entered through a door that carried each stake. */
+  stakeShare: Record<string, number>;
+  /** Mean score difference to the same seeds under the first policy of the report, and its standard error (paired by seed). */
+  deltaScore: number;
+  deltaScoreSe: number;
+  deltaDepth: number;
+}
+
+/** The three policies of `gatePolicy.ts` over the same seeds at each skill. The first policy is the baseline of the deltas. */
+export function gatePolicyReport(
+  skills: readonly number[], runs: number, firstSeed = 1, policies: readonly string[] = ['hot', 'read', 'facts', 'left'], pinDial?: number,
+): GatePolicyRow[] {
+  const rows: GatePolicyRow[] = [];
+  for (const skill of skills) {
+    let base: SweepRunFacts[] = [];
+    policies.forEach((name, pi) => {
+      const policy = GATE_POLICIES[name];
+      if (!policy) throw new Error(`unknown gate policy '${name}' (known: ${Object.keys(GATE_POLICIES).join(', ')})`);
+      const list: SweepRunFacts[] = [];
+      for (let i = 0; i < runs; i++) list.push(sweepRun(skill, firstSeed + i, pinDial, policy));
+      if (pi === 0) base = list;
+      const n = list.length || 1;
+      const stakeShare: Record<string, number> = { shield: 0, arms: 0, hot: 0, plain: 0 };
+      let stakes = 0;
+      for (const f of list) for (const k of f.stakes) { stakeShare[k] = (stakeShare[k] ?? 0) + 1; stakes++; }
+      for (const k of Object.keys(stakeShare)) stakeShare[k] = stakes ? stakeShare[k]! / stakes : 0;
+      const diffs = list.map((f, i) => f.score - base[i]!.score);
+      const mean = diffs.reduce((a, b) => a + b, 0) / n;
+      const varr = diffs.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, n - 1);
+      rows.push({
+        policy: name, skill, runs: list.length,
+        meanScore: list.reduce((a, f) => a + f.score, 0) / n,
+        meanDepth: list.reduce((a, f) => a + f.reached, 0) / n,
+        finishedShare: list.filter((f) => f.endReason === 'left').length / n,
+        stakeShare,
+        deltaScore: mean,
+        deltaScoreSe: Math.sqrt(varr / n),
+        deltaDepth: list.reduce((a, f, i) => a + (f.reached - base[i]!.reached), 0) / n,
+      });
+    });
+  }
+  return rows;
+}
+
+export function formatGatePolicyReport(rows: readonly GatePolicyRow[]): string[] {
+  const out = [
+    '| Bot skill | Policy | Runs | Score | Depth (of 4) | Made it out | vs first policy: score (± s.e.) | vs first policy: depth | Doors taken: shield / arms / hot / plain |',
+    '|---|---|---|---|---|---|---|---|---|',
+  ];
+  for (const r of rows) {
+    const share = ['shield', 'arms', 'hot', 'plain'].map((k) => `${(r.stakeShare[k]! * 100).toFixed(0)} %`).join(' / ');
+    out.push(
+      `| ${r.skill} | ${r.policy} | ${r.runs} | ${r.meanScore.toFixed(0)} | ${r.meanDepth.toFixed(2)} | ${(r.finishedShare * 100).toFixed(0)} % | ${r.deltaScore >= 0 ? '+' : ''}${r.deltaScore.toFixed(0)} (± ${r.deltaScoreSe.toFixed(0)}) | ${r.deltaDepth >= 0 ? '+' : ''}${r.deltaDepth.toFixed(2)} | ${share} |`,
     );
   }
   return out;

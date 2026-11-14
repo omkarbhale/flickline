@@ -284,6 +284,11 @@ export class World implements EnemyWorld {
     this.targetField.enemyShield = Math.max(0, enemy);
   }
 
+  /** Fill the player's shield up to `to` (a Shield door, design §4.5); returns what was added and emits `playerShielded`. */
+  refillShield(to: number, events: EventSink<SimEvents>): number {
+    return this.healthSys.refillShield(to, this.tick, events);
+  }
+
   /**
    * The player takes `amount` of damage to `zone` from a shooter whose muzzle is at (`sx`, `sy`,
    * `sz`) (`sourceId` = the enemy id, or -1). Applies tagging, flinch and death and emits
