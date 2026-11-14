@@ -213,7 +213,8 @@ export function stepEnemyBody(t: TargetState, ctx: BehaviourContext): void {
   g.table = tun.weapon;
   g.rules = tun.weaponRules;
   g.move = tun.movement;
-  g.rng = ctx.rng;
+  // Its spread and recoil draws come from its own aim stream (#86): its shots never shift the world's draws or another Echo's.
+  g.rng = t.streams.aim;
   shooter = t;
   shooterCtx = ctx;
   stepWeapon(b.weapon, b.cmd, b.kin, g, ctx.tick, NULL_SINK, gunScratch);

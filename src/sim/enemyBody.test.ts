@@ -191,7 +191,10 @@ describe('an Echo\'s shots go through the player\'s weapon code (#87)', () => {
     // Away from the player (behind it at +Z), so the test is not cut short by a kill.
     t.body.cmd.yaw = 0;
     t.body.cmd.fire = true;
+    const worldDraws = world.rng.getState();
     for (let i = 0; i < TICK_RATE; i++) world.step(input, bus);
+    // Its spread and recoil came from its own aim stream (#86), not the world's.
+    expect(world.rng.getState()).toBe(worldDraws);
     const def = tun.weapon.kestrel;
     expect(shots.length).toBe(Math.ceil(def.fireRateHz));
     expect(t.body.weapon.recoilPitch).toBeGreaterThan(0);
@@ -200,8 +203,13 @@ describe('an Echo\'s shots go through the player\'s weapon code (#87)', () => {
     expect(shots.length).toBeGreaterThan(def.magazine);
   });
 
-  it('a moving Echo\'s shot has exactly the moving player\'s error (same state, same seed, same command)', () => {
-    /** Both sides run right for `runTicks`, then fire one shot looking down -Z; returns the bullet direction. */
+  it('a moving Echo\'s shot has exactly the moving player\'s error (same state, same draws, same command)', () => {
+    /**
+     * Both sides run right for `runTicks`, then fire one shot looking down -Z; returns the bullet
+     * direction. An Echo's gun draws from its own aim stream (#86): the player's shot is given the
+     * same numbers by starting the world's stream where that Echo's stream is.
+     */
+    const echoAimState = new Map<number, number>();
     const shoot = (side: 'player' | 'echo', runTicks: number): { x: number; y: number; z: number } => {
       // The player stands where the Echo would be and vice versa, so neither is in the other's line of fire.
       const s = setup(9, side === 'player' ? [0, 0, 0] : [0, 0, 40], side === 'player' ? [0, 0, 40] : [0, 0, 0]);
@@ -214,13 +222,15 @@ describe('an Echo\'s shots go through the player\'s weapon code (#87)', () => {
       cmd.pitch = 0;
       cmd.moveX = 1;
       for (let i = 0; i < runTicks; i++) s.world.step(s.input, s.bus);
+      if (side === 'echo') echoAimState.set(runTicks, s.t.streams.aim.getState());
+      else s.world.rng.setState(echoAimState.get(runTicks)!);
       cmd.fire = true;
       s.world.step(s.input, s.bus);
       return out;
     };
     for (const runTicks of [0, 6, 64]) {
-      const p = shoot('player', runTicks);
       const e = shoot('echo', runTicks);
+      const p = shoot('player', runTicks);
       expect(e.x, `${runTicks} ticks`).toBeCloseTo(p.x, 12);
       expect(e.y).toBeCloseTo(p.y, 12);
       expect(e.z).toBeCloseTo(p.z, 12);
