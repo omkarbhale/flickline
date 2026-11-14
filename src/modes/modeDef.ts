@@ -1,0 +1,119 @@
+import type { Rng } from '../core/rng';
+import type { Vec3 } from '../core/vec3';
+import type { Tunables } from '../config/tunables';
+import type { EnemyKind } from '../config/scoring';
+import type {
+  AxisId, AxisValues, ModeId, ModeRef, PlayerView, RunEndReason, SkillId, SourceEvents, TrialExtra, WaveCurve,
+} from './contracts';
+import type { SpawnScheduler } from './scheduler';
+
+/**
+ * The mode contract (design §4 intro): a mode is data plus a small scheduler. It never owns
+ * rendering, input or audio; it places targets through the context, reacts to facts, and the
+ * framework does the rest (run timing, beats and the dial, scoring, streaks, `skillTrial`).
+ */
+export interface ModeDef<S = unknown> extends ModeRef {
+  /** Trained skills; `skills[0]` is the default skill of a trial. Sweep lists all seven. */
+  readonly skills: readonly SkillId[];
+  /** Map id (e.g. `range`). The framework does not load maps; the app does. */
+  readonly map: string;
+  /** Weapon id (e.g. `kestrel`). */
+  readonly weapon: string;
+  /** Live-phase length in seconds; `Infinity` = the mode ends the run itself (`ctx.end`). */
+  readonly durationSec: number;
+  /** Difficulty axes (design §9.4 ids) this mode uses; they define each item's difficulty. */
+  readonly axes: readonly AxisId[];
+  /** Beat length in seconds (default `tunables.modes.beatSec`); `null` = the mode calls `ctx.advanceBeat()`. */
+  readonly beatSec?: number | null;
+  /** Pre-planned dial offsets per beat (warm-up, peaks, breathers); default flat. */
+  readonly waveCurve?: WaveCurve;
+  /** Par time in seconds for the speed term of a kill (default `scoring.defaultParSec`). */
+  parSec?(kind: EnemyKind, axes: AxisValues): number;
+
+  /** Build the mode's state when the run is readied. Targets are not live yet. */
+  setup(ctx: ModeContext<S>): S;
+  /** Called once per sim tick while the run is live (after the framework's own bookkeeping). */
+  tick(ctx: ModeContext<S>): void;
+  /** Called for each fact the framework reads from the sim, after counters are updated. */
+  onEvent(ctx: ModeContext<S>, ev: ModeEvent): void;
+}
+
+/** One sim fact. The runner reuses these wrapper objects: copy what you keep. */
+export type ModeEvent = { [K in keyof SourceEvents]: { type: K; payload: SourceEvents[K] } }[keyof SourceEvents];
+
+export interface SpawnOptions {
+  /** ×real head size (default 1). Floored at `modes.floors.minHeadScale`. */
+  scale?: number;
+  /** Seconds until the target leaves unkilled (a failed trial). Floored at `modes.floors.minExposureSec`. */
+  lifetimeSec?: number;
+  /** Skill of the trial this target produces (default `mode.skills[0]`). */
+  skill?: SkillId;
+  /** Item difficulty override (default: the beat's, derived from the axis values in force). */
+  difficulty?: number;
+}
+
+export interface ResolveOptions {
+  rtMs?: number;
+  extra?: TrialExtra;
+}
+
+export interface RunStats {
+  score: number;
+  kills: number;
+  headshotKills: number;
+  misses: number;
+  trials: number;
+  trialsWon: number;
+}
+
+export type RunPhase = 'idle' | 'ready' | 'live' | 'result';
+
+/** What a mode may read and do. Everything else about the run belongs to the framework. */
+export interface ModeContext<S = unknown> {
+  readonly mode: ModeDef<S>;
+  readonly seed: number;
+  /** The run's seeded stream: use it for every random choice, never `Math.random`. */
+  readonly rng: Rng;
+  readonly tunables: Tunables;
+  readonly player: PlayerView;
+  /** Anchor picker bound to the run's rng and the player. */
+  readonly scheduler: SpawnScheduler;
+  state: S;
+
+  readonly phase: RunPhase;
+  /** Live ticks completed before this one (0 on the first live tick). */
+  readonly liveTick: number;
+  /** Seconds since the run went live. */
+  readonly timeSec: number;
+  readonly remainingSec: number;
+
+  /** Beat index, dial and axis values in force. These change ONLY at beat boundaries. */
+  readonly beat: number;
+  readonly dial: number;
+  readonly axes: AxisValues;
+  /** Difficulty (dial scale) of an item spawned now, derived from the axis values in force. */
+  readonly itemDifficulty: number;
+
+  readonly stats: Readonly<RunStats>;
+  readonly cleanStreak: number;
+  readonly chain: number;
+
+  /** Create a target at `pos` with fairness floors applied; returns its id or -1 if refused (too close, pool full). */
+  spawn(kind: EnemyKind, pos: Vec3, opts?: SpawnOptions): number;
+  /** Remove a target without resolving it. */
+  despawn(id: number): void;
+  /**
+   * Decide the trial of a target yourself (default: killed = success, expired = failure). Emits
+   * `skillTrial` once per target; a failure also breaks the clean streak. Returns false if the
+   * target is unknown or already resolved.
+   */
+  resolveTrial(id: number, success: boolean, opts?: ResolveOptions): boolean;
+  /** Manual-beat modes (`beatSec: null`): start the next beat now (calls the dial module). */
+  advanceBeat(): void;
+  /** Surge multiplier hook (the meter itself is the Sweep work). */
+  setSurge(on: boolean): void;
+  /** End the run (`death`, `complete`, `quit`; the timer ends it by itself). */
+  end(reason: RunEndReason): void;
+}
+
+export type { ModeId };

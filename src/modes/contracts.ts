@@ -1,0 +1,140 @@
+import type { Vec3 } from '../core/vec3';
+import type { EnemyKind } from '../config/scoring';
+import type { StreakEvents } from '../feedback/streaks';
+
+/**
+ * Everything the mode framework needs from the rest of the game, as typed contracts. The pieces
+ * on the other side (#13 run state and events, #15 enemies, #16 maps, #17 skill model) land in
+ * parallel; when they do they only have to satisfy these interfaces. If a landed type differs,
+ * adapt it HERE (this is the single seam), not in the framework.
+ */
+
+export type { EnemyKind };
+
+/** The seven trained skills of design §3. */
+export type SkillId = 'precision' | 'flick' | 'track' | 'footwork' | 'spray' | 'switch' | 'angles';
+export type ModeId = string;
+
+/**
+ * A difficulty axis id from design §9.4 (e.g. `beaconScale`, `distance`, `flickAngleMin`,
+ * `flickAngleMax`, `strafeSpeed`, `exposure`, `tell`, `density`). The dial module (#17) owns the
+ * table; modes name the axes they use.
+ */
+export type AxisId = string;
+/** Concrete axis values for one dial value, as returned by the dial module's `axes(dial)`. */
+export type AxisValues = Readonly<Record<AxisId, number>>;
+
+/** What `dialFor` needs to know about a mode (any `ModeDef` satisfies it). */
+export interface ModeRef {
+  readonly id: ModeId;
+  readonly skills: readonly SkillId[];
+  /** Target success rate for the dial (design §9.3: 0.70 by default, Cold Start 0.55). */
+  readonly targetSuccess?: number;
+}
+
+/** Pre-planned dial offset (in dial points) for a beat: warm-up, build, peak, breather (§4.8, §9.3). */
+export type WaveCurve = (beatIndex: number) => number;
+
+/** The skill model's side of beat scheduling (#17: `SkillState.dialFor`, `axes`). */
+export interface DialSource {
+  /** Dial (0-100) for the next stretch; called exactly once per beat, at its boundary. */
+  dialFor(mode: ModeRef, beatIndex: number, curve: WaveCurve): number;
+  /** Concrete axis values for a dial value (fairness floors already applied). */
+  axes(dial: number): AxisValues;
+}
+
+/** The enemy sim's side (#15): create and remove targets. */
+export interface TargetSpawner {
+  /** Create a target; `scale` is ×real head size. Returns its id, or -1 when it could not be created. */
+  spawn(kind: EnemyKind, pos: Vec3, scale: number): number;
+  despawn(id: number): void;
+}
+
+/** A map anchor (design §10.2). Structural, so #16's `Anchor` union is assignable. */
+export interface AnchorLike {
+  readonly id: string;
+  /** `post`, `beacon-shell`, `strafe-lane`, `peek`, `gate`, `drone-volume`, ... */
+  readonly kind: string;
+  readonly tags?: readonly string[];
+  /** Point anchors (post, gate, ...). */
+  readonly pos?: Vec3;
+  /** Shell anchors (`beacon-shell`). */
+  readonly centre?: Vec3;
+  readonly rMin?: number;
+  readonly rMax?: number;
+  /** Lane anchors (`strafe-lane`): the scheduler uses the midpoint as the position. */
+  readonly a?: Vec3;
+  readonly b?: Vec3;
+}
+
+/** The map's side (#16): anchors and bounds. */
+export interface AnchorSource {
+  readonly anchors: readonly AnchorLike[];
+  readonly bounds?: { readonly min: Vec3; readonly max: Vec3 };
+}
+
+/** Read-only view of the player (the sim's `PlayerState` satisfies it). */
+export interface PlayerView {
+  readonly pos: Vec3;
+  readonly yaw: number;
+  readonly pitch: number;
+  readonly eyeHeight: number;
+}
+
+export type TrialExtra = Readonly<Record<string, number>>;
+
+/**
+ * The facts the framework reads from the sim, shaped as design §14.3 (extra fields are fine).
+ * Until #13/#15 land, `app/modeBridge.ts` derives them from the foundation's events.
+ */
+export interface SourceEvents {
+  targetKilled: {
+    tick: number;
+    id: number;
+    kind: EnemyKind;
+    zone: 'head' | 'body' | 'leg';
+    ttkMs: number;
+    rtMs: number;
+    firstBullet: boolean;
+    bullets: number;
+    clean: boolean;
+  };
+  targetExpired: { tick: number; id: number };
+  shotImpact: { tick: number; result: 'hit' | 'miss' };
+}
+
+/** Events the framework emits. §14.3 names and payloads, plus `beatStarted` and `scoreAwarded`. */
+export interface ModeEvents extends StreakEvents {
+  runReady: { tick: number; mode: ModeId; seed: number; dial: number };
+  runStarted: { tick: number };
+  runEnded: { tick: number; t: number; reason: RunEndReason };
+  /** The dial and axis values changed (only ever at a beat boundary). */
+  beatStarted: { tick: number; t: number; beat: number; dial: number };
+  /** One target resolved: an item for the skill model (design §9.1). */
+  skillTrial: {
+    tick: number;
+    t: number;
+    skill: SkillId;
+    itemDifficulty: number;
+    success: boolean;
+    rtMs?: number;
+    extra?: TrialExtra;
+  };
+  /** A kill was scored; `+score` floats from the kill. */
+  scoreAwarded: {
+    tick: number;
+    t: number;
+    targetId: number;
+    kind: EnemyKind;
+    points: number;
+    total: number;
+    base: number;
+    precision: number;
+    speed: number;
+    streak: number;
+    difficulty: number;
+    surge: number;
+  };
+}
+
+export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit';

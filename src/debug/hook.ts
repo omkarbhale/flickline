@@ -1,4 +1,5 @@
 import type { Game } from '../app/game';
+import { MODES } from '../app/modeHost';
 import type { TickInput } from '../sim/types';
 
 export interface ScriptStep {
@@ -44,6 +45,18 @@ export interface FlicklineDebug {
   overlay(visible?: boolean): void;
   /** Live tunables object (mutate for experiments; not persisted). */
   readonly tunables: unknown;
+  /** Mode framework: start/stop a mode run and read its state (`step()` advances it like any tick). */
+  readonly mode: {
+    /** Ready a run (ready phase 0.8 s, then live). `pinDial` fixes the dial. Returns false for an unknown id. */
+    start(id?: string, opts?: { seed?: number; pinDial?: number }): boolean;
+    stop(): void;
+    /** Phase, beat, dial, axes, score, streak, chain, trials, timing. */
+    status(): unknown;
+    /** Ids of the registered modes. */
+    list(): string[];
+    /** Base dial of the stand-in dial source (until the skill model lands). */
+    setBaseDial(dial: number): void;
+  };
 }
 
 declare global {
@@ -109,6 +122,13 @@ export function installDebugHook(game: Game): FlicklineDebug {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);
     },
     tunables: game.tunables,
+    mode: {
+      start: (id = 'test', opts = {}) => game.modes.start(id, opts),
+      stop: () => game.modes.stop(),
+      status: () => game.modes.status(),
+      list: () => Object.keys(MODES),
+      setBaseDial: (dial) => { game.modes.dial.baseDial = dial; },
+    },
   };
   window.__flickline = hook;
   return hook;
