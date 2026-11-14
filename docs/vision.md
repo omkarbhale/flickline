@@ -18,7 +18,7 @@ Transfer comes first because it is the owner's stated reason for Flickline. The 
 
 Skill earned here must carry over. Gunplay, movement, walking speed, shooting, taking damage, slowdown on hit and field of view match the reference game. A drill that builds a habit that fails there is a bug, however fun.
 
-*Currently:* every number comes from `docs/mechanics-spec.md`; no aim assist or hitbox inflation (design §1).
+*Currently:* every number comes from `docs/mechanics-spec.md`; no aim assist or hitbox inflation (design §1). Transfer is its own quality track ([#149](https://github.com/omkarbhale/flickline/issues/149)): a habit review of every mode, a cold Daily Baseline that tells learning from warm-up, and a transfer pilot against the reference game's own practice (design §8.5, `docs/research/transfer.md`).
 
 ### 2. Mechanically fun on its own
 
@@ -30,13 +30,13 @@ Playing must be extremely fun for its mechanics, not a chore endured for the imp
 
 This is how Flickline beats the reference game as practice. Every shot gets an immediate, specific answer and every kill a reward, so the player learns what worked and what to fix while the moment is fresh.
 
-*Currently:* same-frame sight, sound and number for every shot; one thing to fix on each results card; rewards from mechanics only, never time played (design §7, §8).
+*Currently:* same-frame sight, sound and number for every shot; one thing to fix on each results card; rewards from mechanics only, never time played (design §7, §8); the cues fade with the skill rating so the feedback never becomes a crutch, and one run per session is cue-free (design §7.4).
 
 ### 4. Numbers, feel and fun are separate qualities
 
 Do the numbers match? Does it *feel* like the reference game (recoil, gun and kill sounds, hit response)? Is it fun? Each can pass while another fails, so each is tracked and judged on its own, and no verdict stands in for another.
 
-*Currently:* trackers [#61](https://github.com/omkarbhale/flickline/issues/61), [#62](https://github.com/omkarbhale/flickline/issues/62), [#63](https://github.com/omkarbhale/flickline/issues/63); every playtest reports three verdicts (design §14.7).
+*Currently:* trackers [#61](https://github.com/omkarbhale/flickline/issues/61), [#62](https://github.com/omkarbhale/flickline/issues/62), [#63](https://github.com/omkarbhale/flickline/issues/63), plus transfer ([#149](https://github.com/omkarbhale/flickline/issues/149), principle 1) as a fourth; every playtest reports the four verdicts separately (design §14.7).
 
 ### 5. Meets every player at their skill
 

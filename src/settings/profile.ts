@@ -9,9 +9,11 @@ export interface Profile {
   selfReport: SelfReport | null;
   /** True once the player has entered the game from the first-run panel (a "save is present"). */
   firstRunDone: boolean;
+  /** Scored runs (not the Placement run, not quit early) the player has completed, ever; the clean run waits for a few (design §7.4). */
+  runsCompleted: number;
 }
 
-export const DEFAULT_PROFILE: Profile = { selfReport: null, firstRunDone: false };
+export const DEFAULT_PROFILE: Profile = { selfReport: null, firstRunDone: false, runsCompleted: 0 };
 
 export interface ProfileEvents {
   profileChanged: { profile: Readonly<Profile>; changed: readonly (keyof Profile)[] };
@@ -32,6 +34,9 @@ export function sanitizeProfile(raw: unknown): Profile {
     out.selfReport = r.selfReport as SelfReport;
   }
   out.firstRunDone = r.firstRunDone === true;
+  if (typeof r.runsCompleted === 'number' && Number.isFinite(r.runsCompleted)) {
+    out.runsCompleted = Math.min(1_000_000, Math.max(0, Math.floor(r.runsCompleted)));
+  }
   return out;
 }
 

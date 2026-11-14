@@ -13,10 +13,11 @@ const fixed = (s: number): ReactionDist => ({ muSec: s, sigmaSec: 0, tauSec: 0 }
 
 describe('enemyShotTiming (#127: floors split by expectation)', () => {
   it('a surprised enemy keeps the reaction floor and holds fire for the tell, even on target', () => {
-    const t = enemyShotTiming(new Rng(1), fixed(0.1), 'attending', 'none', 0, 0.18, floors, exp, createShotTiming());
+    // 0.30 s: the dial-100 tell (#130), above the 0.25 s tell floor, so the dial's length is what is held.
+    const t = enemyShotTiming(new Rng(1), fixed(0.1), 'attending', 'none', 0, 0.3, floors, exp, createShotTiming());
     expect(t.reactionSec).toBe(floors.enemyReactionSec);
     expect(t.tellStartSec).toBe(floors.enemyReactionSec);
-    expect(t.fireReadySec).toBeCloseTo(floors.enemyReactionSec + 0.18);
+    expect(t.fireReadySec).toBeCloseTo(floors.enemyReactionSec + 0.3);
   });
 
   it('a surprised enemy still aiming fires when the aim phase ends, never later (research F5)', () => {

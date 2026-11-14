@@ -1,3 +1,4 @@
+import type { CuePhase } from '../config/cues';
 import type { Settings } from '../settings/settings';
 
 /**
@@ -9,6 +10,20 @@ export interface FeedbackOptions {
   missGhost: boolean;
   damageNumbers: boolean;
   reduceFlashing: boolean;
+  /**
+   * Fade the coaching cues as the player improves (design §7.4). Off pins every cue at full.
+   * Optional so a plain options literal keeps working; a missing value reads as on.
+   */
+  cueFading?: boolean;
+  /**
+   * Per-run state set by the cue planner at each run start, never by settings (`applySettingsToOptions`
+   * leaves it alone). Missing values read as `every`, not clean, no Surge.
+   */
+  cuePhase?: CuePhase;
+  /** A clean run: no coaching cues, no added tells, reference-like HUD. */
+  clean?: boolean;
+  /** Surge is active: the tells come back (first release). */
+  surge?: boolean;
 }
 
 export function createFeedbackOptions(s: Readonly<Settings>): FeedbackOptions {
@@ -17,6 +32,10 @@ export function createFeedbackOptions(s: Readonly<Settings>): FeedbackOptions {
     missGhost: s.missGhost,
     damageNumbers: s.damageNumbers,
     reduceFlashing: s.reduceFlashing,
+    cueFading: s.cueFading,
+    cuePhase: 'every',
+    clean: false,
+    surge: false,
   };
 }
 
@@ -26,4 +45,5 @@ export function applySettingsToOptions(out: FeedbackOptions, s: Readonly<Setting
   out.missGhost = s.missGhost;
   out.damageNumbers = s.damageNumbers;
   out.reduceFlashing = s.reduceFlashing;
+  out.cueFading = s.cueFading;
 }

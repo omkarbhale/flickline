@@ -62,7 +62,7 @@ export class OrbitTrial implements TrialEngine {
     this.hasPrev = true;
     const eye = ctx.scheduler.eyePosition();
     this.distance = Math.hypot(this.centre.x - eye.x, this.centre.y - eye.y, this.centre.z - eye.z);
-    const exposure = Math.max(axes.exposureSec ?? 1, ctx.tunables.dial.floors.exposureSec);
+    const exposure = Math.max(axes.orbitExposureSec ?? 1, ctx.tunables.dial.floors.exposureSec);
     this.expireAt = ctx.liveTick + secondsToTicks(exposure);
     return true;
   }
@@ -121,7 +121,7 @@ export const orbit: ModeDef<State> = {
   weapon: 'pace',
   player: { standAt: 'beacon-shell', lockMovement: true, infiniteMagazine: true },
   durationSec: modeCfg.drillSec,
-  axes: ['beaconScale', 'flickMinDeg', 'flickMaxDeg', 'exposureSec'],
+  axes: ['beaconScale', 'flickMinDeg', 'flickMaxDeg', 'orbitExposureSec'],
 
   setup: () => ({ trial: new OrbitTrial(), nextAt: 0 }),
 
