@@ -1,130 +1,143 @@
 import {
   BoxGeometry,
-  CanvasTexture,
+  BufferAttribute,
+  BufferGeometry,
   Color,
   Group,
   InstancedMesh,
+  LineBasicMaterial,
+  LineSegments,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
-  MeshLambertMaterial,
   PlaneGeometry,
   Quaternion,
-  RepeatWrapping,
-  SRGBColorSpace,
   Vector3,
   type Object3D,
+  type ShaderMaterial,
 } from 'three';
+import { scaleLinear } from '../core/color';
+import { env, palette } from '../config/palette';
+import type { RenderTunables } from '../config/render';
 import type { FloorMark } from '../sim/mapTypes';
 import type { BoxTag, LevelDef } from '../sim/types';
+import { trimSegments } from './envLayout';
+import { createBoxMaterial, createFloorMaterial, type EnvUniforms } from './envShaders';
 
-type Palette = Record<BoxTag, number>;
-
-const PALETTES: Record<string, Palette> = {
-  default: {
-    floor: 0x2a2f38,
-    wall: 0x6a7684,
-    crate: 0xc99a5a,
-    platform: 0x6e92b8,
-    cover: 0x8a7a64,
-    pillar: 0x7d8ca0,
-    panel: 0xb4bfcd,
-    ceiling: 0x2a303a,
-  },
-  /** Indoor hall (Range): ceiling albedo is high because it is only lit from below by the hemisphere light. */
-  hall: {
-    floor: 0x2a2f38,
-    wall: 0x566277,
-    crate: 0xc99a5a,
-    platform: 0x6e92b8,
-    cover: 0x8a7a64,
-    pillar: 0x8798b2,
-    panel: 0x9aa8bc,
-    ceiling: 0x8a97ad,
-  },
+/** Rendered (brightest) colour per box tag; the shader only ever darkens these. */
+const TAG_COLORS: Record<BoxTag, number> = {
+  floor: env.floor,
+  wall: env.wall,
+  crate: env.cover,
+  platform: env.platform,
+  cover: env.cover,
+  pillar: env.platform,
+  panel: env.cover,
+  ceiling: env.wall,
 };
 
-const MARK_COLORS: Record<FloorMark['kind'], number> = {
-  tick: 0x4a6a82,
-  major: 0x74c8e6,
-  line: 0x38e8ff,
-};
-/** Marks float this far above the floor to avoid z-fighting (invisible at eye height). */
-const MARK_LIFT = 0.012;
+/** Floor markings are thin lines of light: trim colour at a weight, never brighter than an Echo. */
+const MARK_LIFT = 0.012; // marks float this far above the floor to avoid z-fighting
 
 export interface LevelMeshOptions {
-  /** Box colour palette name (unknown names fall back to `default`). */
-  palette?: string;
   /** Flat floor markings (distance ticks, start lines). Visual only. */
   marks?: readonly FloorMark[];
 }
 
-function makeGridTexture(): CanvasTexture {
-  const size = 256;
-  const c = document.createElement('canvas');
-  c.width = c.height = size;
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#38404c';
-  g.fillRect(0, 0, size, size);
-  g.fillStyle = '#414a58';
-  g.fillRect(0, 0, size / 2, size / 2);
-  g.fillRect(size / 2, size / 2, size / 2, size / 2);
-  g.strokeStyle = '#5c6677';
-  g.lineWidth = 3;
-  g.strokeRect(1.5, 1.5, size - 3, size - 3);
-  const t = new CanvasTexture(c);
-  t.wrapS = t.wrapT = RepeatWrapping;
-  t.colorSpace = SRGBColorSpace;
-  return t;
-}
-
 export interface LevelMesh {
   root: Object3D;
-  setAnisotropy(n: number): void;
   dispose(): void;
 }
 
 /**
- * Static level visuals. All non-floor boxes share ONE InstancedMesh (one draw call, per-instance
- * colour by tag); each floor slab is a single mesh with a grid texture.
+ * Static level visuals in the Lightline style, no textures. Draw calls: one InstancedMesh for all
+ * non-floor boxes, one merged grid-floor mesh, one LineSegments for every trim edge.
  */
-export function buildLevelMesh(level: LevelDef, options: LevelMeshOptions = {}): LevelMesh {
-  const colors = PALETTES[options.palette ?? 'default'] ?? PALETTES['default']!;
+export function buildLevelMesh(
+  level: LevelDef,
+  uniforms: EnvUniforms,
+  r: RenderTunables,
+  options: LevelMeshOptions = {},
+): LevelMesh {
   const root = new Group();
-  const geo = new BoxGeometry(1, 1, 1);
-  const mat = new MeshLambertMaterial({ color: 0xffffff });
-  const gridTex = makeGridTexture();
-  const floorMat = new MeshLambertMaterial({ map: gridTex });
-  const extraGeos: BoxGeometry[] = [];
+  const disposables: { dispose(): void }[] = [];
 
+  // Props: flat-shaded boxes, per-instance colour by tag.
+  const boxGeo = new BoxGeometry(1, 1, 1);
+  const boxMat: ShaderMaterial = createBoxMaterial(uniforms);
+  disposables.push(boxGeo, boxMat);
   const props = level.boxes.filter((b) => b.tag !== 'floor');
-  const inst = new InstancedMesh(geo, mat, Math.max(1, props.length));
+  const inst = new InstancedMesh(boxGeo, boxMat, Math.max(1, props.length));
   const m = new Matrix4();
   const col = new Color();
   props.forEach((b, i) => {
-    const sx = b.max.x - b.min.x, sy = b.max.y - b.min.y, sz = b.max.z - b.min.z;
-    m.makeScale(sx, sy, sz).setPosition((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2);
+    m.makeScale(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z).setPosition(
+      (b.min.x + b.max.x) / 2,
+      (b.min.y + b.max.y) / 2,
+      (b.min.z + b.max.z) / 2,
+    );
     inst.setMatrixAt(i, m);
-    inst.setColorAt(i, col.setHex(colors[b.tag]));
+    inst.setColorAt(i, col.setHex(TAG_COLORS[b.tag]));
   });
   inst.count = props.length;
   inst.instanceMatrix.needsUpdate = true;
   if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   inst.matrixAutoUpdate = false;
+  inst.frustumCulled = false;
+  disposables.push(inst);
   root.add(inst);
 
-  for (const b of level.boxes) {
-    if (b.tag !== 'floor') continue;
-    const w = b.max.x - b.min.x, h = b.max.y - b.min.y, d = b.max.z - b.min.z;
-    const g = new BoxGeometry(w, h, d);
-    extraGeos.push(g);
-    const mesh = new Mesh(g, floorMat);
-    mesh.position.set((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2);
-    root.add(mesh);
-    gridTex.repeat.set(w / 2, d / 2); // 2 m per texture tile; assumes a single floor slab
+  // Floor: the top face of every floor slab merged into one grid-shaded mesh.
+  const floors = level.boxes.filter((b) => b.tag === 'floor');
+  if (floors.length > 0) {
+    const pos = new Float32Array(floors.length * 12);
+    const idx = new Uint32Array(floors.length * 6);
+    floors.forEach((b, i) => {
+      const o = i * 12;
+      const y = b.max.y;
+      pos.set([b.min.x, y, b.min.z, b.max.x, y, b.min.z, b.max.x, y, b.max.z, b.min.x, y, b.max.z], o);
+      const v = i * 4;
+      idx.set([v, v + 2, v + 1, v, v + 3, v + 2], i * 6);
+    });
+    const floorGeo = new BufferGeometry();
+    floorGeo.setAttribute('position', new BufferAttribute(pos, 3));
+    floorGeo.setIndex(new BufferAttribute(idx, 1));
+    const floorMat = createFloorMaterial(uniforms);
+    const floorMesh = new Mesh(floorGeo, floorMat);
+    floorMesh.frustumCulled = false;
+    disposables.push(floorGeo, floorMat);
+    root.add(floorMesh);
+  }
+
+  // Trim lines: one LineSegments; thin bright edges, dimmer toward the base (same gradient idea as the boxes).
+  const seg = trimSegments(level.boxes);
+  if (seg.length > 0) {
+    const positions = new Float32Array(seg);
+    const colors = new Float32Array(seg.length);
+    const { baseIntensity, baseHeight, intensity } = r.trim;
+    const baseK = baseIntensity / intensity;
+    for (let i = 0; i < seg.length; i += 3) {
+      const t = Math.min(1, Math.max(0, seg[i + 1]! / baseHeight));
+      const k = baseK + (1 - baseK) * t;
+      colors[i] = colors[i + 1] = colors[i + 2] = k;
+    }
+    const lineGeo = new BufferGeometry();
+    lineGeo.setAttribute('position', new BufferAttribute(positions, 3));
+    lineGeo.setAttribute('color', new BufferAttribute(colors, 3));
+    const lineMat = new LineBasicMaterial({ vertexColors: true, fog: true });
+    lineMat.color.copy(uniforms.uTrim.value).multiplyScalar(intensity);
+    const lines = new LineSegments(lineGeo, lineMat);
+    lines.frustumCulled = false;
+    disposables.push(lineGeo, lineMat);
+    root.add(lines);
   }
 
   const marks = options.marks ?? [];
+  const markColors = {
+    tick: scaleLinear(palette.trim, r.trim.marks.tick),
+    major: scaleLinear(palette.trim, r.trim.marks.major),
+    line: scaleLinear(palette.trim, r.trim.marks.line),
+  };
   let markGeo: PlaneGeometry | null = null;
   let markMat: MeshBasicMaterial | null = null;
   let markMesh: InstancedMesh | null = null;
@@ -142,7 +155,7 @@ export function buildLevelMesh(level: LevelDef, options: LevelMeshOptions = {}):
       quat.setFromAxisAngle(up, -Math.atan2(dz, dx));
       scale.set(Math.hypot(dx, dz), 1, mk.width);
       markMesh!.setMatrixAt(i, m.compose(pos, quat, scale));
-      markMesh!.setColorAt(i, col.setHex(MARK_COLORS[mk.kind]));
+      markMesh!.setColorAt(i, col.setHex(markColors[mk.kind]));
     });
     markMesh.instanceMatrix.needsUpdate = true;
     if (markMesh.instanceColor) markMesh.instanceColor.needsUpdate = true;
@@ -152,19 +165,8 @@ export function buildLevelMesh(level: LevelDef, options: LevelMeshOptions = {}):
 
   return {
     root,
-    setAnisotropy(n: number) {
-      if (gridTex.anisotropy !== n) {
-        gridTex.anisotropy = n;
-        gridTex.needsUpdate = true;
-      }
-    },
     dispose() {
-      geo.dispose();
-      mat.dispose();
-      floorMat.dispose();
-      gridTex.dispose();
-      extraGeos.forEach((g) => g.dispose());
-      inst.dispose();
+      for (const d of disposables) d.dispose();
       markGeo?.dispose();
       markMat?.dispose();
       markMesh?.dispose();
