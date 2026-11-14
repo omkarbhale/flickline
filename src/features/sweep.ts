@@ -1,6 +1,6 @@
 import { defineFeature } from '../app/feature';
-import { MAPS } from '../sim/mapLoader';
-import { SWEEP_MODE, sweepPlan, type SweepState } from '../modes/sweep';
+import { findMap } from '../sim/mapLoader';
+import { currentSector, SWEEP_MODE, sweepPlan, type SweepState } from '../modes/sweep';
 import { navRoute } from '../modes/sweepCatalog';
 import { ExitMarker } from '../render/exitMarker';
 import { GateView } from '../render/gateView';
@@ -187,6 +187,20 @@ export const feature = defineFeature({
       marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
       label.textContent = sectorLabel(e.index, game.tunables.sweep.sectors, 'hold', sp.condition, true);
     });
+    // A cold-opener leg (design §8.5) is a move inside the Opener: the same cut to black, and the marker on the leg's exit.
+    game.bus.on('coldLegEntered', (e) => {
+      const st = state();
+      if (!st) return;
+      const sp = currentSector(st);
+      marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
+      if (e.leg === 0) return; // entered with the sector
+      startSwitch(lastSector);
+      pending!.to = e.sectorId;
+      pending!.mapChanged = e.mapId !== lastMap;
+      awaitFrame = true;
+      lastSector = e.sectorId;
+      lastMap = e.mapId;
+    });
     game.onFrameEnd(() => {
       if (!awaitFrame || !pending) return;
       awaitFrame = false;
@@ -244,8 +258,12 @@ export const feature = defineFeature({
             gate: st.gate ? gateState(st) : null,
             doors: st.plan.doors.slice(),
             stakes: st.plan.sectors.map((x) => x.stake),
-            sectorId: st.plan.sectors[st.sector]?.sectorId,
-            role: st.plan.sectors[st.sector]?.role,
+            sectorId: currentSector(st).sectorId,
+            role: currentSector(st).role,
+            leg: st.leg,
+            cold: st.plan.cold
+              ? { level: st.plan.cold.level, legs: st.plan.cold.legs.map((l) => ({ slot: l.slot, variant: l.variant, mirrored: l.mirrored, card: l.contact.card, sector: l.contact.sector })) }
+              : null,
             mapId: game.modes.currentMap.id,
             won: st.won,
             lost: st.lost,
@@ -289,7 +307,7 @@ export const feature = defineFeature({
         toExit() {
           const st = state();
           if (!st) return false;
-          const sp = st.plan.sectors[st.sector]!;
+          const sp = currentSector(st);
           game.world.placePlayer(sp.exit.x, sp.exit.y, sp.exit.z, game.world.player.yaw);
           game.step(1);
           return true;
@@ -308,7 +326,7 @@ export const feature = defineFeature({
         },
         timeMapSwitch(mapId) {
           const before = game.modes.currentMap.id;
-          if (!MAPS[mapId] || mapId === before) return null;
+          if (!findMap(mapId) || mapId === before) return null;
           const once = (id: string): { setupMs: number; frameMs: number } => {
             const t0 = performance.now();
             game.modes.loadMap(id);
@@ -323,8 +341,8 @@ export const feature = defineFeature({
         walk(maxTicks = 128 * 20, stopAtM = 0) {
           const st = state();
           if (!st) return { ticks: 0, seen: -1 };
-          const sp = st.plan.sectors[st.sector]!;
-          const route = navRoute(MAPS[sp.mapId]!, game.world.player.pos, sp.exit);
+          const sp = currentSector(st);
+          const route = navRoute(findMap(sp.mapId)!, game.world.player.pos, sp.exit);
           let seen = -1;
           const off = game.bus.on('targetVisible', (e) => {
             if (seen < 0) seen = e.targetId;

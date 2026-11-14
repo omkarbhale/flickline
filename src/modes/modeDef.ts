@@ -129,6 +129,11 @@ export interface SpawnOptions {
   /** Scenario card of the contact the target belongs to: carried on its `skillTrial` (Sweep). */
   card?: string;
   /**
+   * The dial the target was set at, for its kill's difficulty term (default: the beat's). The cold
+   * opener's Echoes play at its level, not at the run's dial (design §8.5).
+   */
+  dial?: number;
+  /**
    * The target produces a trial of its own (default true: killed = success, expired = failure). A
    * mode that classifies its fights into trials itself (Sweep, `recordTrial`) turns it off.
    */
@@ -151,6 +156,8 @@ export interface TrialOptions {
   difficulty: number;
   /** Scenario card of its contact. */
   card?: string;
+  /** The stream the trial belongs to (default: the mode's `trialSource`): the cold opener's are `baseline` inside a matched run (design §8.5). */
+  source?: TrialSource;
   rtMs?: number;
   extra?: TrialExtra;
 }
@@ -170,6 +177,11 @@ export type RunPhase = 'idle' | 'ready' | 'live' | 'result';
 export interface ModeContext<S = unknown> {
   readonly mode: ModeDef<S>;
   readonly seed: number;
+  /**
+   * The run opens with a cold opener at this level (design §8.5), or null. The host decides (the due
+   * rule reads the save and the clock); the mode plays it.
+   */
+  readonly coldOpenerLevel: number | null;
   /** The run's seeded stream: use it for every random choice, never `Math.random`. */
   readonly rng: Rng;
   /** The scenario cards the run leans toward (design §4.4, #210); empty for no lean. Only Sweep reads it. */

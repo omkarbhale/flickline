@@ -312,3 +312,24 @@ describe('no time-played XP', () => {
     for (const k of keys) expect(k, k).not.toMatch(/xp|experience|time.?played|play.?time|playtime|minutes|hours|seconds.?played|duration|login|streakdays/i);
   });
 });
+
+describe('progress store: cold openers (#209)', () => {
+  const rec = {
+    v: 2, date: '2026-03-01', at: '2026-03-01T08:00:00.000Z', gapH: 12, seed: 3, level: 45, legs: 6, of: 6, score: 1500, dial: 50,
+    skills: { angles: [50, 9, 4] as [number, number, number] }, trials: 6, contacts: 6, won: 4, headRate: 0.5, ttsMs: 600, movingShare: 0.1,
+    kept: 0.8, warm: false, sens: 0.4, end: 'exit' as const,
+  };
+  it('keeps a record and the level in memory until commit, then in the save; the warm answer is changed on the newest', () => {
+    const storage = memoryStorage();
+    const store = new ProgressStore(null, storage);
+    store.addColdOpener(rec, { v: 2, level: 45, moves: [] });
+    expect(storage.data[cfg.storageKey]).toBeUndefined(); // not written mid-run
+    store.commit();
+    const back = new ProgressStore(null, storage);
+    expect(back.snapshot.coldOpeners).toEqual([rec]);
+    expect(back.snapshot.coldOpenerLevels).toEqual({ v: 2, level: 45, moves: [] });
+    expect(back.setColdOpenerWarm(true)).toBe(true);
+    expect(new ProgressStore(null, storage).snapshot.coldOpeners[0]!.warm).toBe(true);
+    expect(new ProgressStore(null, memoryStorage()).setColdOpenerWarm(true)).toBe(false);
+  });
+});

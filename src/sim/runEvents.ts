@@ -168,6 +168,8 @@ export interface RunEvents extends SprayEvents, SectorEvents {
     trials?: number;
     /** The contact's item difficulty (its placement dial + its card's offset, design §9.1): a decided contact feeds the fight track at it (#203). */
     difficulty?: number;
+    /** `baseline`: a cold-opener contact (design §8.5), the measurement: it never feeds the fight track. Absent: matched. */
+    source?: 'matched' | 'baseline';
     /**
      * Meet contacts (#212, design §4.2): which side first dropped to counter-strafe speed or below (the accuracy
      * deadzone, `sweep.meet.stopSpeedMps`) once the contact opened: the player, an Echo, both in the same tick, or

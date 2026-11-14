@@ -48,6 +48,8 @@ export interface RunOptions {
   newProfile?: boolean;
   /** The scenario cards the run leans toward (design §4.4, #210). */
   lean?: readonly string[];
+  /** The run opens with a cold opener at this level (design §8.5; `ModeContext.coldOpenerLevel`). */
+  coldOpenerLevel?: number;
 }
 
 /** One tracked target: where its trial's difficulty and skill were fixed (at spawn). */
@@ -82,6 +84,7 @@ export class ModeRunner implements ModeContext<unknown> {
   phase: RunPhase = 'idle';
   mode!: ModeDef<unknown>;
   seed = 0;
+  coldOpenerLevel: number | null = null;
   rng = new Rng(1);
   lean: readonly string[] = [];
   state: unknown = undefined;
@@ -205,6 +208,7 @@ export class ModeRunner implements ModeContext<unknown> {
     const m = this.tunables.modes;
     this.mode = mode as ModeDef<unknown>;
     this.seed = opts.seed;
+    this.coldOpenerLevel = opts.coldOpenerLevel ?? null;
     this.rng = new Rng((opts.seed ^ 0x9e3779b9) >>> 0);
     this.pinDial = opts.pinDial;
     this.newProfile = opts.newProfile ?? false;
@@ -316,7 +320,7 @@ export class ModeRunner implements ModeContext<unknown> {
     e.success = success;
     e.rtMs = opts.rtMs !== undefined && opts.rtMs >= 0 ? opts.rtMs : undefined;
     e.extra = opts.extra;
-    e.source = this.mode.trialSource ?? 'matched';
+    e.source = opts.source ?? this.mode.trialSource ?? 'matched';
     e.card = opts.card;
     this.deps.events.emit('skillTrial', e);
     this.stats.trials++;
@@ -388,6 +392,7 @@ export class ModeRunner implements ModeContext<unknown> {
     const rec = this.adopt(id);
     rec.skill = opts?.skill ?? this.mode.skills[0]!;
     rec.card = opts?.card ?? null;
+    if (opts?.dial !== undefined) rec.dial = opts.dial;
     // No trial of its own: the record is born resolved, so neither its kill nor its expiry emits one.
     if (opts?.trial === false) rec.resolved = true;
     if (opts?.difficulty !== undefined) rec.itemDifficulty = opts.difficulty;
