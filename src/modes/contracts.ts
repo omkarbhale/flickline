@@ -87,6 +87,30 @@ export interface PlayerView {
 export type TrialExtra = Readonly<Record<string, number>>;
 
 /**
+ * Where a `skillTrial` belongs: `matched` trials move the player's matched posterior (design §9);
+ * `baseline` trials are the Daily Baseline's (design §8.5) and are never fed to it, so the
+ * Baseline stays an independent measurement.
+ */
+export type TrialSource = 'matched' | 'baseline';
+
+/**
+ * One stored item of a fixed-content run (the Daily Baseline), placed relative to the crosshair when
+ * its trial starts: `angleDeg` from the crosshair direction, the target's `pitchDeg` above the
+ * horizon, `distance` from the eye, an orb `scale` (x real head size) and the `exposureSec` it stays
+ * up. `side` mirrors it: +1 puts it to the left of the crosshair, -1 to the right.
+ */
+export interface FixedItem {
+  angleDeg: number;
+  pitchDeg: number;
+  distance: number;
+  scale: number;
+  exposureSec: number;
+  side: 1 | -1;
+  /** Position of the item in its stored list (before the run's shuffle). */
+  index: number;
+}
+
+/**
  * The facts the framework reads from the sim: the subset of `SimEvents` (design §14.3) it needs,
  * so the game bus satisfies `Subscribable<SourceEvents>` directly.
  */
@@ -130,6 +154,8 @@ export interface ModeEvents extends StreakEvents {
     success: boolean;
     rtMs?: number;
     extra?: TrialExtra;
+    /** Absent = `matched`. The mode's `trialSource` (the Baseline's trials are `baseline`). */
+    source?: TrialSource;
   };
   /** A kill was scored; `+score` floats from the kill. */
   scoreAwarded: {

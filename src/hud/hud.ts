@@ -107,6 +107,7 @@ export class Hud {
       this.applyHitColor(settings.crosshair);
     });
     bus.on('shotFired', (e) => {
+      if (fx.options.referenceLike) return; // the reference game has no moving-shot cue
       if (e.moving) this.crosshair.pulse();
       if (e.moving && fx.options.coachingCues) this.restart(this.moveGlyph, 'show');
     });
@@ -116,6 +117,7 @@ export class Hud {
       if (!e.killed && fx.options.damageNumbers) this.floatNumber(e.point.x, e.point.y, e.point.z, e.damage, e.zone, false);
     });
     bus.on('targetKilled', (e) => {
+      if (fx.options.referenceLike) return; // no reward pulse, points or time-to-shot readout (the hit marker above stays)
       if (!fx.options.reduceFlashing && this.budget.tryAcquire(e.tick * TICK_DT)) this.restart(this.pulse, 'show');
       this.floatNumber(e.point.x, e.point.y, e.point.z, provisionalKillScore(e.zone, fx.cfg), e.zone, true);
       const text = formatRtTtk(e.rtMs, e.ttkMs);

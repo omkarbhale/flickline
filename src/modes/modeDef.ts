@@ -4,7 +4,7 @@ import type { Tunables } from '../config/tunables';
 import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import type {
-  AxisId, AxisValues, ModeId, ModeRef, PlayerView, RunEndReason, SkillId, SourceEvents, TrialExtra, WaveCurve,
+  AxisId, AxisValues, ModeId, ModeRef, PlayerView, RunEndReason, SkillId, SourceEvents, TrialExtra, TrialSource, WaveCurve,
 } from './contracts';
 import type { SpawnScheduler } from './scheduler';
 
@@ -54,6 +54,18 @@ export interface ModeDef<S = unknown> extends ModeRef {
   readonly waveCurve?: WaveCurve;
   /** Par time in seconds for the speed term of a kill (default `scoring.defaultParSec`). */
   parSec?(kind: EnemyKind, axes: AxisValues): number;
+  /**
+   * Which stream the run's `skillTrial` events belong to (default `matched`). `baseline` trials are
+   * tagged so the matched posterior never consumes them (design §8.5).
+   */
+  readonly trialSource?: TrialSource;
+  /**
+   * Reference-like presentation (design §8.5): while this run is on, the coaching cues (amber
+   * moving-shot tracer, glyph and tock, miss ghost, damage numbers), the time-to-shot readout, the
+   * stat strip, ghost pace and edge meter are off whatever the settings say. The shot, the target's
+   * reaction and the hit and kill sounds stay.
+   */
+  readonly referenceLike?: boolean;
 
   /** Build the mode's state when the run is readied. Targets are not live yet. */
   setup(ctx: ModeContext<S>): S;
@@ -75,6 +87,8 @@ export interface SpawnOptions {
   skill?: SkillId;
   /** Item difficulty override (default: the beat's, derived from the axis values in force). */
   difficulty?: number;
+  /** Dial the kill is scored at (default: the beat's). A run pinned to per-skill levels passes the item's level. */
+  dial?: number;
 }
 
 export interface ResolveOptions {
@@ -111,6 +125,12 @@ export interface ModeContext<S = unknown> {
   /** Seconds since the run went live. */
   readonly timeSec: number;
   readonly remainingSec: number;
+
+  /**
+   * Dial value each skill is pinned to for this run (the Daily Baseline's levels; empty for every
+   * other mode). Set by the host from the player's level, never by the mode.
+   */
+  readonly levels: Readonly<Partial<Record<SkillId, number>>>;
 
   /** Beat index, dial and axis values in force. These change ONLY at beat boundaries. */
   readonly beat: number;

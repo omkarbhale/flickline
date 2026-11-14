@@ -1,10 +1,10 @@
 import { modes as modeCfg } from '../config/modes';
 import { secondsToTicks } from '../core/time';
 import { directionFromAngles, vec3, type Vec3 } from '../core/vec3';
-import type { AxisValues, SkillId } from './contracts';
+import type { AxisValues, FixedItem, SkillId } from './contracts';
 import { angleDeg, directionTo, FIRST_HEAD, ShotTracker } from './aim';
 import type { ModeContext, ModeDef, ModeEvent } from './modeDef';
-import { createSpawnQuery, gapTicks, type SpawnQuery } from './scheduler';
+import { createFixedPlacement, createSpawnQuery, gapTicks, type FixedPlacement, type SpawnQuery } from './scheduler';
 
 /** `Trial.step` / `onEvent` result: nothing ended, the target died, or it left unkilled. */
 export const TRIAL_RUNNING = 0;
@@ -19,8 +19,12 @@ export interface TrialEngine {
   readonly lastSuccess: boolean;
   /** Gap before the next trial, in ticks, after a trial that ended this way (seeded). */
   gapTicks(ctx: ModeContext<unknown>, how: TrialStatus): number;
-  /** Try to place the next target; false = nothing could be placed this tick (try again). */
-  start(ctx: ModeContext<unknown>, axes: AxisValues, skill: SkillId, difficulty?: number): boolean;
+  /**
+   * Try to place the next target; false = nothing could be placed this tick (try again). With a
+   * stored `item` (the Daily Baseline) nothing is drawn: the item's angle, pitch, distance, scale
+   * and exposure are used and `axes` is ignored.
+   */
+  start(ctx: ModeContext<unknown>, axes: AxisValues, skill: SkillId, difficulty?: number, item?: FixedItem): boolean;
   /** Per-tick bookkeeping (leave and expiry deadlines). */
   step(ctx: ModeContext<unknown>): TrialStatus;
   /** A sim fact; returns whether it ended the trial. */
@@ -39,13 +43,14 @@ export class ColdStartTrial implements TrialEngine {
   private readonly head: Vec3 = vec3();
   private readonly feet: Vec3 = vec3();
   private readonly query: SpawnQuery = createSpawnQuery('post');
+  private readonly fixed: FixedPlacement = createFixedPlacement();
   private readonly view: Vec3 = vec3();
   private readonly dir: Vec3 = vec3();
   private expireAt = 0;
   private leaveAt = -1;
   private distance = 0;
   private readonly extra: Record<string, number> = {
-    offsetDeg: 0, distance: 0, errDeg: -1, shots: 0, firstShotMs: -1, outcome: 0, timedOut: 0,
+    offsetDeg: 0, distance: 0, errDeg: -1, shots: 0, firstShotMs: -1, outcome: 0, timedOut: 0, item: -1, side: 0, adjustDeg: 0,
   };
 
   /**
@@ -64,9 +69,10 @@ export class ColdStartTrial implements TrialEngine {
     return gapTicks(ctx.rng, c.gapMinSec, c.gapMaxSec);
   }
 
-  start(ctx: ModeContext<unknown>, axes: AxisValues, skill: SkillId, difficulty?: number): boolean {
+  start(ctx: ModeContext<unknown>, axes: AxisValues, skill: SkillId, difficulty?: number, item?: FixedItem): boolean {
     const c = ctx.tunables.modes.coldStart;
     const q = this.query;
+    if (item) return this.startItem(ctx, skill, difficulty, item);
     const d = axes.distance ?? 15;
     q.minDist = d * c.distanceLoMult;
     q.maxDist = d * c.distanceHiMult;
@@ -88,9 +94,45 @@ export class ColdStartTrial implements TrialEngine {
     this.tracker.begin(ctx.player, this.head, ctx.liveTick);
     const eye = ctx.scheduler.eyePosition();
     this.distance = Math.hypot(this.head.x - eye.x, this.head.y - eye.y, this.head.z - eye.z);
+    this.extra.item = -1;
+    this.extra.side = 0;
+    this.extra.adjustDeg = 0;
     const exposure = Math.max(axes.coldStartExposureSec ?? 1, ctx.tunables.dial.floors.exposureSec);
     this.expireAt = ctx.liveTick + secondsToTicks(exposure);
     this.leaveAt = -1;
+    return true;
+  }
+
+  /**
+   * A stored item (design §8.5): the Post's head at the item's angle and distance from the crosshair
+   * (its pitch follows from the distance), standing on the floor, up for the item's exposure.
+   */
+  private startItem(ctx: ModeContext<unknown>, skill: SkillId, difficulty: number | undefined, item: FixedItem): boolean {
+    const f = this.fixed;
+    const t = ctx.tunables;
+    f.angleDeg = item.angleDeg;
+    f.distance = item.distance;
+    f.side = item.side;
+    f.lockPitch = true;
+    f.minHeight = 0;
+    f.headDy = t.targets.hit.headCentreStand - ctx.player.eyeHeight;
+    f.minDistance = t.baseline.minPostDistanceM;
+    f.fitSteps = t.baseline.fitSteps;
+    if (!ctx.scheduler.placeFixed(f, this.head)) return false;
+    this.feet.x = this.head.x;
+    this.feet.y = ctx.player.pos.y;
+    this.feet.z = this.head.z;
+    const id = ctx.spawn('post', this.feet, { skill, difficulty, dial: difficulty });
+    if (id < 0) return false;
+    this.targetId = id;
+    this.tracker.begin(ctx.player, this.head, ctx.liveTick);
+    const eye = ctx.scheduler.eyePosition();
+    this.distance = Math.hypot(this.head.x - eye.x, this.head.y - eye.y, this.head.z - eye.z);
+    this.expireAt = ctx.liveTick + secondsToTicks(Math.max(item.exposureSec, t.dial.floors.exposureSec));
+    this.leaveAt = -1;
+    this.extra.item = item.index;
+    this.extra.side = ctx.scheduler.placed.side;
+    this.extra.adjustDeg = ctx.scheduler.placed.adjustDeg;
     return true;
   }
 

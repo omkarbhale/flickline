@@ -28,6 +28,8 @@ export interface RunOptions {
   /** Pin the dial to a fixed value ("Pin difficulty", design §9.3): the skill model is not asked. */
   pinDial?: number;
   anchors?: AnchorSource;
+  /** Dial value per skill for a run pinned to levels (the Daily Baseline); see `ModeContext.levels`. */
+  levels?: Readonly<Partial<Record<SkillId, number>>>;
 }
 
 /** One tracked target: where its trial's difficulty and skill were fixed (at spawn). */
@@ -44,6 +46,7 @@ interface TargetRecord {
 }
 
 const MAX_TARGETS = 64;
+const NO_LEVELS: Readonly<Partial<Record<SkillId, number>>> = Object.freeze({});
 
 /**
  * Runs one mode: owns the run's timing (`ready` -> `live` -> `result`), beats and the dial, the
@@ -69,6 +72,7 @@ export class ModeRunner implements ModeContext<unknown> {
   readonly stats: RunStats = { score: 0, kills: 0, headshotKills: 0, misses: 0, trials: 0, trialsWon: 0 };
   /** Last scored kill's terms (valid until the next kill). */
   readonly lastScore: ScoreBreakdown = createScoreBreakdown();
+  levels: Readonly<Partial<Record<SkillId, number>>> = NO_LEVELS;
   surge = false;
   endReason: RunEndReason | null = null;
   /** Spawns refused by the fairness floor or a full pool (debug). */
@@ -154,6 +158,7 @@ export class ModeRunner implements ModeContext<unknown> {
     this.seed = opts.seed;
     this.rng = new Rng((opts.seed ^ 0x9e3779b9) >>> 0);
     this.pinDial = opts.pinDial;
+    this.levels = opts.levels ?? NO_LEVELS;
     this.scheduler = new SpawnScheduler(m, this.tunables.dial.floors, this.rng, new AnchorIndex(opts.anchors ?? null), this.player);
     this.streaks.reset();
     const s = this.stats;
@@ -239,6 +244,7 @@ export class ModeRunner implements ModeContext<unknown> {
     const rec = this.adopt(id);
     rec.skill = opts?.skill ?? this.mode.skills[0]!;
     if (opts?.difficulty !== undefined) rec.itemDifficulty = opts.difficulty;
+    if (opts?.dial !== undefined) rec.dial = opts.dial;
     if (opts?.lifetimeSec !== undefined) {
       rec.expireTick = this.liveTick + secondsToTicks(Math.max(opts.lifetimeSec, fl.exposureSec));
     }
@@ -271,6 +277,7 @@ export class ModeRunner implements ModeContext<unknown> {
     e.success = success;
     e.rtMs = rt >= 0 ? rt : undefined;
     e.extra = opts?.extra;
+    e.source = this.mode.trialSource ?? 'matched';
     this.deps.events.emit('skillTrial', e);
     this.stats.trials++;
     if (success) this.stats.trialsWon++;

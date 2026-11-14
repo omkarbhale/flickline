@@ -47,6 +47,8 @@ export const menu: MenuTunables = {
     sweep: { name: 'Sweep', blurb: 'The flagship: an arena that fights back.', order: 80 },
     test: { name: 'Test', blurb: 'Framework fixture.', order: 900, listed: false },
     placement: { name: 'Placement', blurb: 'The 45 second calibration run.', order: 910, listed: false },
+    // Started by Today's session when it is due (design §8.5, #157), never from the grid.
+    baseline: { name: 'Baseline', blurb: 'The same 40 targets every day, cold: learning, not warm-up.', order: 920, listed: false },
   },
   skillLabels: {
     precision: 'Precision',

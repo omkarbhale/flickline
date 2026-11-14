@@ -16,6 +16,7 @@
     "audio:snapshot": "AUDIO_SNAPSHOT_DIR=docs/audio vitest run src/audio/snapshot.test.ts",
     "map-lint": "node scripts/map-lint.mjs",
     "bot": "node scripts/bot.mjs",
+    "baseline:items": "node scripts/gen-baseline-items.mjs",
     "perf": "node scripts/perf.mjs",
     "reward-experiment": "vitest run src/feedback/contactExperiment.test.ts"
   },

@@ -5,8 +5,9 @@ import { SkillState } from '../adaptive/skillModel';
 import type { Tunables } from '../config/tunables';
 import type { EnemyKind } from '../config/scoring';
 import type { WeaponId } from '../config/weapon';
+import { baseline, baselineLevelFor, type BaselineLevels, type BaselineState } from '../modes/baseline';
 import { coldStart } from '../modes/coldStart';
-import type { AnchorSource, AxisValues, DialSource, TargetSpawner } from '../modes/contracts';
+import type { AnchorSource, AxisValues, DialSource, SkillId, TargetSpawner } from '../modes/contracts';
 import type { ModeDef } from '../modes/modeDef';
 import { orbit } from '../modes/orbit';
 import { placement, type PlacementState } from '../modes/placement';
@@ -24,6 +25,7 @@ export const MODES: Readonly<Record<string, ModeDef<never>>> = {
   coldStart: coldStart as ModeDef<never>,
   orbit: orbit as ModeDef<never>,
   placement: placement as ModeDef<never>,
+  baseline: baseline as ModeDef<never>,
 };
 
 /** The sim's target registry as the framework's spawner (#15). Only the kinds the sim has yet. */
@@ -65,6 +67,8 @@ export interface ModeStatus {
   placement: PlacementOutcome | null;
   /** Placement run only: the staircase's current dial, step and reversal count. */
   staircase: { dial: number; step: number; reversals: number } | null;
+  /** Baseline run only: the content version, each skill's level and the trials started and resolved. */
+  baseline: { version: number; levels: BaselineLevels; started: number; resolved: number; of: number } | null;
 }
 
 /** What the Placement run hands the skill model when it ends (design §9.2). */
@@ -108,7 +112,10 @@ export class ModeHost {
     this.runner = new ModeRunner({ events: bus, tunables, dial, spawner: new WorldSpawner(world, bus), player: world.player });
     this.runner.attach(bus);
     this.anchors = { anchors: map.anchors, bounds: map.bounds, sightClear: (from, to) => this.sightClear(from, to) };
-    bus.on('skillTrial', (e) => skills.observeTrial(e));
+    // The Baseline's trials are a separate measurement (design §8.5): the matched posterior never consumes them.
+    bus.on('skillTrial', (e) => {
+      if (e.source !== 'baseline') skills.observeTrial(e);
+    });
     bus.on('runEnded', (e) => {
       if (this.active?.id === 'placement' && e.reason !== 'quit') this.finishPlacement();
     });
@@ -123,8 +130,23 @@ export class ModeHost {
     this.clearField();
     this.applyPlayerSetup(mode);
     this.active = mode;
-    this.runner.begin(mode, { seed, pinDial: opts.pinDial, anchors: opts.anchors ?? this.anchors });
+    // A run pinned to levels (the Baseline) takes each skill's level, and is scored at their mean.
+    const levels = mode.trialSource === 'baseline' ? this.baselineLevels(opts.pinDial) : undefined;
+    const pinDial = levels ? (levels.flick + levels.precision) / 2 : opts.pinDial;
+    this.runner.begin(mode, { seed, pinDial, levels, anchors: opts.anchors ?? this.anchors });
     return true;
+  }
+
+  /**
+   * Each Baseline skill's level until #151's series exists (transfer.md §5.3): the highest level at
+   * or below the skill's matched dial, `θ - s × logit(p)` at the success rate its mode aims for. A
+   * pinned dial ("Pin difficulty") stands in for the matched dial of both skills.
+   */
+  baselineLevels(pinDial?: number): BaselineLevels {
+    const target = this.tunables.baseline.matchedTargetSuccess;
+    const level = (skill: 'flick' | 'precision'): number =>
+      baselineLevelFor(pinDial ?? this.skills.targetDial(skill as SkillId, target[skill]), this.tunables.baseline.levels);
+    return { flick: level('flick'), precision: level('precision') };
   }
 
   stop(): void {
@@ -235,6 +257,7 @@ export class ModeHost {
   status(): ModeStatus {
     const r = this.runner;
     const st = this.active?.id === 'placement' ? (r.state as PlacementState).staircase : null;
+    const bs = this.active?.id === 'baseline' ? (r.state as BaselineState) : null;
     return {
       mode: this.active?.id ?? null,
       phase: this.active ? r.phase : 'idle',
@@ -257,6 +280,10 @@ export class ModeHost {
       refusedSpawns: r.refusedSpawns,
       placement: this.placementOutcome,
       staircase: st ? { dial: st.dial, step: st.step, reversals: st.reversals } : null,
+      baseline:
+        this.active?.id === 'baseline'
+          ? { version: this.tunables.baseline.version, levels: bs!.levels, started: bs!.started, resolved: bs!.resolved, of: bs!.plan.length }
+          : null,
     };
   }
 }

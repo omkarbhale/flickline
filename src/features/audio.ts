@@ -30,7 +30,7 @@ export const feature = defineFeature({
   id: 'audio',
   stage: 'presentation',
   setup(game) {
-    attachSfx(game.bus, game.audio, game.tunables.audio);
+    attachSfx(game.bus, game.audio, game.tunables.audio, game.feedbackOptions);
     attachUiSounds(document, game.audio);
     attachDamageAudio(game.bus, game.audio);
     const world = game.world;

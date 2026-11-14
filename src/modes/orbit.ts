@@ -1,11 +1,11 @@
 import { modes as modeCfg } from '../config/modes';
 import { secondsToTicks } from '../core/time';
 import { vec3, type Vec3 } from '../core/vec3';
-import type { AxisValues, SkillId } from './contracts';
+import type { AxisValues, FixedItem, SkillId } from './contracts';
 import { FIRST_HEAD, ShotTracker } from './aim';
 import { TRIAL_KILLED, TRIAL_LEFT, TRIAL_RUNNING, type TrialEngine, type TrialStatus } from './coldStart';
 import type { ModeContext, ModeDef, ModeEvent } from './modeDef';
-import { createSpawnQuery, type SpawnQuery } from './scheduler';
+import { createFixedPlacement, createSpawnQuery, type FixedPlacement, type SpawnQuery } from './scheduler';
 
 /**
  * Orbit trial (design §4.2): one Beacon on the 8-25 m shell around the player, at an angular
@@ -18,6 +18,7 @@ export class OrbitTrial implements TrialEngine {
   private readonly tracker = new ShotTracker();
   private readonly centre: Vec3 = vec3();
   private readonly query: SpawnQuery = createSpawnQuery('beacon-shell');
+  private readonly fixed: FixedPlacement = createFixedPlacement();
   /** Direction of the previous Beacon from the eye (the angle reference); unset before the first. */
   private readonly prevDir: Vec3 = vec3();
   private hasPrev = false;
@@ -25,6 +26,7 @@ export class OrbitTrial implements TrialEngine {
   private distance = 0;
   private readonly extra: Record<string, number> = {
     flickDeg: 0, distance: 0, errDeg: -1, overshootDeg: 0, shots: 0, firstShotMs: -1, firstHit: 0, expired: 0,
+    item: -1, side: 0, adjustDeg: 0,
   };
 
   /** `fromView`: measure every angle from the crosshair, not from the previous Beacon (mixed runs, where other trials move it). */
@@ -39,8 +41,9 @@ export class OrbitTrial implements TrialEngine {
     return secondsToTicks(how === TRIAL_KILLED ? c.gapAfterKillSec : c.gapAfterExpirySec);
   }
 
-  start(ctx: ModeContext<unknown>, axes: AxisValues, skill: SkillId, difficulty?: number): boolean {
+  start(ctx: ModeContext<unknown>, axes: AxisValues, skill: SkillId, difficulty?: number, item?: FixedItem): boolean {
     const c = ctx.tunables.modes.orbit;
+    if (item) return this.startItem(ctx, skill, difficulty, item);
     const shell = ctx.scheduler.firstOfKind('beacon-shell');
     if (!shell) return false;
     const q = this.query;
@@ -62,8 +65,37 @@ export class OrbitTrial implements TrialEngine {
     this.hasPrev = true;
     const eye = ctx.scheduler.eyePosition();
     this.distance = Math.hypot(this.centre.x - eye.x, this.centre.y - eye.y, this.centre.z - eye.z);
+    this.extra.item = -1;
+    this.extra.side = 0;
+    this.extra.adjustDeg = 0;
     const exposure = Math.max(axes.orbitExposureSec ?? 1, ctx.tunables.dial.floors.exposureSec);
     this.expireAt = ctx.liveTick + secondsToTicks(exposure);
+    return true;
+  }
+
+  /** A stored item (design §8.5): the Beacon at the item's angle, pitch and distance from the crosshair, at its scale and exposure. */
+  private startItem(ctx: ModeContext<unknown>, skill: SkillId, difficulty: number | undefined, item: FixedItem): boolean {
+    const f = this.fixed;
+    const t = ctx.tunables;
+    f.angleDeg = item.angleDeg;
+    f.pitchDeg = item.pitchDeg;
+    f.distance = item.distance;
+    f.side = item.side;
+    f.lockPitch = false;
+    f.minHeight = t.baseline.minBeaconHeightM;
+    f.minDistance = t.modes.orbit.minDistM;
+    f.fitSteps = t.baseline.fitSteps;
+    if (!ctx.scheduler.placeFixed(f, this.centre)) return false;
+    const id = ctx.spawn('beacon', this.centre, { scale: item.scale, skill, difficulty, dial: difficulty });
+    if (id < 0) return false;
+    this.targetId = id;
+    this.tracker.begin(ctx.player, this.centre, ctx.liveTick);
+    const eye = ctx.scheduler.eyePosition();
+    this.distance = Math.hypot(this.centre.x - eye.x, this.centre.y - eye.y, this.centre.z - eye.z);
+    this.expireAt = ctx.liveTick + secondsToTicks(Math.max(item.exposureSec, t.dial.floors.exposureSec));
+    this.extra.item = item.index;
+    this.extra.side = ctx.scheduler.placed.side;
+    this.extra.adjustDeg = ctx.scheduler.placed.adjustDeg;
     return true;
   }
 

@@ -17,7 +17,7 @@ function rig(opts: Partial<FeedbackOptions> = {}) {
   const tun = cloneTunables();
   const world = new World({ level: testRoom, tunables: tun, seed: 7 });
   const bus = new EventBus<SimEvents>();
-  const options: FeedbackOptions = { coachingCues: true, missGhost: true, damageNumbers: true, reduceFlashing: false, ...opts };
+  const options: FeedbackOptions = { coachingCues: true, missGhost: true, damageNumbers: true, reduceFlashing: false, referenceLike: false, ...opts };
   const cues = new ShotCues(bus, tun.feedback, options, world.targets, tun.targets);
   const input = createTickInput();
   const settle = (n = 4): void => {
