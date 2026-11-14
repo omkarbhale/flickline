@@ -64,7 +64,7 @@ export interface ResultsTunables {
   /** Badge colour per tier, lowest first (design §8.4: Chalk, Brass, Steel, Cobalt, Neon, Prism, Zenith). The badge always carries the tier name too. */
   tierColours: readonly string[];
   /** Why the run ended, shown above the mode name. */
-  endLabels: Record<'timer' | 'death' | 'complete' | 'quit', string>;
+  endLabels: Record<'timer' | 'death' | 'complete' | 'quit' | 'left', string>;
   /** Display names of the skills the rating row names (`line` = the mean of all seven). */
   skillLabels: Record<string, string>;
   /** Display names of medal ids (design §8.4); unknown ids are title-cased. */
@@ -115,7 +115,7 @@ export const results: ResultsTunables = {
   oneBulletModes: ['coldStart', 'orbit', 'placement'],
   oneBulletTile: 'cleanStreak',
   tierColours: ['#aab4c2', '#d9a35a', '#9fb4cc', '#5b8cff', '#38e8ff', '#c792ff', '#ffd23f'],
-  endLabels: { timer: "Time's up", death: 'Eliminated', complete: 'Run complete', quit: 'Run ended early' },
+  endLabels: { timer: "Time's up", death: 'Eliminated', complete: 'Run complete', quit: 'Run ended early', left: 'Left and banked' },
   skillLabels: {
     precision: 'Precision', flick: 'Flick', track: 'Tracking', footwork: 'Footwork', spray: 'Spray control',
     switch: 'Target switching', angles: 'Angles', line: 'Line rating',
@@ -125,15 +125,16 @@ export const results: ResultsTunables = {
     coldOpen: 'Cold Open',
     planted: 'Planted',
     hairline: 'Hairline',
-    metronome: 'Metronome',
     pendulum: 'Pendulum',
     thread: 'Thread',
     quickStudy: 'Quick Study',
     cleanCorner: 'Clean Corner',
     untouched: 'Untouched',
     flawless: 'Flawless',
+    closer: 'Closer',
+    cashed: 'Cashed',
     ascent: 'Ascent',
-    // The 13th medal (a Daily Baseline that reports "Improved"): its criterion lives with the Baseline series (#151, #153).
+    // The 14th medal (a cold opener whose trend reports "Improved"): its criterion lives with the cold-opener series (#209, #151, #153).
     retained: 'Retained',
   },
   copy: {

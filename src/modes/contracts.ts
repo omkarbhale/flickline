@@ -244,7 +244,7 @@ export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents {
   };
 }
 
-export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit';
+export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit' | 'left';
 
 declare module '../core/gameEvents' {
   interface GameEvents extends ModeEvents {}

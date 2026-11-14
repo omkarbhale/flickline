@@ -14,7 +14,8 @@ import type { Vec3 } from '../core/vec3';
  * events belong to the mode framework (`ModeEvents`, `feedback/streaks.ts`).
  */
 
-export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit';
+/** `left` is a Leave gate (design §14.3, §4.7); `timer` and `complete` belong to the drills that are being retired. */
+export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit' | 'left';
 
 /**
  * Spray Wall's facts (design §4.5): one spray = one trial. They are logged (`feedback/eventLog.ts`)
@@ -86,7 +87,20 @@ export interface RunEvents extends SprayEvents {
     kept: number;
     enemies: number;
     points: number;
+    /** The scenario card the contact was drawn from (design §4.4: `take-expected`, `clear`, ...); the situation records are keyed by it. */
+    card?: string;
   };
+
+  /**
+   * The run entered sector `index` (1-based; 7+ is Overtime), design §14.3. `role`, `condition` (`full`, `light`,
+   * `eco`, or `cold` for the cold opener) and `stake` (`shield`, `arms`, `hot`, `plain`) are the sector's own facts:
+   * the route strip prints them. Emitted by the run director (#201, #204).
+   */
+  sectorEntered: { tick: number; t: number; sectorId: string; index: number; role: string; condition: string; stake: string; dial: number };
+  /** The sector ended: `cleared` = every Echo dead and the player alive; `points` is what the sector earned. */
+  sectorEnded: { tick: number; t: number; sectorId: string; cleared: boolean; keptSector: number; tempo: boolean; points: number };
+  /** A Leave gate banked the run: `points` includes the Overtime points that were at risk (design §4.7). */
+  runBanked: { tick: number; t: number; points: number; overtimeSectors: number };
 }
 
 declare module '../core/gameEvents' {

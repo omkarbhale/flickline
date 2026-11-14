@@ -3,9 +3,10 @@ import type { SkillId } from '../config/dial';
 import { progress as progressCfg, type ProgressTunables } from '../config/progress';
 import type { SkillSnapshot } from '../adaptive/skillModel';
 import type { StorageLike } from '../settings/settings';
-import { beatsBest, bandOf } from './bests';
+import { bandOf } from './bests';
 import { stepRank } from './ranks';
-import { defaultProgress, readProgress, sanitizeProgress, SAVE_VERSION, toSave, type BestRecord, type ProgressData, type RunSummary } from './save';
+import { applyRunRecord, recordContacts, situationStats, type ApplyResult, type RunRecord, type SituationStats } from './runRecords';
+import { defaultProgress, readProgress, sanitizeProgress, SAVE_VERSION, toSave, type BandRecords, type ProgressData, type RunBest, type RunSummary } from './save';
 
 /**
  * The progress save behind an injected storage (design §14.5): load with migration, in-memory fallback,
@@ -30,12 +31,10 @@ declare module '../core/gameEvents' {
   interface GameEvents extends ProgressEvents {}
 }
 
-export interface RecordResult {
-  /** The run set a personal best for its mode and band. */
-  newBest: boolean;
-  /** The best it replaced (or null: the first on that band). */
-  previousBest: number | null;
-}
+/** What `recordRun` made of a finished run (all false/null for a drill: it keeps a history entry and a count, nothing else). */
+export type RecordResult = ApplyResult;
+
+const NO_RESULT: RecordResult = { newBest: false, previousBest: null, newDeepest: false, finaleCleared: false, newDailyBest: false };
 
 export class ProgressStore {
   private data: ProgressData = defaultProgress();
@@ -80,18 +79,48 @@ export class ProgressStore {
 
   // ---- reads (the menu's three: best, plays, flaggedSkill) -------------------------------------
 
-  /** Best score of a mode over every band, or null if it has none. */
+  /**
+   * The best score of a mode over every band, or null if it has none: the best run for a run mode, the (read-only)
+   * drill best of version 2 for a drill.
+   */
   best(modeId: string): number | null {
-    const bands = this.data.bests[modeId];
-    if (!bands) return null;
     let best: number | null = null;
+    if (this.cfg.runModes.includes(modeId)) {
+      for (const id of Object.keys(this.data.runBests)) {
+        const b = this.data.runBests[id]!.best;
+        if (b !== null && (best === null || b.score > best)) best = b.score;
+      }
+      return best;
+    }
+    const bands = this.data.drillBests[modeId];
+    if (!bands) return null;
     for (const id of Object.keys(bands)) if (best === null || bands[id]!.score > best) best = bands[id]!.score;
     return best;
   }
 
-  /** The best of `modeId` in the band of `dial`. */
-  bestAt(modeId: string, dial: number): BestRecord | null {
-    return this.data.bests[modeId]?.[bandOf(dial, this.cfg)] ?? null;
+  /** The run records of the band `dial` falls in (design §8.4), or null before the first run there. */
+  bandRecords(dial: number): BandRecords | null {
+    return this.data.runBests[bandOf(dial, this.cfg)] ?? null;
+  }
+
+  /** The best run in the band of `dial`: the run the pace bar and the results card compare against. */
+  bestRun(dial: number): RunBest | null {
+    return this.bandRecords(dial)?.best ?? null;
+  }
+
+  /** The Daily Route's best for a local date (`YYYY-MM-DD`). */
+  dailyBest(dateKey: string): RunBest | null {
+    return this.data.dailyBests[dateKey] ?? null;
+  }
+
+  /** A scenario card's record over its last `last` contacts (default: the whole window of 50). */
+  situation(card: string, last: number = Infinity): SituationStats {
+    return situationStats(this.data.situations[card], last);
+  }
+
+  /** The scenario cards that have a record. */
+  get situationCards(): string[] {
+    return Object.keys(this.data.situations);
   }
 
   plays(modeId: string): number {
@@ -124,29 +153,32 @@ export class ProgressStore {
   }
 
   /**
-   * A finished run: the history, the run count and, if it beats the best of its band, the personal best (with
-   * its score `curve`). Runs of modes in `noBestModes` and runs that scored nothing keep no best.
+   * A finished run: the history and the run count always; for a run mode, with its `record` (the route, the pace and
+   * the settled contacts), also the run records of its band and the situation records. Drills keep no bests (design
+   * §4.10). `dailyKey` is the local date when the run was the Daily Route.
    */
-  recordRun(run: RunSummary, curve: readonly number[] | null): RecordResult {
+  recordRun(run: RunSummary, record: RunRecord | null, dailyKey: string | null = null): RecordResult {
     const d = this.data;
     d.plays[run.mode] = (d.plays[run.mode] ?? 0) + 1;
     d.history.push(run);
     if (d.history.length > this.cfg.historyMax) d.history.splice(0, d.history.length - this.cfg.historyMax);
-    const band = bandOf(run.dial, this.cfg);
-    const prev = d.bests[run.mode]?.[band] ?? null;
-    let newBest = false;
-    if (!this.cfg.noBestModes.includes(run.mode) && beatsBest(run.score, prev)) {
-      newBest = true;
-      (d.bests[run.mode] ??= {})[band] = {
-        score: run.score, seed: run.seed, date: run.date, dial: run.dial,
-        stats: { shots: run.shots, hits: run.hits, headHits: run.headHits, kills: run.kills, movingShots: run.movingShots,
-          accuracy: run.accuracy, headshotRate: run.headshotRate, medianRtMs: run.medianRtMs, medianTtkMs: run.medianTtkMs,
-          maxChain: run.maxChain, cleanKills: run.cleanKills },
-        curve: curve ? curve.slice(0, this.cfg.curveMaxSamples) : [],
-      };
+    let result = NO_RESULT;
+    if (record !== null && this.cfg.runModes.includes(run.mode)) {
+      result = applyRunRecord(d, record, run.date, dailyKey, this.cfg);
+      recordContacts(d, record.contacts, this.cfg);
     }
     this.changed(run.mode);
-    return { newBest, previousBest: prev?.score ?? null };
+    return result;
+  }
+
+  /**
+   * A run that ended without finishing (a quit): its settled contacts still say how the player fights, so they join the
+   * situation records; nothing else is recorded.
+   */
+  recordContactsOnly(record: RunRecord): void {
+    if (record.contacts.length === 0) return;
+    recordContacts(this.data, record.contacts, this.cfg);
+    this.changed(null);
   }
 
   /** The skill posterior after a run. */

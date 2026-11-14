@@ -67,16 +67,16 @@ export const feature = defineFeature({
     let before: number | null = null;
     // A playtest's fake best (`results.pb`); undefined = the real one.
     let fake: number | null | undefined;
-    const noBest = game.tunables.progress.noBestModes;
+    const runModes = game.tunables.progress.runModes;
     game.bus.on('runReady', (e) => {
-      before = noBest.includes(e.mode) ? null : (game.progress.bestAt(e.mode, e.dial)?.score ?? null);
+      before = runModes.includes(e.mode) ? (game.progress.bestRun(e.dial)?.score ?? null) : null;
     });
     const recorder = new ResultsRecorder({
       bus: game.bus,
       run: game.run,
       ratings: game.modes.skills,
       skillOf,
-      pb: { best: () => (fake === undefined ? before : fake), keepsBest: (mode) => !noBest.includes(mode) },
+      pb: { best: () => (fake === undefined ? before : fake), keepsBest: (mode) => runModes.includes(mode) },
       onCard: (model) => {
         card.setPlayLabel(game.nextRunLabel());
         card.show(model, endedAt);
