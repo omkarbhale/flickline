@@ -8,8 +8,7 @@ declare module '../debug/hook' {
   interface FlicklineDebug {
     /**
      * The one-time hints (design 13.4). `show(id)` shows a hint as its trigger would (false when it was
-     * already shown: each shows once, ever); the gate hint `pickDoor` has no trigger until gates exist (#205),
-     * which calls the same path. `state()` reads which were shown and what the lines say right now.
+     * already shown: each shows once, ever); the gate hint `pickDoor` is shown by `gateEntered` (#205), which uses the same path. `state()` reads which were shown and what the lines say right now.
      */
     readonly hints: {
       show(id: HintId): boolean;
@@ -64,6 +63,10 @@ export const feature = defineFeature({
     game.bus.on('footstep', (e) => rules.onFootstep(e.tick, e.walking, e.crouching));
     game.bus.on('enemySawPlayer', (e) => {
       if (rules.onEchoNoticed(e.tick, e.initiator === 'enemy')) owed('walkQuiet');
+    });
+    // The first gate a player reaches (#205): two doors in front of them.
+    game.bus.on('gateEntered', () => {
+      if (rules.claim('pickDoor')) owed('pickDoor');
     });
     game.bus.on('runDiscardAsked', () => write(askEl, cfg.discardText));
     game.bus.on('runReady', () => hide(askEl));

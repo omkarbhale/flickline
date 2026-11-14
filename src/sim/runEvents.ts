@@ -76,13 +76,32 @@ export interface SectorEvents {
     role: SweepSectorRole;
     /** Economy condition (design §4.6; v0: always `full`). */
     condition: 'full' | 'light' | 'eco' | 'cold';
-    /** Door stake (design §4.5; v0 has no gates: `plain`). */
+    /** Door stake the sector was entered by (design §4.5; the opener's is `plain`). */
     stake: 'plain' | 'shield' | 'arms' | 'hot';
+    /** Arms stake: the primary the door named (empty for any other stake). */
+    arms: string;
     dial: number;
     /** Depth multiplier on every point earned in the sector (design §8.1). */
     depth: number;
     contacts: number;
     echoes: number;
+  };
+  /**
+   * The player is in a gate and its two doors are drawn (design §4.5, #205). `index` is the 0-based
+   * index of the sector the gate leads to. The doors' facts are in the run's state (`SweepState.gate`);
+   * this is the moment the "Pick a door" hint (#202) fires.
+   */
+  gateEntered: { tick: number; t: number; index: number };
+  /** The player walked through a door (design §14.3): the other closes. `heard` is the bucket the door showed. */
+  gateChosen: {
+    tick: number;
+    t: number;
+    /** 0-based index of the sector entered. */
+    index: number;
+    door: 0 | 1;
+    stake: 'plain' | 'shield' | 'arms' | 'hot';
+    role: SweepSectorRole;
+    heard: 'quiet' | 'few' | 'several';
   };
   sectorEnded: {
     tick: number;

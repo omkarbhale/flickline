@@ -20,6 +20,42 @@ export type SectorRole = 'take' | 'hold' | 'meet';
 /** The skill a contact's trials count for (design §3.1: where a run exercises each skill). */
 export type SweepTrialSkill = 'precision' | 'flick' | 'angles' | 'switch' | 'track';
 
+/** What a door's stake does (design §4.5): `shield` refills the shield, `arms` swaps the primary, `hot` adds a contact and pays more, `plain` nothing. */
+export type GateStake = 'shield' | 'arms' | 'hot' | 'plain';
+export const GATE_STAKES: readonly GateStake[] = ['shield', 'arms', 'hot', 'plain'];
+
+/** How many Echoes a door says it hears: nothing, one or two, three or more (design §4.5). */
+export type HeardBucket = 'quiet' | 'few' | 'several';
+
+/** The gate between two sectors (design §4.5, #205): one authored room, two doors, three facts and a stake on each. */
+export interface GateTunables {
+  /** The map the gate room lives in (`sim/levels/gate.json`); loaded between sectors like any sector's map. */
+  mapId: string;
+  /** Where the player is put on entering (feet) and the way they face (radians), in the gate room. */
+  entry: { x: number; y: number; z: number; yaw: number };
+  /** The two doors, left then right as the player faces them: where each doorway's plane stands (feet, y 0) and its half width. */
+  doors: readonly [{ x: number; z: number }, { x: number; z: number }];
+  doorHalfWidthM: number;
+  /** Past the door plane by this much (towards the far wall) the player has walked through: the choice is made. */
+  commitDepthM: number;
+  /** After the choice: how long the other door takes to close and the screen to cut, before the sector loads, seconds. */
+  commitSec: number;
+  /** Door draw weights per stake (renormalised over the stakes a door may carry); the two doors always differ in stake. */
+  stakeWeight: Readonly<Record<GateStake, number>>;
+  /** Shield stake: the shield is refilled to this (the heavy tier, spec 4.1) and not offered again until this many sectors later. */
+  shieldRefillTo: number;
+  shieldEverySectors: number;
+  /** Hot stake: contacts added to the sector (as many as its hidden anchors can hold) and the multiplier on its points. */
+  hotExtraContacts: number;
+  hotMultiplier: number;
+  /** Arms stake: the primaries a door can name (never the one the player carries). */
+  armsPool: readonly string[];
+  /** The "heard" bucket of a count: up to `quietMax` Echoes = quiet, up to `fewMax` = one or two, more = several. */
+  heard: { quietMax: number; fewMax: number };
+  /** A sector's longest sightline from its entry, at or above this many metres, is `long`; below, `close` (design §10: close 5-8 m, mid 12-16, long 22-26). */
+  longSightlineM: number;
+}
+
 export interface SweepTunables {
   /** HP restored by a kill (design §4.1: "a body kill restores 5 HP, a headshot kill 10"); capped at max HP. A leg kill counts as a body kill. */
   killHeal: { body: number; head: number };
@@ -130,6 +166,7 @@ export interface SweepTunables {
   clearKills: number;
   /** Presentation: the dip to black that hides the move between sectors, seconds. */
   fadeSec: number;
+  gate: GateTunables;
 }
 
 export const sweep: SweepTunables = {
@@ -180,6 +217,22 @@ export const sweep: SweepTunables = {
   exitHeightM: 1.5,
   clearKills: 3,
   fadeSec: 0.3,
+  gate: {
+    mapId: 'gate',
+    entry: { x: 0, y: 0, z: 1.6, yaw: 0 },
+    doors: [{ x: -2.6, z: -4 }, { x: 2.6, z: -4 }],
+    doorHalfWidthM: 1,
+    commitDepthM: 0.8,
+    commitSec: 0.45,
+    stakeWeight: { shield: 0.3, arms: 0.25, hot: 0.3, plain: 0.15 },
+    shieldRefillTo: 50,
+    shieldEverySectors: 2,
+    hotExtraContacts: 1,
+    hotMultiplier: 1.5,
+    armsPool: ['kestrel', 'vane', 'rill'],
+    heard: { quietMax: 0, fewMax: 2 },
+    longSightlineM: 15,
+  },
 };
 
 /** This file's groups of `Tunables` (config/tunables.ts composes them). */

@@ -3,7 +3,10 @@ import { DIAGNOSTIC_IDS, SCENARIO_CARDS } from '../config/lean';
 import { SWEEP_CARDS } from '../config/sweep';
 import { cloneTunables } from '../config/tunables';
 import { boostShares, dealableCards, joinWords, LeanKeeper, leanView, mergeLean, NO_LEAN, weakestCards } from './lean';
-import { planCards, sweepPlan } from './sweep';
+import type { RunPlan } from './sweepDirector';
+import { sweepEnv } from './sweep';
+import { planRoute } from './sweepGate';
+import { routeCards } from './sweepDirector';
 
 const tunables = cloneTunables();
 const cfg = tunables.sweep;
@@ -183,6 +186,11 @@ describe('LeanKeeper: one run, then spent', () => {
   });
 });
 
+/** The whole route a seed gives with a lean, along doors that alternate with the seed (the gates are drawn as the run reaches them; this walks them offline). */
+function sweepPlan(seed: number, tun = tunables, lean: readonly string[] = []): RunPlan {
+  return planRoute(seed, sweepEnv(tun, lean), (_g, plan) => ((seed + plan.sectors.length) & 1) as 0 | 1);
+}
+
 describe('the sampler with a lean (seeded plans)', () => {
   const N = 500;
   /** Cards dealt by `N` seeded plans: take contacts by card, and the meet sectors among sectors 2 and later. */
@@ -237,10 +245,10 @@ describe('the sampler with a lean (seeded plans)', () => {
     for (let seed = 1; seed <= 300; seed++) {
       const plan = sweepPlan(seed, tunables, ['take-expected', 'clear', 'meet']);
       expect(plan.sectors[0]!.role).toBe('take');
-      const cards = planCards(plan);
+      const cards = routeCards(plan.sectors);
       for (let k = 2; k < cards.length; k++) expect(cards[k] === cards[k - 1] && cards[k] === cards[k - 2]).toBe(false);
       for (const s of plan.sectors) for (const c of s.contacts) if (c.card === 'crossfire') expect(s.index).toBeGreaterThanOrEqual(cfg.crossfireFromSector);
-      for (let i = 1; i < plan.sectors.length; i++) expect(plan.sectors[i]!.sectorId).not.toBe(plan.sectors[i - 1]!.sectorId);
+      for (let i = 1; i < plan.sectors.length; i++) expect(plan.sectors[i]!.mapId + plan.sectors[i]!.sectorId).not.toBe(plan.sectors[i - 1]!.mapId + plan.sectors[i - 1]!.sectorId);
     }
     // Every card is still dealt (nothing is leaned out of existence).
     const on = tally(['take-expected', 'clear', 'meet']);
