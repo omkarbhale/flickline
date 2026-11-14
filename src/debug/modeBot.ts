@@ -13,7 +13,7 @@ import type { Vec3 } from '../core/vec3';
 
 export interface BotHost {
   /** Ready a run of the mode with the seed. False if the mode is unknown. */
-  startMode(id: string, opts: { seed: number }): boolean;
+  startMode(id: string, opts: { seed: number; pinDial?: number }): boolean;
   /** Advance one sim tick with the given view (radians) and trigger. */
   tick(yaw: number, pitch: number, fire: boolean): void;
   /** The player's eye position and current view. */
@@ -29,6 +29,8 @@ export interface BotHost {
 
 export interface BotOptions {
   seed: number;
+  /** Pin the dial ("Pin difficulty"): a repeat run is then identical even though the skill model learned from the last one. */
+  pinDial?: number;
   /** Own stream (aim error, reaction jitter). Default: the run seed. */
   botSeed?: number;
   /** Seconds from a target appearing to the first movement. */
@@ -59,7 +61,7 @@ const DEFAULTS = { reactionSec: 0.3, aimRate: 12, noiseDeg: 0.4, fireWithinDeg: 
 export function playMode(host: BotHost, modeId: string, o: BotOptions): BotResult {
   const cfg = { ...DEFAULTS, ...o };
   const rng = new Rng((o.botSeed ?? o.seed) >>> 0 || 1);
-  if (!host.startMode(modeId, { seed: o.seed })) throw new Error(`unknown mode '${modeId}'`);
+  if (!host.startMode(modeId, { seed: o.seed, pinDial: o.pinDial })) throw new Error(`unknown mode '${modeId}'`);
   const eye = { x: 0, y: 0, z: 0 };
   const aim = { x: 0, y: 0, z: 0 };
   const v = host.view();
