@@ -11,15 +11,51 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 
 #hud { position: fixed; inset: 0; pointer-events: none; }
 .crosshair-canvas { position: absolute; left: 0; top: 0; display: block; pointer-events: none; will-change: transform; }
-.hitmarker { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
-.hitmarker i { position: absolute; width: 9px; height: 2px; background: var(--hit-color, #fff); box-shadow: 0 0 3px rgba(0,0,0,.8); }
-.hitmarker i:nth-child(1) { transform: translate(7px, 7px) rotate(45deg); }
-.hitmarker i:nth-child(2) { transform: translate(-16px, 7px) rotate(-45deg); }
-.hitmarker i:nth-child(3) { transform: translate(7px, -9px) rotate(-45deg); }
-.hitmarker i:nth-child(4) { transform: translate(-16px, -9px) rotate(45deg); }
-.hitmarker.show { animation: hm 0.18s ease-out; }
-.hitmarker.kill i { background: #ff4d4d; width: 12px; }
-@keyframes hm { 0% { opacity: 1; transform: scale(1.25); } 100% { opacity: 0; transform: scale(1); } }
+.crosshair-canvas.gap { animation: gap-scale var(--hm-head) ease-out; }
+@keyframes gap-scale { 0% { scale: 1.35; } 100% { scale: 1; } }
+.edge-pulse { position: absolute; inset: 0; opacity: 0; box-shadow: inset 0 0 90px 18px var(--trim); }
+.edge-pulse.show { animation: pulse var(--pulse-ms) linear; }
+@keyframes pulse { 0% { opacity: 0; } 33% { opacity: var(--pulse-alpha); } 100% { opacity: 0; } }
+
+
+/* Hit markers differ by shape as well as colour (research R17): diagonal ticks (body), short and dim (leg),
+   long gold ticks inside a ring (head), a plus-shaped burst (kill), a bigger gold plus in a ring (head kill). */
+.hitmarker { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; --len: 9px; --gap: 6px; --a: 45deg; --col: var(--hit-color, #fff); --dur: var(--hm-body); }
+.hitmarker i { position: absolute; left: 0; top: -1px; width: var(--len); height: 2px; background: var(--col); box-shadow: 0 0 3px rgba(0,0,0,.8); transform-origin: 0 50%; }
+.hitmarker i:nth-child(1) { transform: rotate(calc(var(--a) + 0deg)) translateX(var(--gap)); }
+.hitmarker i:nth-child(2) { transform: rotate(calc(var(--a) + 90deg)) translateX(var(--gap)); }
+.hitmarker i:nth-child(3) { transform: rotate(calc(var(--a) + 180deg)) translateX(var(--gap)); }
+.hitmarker i:nth-child(4) { transform: rotate(calc(var(--a) + 270deg)) translateX(var(--gap)); }
+.hitmarker b { position: absolute; left: -15px; top: -15px; width: 26px; height: 26px; border: 2px solid var(--col); border-radius: 50%; opacity: 0; box-shadow: 0 0 3px rgba(0,0,0,.8); }
+.hitmarker.show { animation: hm var(--dur) ease-out; }
+.hitmarker.hm-leg { --len: 6px; --gap: 5px; --dur: var(--hm-leg); opacity: .55; }
+.hitmarker.hm-head { --len: 13px; --gap: 7px; --col: var(--gold); --dur: var(--hm-head); }
+.hitmarker.hm-head b, .hitmarker.hm-headkill b { opacity: 1; }
+.hitmarker.hm-kill { --len: 14px; --gap: 9px; --a: 0deg; --col: var(--hit-color, var(--core)); --dur: var(--hm-kill); }
+.hitmarker.hm-headkill { --len: 18px; --gap: 11px; --a: 0deg; --col: var(--gold); --dur: var(--hm-kill); }
+.hitmarker.hm-kill i, .hitmarker.hm-headkill i { height: 3px; top: -1.5px; }
+.hitmarker.hm-headkill b { left: -19px; top: -19px; width: 34px; height: 34px; }
+@keyframes hm { 0% { opacity: 1; transform: scale(1.3); } 100% { opacity: 0; transform: scale(1); } }
+
+.move-glyph { position: absolute; left: 50%; top: 50%; transform: translate(-50%, 22px); font: 700 17px/1 ui-monospace, monospace; color: var(--warn); text-shadow: 0 1px 2px #000; opacity: 0; }
+.move-glyph.show { animation: glyph var(--glyph-ms) ease-out; }
+@keyframes glyph { 0% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+
+.floats { position: absolute; inset: 0; }
+.fnum { position: absolute; left: 0; top: 0; opacity: 0; }
+.fnum span { display: block; transform: translate(-50%, -50%); font: 700 18px/1 ui-monospace, monospace; color: #fff; text-shadow: 0 1px 3px #000, 0 0 6px rgba(0,0,0,.6); white-space: nowrap; }
+.fnum.f-leg span { color: rgba(255,255,255,.6); font-size: 14px; }
+.fnum.f-head span { color: var(--gold); font-size: 22px; }
+.fnum.f-kill span { color: var(--core); font-size: 24px; }
+.fnum.f-kill.f-head span { color: var(--gold); font-size: 28px; }
+.fnum.show { animation: float-up var(--float-ms) ease-out; }
+@keyframes float-up { 0% { opacity: 1; margin-top: 0; } 70% { opacity: 1; } 100% { opacity: 0; margin-top: calc(var(--float-rise) * -1); } }
+
+.rt-float { position: absolute; left: 50%; top: 50%; transform: translate(26px, 16px); font: 600 14px/1 ui-monospace, monospace; color: #fff; text-shadow: 0 1px 3px #000; white-space: nowrap; opacity: 0; }
+.rt-float.show { animation: rt var(--rt-ms) ease-out; }
+@keyframes rt { 0% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) { .edge-pulse.show { animation: none; } }
 .counters, .ammo { position: absolute; bottom: 14px; font: 600 13px/1 ui-monospace, monospace; letter-spacing: .08em; color: rgba(232,237,242,.85); text-shadow: 0 1px 2px #000; }
 .counters { left: 16px; }
 .ammo { right: 16px; }
@@ -35,6 +71,9 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
 .grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--dim); }
 .grid input, .grid select { font: 14px inherit; padding: 6px 8px; background: #0b0e12; color: var(--fg); border: 1px solid #243040; border-radius: 4px; }
+.toggles { margin-top: 14px; grid-template-columns: 1fr; gap: 6px; }
+.grid label.check { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--fg); }
+.grid label.check input { margin: 0; }
 .note { font-size: 12px; color: var(--dim); margin: 16px 0 6px; line-height: 1.4; }
 .keys { font-size: 12px; color: var(--dim); margin: 0; }
 

@@ -10,12 +10,14 @@ import { DebugOverlay } from '../debug/overlay';
 import { Timeline } from '../debug/timeline';
 import { PerfStats } from '../debug/perfStats';
 import { SessionStats } from '../feedback/sessionStats';
+import { applySettingsToOptions, createFeedbackOptions } from '../feedback/options';
+import { ShotCues } from '../feedback/shotCues';
 import type { ModeEvents } from '../modes/contracts';
 import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
 import { ProfileStore } from '../settings/profile';
-import { SettingsStore, type Settings } from '../settings/settings';
+import { SettingsStore, SETTINGS_KEY, type Settings } from '../settings/settings';
 import { createTickInput, SIM_EVENT_TYPES, type HitZone, type SimEvents, type TargetKind, type TickInput } from '../sim/types';
 import { zoneCentre } from '../sim/hitZones';
 import type { SpawnOptions } from '../sim/targets';
@@ -57,6 +59,10 @@ export class Game {
   readonly overlay: DebugOverlay;
   readonly perf = new PerfStats();
   readonly session = new SessionStats();
+  /** Per-shot effect cues (pure model; the renderer draws them). */
+  readonly cues: ShotCues;
+  /** Feedback-related settings, shared (live) with the cue model and the HUD. */
+  readonly feedbackOptions: ReturnType<typeof createFeedbackOptions>;
   readonly timeline = new Timeline();
   readonly modes: ModeHost;
   readonly stepper = new FixedStepper(TICK_DT, 8);
@@ -67,6 +73,8 @@ export class Game {
   forceRun = false;
   /** Debug: sticky scripted input merged over live input on every frame. */
   override: Partial<Pick<TickInput, 'moveX' | 'moveZ' | 'jump' | 'crouch' | 'walk' | 'fire' | 'reload' | 'switchTo'>> | null = null;
+  /** Debug: draw with dt = 0 so transient effects hold still for screenshots. */
+  freezeFx = false;
   menuHidden = false;
   readonly eventLog: LoggedEvent[] = [];
 
@@ -86,15 +94,22 @@ export class Game {
     } catch {
       storage = null;
     }
+    const firstRun = storage === null || storage.getItem(SETTINGS_KEY) === null;
     this.settings = new SettingsStore(this.bus, storage);
+    // Research R12: Reduce flashing defaults on when the OS asks for reduced motion (first run only).
+    if (firstRun && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      this.settings.set({ reduceFlashing: true });
+    }
     this.profile = new ProfileStore(this.bus, storage);
     const s = this.settings.get();
+    this.feedbackOptions = createFeedbackOptions(s);
 
     const seedParam = new URLSearchParams(window.location.search).get('seed');
     const seed = seedParam !== null && Number.isFinite(Number(seedParam)) ? Number(seedParam) : 1;
     this.world = new World({ level: this.map, tunables: this.tunables, seed });
 
-    this.renderer = new GameRenderer(canvas, this.bus, this.tunables, s.quality);
+    this.cues = new ShotCues(this.bus, this.tunables.feedback, this.feedbackOptions, this.world.targets, this.tunables.targets);
+    this.renderer = new GameRenderer(canvas, this.tunables, s.quality, this.cues);
     this.renderer.loadLevel(this.world, this.map);
 
     this.input = new InputManager(canvas, this.bus);
@@ -112,7 +127,11 @@ export class Game {
     attachSfx(this.bus, this.audio, this.tunables.audio);
     attachUiSounds(document, this.audio);
 
-    this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair, this.world.weapon, this.tunables.weapon);
+    this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair, this.world.weapon, this.tunables.weapon, {
+      options: this.feedbackOptions,
+      cfg: this.tunables.feedback,
+      project: (x, y, z, out) => this.renderer.projectToScreen(x, y, z, out),
+    });
     this.menu = new Menu(menuRoot, this.settings, this.profile, this.tunables, {
       onPlay: () => this.play(),
       onRestart: () => {
@@ -134,6 +153,7 @@ export class Game {
       if (changed.includes('sensitivity')) this.input.setSensitivity(settings.sensitivity);
       if (changed.some((k) => k === 'volume' || k.endsWith('Volume'))) this.applyAudioSettings(settings);
       if (changed.includes('quality')) this.renderer.setQuality(settings.quality);
+      applySettingsToOptions(this.feedbackOptions, settings);
       this.menu.sync();
     });
     this.bus.on('pointerLockChanged', ({ locked }) => {
@@ -231,6 +251,7 @@ export class Game {
   private readonly frame = (ts: number): void => {
     requestAnimationFrame(this.frame);
     this.perf.beginFrame(ts);
+    this.cues.beginFrame();
     const dt = this.lastTs === 0 ? 0 : Math.min((ts - this.lastTs) / 1000, 0.25);
     this.lastTs = ts;
 
@@ -275,7 +296,7 @@ export class Game {
   };
 
   private drawFrame(alpha: number, dt: number): void {
-    this.renderer.render(this.world, alpha, this.input.yaw, this.input.pitch, dt);
+    this.renderer.render(this.world, alpha, this.input.yaw, this.input.pitch, this.freezeFx ? 0 : dt);
   }
 
   /** Render once immediately with no interpolation lag (used after deterministic stepping). */
@@ -386,6 +407,7 @@ export class Game {
     this.modes.stop();
     this.world.reset(seed);
     this.session.reset();
+    this.cues.clear();
     this.hud.refresh();
     this.input.setLook(this.world.player.yaw, 0);
     this.stepper.reset();
@@ -399,7 +421,8 @@ export class Game {
       `pos ${f(p.pos.x)} ${f(p.pos.y)} ${f(p.pos.z)}  speed ${f(speed)} m/s\n` +
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
-      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}` +
+      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}\n` +
+      `fx latency max ${this.cues.latency.max} frame(s) over ${this.cues.latency.samples} cues, ${this.cues.latency.late} late` +
       this.modeLine()
     );
   }

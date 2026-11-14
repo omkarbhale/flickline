@@ -3,7 +3,7 @@ import { SELF_REPORTS, type SelfReport } from '../config/profile';
 import { QUALITY_LEVELS } from '../config/render';
 import type { Tunables } from '../config/tunables';
 import type { ProfileStore } from '../settings/profile';
-import type { SettingsStore } from '../settings/settings';
+import type { Settings, SettingsStore } from '../settings/settings';
 import { CrosshairEditor } from './crosshairEditor';
 
 /**
@@ -33,6 +33,7 @@ export class Menu {
   private readonly vol: HTMLInputElement;
   private readonly quality: HTMLSelectElement;
   private readonly title: HTMLElement;
+  private readonly toggles: [keyof Settings, HTMLInputElement][] = [];
   private readonly play: HTMLButtonElement;
   private readonly raw: HTMLElement;
   private readonly chips: HTMLButtonElement[];
@@ -64,7 +65,13 @@ export class Menu {
           <label class="not-first">Volume<input data-k="vol" name="vol" id="set-vol" type="range" min="0" max="1" step="0.01" /></label>
           <label class="not-first">Graphics<select data-k="quality" name="quality" id="set-quality">${QUALITY_LEVELS.map((q) => `<option value="${q}">${q}</option>`).join('')}</select></label>
         </div>
-        <details class="ch-editor not-first"><summary>Crosshair</summary><div data-k="crosshair"></div></details>
+        <div class="grid toggles not-first">
+          <label class="check"><input data-k="coachingCues" type="checkbox" /> Coaching cues (amber moving-shot tracer, ⇆)</label>
+          <label class="check"><input data-k="missGhost" type="checkbox" /> Miss ghost ring</label>
+          <label class="check"><input data-k="damageNumbers" type="checkbox" /> Damage numbers</label>
+          <label class="check"><input data-k="reduceFlashing" type="checkbox" /> Reduce flashing (no screen pulses)</label>
+        </div>
+                <details class="ch-editor not-first"><summary>Crosshair</summary><div data-k="crosshair"></div></details>
         <p class="note not-first"></p>
         <p class="keys not-first">WASD move · Space jump · Ctrl/C crouch · Shift walk · LMB shoot · R reload · \` debug overlay</p>
       </div>`;
@@ -131,6 +138,11 @@ export class Menu {
     this.quality.addEventListener('change', () => {
       this.store.set({ quality: this.quality.value as 'low' | 'medium' | 'high' });
     });
+    for (const key of ['coachingCues', 'missGhost', 'damageNumbers', 'reduceFlashing'] as const) {
+      const el = q<HTMLInputElement>(key);
+      this.toggles.push([key, el]);
+      el.addEventListener('change', () => this.store.set({ [key]: el.checked }));
+    }
     this.sync();
   }
 
@@ -142,6 +154,7 @@ export class Menu {
     this.cm.value = cmPer360(s.sensitivity, s.dpi).toFixed(1);
     this.vol.value = String(s.volume);
     this.quality.value = s.quality;
+    for (const [key, el] of this.toggles) el.checked = s[key] as boolean;
     const picked = this.profile.get().selfReport;
     for (const chip of this.chips) chip.setAttribute('aria-pressed', String(chip.dataset.chip === picked));
     this.crosshair.sync();
