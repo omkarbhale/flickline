@@ -10,8 +10,8 @@ export interface StreakEvents {
 
 /**
  * The two counters of design §3, both fed by facts, both shown to the player:
- *  - **Chain**: kills each within `chainWindowSec` (1.5 s) of the previous kill. A lone kill is a
- *    chain of 1; the HUD shows it from 2 (Pair). It decays to 0 when the window lapses.
+ *  - **Chain**: isolated kills each within `chainWindowSec` (1.5 s) of the previous one. A lone kill
+ *    is a chain of 1; the HUD shows it from 2 (Pair). It decays to 0 when the window lapses.
  *  - **Clean streak**: consecutive clean kills (no missed shot at the target, no moving shot).
  *    Any unclean kill, miss or failed trial resets it. It drives the score multiplier.
  * Emits `chainUpdated` / `streakUpdated` only when the value changes. Payload objects are reused
@@ -41,13 +41,20 @@ export class StreakTracker {
     return streakMultiplier(this.streak, this.cfg);
   }
 
-  /** A kill at run time `t` (seconds). `clean` per design §3: no miss at it, no moving shot. */
-  onKill(tick: number, t: number, clean: boolean): void {
+  /**
+   * A kill at run time `t` (seconds). `clean` per design §3: no miss at it, no moving shot.
+   * `isolated` (#132): false when another live enemy had the player in sight from a second angle
+   * (see `scoring.isolationAngleDeg`); such a kill gets no chain credit, so swinging into a
+   * crossfire never builds a chain. It still counts for the clean streak, which is about aim.
+   */
+  onKill(tick: number, t: number, clean: boolean, isolated = true): void {
     this.step(tick, t);
-    this.chain = this.chain > 0 && t - this.lastKillT <= this.cfg.chainWindowSec ? this.chain + 1 : 1;
-    this.lastKillT = t;
-    if (this.chain > this.bestChain) this.bestChain = this.chain;
-    this.emitChain(tick, t);
+    if (isolated) {
+      this.chain = this.chain > 0 && t - this.lastKillT <= this.cfg.chainWindowSec ? this.chain + 1 : 1;
+      this.lastKillT = t;
+      if (this.chain > this.bestChain) this.bestChain = this.chain;
+      this.emitChain(tick, t);
+    }
     if (clean) {
       this.streak++;
       if (this.streak > this.bestStreak) this.bestStreak = this.streak;
