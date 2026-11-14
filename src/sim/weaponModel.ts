@@ -111,18 +111,3 @@ export function stepYawSign(def: WeaponDef, state: RecoilState, dt: number): voi
   const d = state.yawTarget - state.yawSign;
   state.yawSign = Math.abs(d) <= maxDelta ? state.yawTarget : state.yawSign + Math.sign(d) * maxDelta;
 }
-
-/** Spec §3.5 view recovery: move the aim offset towards zero by `maxDeg` (straight line). */
-export function returnRecoil(state: RecoilState, maxDeg: number): void {
-  const p = state.recoilPitch;
-  const y = state.recoilYaw;
-  const len = Math.sqrt(p * p + y * y);
-  if (len <= maxDeg) {
-    state.recoilPitch = 0;
-    state.recoilYaw = 0;
-    return;
-  }
-  const k = (len - maxDeg) / len;
-  state.recoilPitch = p * k;
-  state.recoilYaw = y * k;
-}

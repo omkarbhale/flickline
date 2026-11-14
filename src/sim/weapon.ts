@@ -15,7 +15,6 @@ import {
   damageFor,
   isMovingShot,
   movementErrorDeg,
-  returnRecoil,
   sprayAccumDeg,
   sprayIncrement,
   stepYawSign,
@@ -391,10 +390,25 @@ export function stepWeapon(
     events.emit('weaponSwitched', e);
   }
 
-  // Recoil: yaw direction swing (switch time) and return towards the crosshair (spec §3.5).
+  // Recoil: yaw direction swing (switch time) and return towards the crosshair (spec §3.5): held
+  // for `recoilReturnDelaySec`, then a smoothstep glide (no velocity jump at either end) along the
+  // offset's own direction that lands on the crosshair exactly at the gun recovery time, so the
+  // offset never outlives the reset (#191). Stateless: each tick scales the offset by
+  // ease(u) / ease(u one tick ago). Inline maths, so no double is boxed per tick.
   stepYawSign(def, w, dt);
-  if (time - w.lastShotTime >= def.recoilReturnDelaySec - EPS && (w.recoilPitch !== 0 || w.recoilYaw !== 0)) {
-    returnRecoil(w, def.recoilReturnDegPerSec * dt);
+  if (w.recoilPitch !== 0 || w.recoilYaw !== 0) {
+    const sinceShot = time - w.lastShotTime;
+    if (sinceShot >= def.recoilReturnDelaySec - EPS) {
+      const span = def.recoverySec - def.recoilReturnDelaySec;
+      let k = 0;
+      if (def.recoverySec - sinceShot > EPS && span > EPS) {
+        const u = (sinceShot - def.recoilReturnDelaySec) / span;
+        const v = u - dt / span < 0 ? 0 : u - dt / span;
+        k = (1 - u * u * (3 - 2 * u)) / (1 - v * v * (3 - 2 * v));
+      }
+      w.recoilPitch *= k;
+      w.recoilYaw *= k;
+    }
   }
 
   if (input.reload && canReload(w, def)) startReload(w, def, tick, events, s);
@@ -433,8 +447,11 @@ function fire(
   // Spray count and stationary spread (spec §3.3).
   const sinceLast = time - w.lastShotTime;
   if (sinceLast >= def.recoverySec - EPS) {
+    // The reset is the whole spray: spread, pattern position and aim offset (#191).
     w.sprayCount = 0;
     w.recoilIndex = 0;
+    w.recoilPitch = 0;
+    w.recoilYaw = 0;
     w.yawSign = 1;
     w.yawTarget = 1;
   }
