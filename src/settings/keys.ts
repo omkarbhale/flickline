@@ -31,7 +31,7 @@ export const KEY_LABELS: Readonly<Record<KeyAction, string>> = {
   slotPrimary: 'Primary weapon',
   slotSidearm: 'Sidearm',
   reload: 'Reload',
-  restart: 'Restart run',
+  restart: 'New run',
   confirm: 'Next run / confirm',
   statSheet: 'Stat sheet (hold)',
   fullscreen: 'Fullscreen',
