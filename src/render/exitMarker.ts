@@ -18,7 +18,7 @@ export class ExitMarker implements RenderLayer {
 
   constructor(private readonly scene: Scene, radiusM: number, heightM = 3) {
     this.column = new MeshBasicMaterial({
-      color: palette.trim, transparent: true, opacity: 0.16, blending: AdditiveBlending, depthWrite: false, side: DoubleSide, fog: false,
+      color: palette.trim, transparent: true, opacity: 0.07, blending: AdditiveBlending, depthWrite: false, side: DoubleSide, fog: false,
     });
     this.ring = new MeshBasicMaterial({
       color: palette.trim, transparent: true, opacity: 0.7, blending: AdditiveBlending, depthWrite: false, side: DoubleSide, fog: false,
@@ -52,7 +52,8 @@ export class ExitMarker implements RenderLayer {
     if (!this.root.visible) return;
     this.time += frame.dt;
     const pulse = 0.5 + 0.5 * Math.sin(this.time * 2.4);
-    this.column.opacity = 0.1 + 0.08 * pulse;
+    // Faint: it must never hide an Echo standing near the exit.
+    this.column.opacity = 0.04 + 0.04 * pulse;
     this.ring.opacity = 0.5 + 0.35 * pulse;
   }
 

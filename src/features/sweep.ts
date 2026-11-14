@@ -21,15 +21,16 @@ declare module '../debug/hook' {
     /**
      * Sweep, the run (#201). `state()`: the sector, its contacts and Echoes, the run's cards and every
      * measured sector switch. `plan(seed)`: the plan a seed gives. `toExit()`: stand the player on the
-     * current sector's exit and step one tick (the next sector loads). `walk(maxTicks)`: walk the
-     * sector's route towards its exit, looking where it goes, until an Echo comes into sight (or the
-     * ticks run out); returns the ticks walked and the id of the Echo seen (-1: none).
+     * current sector's exit and step one tick (the next sector loads). `walk(maxTicks, stopAtM)`: walk
+     * the sector's route towards its exit, looking where it goes, until an Echo comes into sight, the
+     * player is within `stopAtM` metres of the exit (default 0: walk out), or the ticks run out;
+     * returns the ticks walked and the id of the Echo seen (-1: none).
      */
     readonly sweep: {
       state(): unknown;
       plan(seed?: number): unknown;
       toExit(): boolean;
-      walk(maxTicks?: number): { ticks: number; seen: number };
+      walk(maxTicks?: number, stopAtM?: number): { ticks: number; seen: number };
       /**
        * Measure a map switch on its own (the cost a move between sectors on different maps adds): load
        * `mapId` in place and draw a frame, then load the map that was there back and draw again.
@@ -59,7 +60,7 @@ export const feature = defineFeature({
     const label = document.createElement('div');
     label.className = 'sweep-sector';
     label.style.cssText =
-      'position:absolute;top:112px;left:50%;transform:translateX(-50%);font:600 13px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.18em;' +
+      'position:absolute;bottom:18px;left:50%;transform:translateX(-50%);font:600 13px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.18em;' +
       'color:#38e8ff;text-shadow:0 0 8px rgba(56,232,255,.45);opacity:0;transition:opacity .25s;pointer-events:none;text-transform:uppercase;';
     game.hud.root.appendChild(label);
 
@@ -176,7 +177,7 @@ export const feature = defineFeature({
           const back = once(before);
           return { to, back };
         },
-        walk(maxTicks = 128 * 20) {
+        walk(maxTicks = 128 * 20, stopAtM = 0) {
           const st = state();
           if (!st) return { ticks: 0, seen: -1 };
           const sp = st.plan.sectors[st.sector]!;
@@ -190,6 +191,7 @@ export const feature = defineFeature({
           while (ticks < maxTicks && seen < 0 && wp < route.length && game.run.state !== 'result') {
             const p = game.world.player.pos;
             const w = route[wp]!;
+            if (stopAtM > 0 && Math.hypot(sp.exit.x - p.x, sp.exit.z - p.z) < stopAtM) break;
             const dx = w.x - p.x, dz = w.z - p.z;
             if (Math.hypot(dx, dz) < 0.6) {
               wp++;
