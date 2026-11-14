@@ -171,6 +171,21 @@ export function snapDown(boxes: readonly BoxDef[], pos: Vec3, hw: number, h: num
   return false;
 }
 
+const blockScratch: Vec3 = { x: 0, y: 0, z: 0 };
+
+/** Whether a box lies on the unit-direction ray from (`ox`, `oy`, `oz`) before it has gone `dist` metres (less a 1 mm margin): line of sight is blocked. Allocates nothing. */
+export function lineBlocked(
+  boxes: readonly BoxDef[],
+  ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, dist: number,
+): boolean {
+  const limit = dist - 0.001;
+  for (let i = 0; i < boxes.length; i++) {
+    const hit = rayBox(ox, oy, oz, dx, dy, dz, boxes[i]!, limit, blockScratch);
+    if (hit >= 0 && hit < limit) return true;
+  }
+  return false;
+}
+
 /**
  * Ray vs AABB (slab method). Returns entry distance along the (unit) direction, or -1 on miss.
  * Writes the hit normal into `normalOut` when it hits. Rays starting inside a box are ignored.

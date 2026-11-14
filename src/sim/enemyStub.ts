@@ -19,6 +19,7 @@ export function createStubEnemyWorld(): EnemyWorld {
     boxes: [],
     enemyWeapon: 'kestrel',
     playerMoving: () => false,
+    soundAudible: () => false,
     hitPlayer: () => false,
   };
 }
