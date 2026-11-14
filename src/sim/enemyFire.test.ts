@@ -389,8 +389,10 @@ describe('bot playtest: damage taken over 60 s at dial 50', () => {
     const standing = totals(false, true);
     const strafing = totals(true, false);
     const ratio = strafing.hits / strafing.shots / (standing.hits / standing.shots);
+    // Each 0.5 s reversal brakes through the deadzone and accelerates out of it again (spec §2.3:
+    // about 0.11 s below it), so the bot is accurate ~23% of the time: 0.77 x 0.5 + 0.23 = ~0.62.
     expect(ratio).toBeGreaterThan(0.4);
-    expect(ratio).toBeLessThan(0.6);
+    expect(ratio).toBeLessThan(0.66);
     // The model's own expectation holds for the strafing bot as well.
     expect(Math.abs(strafing.hits - strafing.expected) / strafing.expected).toBeLessThan(0.2);
   });
