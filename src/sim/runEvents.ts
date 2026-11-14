@@ -18,7 +18,7 @@ import type { Vec3 } from '../core/vec3';
 export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit' | 'left';
 
 /**
- * Spray Wall's facts (design §4.5): one spray = one trial. They are logged (`feedback/eventLog.ts`)
+ * Spray facts (design §3, §8.2): one spray = one trace (the retired Spray Wall mode emitted them; the results card reads them, #213). They are logged (`feedback/eventLog.ts`)
  * so the spray trace is, like every stat, a pure function of the event log: the stat tracker cuts
  * the run's shots into sprays between `sprayStarted` and `sprayEnded`.
  */
@@ -143,9 +143,9 @@ export interface RunEvents extends SprayEvents, SectorEvents {
   medalAwarded: { tick: number; id: string };
 
   /**
-   * One Sweep contact or Corner Clear angle ended (design §3 "Contact", §8.1, §14.3). `enemies` is how many
+   * One Sweep contact ended (design §3 "Contact", §8.1, §14.3). `enemies` is how many
    * enemies the contact sent (the Untouched medal needs 3 or more); `kept` is the health kept, 1 = no damage.
-   * Emitted by the mode that owns contacts (Corner Clear #50, Sweep #51); the medals engine reads it.
+   * Emitted by the mode that owns contacts (Sweep, #51); the medals engine reads it.
    */
   contactSettled: {
     tick: number;

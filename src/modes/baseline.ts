@@ -14,7 +14,7 @@ import type { FixedItem } from './contracts';
  * mode sets `referenceLike` plays as a clean run with the rewards the reference game lacks left out.
  *
  * There is no standalone Baseline run: the cold opener (the day's first sector of a Sweep run, #209)
- * draws from this library. The lists here are the old Orbit-style / Cold-Start-style item model; the
+ * draws from this library. The lists here are the retired drills' item model (flick and precision items); the
  * opener's calibrated contact pool replaces their content with a new `baseline.version`.
  */
 

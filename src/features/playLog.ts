@@ -5,13 +5,13 @@ import type { RunSummary } from '../progress/save';
 
 declare module '../debug/hook' {
   interface FlicklineDebug {
-    /** Best scores, finished-run counts and the flagged skill behind the mode cards and Today's session (read from the progress save). */
+    /** Best scores, finished-run counts and the flagged skill (read from the progress save). */
     readonly playLog: {
       best(modeId: string): number | null;
       plays(modeId: string): number;
       /** Record a finished run without playing one (playtests), at dial 50. Returns true for a new best. */
       record(modeId: string, score: number): boolean;
-      /** What the last results card flagged; Today's session trains it second. */
+      /** What the last results card flagged. */
       flag(skill: SkillId | null): void;
     };
   }

@@ -56,7 +56,7 @@ export interface RatingView {
   /** Index into the tier table of the rating after the run (for the badge colour). */
   tierIndex: number;
   tierShift: 'up' | 'down' | 'same';
-  /** The player's first rating (the Placement run): there is no "before" worth showing, only the prior it started from. */
+  /** The player's first rating (a new profile's placing Opener): there is no "before" worth showing, only the prior it started from. */
   first: boolean;
   /** Progress 0..1 through the current sub-tier. */
   progress: number;
@@ -199,7 +199,7 @@ export interface ResultsInput {
   clean?: boolean;
   /** The armour and eco notes of the run (`feedback/armourNoteTracker.ts`). */
   notes?: readonly string[];
-  /** Whether the mode keeps personal bests at all (default true; the Placement run does not). */
+  /** Whether the mode keeps personal bests at all (default true). */
   keepsBest?: boolean;
   /**
    * The local date (`YYYY-MM-DD`) when the run was the Daily Route (design §4.8): `pb` is then the day best, the card
@@ -356,7 +356,7 @@ function firstShotRate(stats: RunStats): { value: number; of: number } | null {
   return engaged === 0 ? null : { value: firstKills / engaged, of: engaged };
 }
 
-function metricCell(id: MetricId, s: RunStats): StatCell {
+export function metricCell(id: MetricId, s: RunStats): StatCell {
   switch (id) {
     case 'firstShotRate': {
       const f = firstShotRate(s);
@@ -405,17 +405,17 @@ function metricCell(id: MetricId, s: RunStats): StatCell {
 
 /** Median time to kill is meaningless when kills are one bullet (first shot to death rounds to 0 ms, #175). */
 function ttkCell(s: RunStats, cfg: ResultsTunables): StatCell {
-  const oneBullet = cfg.oneBulletModes.includes(s.mode) || (s.medianTtkMs !== null && Math.round(s.medianTtkMs) <= 0);
+  const oneBullet = s.medianTtkMs !== null && Math.round(s.medianTtkMs) <= 0;
   return oneBullet ? metricCell(cfg.oneBulletTile, s) : { id: 'ttk', label: 'Time to kill', value: formatMs(s.medianTtkMs), hint: 'median' };
 }
 
 /**
- * The headline stats of design §8.2 section 5, then (drill modes) the mode's two key metrics (design §4). A sector
+ * The headline stats of design §8.2 section 5, then, for a run that is not a Sweep run, the two default key metrics. A sector
  * run shows exactly the design's six (`cfg.run.headline`): Accuracy, HS rate, median time to shot, median TTK,
  * moving shots and stop latency.
  */
 export function statCells(s: RunStats, cfg: ResultsTunables = defaultResults): StatCell[] {
-  const keys = cfg.keyMetrics[s.mode] ?? cfg.defaultKeyMetrics;
+  const keys = cfg.defaultKeyMetrics;
   const movingShare = s.shots > 0 ? s.movingShots / s.shots : null;
   const accuracy: StatCell = { id: 'accuracy', label: 'Accuracy', value: formatPercent(s.accuracy), hint: s.shots > 0 ? `${s.hits} of ${s.shots} shots` : 'no shots' };
   const headshotRate: StatCell = { id: 'headshotRate', label: 'HS rate', value: formatPercent(s.headshotRate), hint: s.hits > 0 ? `${s.headHits} of ${s.hits} hits` : '' };
@@ -641,7 +641,7 @@ export interface ResultsRecorderDeps {
   isClean?(): boolean;
   /** The date key when the run that just started is the Daily Route (read at `runReady`), else null. */
   dailyDate?(): string | null;
-  /** True for a mode whose result is the player's first rating (the Placement run): shown without a delta. */
+  /** True for a mode whose result is the player's first rating (a new profile's placing Opener): shown without a delta. */
   firstRating?(mode: string): boolean;
   /** The run's story (`RunStoryTracker`): route strip and fights by situation. Omit for a run without sectors. */
   story?: { snapshot(): RunStory };

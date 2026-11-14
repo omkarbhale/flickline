@@ -1,4 +1,4 @@
-import { axes } from '../adaptive/dial';
+import { axes, axisValue } from '../adaptive/dial';
 import { BASELINE_SKILLS, type BaselineItemTable, type BaselineItemTuple, type BaselineSkill } from '../config/baseline';
 import type { Tunables } from '../config/tunables';
 import { DEG2RAD, RAD2DEG } from '../core/math';
@@ -9,9 +9,10 @@ import { Rng, shuffle } from '../core/rng';
  * §5.2). Run once, from a fixed seed, by `scripts/gen-baseline-items.mjs`, which writes
  * `config/baselineItems.ts`; the lists are data from then on and the app never calls this.
  *
- * Each (skill, level) list has `trialsPerSkill` items drawn like its mode draws them (Orbit: angle
- * `flickMinDeg..flickMaxDeg`, pitch biased to head height, distance on the 8-25 m shell; Cold
- * Start: angle 5-25 degrees, distance `0.7-1.4 x` the dial's `distance` axis) but stratified: one
+ * Each (skill, level) list has `trialsPerSkill` items drawn like the retired drills drew them (design
+ * §4.10; the recipe is `baseline.recipe`) (flick, the retired Orbit drill's draw: an angle band by level, pitch biased to
+ * head height, distance on the 8-25 m shell; precision, the retired Cold Start drill's draw: angle 5-25 degrees, distance
+ * `0.7-1.4 x` the dial's `distance` axis) but stratified: one
  * item per equal slice of each range, the columns paired by a seeded shuffle. A list therefore
  * covers its range evenly, whatever the seed, and the same seed always writes the same file.
  * Scale and exposure are the level's own axis values (the dial fixes them), so every item of a list
@@ -31,8 +32,11 @@ function stratified(rng: Rng, n: number, lo: number, hi: number): number[] {
   return out;
 }
 
+/** One recipe axis at a level, with the floor the dial applied to it. */
+const axisAt = (def: Parameters<typeof axisValue>[0], level: number, floor: number): number => Math.max(floor, axisValue(def, level));
+
 /**
- * The Orbit shell's pitch law (`SpawnScheduler.pickShellPoint`): the mean of two uniforms (a
+ * The shell's pitch law (what the retired Orbit drill's sampler drew): the mean of two uniforms (a
  * triangular law) mapped piecewise-linearly onto `[lo, bias, hi]`, so most beacons sit near head
  * height. This is its inverse at quantile `q`, so a stratified `q` gives a stratified pitch.
  */
@@ -49,40 +53,46 @@ function shellQuantile(p: number, lo: number, bias: number, hi: number): number 
 
 function flickList(t: Tunables, rng: Rng, level: number): BaselineItemTuple[] {
   const n = t.baseline.trialsPerSkill;
-  const ax = axes(level, undefined, t.dial);
-  const m = t.modes;
-  const angle = shuffle(rng, stratified(rng, n, ax.flickMinDeg, ax.flickMaxDeg));
+  const r = t.baseline.recipe;
+  const f = r.flick;
+  const angleMin = axisValue(f.angleMinDeg, level);
+  const angleMax = Math.max(angleMin, axisValue(f.angleMaxDeg, level));
+  const scale = axisAt(f.beaconScale, level, r.floors.minBeaconScale);
+  const exposure = axisAt(f.exposureSec, level, Math.max(t.dial.floors.exposureSec, r.floors.flickExposureSec));
+  const angle = shuffle(rng, stratified(rng, n, angleMin, angleMax));
   const quantile = shuffle(rng, stratified(rng, n, 0, 1));
-  const dist = shuffle(rng, stratified(rng, n, m.orbit.minDistM, m.orbit.maxDistM));
+  const dist = shuffle(rng, stratified(rng, n, f.minDistM, f.maxDistM));
   const eyeY = t.movement.standEyeHeight;
   const out: BaselineItemTuple[] = [];
   for (let i = 0; i < n; i++) {
     // The pitch law, cut where the orb would be under the floor at this distance (the placement
     // sampler rejects those too): the item's quantile is spread over what is left of the law.
     const floor = Math.asin(Math.min(1, Math.max(-1, (t.baseline.minBeaconHeightM - eyeY) / dist[i]!))) / DEG2RAD;
-    const lo = Math.max(m.shellPitchMinDeg, floor);
-    const q0 = shellQuantile(lo, m.shellPitchMinDeg, m.shellPitchBiasDeg, m.shellPitchMaxDeg);
+    const lo = Math.max(f.pitchMinDeg, floor);
+    const q0 = shellQuantile(lo, f.pitchMinDeg, f.pitchBiasDeg, f.pitchMaxDeg);
     const q = q0 + (1 - q0) * quantile[i]!;
-    const pitch = shellPitch(q, m.shellPitchMinDeg, m.shellPitchBiasDeg, m.shellPitchMaxDeg);
-    out.push([round(angle[i]!, 2), round(pitch, 2), round(dist[i]!, 2), round(ax.beaconScale, 3), round(ax.orbitExposureSec, 3)]);
+    const pitch = shellPitch(q, f.pitchMinDeg, f.pitchBiasDeg, f.pitchMaxDeg);
+    out.push([round(angle[i]!, 2), round(pitch, 2), round(dist[i]!, 2), round(scale, 3), round(exposure, 3)]);
   }
   return out;
 }
 
 function precisionList(t: Tunables, rng: Rng, level: number): BaselineItemTuple[] {
   const n = t.baseline.trialsPerSkill;
-  const ax = axes(level, undefined, t.dial);
-  const c = t.modes.coldStart;
-  const lo = Math.max(ax.distance * c.distanceLoMult, t.baseline.minPostDistanceM);
-  const hi = Math.max(lo, Math.min(ax.distance * c.distanceHiMult, t.baseline.maxDistanceM));
-  const angle = shuffle(rng, stratified(rng, n, c.minAngleDeg, c.maxAngleDeg));
+  const r = t.baseline.recipe;
+  const c = r.precision;
+  const distance = axes(level, undefined, t.dial).distance;
+  const exposure = axisAt(c.exposureSec, level, Math.max(t.dial.floors.exposureSec, r.floors.precisionExposureSec));
+  const lo = Math.max(distance * c.distanceLoMult, t.baseline.minPostDistanceM);
+  const hi = Math.max(lo, Math.min(distance * c.distanceHiMult, t.baseline.maxDistanceM));
+  const angle = shuffle(rng, stratified(rng, n, c.angleMinDeg, c.angleMaxDeg));
   const dist = shuffle(rng, stratified(rng, n, lo, hi));
   // A Post's head is at a fixed height on a standing body: its pitch is what the distance makes it.
   const headDy = t.targets.hit.headCentreStand - t.movement.standEyeHeight;
   const out: BaselineItemTuple[] = [];
   for (let i = 0; i < n; i++) {
     const d = round(dist[i]!, 2);
-    out.push([round(angle[i]!, 2), round(Math.asin(headDy / d) * RAD2DEG, 2), d, 1, round(ax.coldStartExposureSec, 3)]);
+    out.push([round(angle[i]!, 2), round(Math.asin(headDy / d) * RAD2DEG, 2), d, 1, round(exposure, 3)]);
   }
   return out;
 }
@@ -109,7 +119,7 @@ export function baselineItemsSource(table: BaselineItemTable, t: Tunables): stri
     "import type { BaselineItemTable } from './baseline';",
     '',
     '/**',
-    ' * The Daily Baseline\'s stored item lists (design §8.5, `docs/research/transfer.md` §5.2):',
+    ' * The cold opener\'s stored item lists (design §8.5, `docs/research/transfer.md` §5.2):',
     ' * `BASELINE_ITEMS[skill][level]`, one tuple per item: [angle from the crosshair (deg), pitch of the',
     ' * target (deg), distance (m), Beacon scale (x real head), exposure (s)].',
     ' *',

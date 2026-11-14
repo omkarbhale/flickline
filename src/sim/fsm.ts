@@ -26,7 +26,7 @@ export const STAY = -1;
  * `World` implements it; tests pass a stub.
  */
 export interface EnemyWorld {
-  /** Enemies may shoot (a mode that fires back sets it; drills never do). */
+  /** Enemies may shoot (a mode that fires back sets it). */
   readonly firing: boolean;
   readonly player: PlayerState;
   readonly boxes: readonly BoxDef[];

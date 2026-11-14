@@ -17,7 +17,7 @@ type Impact = SimEvents['shotImpact'];
 
 const WALL_Z = -10;
 const wallRoom: LevelDef = {
-  name: 'spray wall',
+  name: 'spray range',
   boxes: [
     { tag: 'floor', min: vec3(-30, -1, -30), max: vec3(30, 0, 30) },
     { tag: 'wall', min: vec3(-30, 0, WALL_Z - 1), max: vec3(30, 30, WALL_Z) },
@@ -64,7 +64,7 @@ function deviationDeg(shot: Shot, impact: Impact, aimPitch: number): number {
 }
 
 /** Hold fire at a flat wall until `n` bullets have left the gun (infinite magazine). */
-function sprayWall(primary: WeaponId, n: number) {
+function sprayBurst(primary: WeaponId, n: number) {
   const s = setup(primary);
   s.world.weapon.infiniteMagazine = true;
   const aimPitch = 0.05;
@@ -183,7 +183,7 @@ describe('Vane spread: first shot and tap recovery (spec §3.3)', () => {
 });
 
 describe('100 Rill bullets at a flat wall (headless spray test)', () => {
-  const { shots, impacts, aimPitch } = sprayWall('rill', 100);
+  const { shots, impacts, aimPitch } = sprayBurst('rill', 100);
 
   it('fires 100 bullets that all land on the wall', () => {
     expect(shots).toHaveLength(100);
@@ -222,7 +222,7 @@ describe('100 Rill bullets at a flat wall (headless spray test)', () => {
   });
 
   it('kicks less than the Kestrel: lower per-bullet magnitude and a lower total climb', () => {
-    const kest = sprayWall('kestrel', 100);
+    const kest = sprayBurst('kestrel', 100);
     const mag = (e: Shot): number => Math.hypot(e.recoilPitchDeg, e.recoilYawDeg);
     // Same seed class, same 100 bullets: the Rill's accumulated aim offset stays below the Kestrel's.
     expect(shots[99]!.recoilPitchDeg).toBeLessThan(kest.shots[99]!.recoilPitchDeg);

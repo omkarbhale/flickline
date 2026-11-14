@@ -6,7 +6,7 @@ import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import type {
   AxisId, AxisValues, FireSpawn, ModeEvents, ModeId, ModeRef, MotionView, PeekSpawn, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra,
-  TrialSource, VitalsView, WaveCurve, WeaponSourceEvents,
+  TrialSource, VitalsView, WaveCurve,
 } from './contracts';
 import type { SpawnScheduler } from './scheduler';
 
@@ -15,13 +15,9 @@ import type { SpawnScheduler } from './scheduler';
  * mode never touches the sim; the host applies it.
  */
 export interface PlayerSetup {
-  /** Stand at the first anchor of this kind (a `beacon-shell`'s centre on the floor); default: the map's spawn point. */
-  standAt?: string;
-  /** Movement keys, jump and crouch are ignored for the run; look and fire still work. */
-  lockMovement?: boolean;
   /** No reload (the design's "infinite magazine"). */
   infiniteMagazine?: boolean;
-  /** Reloads always find a full magazine's worth of spare ammo (real magazines, no running out: Spray Wall). */
+  /** Reloads always find a full magazine's worth of spare ammo (real magazines, no running out). */
   infiniteReserve?: boolean;
   /** The run has a loadout: `1` / `2` swap primary and sidearm (default false; Sweep only, design §4). */
   allowSwap?: boolean;
@@ -49,8 +45,8 @@ export interface ModeDef<S = unknown> extends ModeRef {
   readonly player?: PlayerSetup;
   /**
    * Shields for the run (design §5.1, `config/economy.ts`): the player and every humanoid Echo get
-   * the economy's shield tier. Modes where enemies shoot (Corner Clear, Vigil, Sweep) set
-   * `tunables.economy.defaultEnemyFire`; drills leave it unset (no shields; nothing hits the player).
+   * the economy's shield tier. Modes where enemies shoot (Sweep) set
+   * `tunables.economy.defaultEnemyFire`; a mode that leaves it unset has no shields and nothing hits the player.
    * A scenario card's own `economy` overrides it.
    */
   readonly economy?: Economy;
@@ -62,7 +58,7 @@ export interface ModeDef<S = unknown> extends ModeRef {
   readonly axes: readonly AxisId[];
   /** Beat length in seconds (default `tunables.dial.beat.drillSec`); `null` = the mode calls `ctx.advanceBeat()`. */
   readonly beatSec?: number | null;
-  /** Pre-planned dial offsets per beat (warm-up, peaks, breathers); default `tunables.dial.waves.drill`. */
+  /** Pre-planned dial offsets per beat (warm-up, peaks, breathers); default `tunables.dial.waves.drill` (the framework's default curve). */
   readonly waveCurve?: WaveCurve;
   /** Par time in seconds for the speed term of a kill (default `scoring.defaultParSec`). */
   parSec?(kind: EnemyKind, axes: AxisValues): number;
@@ -78,11 +74,7 @@ export interface ModeDef<S = unknown> extends ModeRef {
    * target's reaction and the hit and kill sounds stay.
    */
   readonly referenceLike?: boolean;
-  /**
-   * Whether a shot that misses breaks the clean streak (default: `scoring.missBreaksStreak`). A
-   * mode where misses are expected and judged per trial (Spray Wall) turns it off, so its streak
-   * counts trials won.
-   */
+  /** Whether a shot that misses breaks the clean streak (default: `scoring.missBreaksStreak`). */
   readonly missBreaksStreak?: boolean;
 
   /** Build the mode's state when the run is readied. Targets are not live yet. */
@@ -91,8 +83,6 @@ export interface ModeDef<S = unknown> extends ModeRef {
   tick(ctx: ModeContext<S>): void;
   /** Called for each fact the framework reads from the sim, after counters are updated. */
   onEvent(ctx: ModeContext<S>, ev: ModeEvent): void;
-  /** Weapon facts (bullets fired, reloads); only modes that judge them implement it. */
-  onWeapon?(ctx: ModeContext<S>, ev: WeaponEvent): void;
   /**
    * The run is ending (any reason, the player's death included), before `runEnded` is emitted: a
    * mode settles what is still open (Sweep's contacts). Phase is still `live` or `ready`.
@@ -102,9 +92,6 @@ export interface ModeDef<S = unknown> extends ModeRef {
 
 /** One sim fact. The runner reuses these wrapper objects: copy what you keep. */
 export type ModeEvent = { [K in keyof SourceEvents]: { type: K; payload: SourceEvents[K] } }[keyof SourceEvents];
-
-/** One weapon fact, like `ModeEvent`: the runner reuses these wrapper objects, copy what you keep. */
-export type WeaponEvent = { [K in keyof WeaponSourceEvents]: { type: K; payload: WeaponSourceEvents[K] } }[keyof WeaponSourceEvents];
 
 export interface SpawnOptions {
   /** ×real head size (default 1). Floored at `dial.floors.minTargetScale`. */
@@ -117,8 +104,6 @@ export interface SpawnOptions {
   strafe?: StrafeSpawn;
   /** Item difficulty override (default: the beat's, derived from the axis values in force). */
   difficulty?: number;
-  /** The target takes any number of hits without dying (Spray Wall's Post). */
-  durable?: boolean;
   /** Peeker only: its anchor and pattern. */
   peek?: PeekSpawn;
   /** The Echo shoots back with these numbers (the host's enemy-fire switch must be on too, see `ModeDef.economy`). */
@@ -137,20 +122,6 @@ export interface SpawnOptions {
    * the spawn fairness floors, which guard targets appearing in view, do not apply.
    */
   placed?: boolean;
-}
-
-/** What a mode tells the scoring table about a result that is not a kill (Spray Wall's spray). */
-export interface AwardOptions {
-  /** Enemy kind whose base points the result is worth (default `post`). */
-  kind?: EnemyKind;
-  /** Multiplies the whole score, 0-1 (a partial result pays less). */
-  weight: number;
-  /** Seconds the result took, for the speed term; omitted = no speed term. */
-  durationSec?: number;
-  headshot?: boolean;
-  firstBullet?: boolean;
-  /** Extends the clean streak (default true). */
-  clean?: boolean;
 }
 
 export interface ResolveOptions {
@@ -192,8 +163,8 @@ export interface ModeContext<S = unknown> {
   /** The player's health and shield (read-only). */
   readonly vitals: VitalsView;
   /**
-   * Where a mode announces facts about its own state for presentation to draw (the Lane's armed
-   * stripe, a stance ring). Payloads are read-only and valid only during the call.
+   * Where a mode announces facts about its own state for presentation to draw (Sweep's sector and gate
+   * events). Payloads are read-only and valid only during the call.
    */
   readonly events: EventSink<ModeEvents>;
   /** Anchor picker bound to the run's rng and the player. */
@@ -254,11 +225,6 @@ export interface ModeContext<S = unknown> {
    * counted in the run's trials like any other; a failure breaks the clean streak.
    */
   recordTrial(skill: SkillId, success: boolean, opts: TrialOptions): void;
-  /**
-   * Score a result that is not a kill (the table of design §8.1 applied to a spray) and count it
-   * in the streak. Emits `scoreAwarded` for target `id`; returns the points.
-   */
-  awardScore(id: number, opts: AwardOptions): number;
   /** Stand the player at a feet position facing `yaw` (radians), at rest, and tell the view to follow (`playerPlaced`). */
   placePlayer(x: number, y: number, z: number, yaw: number): void;
   /** Surge multiplier hook (the meter itself is the Sweep work). */

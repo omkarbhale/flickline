@@ -1,7 +1,7 @@
 import type { BaselineItemTable } from './baseline';
 
 /**
- * The Daily Baseline's stored item lists (design §8.5, `docs/research/transfer.md` §5.2):
+ * The cold opener's stored item lists (design §8.5, `docs/research/transfer.md` §5.2):
  * `BASELINE_ITEMS[skill][level]`, one tuple per item: [angle from the crosshair (deg), pitch of the
  * target (deg), distance (m), Beacon scale (x real head), exposure (s)].
  *
