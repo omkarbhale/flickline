@@ -4,6 +4,7 @@ import { TICK_DT } from '../core/time';
 import { copy, vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
 import type { BehaviourContext } from './fsm';
+import { AttributionFacts } from './attribution';
 import { TargetField, type SpawnOptions } from './targets';
 import { levelTargetsReset } from './targetsInit';
 import { zoneDamage } from './damage';
@@ -93,6 +94,11 @@ export class World {
   readonly weapon: WeaponState;
   /** The player's HP and the tag / flinch timers (spec §4); damage goes through `damagePlayer`. */
   readonly health: PlayerHealth;
+  /**
+   * Attribution facts (#119): enemy sounds with `audibleToPlayer`, the exposure count on
+   * `playerDamaged`, and the enemy's first-sight event. Holds no gameplay state.
+   */
+  readonly attribution: AttributionFacts;
   private readonly healthSys: PlayerHealthSystem;
   private readonly relay: KillHealRelay;
   /**
@@ -145,6 +151,7 @@ export class World {
       tagScale: 1,
       aimPunch: 0,
     };
+    this.attribution = new AttributionFacts(opts.tunables, this.level.boxes, this.targetField, this.player);
     this.reset(this.seed);
   }
 
@@ -172,6 +179,7 @@ export class World {
     this.behaviourCtx.tick = 0;
     this.behaviourCtx.events = NULL_SINK;
     levelTargetsReset(this.targetField, this.level, this.behaviourCtx);
+    this.attribution.reset();
   }
 
   /**
@@ -201,6 +209,7 @@ export class World {
     this.targetField.updateVisibility(this.player, this.level.boxes, this.tick, events);
     stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, relay, this.weaponScratch);
     this.stepTargets(relay);
+    this.attribution.step(this.tick, events);
     relay.target = NULL_SINK;
     stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events, this.level);
   }
@@ -226,7 +235,9 @@ export class World {
     amount: number, zone: HitZone, sx: number, sy: number, sz: number, sourceId: number,
     events: EventSink<SimEvents>,
   ): boolean {
-    return this.healthSys.damage(this.player, amount, zone, sx, sy, sz, sourceId, this.tick, events);
+    return this.healthSys.damage(
+      this.player, amount, zone, sx, sy, sz, sourceId, this.tick, events, this.attribution.countExposed(),
+    );
   }
 
   /**
@@ -252,6 +263,7 @@ export class World {
   beginLive(events: EventSink<SimEvents>): void {
     this.live = true;
     resetProbe(this.probe);
+    this.attribution.reset();
     this.targetField.announceAll(this.tick, events);
   }
 
