@@ -625,13 +625,14 @@ function otherRows(snap: SpecSnapshot, t: Tunables): Rows {
       },
     });
     rows.push({
-      id: `2.5/${arch}/shot-error-zero-at-0.100s`, area: stopArea, section: '2.5', spec: 'shot error zero at 0.100 ± 0.01 s', tag,
-      via: 'sim: shots on every released tick between 0.090 s and 0.110 s',
+      id: `2.5/${arch}/shot-error-zero-at-${want === 0.1 ? '0.100' : '0.130'}s`, area: stopArea, section: '2.5', spec: `shot error zero on the tick nearest ${fmt(want)} s (± 0.01 s) and every tick after`, tag,
+      via: `sim: shots on every released tick from the one nearest ${fmt(want)} s to 0.3 s`,
       run: () => {
         if (!w) return absent(notBuilt(arch));
-        const around = M.stopShotSweep(t, w.id).filter((s) => M.secs(s.ticks) >= 0.09 - 1e-9 && M.secs(s.ticks) <= 0.11 + 1e-9);
-        const worst = Math.max(...around.map((s) => s.errorDeg));
-        return { kind: 'measured', value: `largest error ${fmt(worst)}° over ${around.length} ticks`, ok: sniper ? true : worst <= 1e-9 };
+        const from = Math.round(want / TICK_DT);
+        const late = M.stopShotSweep(t, w.id).filter((s) => s.ticks >= from);
+        const worst = Math.max(...late.map((s) => s.errorDeg));
+        return { kind: 'measured', value: `largest error ${fmt(worst)}° from tick ${from} (${fmt(M.secs(from))} s) on`, ok: worst <= 1e-9 };
       },
     });
     rows.push({

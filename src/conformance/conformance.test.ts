@@ -59,7 +59,7 @@ describe('the conformance table', () => {
     for (const arch of archetypes) {
       for (const what of ['2.3/%/stop-time', '2.5/%/shot-error-zero-at-0.100s', '2.5/%/first-accurate-shot', '2.1/%/run-speed', '2.1/%/walk-speed',
         '2.1/%/crouch-speed', '2.4/%/deadzone-gate', '3.1/%/fire-rate-10s', '3.1/%/magazine-cycle', '3.1/%/equip-time', '3.3/%/first-shot']) {
-        const id = what.replace('%', arch);
+        const id = what.replace('%', arch).replace('0.100s', arch === 'sniper' ? '0.130s' : '0.100s');
         if (arch === 'sniper' && (what.includes('deadzone-gate') || what.includes('first-shot'))) continue; // sniper rows come with the weapon
         expect(ids, id).toContain(id);
       }
