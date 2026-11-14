@@ -119,3 +119,10 @@ export const targets: TargetTunables = {
   reactionAimDeg: 5,
   visibilityAspect: 16 / 9,
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { targets };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}

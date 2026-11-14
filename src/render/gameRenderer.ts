@@ -3,29 +3,45 @@ import {
   Color,
   DirectionalLight,
   Fog,
-  Mesh,
-  MeshLambertMaterial,
   PerspectiveCamera,
-  BoxGeometry,
   Scene,
   WebGLRenderer,
 } from 'three';
-import type { Subscribable } from '../core/eventBus';
 import { lerp } from '../core/math';
 import { REFERENCE_ASPECT, verticalFovDeg } from '../core/view';
 import { env, palette } from '../config/palette';
 import { QUALITY_LEVELS, type QualityLevel } from '../config/render';
 import type { Tunables } from '../config/tunables';
-import type { SimEvents } from '../sim/types';
 import type { MapDef } from '../sim/mapTypes';
 import type { World } from '../sim/world';
-import { ShotEffects } from './effects';
 import { BlobShadows } from './blobShadows';
 import { applyEnvQuality, createEnvUniforms, horizonColor, type EnvUniforms } from './envShaders';
 import { buildLevelMesh, type LevelMesh } from './levelMesh';
 import { Sky } from './sky';
 import { PostPipeline, createVignetteEffect } from './post';
 import { TargetsView } from './targetsView';
+
+/** What a render layer sees each frame. One reused object: read it during `update` only. */
+export interface RenderFrame {
+  world: World;
+  /** Interpolation between the last two ticks. */
+  alpha: number;
+  /** Seconds since the last drawn frame (0 for an immediate re-render). */
+  dt: number;
+}
+
+/**
+ * A visual subsystem a feature adds with `addLayer` (shot effects, hints, viewmodels). It builds
+ * its objects into `renderer.scene` / `renderer.camera` when constructed; the renderer drives it.
+ * Hot-path rule: `update` allocates nothing.
+ */
+export interface RenderLayer {
+  /** Every drawn frame, after the camera is placed and before drawing, in the order added. */
+  update(frame: RenderFrame): void;
+  /** Drawing-buffer size in device pixels, after every resize or quality change. */
+  resize?(width: number, height: number): void;
+  dispose(): void;
+}
 
 export interface RenderStats {
   drawCalls: number;
@@ -36,7 +52,8 @@ export interface RenderStats {
 
 /**
  * Everything three.js. Reads sim state (never writes it), interpolates between the last two
- * ticks, and owns the scene, camera, post pipeline and effect pools.
+ * ticks, and owns the scene, camera, environment, targets and post pipeline. Features add their
+ * own visuals as `RenderLayer`s.
  *
  * Hot-path rules: render() allocates nothing. All vectors/matrices are scratch members.
  */
@@ -54,15 +71,15 @@ export class GameRenderer {
   private readonly blobs: BlobShadows;
   private readonly fog: Fog;
   private targetsView: TargetsView | null = null;
-  private readonly effects: ShotEffects;
-  private readonly viewmodel: Mesh;
+  private readonly layers: RenderLayer[] = [];
+  private readonly frame: RenderFrame = { world: null as unknown as World, alpha: 1, dt: 0 };
   private width = 1;
   private height = 1;
-  private viewmodelBaseZ = -0.34;
+  private bufferWidth = 1;
+  private bufferHeight = 1;
 
   constructor(
     canvas: HTMLCanvasElement,
-    bus: Subscribable<SimEvents>,
     private readonly tunables: Tunables,
     initialQuality: QualityLevel,
   ) {
@@ -98,15 +115,17 @@ export class GameRenderer {
     sun.position.set(...r.light.dir).multiplyScalar(12);
     this.scene.add(sun);
 
-    this.effects = new ShotEffects(this.scene, bus);
-
-    // Placeholder first-person weapon model, parented to the camera.
-    this.viewmodel = new Mesh(new BoxGeometry(0.05, 0.07, 0.36), new MeshLambertMaterial({ color: palette.steel }));
-    this.viewmodel.position.set(0.15, -0.14, this.viewmodelBaseZ);
-    this.camera.add(this.viewmodel);
-
     this.post.effects.push(createVignetteEffect());
     this.applyQuality();
+  }
+
+  /**
+   * Add a feature's layer. Add layers before `loadLevel` (features are set up before the level
+   * loads), so their shaders are compiled ahead with the rest.
+   */
+  addLayer(layer: RenderLayer): void {
+    this.layers.push(layer);
+    layer.resize?.(this.bufferWidth, this.bufferHeight);
   }
 
   setQuality(q: QualityLevel): void {
@@ -132,7 +151,10 @@ export class GameRenderer {
     this.camera.updateProjectionMatrix();
     const pr = this.renderer.getPixelRatio();
     const p = this.tunables.render.quality[this.quality];
-    this.post.setSize(Math.floor(this.width * pr), Math.floor(this.height * pr), p.antialias ? 4 : 0);
+    this.bufferWidth = Math.floor(this.width * pr);
+    this.bufferHeight = Math.floor(this.height * pr);
+    this.post.setSize(this.bufferWidth, this.bufferHeight, p.antialias ? 4 : 0);
+    for (let i = 0; i < this.layers.length; i++) this.layers[i]!.resize?.(this.bufferWidth, this.bufferHeight);
   }
 
   /**
@@ -176,11 +198,13 @@ export class GameRenderer {
     this.camera.rotation.set(pitch, yaw, 0);
 
     this.sky.follow(this.camera);
-    this.effects.update(dt);
-    this.viewmodel.position.z = this.viewmodelBaseZ + this.effects.kick * 0.04;
-    this.viewmodel.rotation.x = this.effects.kick * 0.06;
     this.targetsView?.update(world, alpha);
     this.blobs.update(world.targets, this.tunables.targets);
+    const f = this.frame;
+    f.world = world;
+    f.alpha = alpha;
+    f.dt = dt;
+    for (let i = 0; i < this.layers.length; i++) this.layers[i]!.update(f);
 
     this.renderer.info.reset();
     this.post.render(this.renderer, this.scene, this.camera);
@@ -192,7 +216,7 @@ export class GameRenderer {
   }
 
   dispose(): void {
-    this.effects.dispose();
+    for (const layer of this.layers) layer.dispose();
     this.targetsView?.dispose();
     this.post.dispose();
     this.level?.dispose();

@@ -15,3 +15,10 @@ export const view: ViewTunables = {
   fovLockNote:
     'Field of view is locked to 103° horizontal at 16:9, the same as the game Flickline trains you for, so what you see transfers 1:1.',
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { view };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}

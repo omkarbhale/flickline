@@ -36,6 +36,10 @@ export interface SettingsEvents {
   settingsChanged: { settings: Readonly<Settings>; changed: readonly (keyof Settings)[] };
 }
 
+declare module '../core/gameEvents' {
+  interface GameEvents extends SettingsEvents {}
+}
+
 /** Minimal Storage subset so tests can inject a fake. */
 export interface StorageLike {
   getItem(key: string): string | null;

@@ -206,3 +206,10 @@ export const dial: DialTunables = {
     { name: 'Zenith', from: 86, divisions: false },
   ],
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { dial };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}

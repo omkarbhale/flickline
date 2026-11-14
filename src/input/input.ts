@@ -2,8 +2,17 @@ import type { EventSink } from '../core/eventBus';
 import { clamp, DEG2RAD } from '../core/math';
 import { degreesPerCount } from '../core/sensitivity';
 import type { TickInput } from '../sim/types';
-import type { AppEvents } from '../app/events';
 import { defaultBindings, type Bindings } from './bindings';
+
+/** Events the input layer emits. */
+export interface InputEvents {
+  /** Pointer lock gained/lost; the game is "live" only while locked. */
+  pointerLockChanged: { locked: boolean };
+}
+
+declare module '../core/gameEvents' {
+  interface GameEvents extends InputEvents {}
+}
 
 /**
  * Browser input: keyboard, raw mouse, pointer lock.
@@ -32,7 +41,7 @@ export class InputManager {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly events: EventSink<AppEvents>,
+    private readonly events: EventSink<InputEvents>,
     private readonly bindings: Bindings = defaultBindings,
   ) {
     for (const action of Object.keys(bindings) as (keyof Bindings)[]) {

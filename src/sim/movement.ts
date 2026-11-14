@@ -4,6 +4,17 @@ import type { MovementTunables } from '../config/movement';
 import { hullBlocked, moveAxis } from './collision';
 import type { BoxDef, PlayerState, SimEvents, TickInput } from './types';
 
+/** Events the player movement emits (part of `SimEvents`). */
+export interface PlayerEvents {
+  playerJumped: { tick: number };
+  playerLanded: { tick: number; impactSpeed: number };
+  footstep: { tick: number; crouching: boolean; walking: boolean };
+}
+
+declare module './types' {
+  interface SimEvents extends PlayerEvents {}
+}
+
 /**
  * Placeholder player movement: wish-velocity acceleration on the ground and in the air, gravity,
  * jump, crouch with headroom check, walk modifier. Replace the numbers via config/movement.ts;

@@ -9,6 +9,53 @@ import { fsmStart, fsmStep, createFsm, type BehaviourContext } from './fsm';
 import { createZoneHit, traceTarget, zoneCentre, type ZoneHit } from './hitZones';
 import type { BoxDef, HitZone, PlayerState, SimEvents, TargetKind, TargetState } from './types';
 
+/** Events the target registry emits (part of `SimEvents`). */
+export interface TargetEvents {
+  /** A target was added to the field (spawn call, level placement or respawn). */
+  targetSpawned: { tick: number; t: number; targetId: number; kind: TargetKind; pos: Vec3; tags: readonly string[] };
+  /** First tick the target is in the view frustum and unoccluded from the eye. Once per spawn. */
+  targetVisible: { tick: number; t: number; targetId: number };
+  targetHit: {
+    tick: number;
+    t: number;
+    targetId: number;
+    kind: TargetKind;
+    zone: HitZone;
+    point: Vec3;
+    damage: number;
+    hpLeft: number;
+    distance: number;
+    killed: boolean;
+  };
+  targetKilled: {
+    tick: number;
+    t: number;
+    targetId: number;
+    kind: TargetKind;
+    zone: HitZone;
+    point: Vec3;
+    distance: number;
+    /** First shot at the target to its death, ms. 0 when the first bullet killed it. */
+    ttkMs: number;
+    /** From the target becoming visible to the first shot aimed within 5 degrees of it, ms. */
+    rtMs: number;
+    /** The very first bullet fired at it killed it. */
+    firstBullet: boolean;
+    /** Bullets fired at it, including the killing one. */
+    bullets: number;
+    /** No missed shot at it and no moving shot at it. */
+    clean: boolean;
+  };
+  /** A target left the field without being killed (lifetime ran out, or despawned by the mode). */
+  targetExpired: { tick: number; t: number; targetId: number; kind: TargetKind };
+  /** A level-placed target came back after a kill. Also announced by `targetSpawned`. */
+  targetRespawned: { tick: number; targetId: number };
+}
+
+declare module './types' {
+  interface SimEvents extends TargetEvents {}
+}
+
 /** A level-placed target: it respawns after being killed or expiring. */
 export interface SpawnerState {
   kind: TargetKind;

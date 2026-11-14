@@ -1,44 +1,40 @@
 import { EventBus } from '../core/eventBus';
 import { FixedStepper } from '../core/fixedStep';
-import { TICK_DT, TICK_RATE } from '../core/time';
+import { TICK_DT } from '../core/time';
 import { cloneTunables, tunables as liveTunables, type Tunables } from '../config/tunables';
-import type { WeaponId } from '../config/weapon';
 import { AudioEngine } from '../audio/audioEngine';
-import { attachSfx } from '../audio/sfx';
-import { attachUiSounds } from '../audio/uiSounds';
+import type { GameEvents } from '../core/gameEvents';
+import type { FlicklineDebug } from '../debug/hook';
 import { DebugOverlay } from '../debug/overlay';
 import { PerfStats } from '../debug/perfStats';
 import { SessionStats } from '../feedback/sessionStats';
-import type { ModeEvents } from '../modes/contracts';
 import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
 import { SettingsStore, type Settings } from '../settings/settings';
-import { createTickInput, SIM_EVENT_TYPES, type HitZone, type SimEvents, type TargetKind, type TickInput } from '../sim/types';
-import { zoneCentre } from '../sim/hitZones';
-import type { SpawnOptions } from '../sim/targets';
+import { createTickInput, type TickInput } from '../sim/types';
 import type { MapDef } from '../sim/mapTypes';
 import { rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
 import { Menu } from '../ui/menu';
-import type { GameEvents } from './events';
-import { ModeHost } from './modeHost';
+import { FEATURES } from './features';
 
-const MODE_EVENT_TYPES: (keyof ModeEvents)[] = [
-  'runReady', 'runStarted', 'runEnded', 'beatStarted', 'skillTrial', 'scoreAwarded', 'chainUpdated', 'streakUpdated',
-];
-
-const AIM_SCRATCH = { x: 0, y: 0, z: 0 };
+/** UI state changes, not gameplay facts: kept out of the debug event log. */
+const UNLOGGED_EVENTS: ReadonlySet<keyof GameEvents> = new Set<keyof GameEvents>(['settingsChanged', 'pointerLockChanged']);
 
 export interface LoggedEvent {
-  type: keyof SimEvents | keyof ModeEvents;
+  type: keyof GameEvents;
   data: unknown;
 }
 
 /**
- * Composition root. Owns every subsystem and the frame loop:
+ * Composition root. Owns the core subsystems and the frame loop:
  *   rAF -> sample input (every frame) -> run N fixed sim ticks -> render with interpolation.
  * The sim is only ticked while the pointer is locked (or when the debug hook says so).
+ *
+ * Everything else is a feature (`src/features/*.ts`, see app/feature.ts): it is set up after the
+ * core exists and wires itself in through the registration API below. A new feature adds a file;
+ * it does not edit this one.
  */
 export class Game {
   readonly bus = new EventBus<GameEvents>();
@@ -54,7 +50,6 @@ export class Game {
   readonly overlay: DebugOverlay;
   readonly perf = new PerfStats();
   readonly session = new SessionStats();
-  readonly modes: ModeHost;
   readonly stepper = new FixedStepper(TICK_DT, 8);
 
   /** Debug: never auto-tick (deterministic stepping only via step()). */
@@ -65,7 +60,14 @@ export class Game {
   override: Partial<Pick<TickInput, 'moveX' | 'moveZ' | 'jump' | 'crouch' | 'walk' | 'fire' | 'reload' | 'switchTo'>> | null = null;
   menuHidden = false;
   readonly eventLog: LoggedEvent[] = [];
+  /** Debug-hook commands registered by features (see `addDebug`). */
+  readonly debugCommands: Partial<FlicklineDebug> = {};
 
+  private readonly tickHooks: (() => void)[] = [];
+  private readonly frameHooks: ((dt: number) => void)[] = [];
+  private readonly resetHooks: (() => void)[] = [];
+  private readonly overlayLines: (() => string)[] = [];
+  private readonly snapshotSections = new Map<string, () => unknown>();
   private readonly tickInput = createTickInput();
   private readonly scriptInput = createTickInput();
   private lastTs = 0;
@@ -85,8 +87,7 @@ export class Game {
     const seed = seedParam !== null && Number.isFinite(Number(seedParam)) ? Number(seedParam) : 1;
     this.world = new World({ level: this.map, tunables: this.tunables, seed });
 
-    this.renderer = new GameRenderer(canvas, this.bus, this.tunables, s.quality);
-    this.renderer.loadLevel(this.world, this.map);
+    this.renderer = new GameRenderer(canvas, this.tunables, s.quality);
 
     this.input = new InputManager(canvas, this.bus);
     this.input.maxPitch = (this.tunables.movement.maxPitchDeg * Math.PI) / 180;
@@ -96,24 +97,24 @@ export class Game {
 
     this.audio = new AudioEngine(this.tunables.audio);
     this.applyAudioSettings(s);
-    // Feedback producers (stats, later streaks) subscribe before presentation (attachSfx), so the kill chime reads the updated streak.
+    // Session stats subscribe before any feature, so every feature reads up-to-date counters.
     this.session.attach(this.bus);
-    // The mode runner is a feedback producer too: it emits `streakUpdated` before the kill chime reads it.
-    this.modes = new ModeHost(this.world, this.bus, this.map, this.tunables);
-    attachSfx(this.bus, this.audio, this.tunables.audio);
-    attachUiSounds(document, this.audio);
 
     this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair, this.world.weapon, this.tunables.weapon);
     this.menu = new Menu(menuRoot, this.settings, this.tunables, () => this.play());
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
 
-    for (const type of [...SIM_EVENT_TYPES, ...MODE_EVENT_TYPES]) {
-      this.bus.on(type, (e) => {
-        this.eventLog.push({ type, data: JSON.parse(JSON.stringify(e)) });
-        if (this.eventLog.length > 256) this.eventLog.shift();
-      });
-    }
+    // Features, in stage order (producers subscribe before presentation). Then the level loads, so
+    // the render layers they added are compiled ahead with it.
+    for (const f of FEATURES) f.setup(this);
+    this.renderer.loadLevel(this.world, this.map);
+
+    this.bus.onAny((type, e) => {
+      if (UNLOGGED_EVENTS.has(type)) return;
+      this.eventLog.push({ type, data: JSON.parse(JSON.stringify(e)) });
+      if (this.eventLog.length > 256) this.eventLog.shift();
+    });
 
     this.bus.on('settingsChanged', ({ settings, changed }) => {
       if (changed.includes('sensitivity')) this.input.setSensitivity(settings.sensitivity);
@@ -127,6 +128,47 @@ export class Game {
     this.onResize();
     this.refreshChrome();
   }
+
+  // --- Feature registration: call these from a feature's `setup` --------------------------------
+
+  /** Run after every sim tick (real-time and `step`), in setup order. Must not allocate. */
+  onTick(fn: () => void): void {
+    this.tickHooks.push(fn);
+  }
+
+  /** Run once per rendered frame, after that frame's ticks and before drawing. Must not allocate. */
+  onFrame(fn: (dt: number) => void): void {
+    this.frameHooks.push(fn);
+  }
+
+  /** Run at the start of `resetWorld`, before the world itself resets. */
+  onReset(fn: () => void): void {
+    this.resetHooks.push(fn);
+  }
+
+  /** More debug-overlay text, shown below the core lines ('' for nothing). */
+  addOverlayLines(fn: () => string): void {
+    this.overlayLines.push(fn);
+  }
+
+  /** A section of the `state()` snapshot under `key` (plain data). */
+  addSnapshot(key: string, fn: () => unknown): void {
+    if (this.snapshotSections.has(key)) throw new Error(`snapshot section '${key}' registered twice`);
+    this.snapshotSections.set(key, fn);
+  }
+
+  /**
+   * Debug-hook commands (`window.__flickline.<name>`). Declare each on `FlicklineDebug` with
+   * interface merging in the same file, so the implementation is checked against it.
+   */
+  addDebug<K extends keyof FlicklineDebug>(commands: Pick<FlicklineDebug, K>): void {
+    for (const key of Object.keys(commands) as K[]) {
+      if (key in this.debugCommands) throw new Error(`debug command '${String(key)}' registered twice`);
+      this.debugCommands[key] = commands[key];
+    }
+  }
+
+  // -----------------------------------------------------------------------------------------------
 
   private applyAudioSettings(s: Readonly<Settings>): void {
     this.audio.setVolume(s.volume);
@@ -185,7 +227,7 @@ export class Game {
       for (let i = 0; i < ticks; i++) {
         const t0 = performance.now();
         this.world.step(inp, this.bus);
-        this.modes.tick();
+        this.runTickHooks();
         this.perf.recordTick(performance.now() - t0);
         // One-shot inputs apply to the first tick of the frame only.
         inp.jump = false;
@@ -197,6 +239,7 @@ export class Game {
     }
     const pl = this.world.player;
     this.audio.setListener(pl.pos.x, pl.pos.y + pl.eyeHeight, pl.pos.z, this.input.yaw, this.input.pitch);
+    for (let i = 0; i < this.frameHooks.length; i++) this.frameHooks[i]!(dt);
     this.input.endFrame(ticks);
     this.perf.ticksLastFrame = ticks;
 
@@ -204,6 +247,10 @@ export class Game {
     this.perf.endFrame();
     this.overlay.update(ts);
   };
+
+  private runTickHooks(): void {
+    for (let i = 0; i < this.tickHooks.length; i++) this.tickHooks[i]!();
+  }
 
   private drawFrame(alpha: number, dt: number): void {
     this.renderer.render(this.world, alpha, this.input.yaw, this.input.pitch, dt);
@@ -235,86 +282,15 @@ export class Game {
       s.yaw = this.input.yaw;
       s.pitch = this.input.pitch;
       this.world.step(s, this.bus);
-      this.modes.tick();
+      this.runTickHooks();
       s.jump = false;
       s.reload = false;
     }
     this.renderNow();
   }
 
-  /**
-   * Debug: fire exactly one shot of `id` with deterministic stepping. Switches to the weapon and
-   * waits out its equip, reload and cooldown as the sim requires (so back-to-back calls with an
-   * automatic weapon are a held spray at the real fire rate; a semi-auto gets a fresh press each
-   * call). Returns copies of that shot's `shotFired` and `shotImpact` (null if it hit nothing).
-   */
-  fireOnce(id: WeaponId): { shot: unknown; impact: unknown } {
-    const w = this.world.weapon;
-    const slot = w.slots.findIndex((sl) => sl.id === id);
-    if (slot < 0) throw new Error(`weapon '${id}' is not in the loadout (${w.slots.map((sl) => sl.id).join(', ')})`);
-    const s = this.scriptInput;
-    s.moveX = s.moveZ = 0;
-    s.jump = s.crouch = s.walk = s.reload = false;
-    s.yaw = this.input.yaw;
-    s.pitch = this.input.pitch;
-    s.switchTo = slot;
-    s.fire = false;
-    if (w.active !== slot) this.world.step(s, this.bus); // start the swap
-    const before = w.shots;
-    let shot: unknown = null;
-    let impact: unknown = null;
-    const off1 = this.bus.on('shotFired', (e) => {
-      shot = JSON.parse(JSON.stringify(e));
-    });
-    const off2 = this.bus.on('shotImpact', (e) => {
-      if (impact === null) impact = JSON.parse(JSON.stringify(e));
-    });
-    const semi = this.tunables.weapon[id].fireMode === 'semi';
-    try {
-      const maxTicks = TICK_RATE * 10;
-      for (let i = 0; i < maxTicks && w.shots === before; i++) {
-        // A semi-auto press during equip/reload/cooldown is spent, so release and press again.
-        s.fire = !semi || !s.fire;
-        this.world.step(s, this.bus);
-      }
-    } finally {
-      off1();
-      off2();
-      s.switchTo = -1;
-    }
-    this.renderNow();
-    if (w.shots === before) throw new Error(`weapon '${id}' did not fire within 10 s`);
-    return { shot, impact };
-  }
-
-  /**
-   * Add a target (Post: pos = feet centre; Beacon: pos = orb centre). Debug hook and, later, the
-   * run/mode layer. Returns its id, or -1 when the registry is full.
-   */
-  spawnTarget(kind: TargetKind, x: number, y: number, z: number, opts?: SpawnOptions): number {
-    return this.world.spawnTarget(kind, x, y, z, this.bus, opts);
-  }
-
-  despawnTarget(id: number): boolean {
-    return this.world.despawnTarget(id, this.bus);
-  }
-
-  /** Point the view at a zone centre of a live target (debug/playtest aid). */
-  aimAtTarget(id: number, zone: HitZone = 'head'): boolean {
-    const w = this.world;
-    const t = w.targetField.byId(id);
-    if (!t) return false;
-    const tt = this.tunables.targets;
-    const c = zoneCentre(AIM_SCRATCH, t, tt.hit, tt.kinds[t.kind], zone);
-    const p = w.player;
-    const dx = c.x - p.pos.x, dy = c.y - (p.pos.y + p.eyeHeight), dz = c.z - p.pos.z;
-    this.input.setLook(Math.atan2(-dx, -dz), Math.asin(dy / Math.hypot(dx, dy, dz)));
-    this.renderNow();
-    return true;
-  }
-
   resetWorld(seed?: number): void {
-    this.modes.stop();
+    for (const fn of this.resetHooks) fn();
     this.world.reset(seed);
     this.session.reset();
     this.hud.refresh();
@@ -331,24 +307,24 @@ export class Game {
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
       `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}` +
-      this.modeLine()
+      this.featureLines()
     );
   }
 
-  private modeLine(): string {
-    const m = this.modes.status();
-    if (m.mode === null) return '';
-    return (
-      `\nmode ${m.mode} ${m.phase}  beat ${m.beat} dial ${m.dial.toFixed(0)}  ${m.timeSec.toFixed(1)}s\n` +
-      `score ${m.score}  kills ${m.kills}  trials ${m.trialsWon}/${m.trials}  streak ${m.streak}  chain ${m.chain}`
-    );
+  private featureLines(): string {
+    let out = '';
+    for (const fn of this.overlayLines) {
+      const text = fn();
+      if (text) out += `\n${text}`;
+    }
+    return out;
   }
 
   /** Test hook: a plain-data snapshot of gameplay state. */
   snapshot(): unknown {
     const w = this.world;
     const p = w.player;
-    return {
+    const snap: Record<string, unknown> = {
       tick: w.tick,
       time: w.time,
       seed: w.seed,
@@ -370,6 +346,11 @@ export class Game {
       settings: { ...this.settings.get() },
       locked: this.input.locked,
     };
+    for (const [key, fn] of this.snapshotSections) {
+      if (key in snap) throw new Error(`snapshot section '${key}' shadows a core field`);
+      snap[key] = fn();
+    }
+    return snap;
   }
 
   /** A fresh deep copy of the tunables, for what-if experiments. */

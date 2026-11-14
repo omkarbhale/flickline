@@ -235,3 +235,10 @@ export const audio: AudioTunables = {
   streakBreakMin: 2,
   jitterSeed: 0x51f15e,
 };
+
+/** This file's groups of `Tunables` (config/tunables.ts composes them). */
+export const tunableGroups = { audio };
+type Groups = typeof tunableGroups;
+declare module './tunables' {
+  interface Tunables extends Groups {}
+}
