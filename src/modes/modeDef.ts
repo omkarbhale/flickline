@@ -5,7 +5,7 @@ import type { Tunables } from '../config/tunables';
 import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import type {
-  AxisId, AxisValues, ModeEvents, ModeId, ModeRef, MotionView, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra, WaveCurve,
+  AxisId, AxisValues, ModeEvents, ModeId, ModeRef, MotionView, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra, TrialSource, WaveCurve,
   WeaponSourceEvents,
 } from './contracts';
 import type { SpawnScheduler } from './scheduler';
@@ -58,6 +58,18 @@ export interface ModeDef<S = unknown> extends ModeRef {
   readonly waveCurve?: WaveCurve;
   /** Par time in seconds for the speed term of a kill (default `scoring.defaultParSec`). */
   parSec?(kind: EnemyKind, axes: AxisValues): number;
+  /**
+   * Which stream the run's `skillTrial` events belong to (default `matched`). `baseline` trials (the
+   * cold opener's, design §8.5) are tagged so the matched posterior never consumes them.
+   */
+  readonly trialSource?: TrialSource;
+  /**
+   * Reference-like presentation (design §8.5, the cold opener): while this run is on it is a clean
+   * run whatever the settings say, and the rewards the reference game lacks (clock, score and streak
+   * counters, floating points, screen pulse, kill ladder and chain sounds) are off too. The shot, the
+   * target's reaction and the hit and kill sounds stay.
+   */
+  readonly referenceLike?: boolean;
   /**
    * Whether a shot that misses breaks the clean streak (default: `scoring.missBreaksStreak`). A
    * mode where misses are expected and judged per trial (Spray Wall) turns it off, so its streak

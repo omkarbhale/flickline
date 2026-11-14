@@ -1,6 +1,7 @@
 import type { AudioTunables, CueId } from '../config/audio';
 import type { Subscribable } from '../core/eventBus';
 import type { FeedbackEvents } from '../feedback/events';
+import type { FeedbackOptions } from '../feedback/options';
 import type { StreakEvents } from '../feedback/streaks';
 import type { RunEvents } from '../sim/runEvents';
 import type { SimEvents } from '../sim/types';
@@ -26,6 +27,11 @@ type SfxEvents = SimEvents & FeedbackEvents & Pick<StreakEvents, 'chainUpdated'>
  * Enemy and damage sounds (tell, enemy shot, whiz, damage thud) are positioned and live in
  * `enemySfx.ts`; enemy footsteps in `enemyFootsteps.ts`.
  *
+ * In a reference-like run (`options.referenceLike`, design §8.5) only what the reference game also
+ * plays remains: the shot, the miss, the hit sounds and one plain kill chime. The moving-shot tock,
+ * the kill ladder (always its first step), the headshot-kill sparkle, the chain layers and the streak
+ * break are left out.
+ *
  * Cues are layered on top of each other on the audio clock; nothing here allocates.
  */
 export function attachSfx(
@@ -34,6 +40,7 @@ export function attachSfx(
   t: AudioTunables,
   /** Whether the moving-shot tock plays for this shot (cue fading, design §7.4); default: always. */
   movingTock: (e: SfxEvents['shotFired']) => boolean = () => true,
+  options?: Readonly<Pick<FeedbackOptions, 'referenceLike'>>,
 ): () => void {
   let streak = 0;
   let chain = 0;
@@ -43,7 +50,7 @@ export function attachSfx(
   const offs = [
     bus.on('shotFired', (e) => {
       audio.play(shotCue(e.weapon));
-      if (e.moving === true && movingTock(e)) audio.play('movingShot');
+      if (e.moving === true && movingTock(e) && !options?.referenceLike) audio.play('movingShot');
     }),
     bus.on('shotImpact', (e) => {
       if (!e.onTarget) audio.play('miss', { position: e.point });
@@ -52,6 +59,10 @@ export function attachSfx(
       audio.play(e.zone === 'head' ? 'hitHead' : e.zone === 'leg' ? 'hitLeg' : 'hitBody');
     }),
     bus.on('targetKilled', (e) => {
+      if (options?.referenceLike) {
+        audio.play('kill', { pitchStep: ladderStep(0, t.ladder.semitones.length) });
+        return;
+      }
       const step = ladderStep(streak, t.ladder.semitones.length);
       audio.play('kill', { pitchStep: step });
       if (e.zone === 'head') audio.play('killSparkle', { pitchStep: step });
@@ -65,7 +76,7 @@ export function attachSfx(
       chain = e.count;
     }),
     bus.on('streakUpdated', (e) => {
-      if (e.streak === 0 && streak >= t.streakBreakMin) audio.play('streakBreak');
+      if (e.streak === 0 && streak >= t.streakBreakMin && !options?.referenceLike) audio.play('streakBreak');
       streak = e.streak;
     }),
     bus.on('reloadStarted', () => audio.play('reloadOut')),
