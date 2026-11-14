@@ -4,7 +4,7 @@ import { vec3, type Vec3 } from '../../core/vec3';
 import { lineClear } from '../../sim/exposure';
 import { targetAimPoint, wrapPi, yawOf } from '../../sim/aim';
 import { Rng } from '../../core/rng';
-import { sweepCatalog, type GateRt, type SweepState } from '../../modes/sweep';
+import { currentSector, sectorKey, sweepCatalog, type GateRt, type SweepState } from '../../modes/sweep';
 import { navRoute } from '../../modes/sweepCatalog';
 import type { TickInput } from '../../sim/types';
 import type { World } from '../../sim/world';
@@ -67,8 +67,7 @@ export class SweepBot {
   private wp = 0;
   /** It was in a fight since the route was planned. */
   private fought = false;
-  /** The tick the sector its route is for began: a placing Opener's stages are all sector 0, so the index cannot tell them apart. */
-  private sectorStart = -1;
+  private sector = -1;
   /** The sector's exit was open when last looked at: a hold sector's opens when its Echoes are dead, then the route is planned from where the bot stands. */
   private exitOpen = true;
   private bestDist = Infinity;
@@ -130,7 +129,7 @@ export class SweepBot {
     if (!st?.plan) return out;
     if (st.gate) return this.throughGate(st.gate, world, out);
     this.gate = null;
-    if (st.sectorTick0 !== this.sectorStart) {
+    if (sectorKey(st) !== this.sector) {
       this.plan(st, true);
       this.exitOpen = st.exitOpen;
     } else if (st.exitOpen && !this.exitOpen) {
@@ -302,13 +301,13 @@ export class SweepBot {
     out.walk = false;
     out.fire = false;
     this.fought = false;
-    this.sectorStart = -1;
+    this.sector = -1;
     return out;
   }
 
   /** The yaw towards the middle of the sector's approach lanes' starts: where the bot knows the map's arrivals come from. */
   private arrivalDirection(st: SweepState): number {
-    const sp = st.plan.sectors[st.sector]!;
+    const sp = currentSector(st);
     const src = sweepCatalog(this.game.tunables).find((x) => x.mapId === sp.mapId && x.id === sp.sectorId);
     const p = this.game.world.player.pos;
     if (!src || src.approaches.length === 0) return this.bot.yaw;
@@ -320,8 +319,8 @@ export class SweepBot {
 
   /** The route to the sector's exit (straight, or along the nav graph), from its entry or from where the player stands. */
   private plan(st: SweepState, fromEntry: boolean): void {
-    this.sectorStart = st.sectorTick0;
-    const sp = st.plan.sectors[st.sector]!;
+    this.sector = sectorKey(st);
+    const sp = currentSector(st);
     const map = this.game.modes.currentMap;
     this.path = navRoute(map, fromEntry ? sp.entry : this.game.world.player.pos, sp.exit);
     this.wp = 0;

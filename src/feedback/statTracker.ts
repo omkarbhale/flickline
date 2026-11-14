@@ -3,7 +3,7 @@ import { DEG2RAD, RAD2DEG, mean, median } from '../core/math';
 import { TICK_DT } from '../core/time';
 import { run as defaultRun, type RunTunables } from '../config/run';
 import { scoring as defaultScoring, type ScoringTunables } from '../config/scoring';
-import { sprayWall as defaultSprayWall, type SprayWallTunables } from '../config/sprayWall';
+import { sprayTrace as defaultSprayTrace, type SprayTraceTunables } from '../config/sprayTrace';
 import { targets as defaultTargets, type TargetTunables } from '../config/targets';
 import { wrapPi, yawOf } from '../sim/aim';
 import type { RunEndReason, RunEvents } from '../sim/runEvents';
@@ -17,10 +17,10 @@ export interface StatConfig {
   run: RunTunables;
   targets: Pick<TargetTunables, 'shotAtDeg' | 'reactionAimDeg'>;
   scoring: Pick<ScoringTunables, 'chainWindowSec'>;
-  sprayWall: Pick<SprayWallTunables, 'collapseHitRate' | 'pullToleranceDeg'>;
+  sprayTrace: SprayTraceTunables;
 }
 
-export const defaultStatConfig: StatConfig = { run: defaultRun, targets: defaultTargets, scoring: defaultScoring, sprayWall: defaultSprayWall };
+export const defaultStatConfig: StatConfig = { run: defaultRun, targets: defaultTargets, scoring: defaultScoring, sprayTrace: defaultSprayTrace };
 import type { LoggedEvent, RunLog } from './eventLog';
 import {
   collapseIndex, sprayHitRateByIndex, sprayPullErrorByIndex, type SprayBulletTrace, type SprayRecord,
@@ -114,7 +114,7 @@ export interface RunStats {
   headHeightDisciplineDeg: number | null;
   headHeightSamples: number;
   /**
-   * Strafe Track: mean signed lead error and mean absolute lead error, degrees. + = the crosshair
+   * Mean signed lead error against a strafing target and mean absolute lead error, degrees. + = the crosshair
    * ran AHEAD of the Strafer (leading), - = BEHIND it (lagging). Null with no samples.
    */
   leadErrorBiasDeg: number | null;
@@ -133,7 +133,7 @@ export interface RunStats {
   targets: TargetStat[];
   sprayBursts: SprayBullet[][];
   /**
-   * Spray Wall's sprays (design §4.5), in order: one record each with the per-bullet spray trace
+   * The run's sprays (design §3), in order: one record each with the per-bullet spray trace
    * (impact offset, the player's pull and the spec's required counter-pull, see `sprayTrace.ts`).
    * Empty in every other mode. For the results card (#39).
    */
@@ -443,7 +443,7 @@ export class StatTracker {
     this.lastShot = { id: e.shotId, aimedId, moving: e.moving };
   }
 
-  // --- Spray Wall (design §4.5): cut the shots into sprays and fill the spray trace ----------
+  // --- Sprays (design §3): cut the shots into sprays and fill the spray trace ----------
 
   private onSprayStarted(e: AllEvents['sprayStarted']): void {
     if (!this.live(e.tick)) return;
@@ -705,8 +705,8 @@ export class StatTracker {
       sprays: this.sprays.map((r) => ({ ...r, trace: r.trace.map((b) => ({ ...b })) })),
       sprayHitRateByIndex: hitRates,
       sprayPullErrorByIndex: pullErrors,
-      sprayCollapseIndex: collapseIndex(hitRates, this.cfg.sprayWall.collapseHitRate, true),
-      sprayPullFallsApartIndex: collapseIndex(pullErrors, this.cfg.sprayWall.pullToleranceDeg, false),
+      sprayCollapseIndex: collapseIndex(hitRates, this.cfg.sprayTrace.collapseHitRate, true),
+      sprayPullFallsApartIndex: collapseIndex(pullErrors, this.cfg.sprayTrace.pullToleranceDeg, false),
       sectorsReached: this.sectorsReached,
       sectorsTotal: this.sectorsTotal,
       sectorsCleared: this.sectorsCleared,

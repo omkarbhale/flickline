@@ -297,13 +297,7 @@ function globalRows(snap: SpecSnapshot, t: Tunables): Rows {
   fromCfg('target.speed_slow', 'no target speed tiers', 'dial.strafeSpeed.at0');
   fromCfg('target.speed_medium', 'no target speed tiers', 'enemies.strafer.defaultSpeed');
   fromCfg('target.speed_fast', 'no target speed tiers', 'dial.strafeSpeed.at100');
-  rowFor('target.stop_time', 'config `enemies.strafer` braking: time to stop from `brakeRefSpeed`', (s) => {
-    const st = t.enemies.strafer;
-    const v = st.brakeRefSpeed;
-    const split = st.brakeBandFraction * v;
-    const sec = (v - split) / st.brakeHigh + split / st.brakeLow;
-    return cmp(s, sec, 0.005, ' s');
-  });
+  rowFor('target.stop_time', 'sim: a Strafer\'s body lets go of its strafe key at the dial-50 speed, time to a standstill', (s) => cmp(s, M.secs(M.echoStopTicks(t)), TICK_DT, ' s'));
   return rows;
 }
 

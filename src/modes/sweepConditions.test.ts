@@ -236,7 +236,7 @@ describe('the primary pick on the ready screen (#207, design §4.1)', () => {
     expect(g.modes.pickPrimary('ghost')).toBe(false);
     expect(g.modes.phase).toBe('ready');
     expect(g.modes.pickPrimary('kestrel')).toBe(true);
-    g.modes.start('orbit', { seed: 5 });
-    expect(g.modes.pickPrimary('vane')).toBe(false); // a drill has no loadout pick
+    g.modes.start('test', { seed: 5 });
+    expect(g.modes.pickPrimary('vane')).toBe(false); // a mode without a loadout pick
   });
 });

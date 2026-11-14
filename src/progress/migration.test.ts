@@ -12,12 +12,12 @@ function v2(): Record<string, unknown> {
     ratings: null,
     ranks: { line: { at: 6, peak: 8, up: 0, down: 1, to: 5 } },
     bests: {
-      orbit: { neon: { score: 1200, seed: 7, date: '2026-01-01T00:00:00.000Z', dial: 61, stats, curve: [0, 100, 250, 1200] } },
-      coldStart: { chalkBrass: { score: 800, seed: 3, date: '2026-01-02T00:00:00.000Z', dial: 12, stats, curve: [0, 800] } },
+      modeA: { neon: { score: 1200, seed: 7, date: '2026-01-01T00:00:00.000Z', dial: 61, stats, curve: [0, 100, 250, 1200] } },
+      modeB: { chalkBrass: { score: 800, seed: 3, date: '2026-01-02T00:00:00.000Z', dial: 12, stats, curve: [0, 800] } },
     },
     medals: { needle: { count: 2, last: '2026-01-01T00:00:00.000Z' }, metronome: { count: 1, last: '2026-01-01T00:00:00.000Z' } },
-    history: [{ mode: 'orbit', seed: 7, dial: 61, date: '2026-01-01T00:00:00.000Z', reason: 'timer', score: 1200, medals: ['needle'], ...stats }],
-    plays: { orbit: 5, coldStart: 2 },
+    history: [{ mode: 'modeA', seed: 7, dial: 61, date: '2026-01-01T00:00:00.000Z', reason: 'timer', score: 1200, medals: ['needle'], ...stats }],
+    plays: { modeA: 5, modeB: 2 },
     flaggedSkill: 'flick',
     baselines: [{ day: '2026-01-01', cold: 41 }],
     baselineLevels: { precision: 30 },
@@ -40,11 +40,11 @@ describe('save v2 -> v3 (#217)', () => {
     expect(d.runBests).toEqual({});
     expect(d.dailyBests).toEqual({});
     expect(d.situations).toEqual({});
-    expect(d.drillBests.orbit!.neon).toEqual({
+    expect(d.drillBests.modeA!.neon).toEqual({
       score: 1200, seed: 7, date: '2026-01-01T00:00:00.000Z', dial: 61,
       stats: expect.objectContaining({ shots: 40, accuracy: 0.75 }),
     });
-    expect(d.drillBests.coldStart!.chalkBrass!.score).toBe(800);
+    expect(d.drillBests.modeB!.chalkBrass!.score).toBe(800);
     // the ghost's score curve is gone: the pace bar compares by sector now
     expect(JSON.stringify(d.drillBests)).not.toContain('curve');
   });
@@ -69,7 +69,7 @@ describe('save v2 -> v3 (#217)', () => {
     expect(r.data.medals.needle!.count).toBe(2);
     expect(r.data.medals.metronome!.count).toBe(1);
     expect(r.data.history).toHaveLength(1);
-    expect(r.data.plays).toEqual({ orbit: 5, coldStart: 2 });
+    expect(r.data.plays).toEqual({ modeA: 5, modeB: 2 });
     expect(r.data.flaggedSkill).toBe('flick');
   });
 
@@ -87,25 +87,25 @@ describe('save v2 -> v3 (#217)', () => {
     const data: Record<string, string> = { [cfg.storageKey]: JSON.stringify(v2()) };
     const storage: StorageLike = { getItem: (k) => data[k] ?? null, setItem: (k, v) => { data[k] = v; } };
     const s = new ProgressStore(null, storage);
-    expect(s.best('orbit')).toBe(1200); // a drill: its read-only best
+    expect(s.best('modeA')).toBe(1200); // a drill: its read-only best
     expect(s.best('sweep')).toBeNull(); // a run mode: nothing yet
     expect(s.bestRun(50)).toBeNull();
     s.setFlaggedSkill('track'); // any write persists the migrated save
     const stored = JSON.parse(data[cfg.storageKey]!);
     expect(stored.version).toBe(3);
-    expect(stored.drillBests.orbit.neon.score).toBe(1200);
+    expect(stored.drillBests.modeA.neon.score).toBe(1200);
     expect(stored.bests).toBeUndefined();
     // a drill run after the migration does not write a drill best
-    s.recordRun({ mode: 'orbit', seed: 1, dial: 61, date: 'd', reason: 'timer', score: 5000, medals: [], shots: 0, hits: 0, headHits: 0, kills: 0, movingShots: 0, accuracy: null, headshotRate: null, medianRtMs: null, medianTtkMs: null, maxChain: 0, cleanKills: 0 }, null);
-    expect(s.best('orbit')).toBe(1200);
+    s.recordRun({ mode: 'modeA', seed: 1, dial: 61, date: 'd', reason: 'timer', score: 5000, medals: [], shots: 0, hits: 0, headHits: 0, kills: 0, movingShots: 0, accuracy: null, headshotRate: null, medianRtMs: null, medianTtkMs: null, maxChain: 0, cleanKills: 0 }, null);
+    expect(s.best('modeA')).toBe(1200);
   });
 
   it('a v1 file still walks all the way to v3', () => {
-    const r = readProgress(JSON.stringify({ version: 1, playLog: { bests: { orbit: 5 }, plays: { orbit: 4 }, flaggedSkill: 'flick' } }));
+    const r = readProgress(JSON.stringify({ version: 1, playLog: { bests: { modeA: 5 }, plays: { modeA: 4 }, flaggedSkill: 'flick' } }));
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.from).toBe(1);
-      expect(r.data.plays.orbit).toBe(4);
+      expect(r.data.plays.modeA).toBe(4);
       expect(r.data.drillBests).toEqual({});
     }
   });
