@@ -21,6 +21,8 @@ import type { FeedbackOptions } from './options';
  * frame is drawn in this same frame (latency 0); the stats record the worst case.
  */
 
+const DEFAULT_MUZZLE = { right: 0.2, up: -0.16, forward: 0.5 };
+
 export const TRACER_NORMAL = 0;
 export const TRACER_MOVING = 1;
 export const TRACER_GHOST_LINE = 2;
@@ -79,7 +81,7 @@ export interface GhostCue extends CueBase {
 }
 
 export interface FlashCue extends CueBase {
-  /** Muzzle position in world space (renderer places the sprite; viewmodel art is #45). */
+  /** Muzzle position in world space where the shot left (the viewmodel layer draws the sprite on the model's own muzzle). */
   x: number; y: number; z: number;
 }
 
@@ -106,10 +108,16 @@ export class ShotCues {
 
   /** Rendered-frame counter (see class comment). */
   frame = 0;
-  /** Recoil kick 0..1 for the viewmodel, decays in update(). */
-  kick = 0;
   /** True when the decal GPU buffer must be rewritten (spawn, expiry or fade step). */
   decalsDirty = false;
+
+  /**
+   * Where the muzzle is relative to the eye, in the world camera's frame: right, up and forward
+   * metres. The viewmodel layer sets it every frame from the on-screen muzzle of the equipped
+   * model (`setMuzzle`), so tracers and the flash cue start at the visible barrel. It defaults to
+   * the placeholder offsets (also used while the viewmodel is hidden).
+   */
+  readonly muzzle = { right: DEFAULT_MUZZLE.right, up: DEFAULT_MUZZLE.up, forward: DEFAULT_MUZZLE.forward };
 
   private nextTracer = 0;
   private nextImpact = 0;
@@ -151,6 +159,19 @@ export class ShotCues {
     );
   }
 
+  /** Where the muzzle is now, as an offset from the eye in the world camera's frame (metres). */
+  setMuzzle(right: number, up: number, forward: number): void {
+    const m = this.muzzle;
+    m.right = right;
+    m.up = up;
+    m.forward = forward;
+  }
+
+  /** Back to the placeholder offsets (viewmodel hidden). */
+  resetMuzzle(): void {
+    this.setMuzzle(DEFAULT_MUZZLE.right, DEFAULT_MUZZLE.up, DEFAULT_MUZZLE.forward);
+  }
+
   /** Call once at the top of each rendered frame, before the sim ticks. */
   beginFrame(): void {
     this.frame++;
@@ -167,15 +188,16 @@ export class ShotCues {
 
   private onShotFired(e: SimEvents['shotFired']): void {
     const fx = this.cfg;
-    this.kick = 1;
     this.ox = e.origin.x; this.oy = e.origin.y; this.oz = e.origin.z;
     this.dx = e.dir.x; this.dy = e.dir.y; this.dz = e.dir.z;
 
-    // Muzzle = eye + right * 0.2 - up * 0.16 + forward * 0.5 (matches the placeholder viewmodel).
+    // Muzzle = eye + right * m.right + up * m.up + forward * m.forward, where the offsets track the
+    // on-screen muzzle of the viewmodel (see `muzzle`). `right` is the horizontal right of the shot.
+    const m = this.muzzle;
     const hl = Math.sqrt(this.dx * this.dx + this.dz * this.dz) || 1;
-    const mx = this.ox + (-this.dz / hl) * 0.2 + this.dx * 0.5;
-    const my = this.oy - 0.16 + this.dy * 0.5;
-    const mz = this.oz + (this.dx / hl) * 0.2 + this.dz * 0.5;
+    const mx = this.ox + (-this.dz / hl) * m.right + this.dx * m.forward;
+    const my = this.oy + m.up + this.dy * m.forward;
+    const mz = this.oz + (this.dx / hl) * m.right + this.dz * m.forward;
 
     const f = this.flash;
     f.x = mx; f.y = my; f.z = mz;
@@ -302,8 +324,6 @@ export class ShotCues {
    * long hitch cannot swallow an effect.
    */
   update(dt: number): void {
-    const k = this.kick - dt * 9;
-    this.kick = k > 0 ? k : 0;
     for (let i = 0; i < this.tracers.length; i++) this.age(this.tracers[i]!, dt);
     for (let i = 0; i < this.impacts.length; i++) this.age(this.impacts[i]!, dt);
     for (let i = 0; i < this.shatters.length; i++) this.age(this.shatters[i]!, dt);

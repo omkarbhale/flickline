@@ -61,8 +61,9 @@ export class BlobShadows {
       let clearance: number;
       let size: number;
       if (def.shape === 'orb') {
-        clearance = Math.max(0, t.pos.y - def.orbRadius);
-        size = def.orbRadius * 2 * this.cfg.echoScale;
+        const r = def.orbRadius * t.scale;
+        clearance = Math.max(0, t.pos.y - r);
+        size = r * 2 * this.cfg.echoScale;
       } else {
         clearance = Math.max(0, t.pos.y); // `pos` is the feet centre
         size = cfg.hit.torsoWidth * this.cfg.echoScale * 2;

@@ -62,7 +62,7 @@ class Log {
         type: 'targetKilled',
         data: {
           tick, t: 0, targetId: hit, kind: o.kind ?? 'post', zone: o.zone ?? 'body', point: vec3(), distance: 10,
-          ttkMs: 0, rtMs: 0, firstBullet: false, bullets: 0, clean: false,
+          ttkMs: 0, rtMs: 0, firstBullet: false, bullets: 0, shield: 0, clean: false,
         },
       });
     }

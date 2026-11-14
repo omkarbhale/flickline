@@ -20,7 +20,7 @@ import { BlobShadows } from './blobShadows';
 import { applyEnvQuality, createEnvUniforms, horizonColor, type EnvUniforms } from './envShaders';
 import { buildLevelMesh, type LevelMesh } from './levelMesh';
 import { Sky } from './sky';
-import { PostPipeline, createVignetteEffect } from './post';
+import { PostPipeline, createVignetteEffect, type Overlay } from './post';
 import { WorldHint } from './worldHint';
 import { TargetsView } from './targetsView';
 
@@ -67,6 +67,12 @@ export class GameRenderer {
   readonly scene = new Scene();
   readonly camera: PerspectiveCamera;
   readonly post = new PostPipeline();
+  /**
+   * The first-person overlay pass: drawn after the world with the depth buffer cleared, by its own
+   * camera (own FOV; the world FOV is locked). The viewmodel layer owns its contents and sets the
+   * camera's FOV and aspect in `resize`.
+   */
+  readonly overlay: Overlay = { scene: new Scene(), camera: new PerspectiveCamera(60, 16 / 9, 0.01, 4) };
   /** The single first-run hint floating over a target; hidden unless shown. */
   readonly hint: WorldHint;
   readonly stats: RenderStats = { drawCalls: 0, triangles: 0, geometries: 0, textures: 0 };
@@ -177,6 +183,8 @@ export class GameRenderer {
     this.renderer.setSize(this.width, this.height, false);
     this.camera.aspect = this.width / this.height;
     this.camera.updateProjectionMatrix();
+    this.overlay.camera.aspect = this.camera.aspect;
+    this.overlay.camera.updateProjectionMatrix();
     const pr = this.renderer.getPixelRatio();
     const p = this.tunables.render.quality[this.quality];
     for (let i = 0; i < this.layers.length; i++) this.layers[i]!.resize?.(this.width, this.height, pr);
@@ -212,6 +220,7 @@ export class GameRenderer {
     this.scene.add(this.targetsView.root);
     // Compile shaders now so the first shot / first frame does not hitch.
     this.renderer.compile(this.scene, this.camera);
+    this.renderer.compile(this.overlay.scene, this.overlay.camera);
   }
 
   /**
@@ -237,7 +246,7 @@ export class GameRenderer {
     for (let i = 0; i < this.layers.length; i++) this.layers[i]!.update(f);
 
     this.renderer.info.reset();
-    this.post.render(this.renderer, this.scene, this.camera);
+    this.post.render(this.renderer, this.scene, this.camera, this.overlay);
     for (let i = 0; i < this.layers.length; i++) this.layers[i]!.afterDraw?.();
     const info = this.renderer.info;
     this.stats.drawCalls = info.render.calls;

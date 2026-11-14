@@ -4,6 +4,7 @@ import { TICK_DT } from '../core/time';
 import { vec3, type Vec3 } from '../core/vec3';
 import type { PlayerTunables } from '../config/player';
 import type { SweepTunables } from '../config/sweep';
+import { shieldAbsorbed } from './damage';
 import type { HitZone, PlayerHealth, PlayerState, SimEvents } from './types';
 
 /** Events the player's health emits (part of `SimEvents`). */
@@ -17,11 +18,16 @@ export interface HealthEvents {
   playerDamaged: {
     tick: number;
     t: number;
-    /** HP lost (floats, never rounded in the sim). */
+    /** HP lost (floats, never rounded in the sim): the hit's damage minus what the shield took. */
     amount: number;
+    /** Damage the shield absorbed in this hit (spec §4.1; 0 when there is no shield left). */
+    absorbed: number;
     /** HP left after the hit (0 when it killed). */
     hp: number;
     maxHp: number;
+    /** Shield points left after the hit, and the shield the life started with (0/0 = unshielded). */
+    shield: number;
+    maxShield: number;
     zone: HitZone;
     dir: Vec3;
     yaw: number;
@@ -41,15 +47,17 @@ declare module './types' {
   interface SimEvents extends HealthEvents {}
 }
 
-export function createPlayerHealth(maxHp: number): PlayerHealth {
+export function createPlayerHealth(maxHp: number, shield = 0): PlayerHealth {
   return {
-    hp: maxHp, maxHp, alive: true, tagSince: Infinity, tagRise: 0, flinchDeg: 0,
-    lastDamageTick: -1, damageTaken: 0, healed: 0,
+    hp: maxHp, maxHp, shield, maxShield: shield, alive: true, tagSince: Infinity, tagRise: 0, flinchDeg: 0,
+    lastDamageTick: -1, damageTaken: 0, healed: 0, shieldAbsorbed: 0,
   };
 }
 
-export function resetPlayerHealth(h: PlayerHealth, maxHp: number): void {
+export function resetPlayerHealth(h: PlayerHealth, maxHp: number, shield = 0): void {
   h.hp = h.maxHp = maxHp;
+  h.shield = h.maxShield = shield;
+  h.shieldAbsorbed = 0;
   h.alive = true;
   h.tagSince = Infinity;
   h.tagRise = 0;
@@ -85,15 +93,18 @@ export function flinchKickDeg(f: PlayerTunables['flinch'], zone: HitZone): numbe
 }
 
 /**
- * The player's health system: damage with tagging and flinch, kill-heal, death. Owns the state
+ * The player's health system: damage through the shield, tagging and flinch, kill-heal (HP only), death. Owns the state
  * (`state`, plain data the world hashes) and the event payload objects, so a hit allocates
  * nothing. All numbers come from `PlayerTunables` / `SweepTunables`.
  */
 export class PlayerHealthSystem {
   readonly state: PlayerHealth;
   private readonly dmgEv: SimEvents['playerDamaged'] = {
-    tick: 0, t: 0, amount: 0, hp: 0, maxHp: 0, zone: 'body', dir: vec3(0, 0, -1), yaw: 0, sourceId: -1, killed: false,
+    tick: 0, t: 0, amount: 0, absorbed: 0, hp: 0, maxHp: 0, shield: 0, maxShield: 0, zone: 'body', dir: vec3(0, 0, -1),
+    yaw: 0, sourceId: -1, killed: false,
   };
+  /** The shield a life starts with (`setShield`); survives `reset()`. */
+  private shieldLevel = 0;
   private readonly slowEv: SimEvents['playerSlowed'] = { tick: 0, t: 0, factor: 1, durationMs: 0 };
   private readonly deathEv: SimEvents['playerDied'] = { tick: 0, t: 0, sourceId: -1 };
   private readonly healEv: SimEvents['playerHealed'] = { tick: 0, t: 0, amount: 0, hp: 0, maxHp: 0, source: 'kill' };
@@ -105,8 +116,14 @@ export class PlayerHealthSystem {
     this.state = createPlayerHealth(cfg.health.max);
   }
 
+  /** The shield every life from the next `reset()` starts with (0 = none); also applied to the current life now. */
+  setShield(level: number): void {
+    this.shieldLevel = Math.max(0, level);
+    this.state.shield = this.state.maxShield = this.shieldLevel;
+  }
+
   reset(p: PlayerState): void {
-    resetPlayerHealth(this.state, this.cfg.health.max);
+    resetPlayerHealth(this.state, this.cfg.health.max, this.shieldLevel);
     p.tagScale = 1;
     p.aimPunch = 0;
   }
@@ -132,7 +149,7 @@ export class PlayerHealthSystem {
   }
 
   /**
-   * The player is hit for `amount` HP in `zone` by a shooter at (`sx`, `sy`, `sz`) (the point the
+   * The player is hit for `amount` damage in `zone` by a shooter at (`sx`, `sy`, `sz`) (the point the
    * bullet came from; `sourceId` is the enemy's id or -1). Emits `playerDamaged`, `playerSlowed`
    * and, at 0 HP, `playerDied`. Ignored once dead. Returns whether it killed.
    */
@@ -143,7 +160,11 @@ export class PlayerHealthSystem {
     const h = this.state;
     if (!h.alive || !(amount > 0)) return false;
     const t = tick * TICK_DT;
-    const lost = Math.min(amount, h.hp);
+    // Spec §4.1: the shield takes its share first; the overflow (and the unabsorbed rest) hits health.
+    const absorbed = shieldAbsorbed(amount, h.shield, this.cfg.shield.absorb);
+    h.shield -= absorbed;
+    h.shieldAbsorbed += absorbed;
+    const lost = Math.min(amount - absorbed, h.hp);
     h.hp -= lost;
     h.damageTaken += lost;
     h.lastDamageTick = tick;
@@ -163,7 +184,8 @@ export class PlayerHealthSystem {
     }
 
     const e = this.dmgEv;
-    e.tick = tick; e.t = t; e.amount = lost; e.hp = h.hp; e.maxHp = h.maxHp; e.zone = zone;
+    e.tick = tick; e.t = t; e.amount = lost; e.absorbed = absorbed; e.hp = h.hp; e.maxHp = h.maxHp;
+    e.shield = h.shield; e.maxShield = h.maxShield; e.zone = zone;
     e.yaw = p.yaw; e.sourceId = sourceId; e.killed = killed;
     yawFrameDirection(e.dir, p, sx, sy, sz);
     events.emit('playerDamaged', e);

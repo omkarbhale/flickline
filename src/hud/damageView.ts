@@ -55,7 +55,7 @@ export class DamageView {
       <div class="dmg-vignette"></div>
       <div class="dmg-desat"></div>
       <canvas class="dmg-arcs"></canvas>
-      <div class="hp"><div class="hp-fill"></div><span class="hp-text"></span></div>`;
+      <div class="hp"><div class="hp-fill"></div><div class="hp-shield"></div><span class="hp-text"></span></div>`;
     root.appendChild(host);
     this.vignette = host.querySelector('.dmg-vignette') as HTMLElement;
     this.desat = host.querySelector('.dmg-desat') as HTMLElement;
@@ -130,9 +130,13 @@ export class DamageView {
   private syncHp(flash: boolean): void {
     const h = this.health;
     const frac = h.maxHp > 0 ? clamp(h.hp / h.maxHp, 0, 1) : 0;
-    this.hp.classList.toggle('shown', this.alwaysShowHp || h.hp < h.maxHp);
+    // A shield is a part of the bar: it shows with the bar, as a thin strip along the top (spec §4.1).
+    const sf = h.maxShield > 0 ? clamp(h.shield / h.maxShield, 0, 1) : 0;
+    this.hp.classList.toggle('shown', this.alwaysShowHp || h.hp < h.maxHp || h.shield < h.maxShield);
     this.hp.classList.toggle('low', frac <= 0.3);
+    this.hp.classList.toggle('shielded', h.maxShield > 0);
     this.hp.style.setProperty('--hp', String(frac));
+    this.hp.style.setProperty('--sh', String(sf));
     // HP is shown rounded UP: the sim keeps floats, and 0 on the bar means dead.
     this.hpText.textContent = String(Math.ceil(h.hp));
     if (flash) this.restart(this.hp);

@@ -15,7 +15,12 @@ declare module '../debug/hook' {
     hurt(amount: number, opts?: HurtOptions): boolean;
     /** As `hurt`, with the damage taken from `weaponId`'s band for the zone at the distance (spec §3.2 / §7.4). */
     hitBy(weaponId: string, opts?: HurtOptions): boolean;
-    /** HP, tagging and flinch state plus the damage view (arcs showing, redraws) and the last low-pass dip. */
+    /**
+     * Equip shields as an economy would (spec §4.1): `player` points on the player now (and on every reset),
+     * `enemy` (default: the same) on every Post spawned from now on. 0 removes them. Returns the player's health state.
+     */
+    shields(player: number, enemy?: number): unknown;
+    /** HP, shield, tagging and flinch state plus the damage view (arcs showing, redraws) and the last low-pass dip. */
     health(): unknown;
     /** Keep the HP bar visible at full health (modes with enemy fire). */
     hpAlwaysVisible(v?: boolean): void;
@@ -53,6 +58,15 @@ export const feature = defineFeature({
         const killed = game.world.hitPlayer(weaponId as WeaponId, o.zone ?? 'body', sx, sy, sz, o.sourceId ?? -1, game.bus);
         game.renderNow();
         return killed;
+      },
+      shields(player, enemy = player) {
+        const w = game.world;
+        w.setShields(player, enemy);
+        game.damage.reset();
+        const h = w.health;
+        game.hud.live.setHp(h.maxShield > 0 ? h.hp : null, h.maxHp, h.shield, h.maxShield);
+        game.renderNow();
+        return { ...h };
       },
       health() {
         const w = game.world;
