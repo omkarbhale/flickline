@@ -62,6 +62,8 @@ export interface DialAxesTunables {
   enemyHitChance: AxisDef;
   /** Simultaneous targets. */
   density: AxisDef;
+  /** Spray Wall: the share of a spray's bullets that must land in the head or body zone (design §4.5). */
+  sprayHitFraction: AxisDef;
 }
 
 /**
@@ -223,6 +225,8 @@ export const dial: DialTunables = {
     tellSec: { at0: 0.7, at100: 0.3, curve: 'linear' },
     enemyHitChance: { at0: 0.15, at100: 0.6, curve: 'linear' },
     density: { at0: 1, at100: 6, curve: 'step' },
+    // Design §4.5: 60% at dial 0 up to 85% at dial 100.
+    sprayHitFraction: { at0: 0.6, at100: 0.85, curve: 'linear' },
   },
   // #12 P6 and #52 R8: tell >= 0.25 s (one mean reaction time plus one shot), exposure floors per
   // mode (minimum feasible time, #12 §4.1), and the spawn rule split in two unambiguous parts.

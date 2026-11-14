@@ -1,19 +1,22 @@
 import { EventBus } from '../core/eventBus';
 import { vec3, type Vec3 } from '../core/vec3';
 import { cloneTunables, type Tunables } from '../config/tunables';
-import type { AnchorLike, DialSource, ModeEvents, PlayerSourceEvents, SourceEvents, TargetSpawner } from './contracts';
+import type { SprayEvents } from '../sim/runEvents';
+import type { AnchorLike, DialSource, ModeEvents, PlayerSourceEvents, SourceEvents, TargetSpawner, WeaponSourceEvents } from './contracts';
 import { createLinearDial, type AxisRange } from './linearDial';
 import { ModeRunner } from './runner';
 import { TEST_MODE_AXES } from './testMode';
 
 /** Test support: a runner wired to fake sim sides, with a JSON log of every event it emits. */
 export interface Harness {
-  bus: EventBus<ModeEvents & SourceEvents & PlayerSourceEvents>;
+  bus: EventBus<ModeEvents & SourceEvents & PlayerSourceEvents & WeaponSourceEvents & SprayEvents>;
   runner: ModeRunner;
   tunables: Tunables;
   log: { type: string; data: Record<string, unknown> }[];
-  targets: Map<number, { kind: string; pos: Vec3; scale: number }>;
+  targets: Map<number, { kind: string; pos: Vec3; scale: number; durable?: boolean }>;
   dialCalls: number[];
+  /** Every `placePlayer` the mode asked for, in order (feet position and yaw). */
+  placed: { x: number; y: number; z: number; yaw: number }[];
   simTick: number;
   player: { pos: Vec3; yaw: number; pitch: number; eyeHeight: number };
   step(n: number): void;
@@ -24,6 +27,7 @@ export interface Harness {
 
 const EVENT_TYPES = [
   'runReady', 'runStarted', 'runEnded', 'beatStarted', 'skillTrial', 'scoreAwarded', 'chainUpdated', 'streakUpdated',
+  'sprayStarted', 'sprayEnded',
 ] as const;
 
 /** Rings of Post anchors (every `stepDeg` degrees) at several distances around the origin. */
@@ -40,15 +44,15 @@ export function ringAnchors(stepDeg = 30): AnchorLike[] {
 }
 
 export function makeHarness(table: Record<string, AxisRange> = TEST_MODE_AXES, baseDial = 50): Harness {
-  const bus = new EventBus<ModeEvents & SourceEvents & PlayerSourceEvents>();
+  const bus = new EventBus<ModeEvents & SourceEvents & PlayerSourceEvents & WeaponSourceEvents & SprayEvents>();
   const tunables = cloneTunables();
   const log: Harness['log'] = [];
   const targets: Harness['targets'] = new Map();
   let nextId = 1;
   const spawner: TargetSpawner = {
-    spawn(kind, pos, scale) {
+    spawn(kind, pos, scale, durable) {
       const id = nextId++;
-      targets.set(id, { kind, pos: vec3(pos.x, pos.y, pos.z), scale });
+      targets.set(id, { kind, pos: vec3(pos.x, pos.y, pos.z), scale, durable });
       return id;
     },
     despawn(id) {
@@ -65,11 +69,20 @@ export function makeHarness(table: Record<string, AxisRange> = TEST_MODE_AXES, b
     axes: (d) => inner.axes(d),
   };
   const player = { pos: vec3(0, 0, 0), yaw: 0, pitch: 0, eyeHeight: 1.62 };
-  const runner = new ModeRunner({ events: bus, tunables, dial, spawner, player });
+  const placed: Harness['placed'] = [];
+  const runner = new ModeRunner({
+    events: bus, tunables, dial, spawner, player,
+    placePlayer(x, y, z, yaw) {
+      player.pos = vec3(x, y, z);
+      player.yaw = yaw;
+      player.pitch = 0;
+      placed.push({ x, y, z, yaw });
+    },
+  });
   runner.attach(bus);
   for (const type of EVENT_TYPES) bus.on(type, (e) => log.push({ type, data: JSON.parse(JSON.stringify(e)) as Record<string, unknown> }));
   const h: Harness = {
-    bus, runner, tunables, log, targets, dialCalls, simTick: 0, player,
+    bus, runner, tunables, log, targets, dialCalls, placed, simTick: 0, player,
     step(n) {
       for (let i = 0; i < n; i++) {
         h.simTick++;

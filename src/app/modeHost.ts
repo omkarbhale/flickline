@@ -10,6 +10,7 @@ import type { AnchorSource, AxisValues, DialSource, TargetSpawner } from '../mod
 import type { ModeDef } from '../modes/modeDef';
 import { orbit } from '../modes/orbit';
 import { placement, type PlacementState } from '../modes/placement';
+import { sprayWall } from '../modes/sprayWall';
 import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
 import { economyShield } from '../sim/damage';
@@ -24,16 +25,20 @@ export const MODES: Readonly<Record<string, ModeDef<never>>> = {
   coldStart: coldStart as ModeDef<never>,
   orbit: orbit as ModeDef<never>,
   placement: placement as ModeDef<never>,
+  sprayWall: sprayWall as ModeDef<never>,
 };
+
+/** A durable target's health: a spray cannot kill it. */
+const DURABLE_HP = 1e6;
 
 /** The sim's target registry as the framework's spawner (#15). Only the kinds the sim has yet. */
 class WorldSpawner implements TargetSpawner {
   constructor(private readonly world: World, private readonly bus: EventBus<GameEvents>) {}
 
-  /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. */
-  spawn(kind: EnemyKind, pos: Vec3, scale: number): number {
+  /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. `durable` = Spray Wall's Post. */
+  spawn(kind: EnemyKind, pos: Vec3, scale: number, durable?: boolean): number {
     if (kind !== 'post' && kind !== 'beacon') return -1;
-    return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, { scale });
+    return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, durable ? { scale, hp: DURABLE_HP } : { scale });
   }
 
   despawn(id: number): void {
@@ -92,7 +97,9 @@ export class ModeHost {
   private active: ModeDef<never> | null = null;
   private readonly anchors: AnchorSource;
   private priorInfiniteMagazine = false;
+  private priorInfiniteReserve = false;
   private readonly ray = vec3();
+  private readonly placedEv = { tick: 0, x: 0, y: 0, z: 0, yaw: 0 };
 
   constructor(
     private readonly world: World,
@@ -105,7 +112,10 @@ export class ModeHost {
       dialFor: (mode, beat, wave) => skills.dialFor(mode, beat, wave),
       axes: (d) => axes(d, undefined, tunables.dial) as unknown as AxisValues,
     };
-    this.runner = new ModeRunner({ events: bus, tunables, dial, spawner: new WorldSpawner(world, bus), player: world.player });
+    this.runner = new ModeRunner({
+      events: bus, tunables, dial, spawner: new WorldSpawner(world, bus), player: world.player,
+      placePlayer: (x, y, z, yaw) => this.placePlayer(x, y, z, yaw),
+    });
     this.runner.attach(bus);
     this.anchors = { anchors: map.anchors, bounds: map.bounds, sightClear: (from, to) => this.sightClear(from, to) };
     bus.on('skillTrial', (e) => skills.observeTrial(e));
@@ -131,6 +141,7 @@ export class ModeHost {
     if (this.active) {
       this.runner.end('quit');
       this.world.weapon.infiniteMagazine = this.priorInfiniteMagazine;
+      this.world.weapon.infiniteReserve = this.priorInfiniteReserve;
     }
     this.world.movementLocked = false;
     this.world.setShields(0, 0);
@@ -183,9 +194,23 @@ export class ModeHost {
     w.equipWeapon(mode.weapon as WeaponId);
     this.priorInfiniteMagazine = w.weapon.infiniteMagazine;
     w.weapon.infiniteMagazine = setup?.infiniteMagazine ?? this.priorInfiniteMagazine;
+    this.priorInfiniteReserve = w.weapon.infiniteReserve;
+    w.weapon.infiniteReserve = setup?.infiniteReserve ?? this.priorInfiniteReserve;
     w.movementLocked = setup?.lockMovement ?? false;
     const level = mode.economy ? economyShield(mode.economy, this.tunables.economy, this.tunables.player.shield) : 0;
     w.setShields(level, level);
+  }
+
+  /** A mode moves the player (Spray Wall's alcoves): place the sim's player and tell the view to follow. */
+  private placePlayer(x: number, y: number, z: number, yaw: number): void {
+    this.world.placePlayer(x, y, z, yaw);
+    const e = this.placedEv;
+    e.tick = this.world.tick;
+    e.x = x;
+    e.y = y;
+    e.z = z;
+    e.yaw = yaw;
+    this.bus.emit('playerPlaced', e);
   }
 
   /** Line of sight between two points through the level's collision boxes. */

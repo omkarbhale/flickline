@@ -86,8 +86,8 @@ export function runSuite(): SuiteResult {
     add(`${mode}: runs end by themselves within ${RUN_BUDGET_MS} ms`, unfinished === 0 && slowest < RUN_BUDGET_MS, `slowest ${f(slowest, 0)} ms, ${unfinished} unfinished`);
     add(
       `${mode}: skill 90 beats skill 20`,
-      strong.kills > weak.kills && acc(strong) >= acc(weak) - 0.05,
-      `kills ${weak.kills} -> ${strong.kills}, accuracy ${f(acc(weak))} -> ${f(acc(strong))}`,
+      (strong.kills > weak.kills || strong.score > weak.score) && acc(strong) >= acc(weak) - 0.05,
+      `kills ${weak.kills} -> ${strong.kills}, score ${weak.score} -> ${strong.score}, accuracy ${f(acc(weak))} -> ${f(acc(strong))}`,
     );
     const a = play({ mode, skill: 50, seed: 7 });
     const b = play({ mode, skill: 50, seed: 7 });

@@ -43,8 +43,11 @@ export interface DialSource {
 
 /** The enemy sim's side (#15): create and remove targets. */
 export interface TargetSpawner {
-  /** Create a target (humanoid: feet position; orb: centre); `scale` is ×real head size. Returns its id, or -1 when it could not be created. */
-  spawn(kind: EnemyKind, pos: Vec3, scale: number): number;
+  /**
+   * Create a target (humanoid: feet position; orb: centre); `scale` is ×real head size. `durable`
+   * targets take any number of hits without dying (Spray Wall's Post). Returns its id, or -1 when it could not be created.
+   */
+  spawn(kind: EnemyKind, pos: Vec3, scale: number, durable?: boolean): number;
   despawn(id: number): void;
 }
 
@@ -63,6 +66,13 @@ export interface AnchorLike {
   /** Lane anchors (`strafe-lane`): the scheduler uses the midpoint as the position. */
   readonly a?: Vec3;
   readonly b?: Vec3;
+  /** Spray alcoves (`spray-alcove`): where to stand, which way to face (radians), where the Post stands, and the metres between them. */
+  readonly stand?: Vec3;
+  readonly yaw?: number;
+  readonly post?: Vec3;
+  readonly distance?: number;
+  /** Spray alcoves: the id of the wall panel box behind the Post. */
+  readonly panel?: string;
 }
 
 /** The map's side (#16): anchors and bounds. */
@@ -105,7 +115,42 @@ export interface SourceEvents {
   /** A target left the field unkilled (lifetime, or removed by the mode). */
   targetExpired: { tick: number; targetId: number };
   /** One bullet landed. The sim's payload carries more (`zone`, `point`, ...); `targetId` is -1 on a miss. */
-  shotImpact: { tick: number; onTarget: boolean; targetId?: number; zone?: 'head' | 'body' | 'leg' | null };
+  shotImpact: {
+    tick: number;
+    onTarget: boolean;
+    targetId?: number;
+    zone?: 'head' | 'body' | 'leg' | null;
+    /** The shot this impact belongs to (matches `shotFired.shotId`); absent in the framework's tests. */
+    shotId?: number;
+  };
+}
+
+
+/**
+ * Weapon facts for modes that judge bullets and magazines (Spray Wall). They arrive through
+ * `ModeDef.onWeapon`, separate from `ModeEvent`, so a mode that does not care never sees them.
+ */
+export interface WeaponSourceEvents {
+  /** A bullet left the gun: the fields a spray trace needs (the sim's payload carries more). */
+  shotFired: {
+    tick: number;
+    shotId: number;
+    /** Weapon id the bullet came from (a mode ignores bullets of a weapon it did not hand out). */
+    weapon: string;
+    /** Bullet direction, recoil and spread included. */
+    dir: Vec3;
+    /** View angles at the tick, radians (the crosshair). */
+    yaw: number;
+    pitch: number;
+    /** Recoil aim offset this bullet was fired with, degrees (pitch + = up, yaw + = right). */
+    recoilPitchDeg: number;
+    recoilYawDeg: number;
+    spreadDeg: number;
+    /** Rounds left after this shot. */
+    ammo: number;
+  };
+  reloadStarted: { tick: number };
+  reloadCompleted: { tick: number };
 }
 
 /** Run-level facts about the player the runner listens to (not mode events: modes never see them). */
@@ -116,6 +161,8 @@ export interface PlayerSourceEvents {
 
 /** Events the framework emits. §14.3 names and payloads, plus `beatStarted` and `scoreAwarded`. */
 export interface ModeEvents extends StreakEvents {
+  /** The run moved the player (a mode with several stand points, Spray Wall): the view should face `yaw` again. */
+  playerPlaced: { tick: number; x: number; y: number; z: number; yaw: number };
   runReady: { tick: number; mode: ModeId; seed: number; dial: number };
   runStarted: { tick: number };
   runEnded: { tick: number; t: number; reason: RunEndReason };

@@ -234,3 +234,15 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .hp-text { position: absolute; left: 6px; top: 0; line-height: 14px; font: 700 11px/14px ui-monospace, monospace; letter-spacing: .06em; color: #fff; text-shadow: 0 0 2px #000, 0 1px 1px #000; }
 .hp.hit { animation: hp-flash var(--dmg-hp-flash-ms, 260ms) ease-out; }
 @keyframes hp-flash { 0% { box-shadow: 0 0 0 0 rgba(255,61,90,.95); transform: scaleY(1.5); } 100% { box-shadow: 0 0 0 8px rgba(255,61,90,0); transform: scaleY(1); } }
+
+/* ---- Spray Wall prompt (design 4.5): bullet count, the spray's verdict, the reload prompt. Text only, written from events. */
+.spray-prompt { position: absolute; left: 50%; top: calc(50% + 150px); transform: translateX(-50%); text-align: center; pointer-events: none;
+  font: 700 22px/1.25 ui-sans-serif, system-ui, sans-serif; letter-spacing: .04em; text-shadow: 0 1px 3px rgba(0, 0, 0, .9); font-variant-numeric: tabular-nums; }
+.spray-prompt[hidden], .spray-prompt [hidden] { display: none; }
+.spray-prompt .sp-count { color: var(--core); }
+.spray-prompt .sp-count.good { color: var(--ok); }
+.spray-prompt .sp-count.bad { color: var(--alert); }
+.spray-prompt .sp-reload { margin-top: 6px; font-size: 26px; color: var(--gold); animation: sp-pulse .9s ease-in-out infinite; }
+.spray-prompt .sp-reload b { display: inline-block; min-width: 1.4em; padding: 0 .25em; border: 2px solid var(--gold); border-radius: 4px; }
+@keyframes sp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .spray-prompt .sp-reload { animation: none; } }
