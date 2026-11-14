@@ -453,14 +453,22 @@ export function depthLabel(story: RunStory, endReason: string | null, cfg: Resul
   const finale = cfg.run.routeSectors;
   if (n > finale) return fill(c.overtime, { k: n - finale });
   const last = story.sectors[n - 1]!;
+  // "Cleared" means every Echo dead (design §8.1), so leaving the route's end says "cleared" only for sectors that
+  // were: walking out of all of them without a fight is "0 of n sectors cleared", never "Route cleared" (#252).
+  const cleared = story.sectors.reduce((k, t) => k + (t.cleared ? 1 : 0), 0);
+  const leftAtEnd = (): string => (cleared >= n ? fill(c.routeDone, { n }) : fill(c.routePartial, { k: cleared, n }));
   // A route as long as the design's (six sectors, the last the Finale) is told in the design's words; a shorter
   // one (the run director's first version) is "n of total", and leaving at its end is clearing it.
   const total = story.total ?? finale;
   if (total >= finale) {
-    if (n === finale) return endReason === 'death' ? c.finaleDied : last.cleared || endReason === 'left' ? c.finale : fill(c.sector, { n, total });
+    if (n === finale) {
+      if (endReason === 'death') return c.finaleDied;
+      if (last.cleared) return c.finale;
+      return endReason === 'left' ? leftAtEnd() : fill(c.sector, { n, total });
+    }
     return fill(c.sector, { n, total });
   }
-  if (endReason === 'left' && n >= total) return fill(c.routeDone, { n });
+  if (endReason === 'left' && n >= total) return leftAtEnd();
   return fill(c.sector, { n, total });
 }
 
