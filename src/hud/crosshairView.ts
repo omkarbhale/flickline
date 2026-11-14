@@ -94,9 +94,12 @@ export class CrosshairView {
       c.style.height = `${L.canvasH / dpr}px`;
       this.lastCanvasW = L.canvasW; this.lastCanvasH = L.canvasH;
     }
-    // A transform, not left/top: some browsers snap fractional layout offsets to whole CSS pixels
+    // A translate, not left/top: some browsers snap fractional layout offsets to whole CSS pixels
     // (off by a device pixel at DPR 1.25 / 2); the compositor places a transform on device pixels.
-    c.style.transform = `translate(${L.canvasLeft / dpr}px, ${L.canvasTop / dpr}px)`;
+    // The `translate` property, not `transform`: the head-hit `gap-scale` animation uses `scale`, which is
+    // applied after `translate` but before `transform`, so a `transform` offset would be scaled with it and the
+    // crosshair would jump away from the screen centre for 140 ms on every headshot (#176).
+    c.style.translate = `${L.canvasLeft / dpr}px ${L.canvasTop / dpr}px`;
 
     const ctx = this.ctx;
     ctx.clearRect(0, 0, L.canvasW, L.canvasH);
