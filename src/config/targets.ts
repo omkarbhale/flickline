@@ -62,7 +62,7 @@ export interface TargetTunables {
   maxTargets: number;
   /** `hit.*` */
   hit: HitTunables;
-  /** `health.max`. Echoes and the player share it. No armour in the first release. */
+  /** `health.max`. Echoes and the player share it. Shields (`player.shield`) sit on top of it in enemy-fire modes. */
   maxHp: number;
   /** The roster as data. */
   kinds: { post: TargetKindDef; beacon: TargetKindDef };

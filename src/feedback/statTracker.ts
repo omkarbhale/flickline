@@ -47,6 +47,8 @@ export interface TargetStat {
   clean: boolean;
   /** Zone of the killing shot (null if not killed). */
   zone: HitZone | null;
+  /** The target had a shield (spec §4.1): bullet counts against it are not the unarmoured ones. */
+  armoured: boolean;
   /** Angle between aim and aim point when it became visible, degrees. */
   preAimDeg: number | null;
   /** Signed overshoot (+) / undershoot (-) along the flick axis at the first aimed shot, degrees. */
@@ -137,6 +139,7 @@ interface Engagement {
   killed: boolean;
   expired: boolean;
   zone: HitZone | null;
+  armoured: boolean;
   firstBullet: boolean;
   clean: boolean;
   ttkMs: number | null;
@@ -146,7 +149,7 @@ function openEngagement(id: number, kind: StatKind): Engagement {
   return {
     id, kind, visibleTick: -1, preAim: 0, visDYaw: 0, visDPitch: 0, rtTick: -1, firstEngageTick: -1,
     bullets: 0, hits: 0, misses: 0, moving: 0, flickError: null, killed: false, expired: false,
-    zone: null, firstBullet: false, clean: false, ttkMs: null,
+    zone: null, armoured: false, firstBullet: false, clean: false, ttkMs: null,
   };
 }
 
@@ -406,6 +409,7 @@ export class StatTracker {
     g.kind = e.kind;
     g.killed = true;
     g.zone = e.zone;
+    g.armoured = e.shield > 0;
     g.ttkMs = g.firstEngageTick >= 0 ? (e.tick - g.firstEngageTick) * TICK_DT * 1000 : null;
     g.firstBullet = g.bullets === 1;
     g.clean = g.bullets > 0 && g.misses === 0 && g.moving === 0;
@@ -487,6 +491,7 @@ export class StatTracker {
       firstBullet: g.firstBullet,
       clean: g.clean,
       zone: g.zone,
+      armoured: g.armoured,
       preAimDeg: g.visibleTick >= 0 ? g.preAim * RAD2DEG : null,
       flickErrorDeg: g.flickError,
     }));
