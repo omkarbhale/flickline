@@ -127,6 +127,28 @@ describe('run state machine', () => {
   });
 });
 
+describe('target expiry', () => {
+  it('expireTarget fires targetExpired once, takes the target down, and the stats record the miss-by-timeout', () => {
+    const { ctl, run, world, bus } = setup();
+    ctl.startRun({ mode: 't', seed: 1, dial: 0 });
+    run(READY + 4);
+    const log: string[] = [];
+    bus.on('targetExpired', (e) => log.push(`expired${e.id}`));
+    run(1, { fire: true, yaw: 0, pitch: Math.atan2(1.5 - 1.62, 20) }); // a first bullet at target 0 (hit)
+    run(1, { fire: false });
+    world.expireTarget(0, bus);
+    world.expireTarget(0, bus); // already down: no second event
+    expect(log).toEqual(['expired0']);
+    expect(world.targets[0]!.alive).toBe(false);
+    ctl.endRun('complete');
+    const t = ctl.finalStats!.targets.find((x) => x.id === 0)!;
+    expect(t.expired).toBe(true);
+    expect(t.killed).toBe(false);
+    expect(t.ttkMs).toBeNull();
+    expect(t.bullets).toBe(1);
+  });
+});
+
 describe('instant restart', () => {
   it('returns to ready from the same seed without rebuilding anything', () => {
     const { ctl, run, world } = setup();
