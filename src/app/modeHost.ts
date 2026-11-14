@@ -2,6 +2,7 @@ import type { EventBus } from '../core/eventBus';
 import { vec3, type Vec3 } from '../core/vec3';
 import { axes } from '../adaptive/dial';
 import { SkillState } from '../adaptive/skillModel';
+import { SKILL_IDS } from '../config/dial';
 import type { Economy } from '../config/economy';
 import type { Tunables } from '../config/tunables';
 import type { EnemyKind } from '../config/scoring';
@@ -58,6 +59,7 @@ class WorldSpawner implements TargetSpawner {
     if (durable) o.hp = DURABLE_HP;
     if (echo?.peek) o.peek = echo.peek;
     if (echo?.fire) o.fire = echo.fire;
+    if (echo?.arrive) o.arrive = echo.arrive;
     if (echo?.crouched) o.crouched = true;
     return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, o);
   }
@@ -162,6 +164,10 @@ export class ModeHost {
     const dial: DialSource = {
       dialFor: (mode, beat, wave) => skills.dialFor(mode, beat, wave),
       axes: (d) => axes(d, undefined, tunables.dial) as unknown as AxisValues,
+      target: (mode) => {
+        const def = tunables.dial.modes[mode];
+        return def ? skills.targetDial(def.skill, def.targetSuccess) : skills.targetDial('line', 0.7);
+      },
     };
     this.runner = new ModeRunner({
       events: bus, tunables, dial, spawner: new WorldSpawner(world, bus), player: world.player,
@@ -177,6 +183,11 @@ export class ModeHost {
     // Benchmark trials (the cold opener's, design §8.5) are a separate measurement: the matched posterior never consumes them.
     bus.on('skillTrial', (e) => {
       if (e.source !== 'baseline') skills.observeTrial(e);
+    });
+    // A decided contact feeds the fight track the run's dial follows (design §9.3.1: contacts won; #203).
+    bus.on('contactSettled', (e) => {
+      if (e.difficulty === undefined || e.outcome === 'avoided' || this.active?.trialSource === 'baseline') return;
+      skills.observeFight(e.difficulty, e.outcome === 'cleared');
     });
     bus.on('runStarted', () => this.releaseReady());
     bus.on('runEnded', (e) => {
@@ -245,8 +256,23 @@ export class ModeHost {
     this.clearField();
     this.applyPlayerSetup(mode);
     this.active = mode;
-    this.runner.begin(mode, { seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors, lean: opts.lean });
+    this.runner.begin(mode, {
+      seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors, lean: opts.lean, newProfile: opts.newProfile ?? this.newProfile,
+    });
     if (opts.pick !== undefined) this.pickPrimary(opts.pick);
+    return true;
+  }
+
+  /**
+   * Whether a new profile's first run places it (design §9.2). The game always does; the headless
+   * game of the tests and the bot turns it off unless asked, so their runs keep the usual shape.
+   */
+  placesNewProfiles = true;
+
+  /** The skill model has never measured this profile: no matched trial yet (design §9.2: its first Opener places it). */
+  get newProfile(): boolean {
+    if (!this.placesNewProfiles) return false;
+    for (const s of SKILL_IDS) if (this.skills.trialCount(s) > 0) return false;
     return true;
   }
 

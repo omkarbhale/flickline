@@ -394,3 +394,37 @@ describe('player lock and instant weapon select (mode support)', () => {
     expect(world.player.pitch).toBe(0);
   });
 });
+
+describe('per-enemy random streams (#86)', () => {
+  it('each spawn is seeded from (world seed, id); other spawns and the world rng do not move it', () => {
+    const a = setup(arena, 77);
+    const idA = a.spawn('post', 0, 0, -10);
+    const first = a.world.targetField.byId(idA)!;
+    const alone = [first.streams.reaction.next(), first.streams.aim.normal()];
+
+    const b = setup(arena, 77);
+    const idB = b.spawn('post', 0, 0, -10);
+    b.spawn('post', 3, 0, -10);
+    b.spawn('post', -3, 0, -12);
+    b.run(5); // ticks draw from the world rng and other enemies' streams
+    const again = b.world.targetField.byId(idB)!;
+    expect(idB).toBe(idA);
+    expect([again.streams.reaction.next(), again.streams.aim.normal()]).toEqual(alone);
+
+    const second = b.world.targetField.byId(idB + 1)!;
+    expect(second.streams.reaction.next()).not.toBe(alone[0]);
+  });
+
+  it('a new world seed gives new streams and a reset restores them', () => {
+    const w = setup(arena, 1);
+    const id = w.spawn('post', 0, 0, -10);
+    const x = w.world.targetField.byId(id)!.streams.decisions.next();
+    w.world.reset(2);
+    const id2 = w.spawn('post', 0, 0, -10);
+    expect(id2).toBe(id);
+    expect(w.world.targetField.byId(id2)!.streams.decisions.next()).not.toBe(x);
+    w.world.reset(1);
+    const id3 = w.spawn('post', 0, 0, -10);
+    expect(w.world.targetField.byId(id3)!.streams.decisions.next()).toBe(x);
+  });
+});

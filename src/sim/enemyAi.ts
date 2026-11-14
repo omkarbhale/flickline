@@ -55,6 +55,23 @@ export interface PeekParams {
   crouchedHold?: boolean;
 }
 
+/** Longest route an arriving Echo walks, in points (the director builds routes from the sector's nav graph). */
+export const MAX_ROUTE = 8;
+
+/**
+ * An Echo that arrives (Sweep's hold sectors, design §4.2): it spawns at the first point of `route`
+ * out of the sector, walks the route at `speed` and then fights as its kind does (`sim/arrival.ts`).
+ * A walker at or under `audio.enemy.silentBelowMps` makes no sound; a runner's steps carry.
+ */
+export interface ArriveParams {
+  /** Feet positions, the first being the spawn point. At least two, at most `MAX_ROUTE`. */
+  route: readonly Vec3[];
+  /** Speed along the route, m/s. */
+  speed: number;
+  /** Strafer: it stops walking and fights once it sees the player this close, metres. */
+  engageM: number;
+}
+
 /** The dial's numbers for one enemy's shooting (`DialAxes.tellSec`, `enemyReactionSec`, `enemyHitChance`). */
 export interface FireParams {
   /** Tell length at the dial, seconds (floored at `dial.floors.tellSec` when used). */
@@ -105,6 +122,28 @@ export interface EnemyAi {
   /** Tick the current exposure window ends (a second burst must fit before it). */
   windowEndTick: number;
 
+  // ---- arrival (hold sectors) -----------------------------------------------------------------
+  /** Walking its route in (the FSM's arrive state); false once it has handed over to its fight behaviour. */
+  arriving: boolean;
+  /**
+   * An arrival: it never starts a contact before the player has had information about it (it came
+   * into the player's view, or its running steps were audible), `docs/research/player-like-enemies.md` S9.
+   */
+  honest: boolean;
+  routeN: number;
+  routeI: number;
+  routeX: Float64Array;
+  routeY: Float64Array;
+  routeZ: Float64Array;
+  routeSpeed: number;
+  engageM: number;
+  /** Unit horizontal heading of the walk (the strafe lane after it is square to this). */
+  headX: number;
+  headZ: number;
+  /** Tick its steps were first audible to the player (a run within `audio.enemy.maxAudibleM`, one stride), -1 = not yet; and the metres run towards the next stride. */
+  audibleTick: number;
+  audibleAccum: number;
+
   // ---- shooting (shared) -----------------------------------------------------------------------
   /** This enemy can shoot at all (spawn option); the world's flag must also be on. */
   fireOn: boolean;
@@ -140,6 +179,8 @@ export function createEnemyAi(): EnemyAi {
     axis: vec3(1, 0, 0), laneOrigin: vec3(), laneLen: 0, s: 0, vel: 0, dir: 1, speed: 0, legSec: 0, standSec: 0, travel: false,
     pattern: 'shoulder', hold: vec3(), out: vec3(), u: 0, uTarget: 0, step: 0, stepHoldTicks: 0, wideSec: 0, wideDrawSec: 0,
     crouchedHold: false, windowEndTick: 0,
+    arriving: false, honest: false, routeN: 0, routeI: 0, routeX: new Float64Array(MAX_ROUTE), routeY: new Float64Array(MAX_ROUTE),
+    routeZ: new Float64Array(MAX_ROUTE), routeSpeed: 0, engageM: 0, headX: 0, headZ: -1, audibleTick: -1, audibleAccum: 0,
     fireOn: false, initiator: false, expectation: 'attending', weapon: 'kestrel', tellSec: 0, reactionSec: 0, hitChance: 0,
     phase: FIRE_IDLE, contactTick: -1, readyTick: 0, tellTicks: 0, tellStartTick: -1, tellEndTick: -1, burstLeft: 0,
     burstsLeft: 0, nextShotTick: 0, coolEndTick: 0, lastShotTick: -1, gate: false,
@@ -156,6 +197,8 @@ export function resetEnemyAi(a: EnemyAi): void {
   a.out.x = a.out.y = a.out.z = 0;
   a.u = 0; a.uTarget = 0; a.step = 0; a.stepHoldTicks = 0; a.wideSec = 0; a.wideDrawSec = 0; a.crouchedHold = false;
   a.windowEndTick = 0;
+  a.arriving = false; a.honest = false; a.routeN = 0; a.routeI = 0; a.routeSpeed = 0; a.engageM = 0; a.headX = 0; a.headZ = -1;
+  a.audibleTick = -1; a.audibleAccum = 0;
   a.fireOn = false; a.initiator = false; a.expectation = 'attending'; a.weapon = 'kestrel';
   a.tellSec = 0; a.reactionSec = 0; a.hitChance = 0;
   a.phase = FIRE_IDLE; a.contactTick = -1; a.readyTick = 0; a.tellTicks = 0; a.tellStartTick = -1; a.tellEndTick = -1;

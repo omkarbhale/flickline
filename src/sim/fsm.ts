@@ -55,6 +55,8 @@ export interface BehaviourContext {
 
 export interface BehaviourState {
   readonly name: string;
+  /** In a body-driven behaviour, this state moves `t.pos` itself and the body does not step (an arrival walking its route in). */
+  readonly kinematic?: boolean;
   enter?(t: TargetState, ctx: BehaviourContext): void;
   update?(t: TargetState, ctx: BehaviourContext): number;
   onTimer?(t: TargetState, ctx: BehaviourContext): number;
@@ -65,10 +67,13 @@ export interface Behaviour {
   readonly states: readonly BehaviourState[];
   /** State id entered by `fsmStart`. */
   readonly initial: number;
+  /** The state an arriving Echo starts in (it walks its route in first, `sim/arrival.ts`); absent: the behaviour has no arrival. */
+  readonly arrive?: number;
   /**
    * The behaviour plays through the shared body (#87, `sim/enemyBody.ts`): its states write
    * `t.body.cmd`, and the target registry steps the body through the player's movement and weapon
-   * code right after the FSM, every tick. Absent: the behaviour moves `t.pos` itself.
+   * code right after the FSM, every tick (except in a `kinematic` state). Absent: the behaviour
+   * moves `t.pos` itself.
    */
   readonly drivesBody?: boolean;
   /** Called after the body stepped: read the moved body back into the behaviour's own state. */
@@ -80,9 +85,9 @@ export function createFsm(): FsmState {
 }
 
 /** Put the FSM into the behaviour's initial state (runs its `enter`). */
-export function fsmStart(b: Behaviour, t: TargetState, ctx: BehaviourContext): void {
+export function fsmStart(b: Behaviour, t: TargetState, ctx: BehaviourContext, state = b.initial): void {
   t.fsm.state = -1;
-  fsmGoto(b, t, ctx, b.initial);
+  fsmGoto(b, t, ctx, state);
 }
 
 /** Switch state now: stops any timer, records the tick, runs the new state's `enter`. */

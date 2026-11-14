@@ -4,6 +4,9 @@
  */
 export class Rng {
   private s: number;
+  /** Second Box–Muller output waiting to be used by the next `normal()`; valid when `hasSpare`. */
+  private spare = 0;
+  private hasSpare = false;
 
   constructor(seed = 1) {
     this.s = seed >>> 0;
@@ -28,12 +31,31 @@ export class Rng {
     return Math.floor(this.next() * n);
   }
 
+  /**
+   * Standard normal draw (mean 0, SD 1) by Box–Muller. One pair of uniforms makes two normals; the
+   * second is kept and returned by the next call, so both outputs are used and a draw costs one
+   * uniform on average. The cached half is not part of `getState()`: `setState` and `reseed`
+   * discard it, so a restored stream restarts on a pair boundary.
+   */
+  normal(): number {
+    if (this.hasSpare) {
+      this.hasSpare = false;
+      return this.spare;
+    }
+    const r = Math.sqrt(-2 * Math.log(1 - this.next())); // 1 - u in (0, 1]: log never sees 0
+    const a = 6.283185307179586 * this.next();
+    this.spare = r * Math.sin(a);
+    this.hasSpare = true;
+    return r * Math.cos(a);
+  }
+
   getState(): number {
     return this.s;
   }
 
   setState(s: number): void {
     this.s = s >>> 0;
+    this.hasSpare = false;
   }
 }
 

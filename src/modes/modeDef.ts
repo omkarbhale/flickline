@@ -5,7 +5,7 @@ import type { Tunables } from '../config/tunables';
 import type { Economy } from '../config/economy';
 import type { EnemyKind } from '../config/scoring';
 import type {
-  AxisId, AxisValues, FireSpawn, ModeEvents, ModeId, ModeRef, MotionView, PeekSpawn, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra,
+  ArriveSpawn, AxisId, AxisValues, FireSpawn, ModeEvents, ModeId, ModeRef, MotionView, PeekSpawn, RunEndReason, SkillId, SourceEvents, StrafeSpawn, TrialExtra,
   TrialSource, VitalsView, WaveCurve, WeaponSourceEvents,
 } from './contracts';
 import type { SpawnScheduler } from './scheduler';
@@ -58,6 +58,13 @@ export interface ModeDef<S = unknown> extends ModeRef {
   readonly readySec?: number;
   /** Live-phase length in seconds; `Infinity` = the mode ends the run itself (`ctx.end`). */
   readonly durationSec: number;
+  /**
+   * The mind skill (0-100) of the run's mind-driven Echoes (`docs/research/player-like-enemies.md` §5.4,
+   * `sim/mind/profile.ts`). Default: the dial in force. A number pins it; a function maps the dial
+   * (a mode that wants its Echoes a little sharper or softer than the player). Read it as
+   * `ctx.mindSkill`, which applies this and the 0-100 range.
+   */
+  readonly mindSkill?: number | ((dial: number) => number);
   /** Difficulty axes (design §9.4 ids) this mode uses; they define each item's difficulty. */
   readonly axes: readonly AxisId[];
   /** Beat length in seconds (default `tunables.dial.beat.drillSec`); `null` = the mode calls `ctx.advanceBeat()`. */
@@ -100,6 +107,13 @@ export interface ModeDef<S = unknown> extends ModeRef {
   onEnd?(ctx: ModeContext<S>, reason: RunEndReason): void;
 }
 
+/** The mind skill of a run on `mode` at `dial` (#88): the mode's override if it has one, else the dial; always within 0-100. */
+export function mindSkillFor(mode: { readonly mindSkill?: number | ((dial: number) => number) }, dial: number): number {
+  const m = mode.mindSkill;
+  const v = m === undefined ? dial : typeof m === 'number' ? m : m(dial);
+  return v >= 0 ? (v <= 100 ? v : 100) : 0;
+}
+
 /** One sim fact. The runner reuses these wrapper objects: copy what you keep. */
 export type ModeEvent = { [K in keyof SourceEvents]: { type: K; payload: SourceEvents[K] } }[keyof SourceEvents];
 
@@ -125,8 +139,15 @@ export interface SpawnOptions {
   fire?: FireSpawn;
   /** Crouched humanoid pose. */
   crouched?: boolean;
+  /** The Echo arrives: it spawns at the route's first point (the `pos` given is replaced) and walks it in (Sweep's hold sectors). */
+  arrive?: ArriveSpawn;
   /** Scenario card of the contact the target belongs to: carried on its `skillTrial` (Sweep). */
   card?: string;
+  /**
+   * The target produces a trial of its own (default true: killed = success, expired = failure). A
+   * mode that classifies its fights into trials itself (Sweep, `recordTrial`) turns it off.
+   */
+  trial?: boolean;
   /**
    * Placed out of the player's sight by the caller (Sweep's director checks it against the level):
    * the spawn fairness floors, which guard targets appearing in view, do not apply.
@@ -149,6 +170,16 @@ export interface AwardOptions {
 }
 
 export interface ResolveOptions {
+  rtMs?: number;
+  extra?: TrialExtra;
+}
+
+/** A trial that is not one target's fate (Sweep's classified contact trials, `recordTrial`). */
+export interface TrialOptions {
+  /** Item difficulty on the dial scale (design §9.1). */
+  difficulty: number;
+  /** Scenario card of its contact. */
+  card?: string;
   rtMs?: number;
   extra?: TrialExtra;
 }
@@ -197,6 +228,8 @@ export interface ModeContext<S = unknown> {
   /** Beat index, dial and axis values in force. These change ONLY at beat boundaries. */
   readonly beat: number;
   readonly dial: number;
+  /** The mind skill for Echoes that use the enemy mind: the dial unless `ModeDef.mindSkill` says otherwise (#88). */
+  readonly mindSkill: number;
   readonly axes: AxisValues;
   /** Concrete axis values for any dial value (fairness floors applied); allocates, so call it per trial, not per tick. */
   axesAt(dial: number): AxisValues;
@@ -217,8 +250,28 @@ export interface ModeContext<S = unknown> {
    * target is unknown or already resolved.
    */
   resolveTrial(id: number, success: boolean, opts?: ResolveOptions): boolean;
-  /** Manual-beat modes (`beatSec: null`): start the next beat now (calls the dial module). */
-  advanceBeat(): void;
+  /**
+   * Manual-beat modes (`beatSec: null`): start the next beat now. Without `dial` the dial module is
+   * asked; with one, that dial is the beat's (a mode that schedules its own dial: Sweep's sectors and
+   * its Opener staircase). A pinned run keeps its pin either way.
+   */
+  advanceBeat(dial?: number): void;
+  /** Replace the current beat's dial (a mode that schedules its own dial, from `setup` on). Pinned runs keep the pin. */
+  setDial(dial: number): void;
+  /**
+   * The matched dial the skill model aims this mode at now, before any wave or depth offset
+   * (θ − s·logit(target), design §9.3.1). Reads the posterior: call it at beat boundaries only.
+   */
+  targetDial(): number;
+  /** The run was started for a profile the skill model has never measured (design §9.2: its first Opener places it). */
+  readonly newProfile: boolean;
+  /** The run's dial is pinned ("Pin difficulty", design §9.3.6): the mode's own dial schedule is ignored. */
+  readonly pinned: boolean;
+  /**
+   * Emit a `skillTrial` that is not a target's fate (Sweep's trials from contacts, design §3.1):
+   * counted in the run's trials like any other; a failure breaks the clean streak.
+   */
+  recordTrial(skill: SkillId, success: boolean, opts: TrialOptions): void;
   /**
    * Score a result that is not a kill (the table of design §8.1 applied to a spray) and count it
    * in the streak. Emits `scoreAwarded` for target `id`; returns the points.

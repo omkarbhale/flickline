@@ -41,6 +41,12 @@ export interface DialSource {
   dialFor(mode: ModeId, beatIndex: number, curve: WaveCurve): number;
   /** Concrete axis values for a dial value (fairness floors already applied). */
   axes(dial: number): AxisValues;
+  /**
+   * The matched dial the skill model aims `mode` at now, before any wave or depth offset:
+   * θ − s·logit(target success) (design §9.3.1). Absent: the dial a mode schedules itself (Sweep's
+   * sectors) falls back to `dialFor(mode, 0, [0])`.
+   */
+  target?(mode: ModeId): number;
 }
 
 /** What a Strafer needs at spawn (the dial's numbers and the lane it runs along; design §4.3, §5.2). */
@@ -74,11 +80,21 @@ export interface FireSpawn {
   expectation?: 'prepared' | 'attending' | 'unaware';
 }
 
-/** Spawn details beyond kind, place and size: a Peeker's anchor, shooting back, a crouched pose. */
+/** An Echo that arrives (a hold sector's, design §4.2): spawns at the route's first point and walks it in before it fights. */
+export interface ArriveSpawn {
+  route: readonly Vec3[];
+  /** Metres per second along the route; at or under the footstep audio's silent speed it is a quiet walk. */
+  speed: number;
+  /** A Strafer stops walking and fights once it sees the player this close, metres. */
+  engageM: number;
+}
+
+/** Spawn details beyond kind, place and size: a Peeker's anchor, shooting back, a crouched pose, an arrival route. */
 export interface EchoSpawn {
   peek?: PeekSpawn;
   fire?: FireSpawn;
   crouched?: boolean;
+  arrive?: ArriveSpawn;
 }
 
 /** The enemy sim's side (#15): create and remove targets. */
@@ -212,11 +228,21 @@ export interface SourceEvents {
    * more). Emitted right before its `shotImpact`, same `shotId`. `moving` = above the accuracy
    * deadzone or airborne (design §3).
    */
-  shotFired: { tick: number; shotId: number; moving: boolean; speed: number; airborne: boolean; crouching: boolean };
+  shotFired: {
+    tick: number; shotId: number; moving: boolean; speed: number; airborne: boolean; crouching: boolean;
+    /** Nearest visible live target to the crosshair (-1 none), the angle to its head and the head-minus-view angles, radians (the sim's stat fields). */
+    aimTargetId?: number; aimErr?: number; aimDYaw?: number; aimDPitch?: number;
+  };
   /** Horizontal speed first fell to the accuracy threshold; `counterStrafe`: the stop began with the opposite key, not a release. */
   playerStopped: { tick: number; latencyMs: number; counterStrafe: boolean };
-  /** The player first saw a target (in view and unoccluded), once per spawn. */
-  targetVisible: { tick: number; targetId: number };
+  /**
+   * The player first saw a target (in view and unoccluded), once per spawn. The sim's payload also
+   * carries the pre-aim error and the flick vector to its head (radians); optional here so a test
+   * can announce a sighting without them.
+   */
+  targetVisible: { tick: number; targetId: number; preAim?: number; dYaw?: number; dPitch?: number };
+  /** The padded aim ray entered (`on`) or left a visible target (design §3.2 time on target; `sim/runProbe.ts`). */
+  aimOnTarget: { tick: number; on: boolean; id: number };
   /** An enemy first got the player in its sight, once per spawn. */
   enemySawPlayer: { tick: number; targetId: number };
   /** An enemy fired at the player. */
