@@ -8,6 +8,19 @@ import type {
 import type { SpawnScheduler } from './scheduler';
 
 /**
+ * What the app does to the player when the run is readied (design §4.1, §4.2). Declarative: the
+ * mode never touches the sim; the host applies it.
+ */
+export interface PlayerSetup {
+  /** Stand at the first anchor of this kind (a `beacon-shell`'s centre on the floor); default: the map's spawn point. */
+  standAt?: string;
+  /** Movement keys, jump and crouch are ignored for the run; look and fire still work. */
+  lockMovement?: boolean;
+  /** No reload (the design's "infinite magazine"). */
+  infiniteMagazine?: boolean;
+}
+
+/**
  * The mode contract (design §4 intro): a mode is data plus a small scheduler. It never owns
  * rendering, input or audio; it places targets through the context, reacts to facts, and the
  * framework does the rest (run timing, beats and the dial, scoring, streaks, `skillTrial`).
@@ -19,6 +32,8 @@ export interface ModeDef<S = unknown> extends ModeRef {
   readonly map: string;
   /** Weapon id (e.g. `kestrel`). */
   readonly weapon: string;
+  /** Player placement, movement lock and ammo rules for the run. */
+  readonly player?: PlayerSetup;
   /** Live-phase length in seconds; `Infinity` = the mode ends the run itself (`ctx.end`). */
   readonly durationSec: number;
   /** Difficulty axes (design §9.4 ids) this mode uses; they define each item's difficulty. */
@@ -91,6 +106,8 @@ export interface ModeContext<S = unknown> {
   readonly beat: number;
   readonly dial: number;
   readonly axes: AxisValues;
+  /** Concrete axis values for any dial value (fairness floors applied); allocates, so call it per trial, not per tick. */
+  axesAt(dial: number): AxisValues;
   /** Difficulty (dial scale) of an item spawned now, derived from the axis values in force. */
   readonly itemDifficulty: number;
 

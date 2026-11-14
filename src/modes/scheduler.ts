@@ -41,9 +41,11 @@ export function createSpawnQuery(kind = 'post'): SpawnQuery {
 export class AnchorIndex {
   private readonly byKind = new Map<string, AnchorLike[]>();
   readonly bounds: AnchorSource['bounds'];
+  readonly sightClear: AnchorSource['sightClear'];
 
   constructor(source: AnchorSource | null) {
     this.bounds = source?.bounds;
+    this.sightClear = source?.sightClear;
     for (const a of source?.anchors ?? []) {
       const list = this.byKind.get(a.kind);
       if (list) list.push(a);
@@ -91,6 +93,17 @@ export class SpawnScheduler {
   eyePosition(): Vec3 {
     const p = this.player;
     return set(this.eye, p.pos.x, p.pos.y + p.eyeHeight, p.pos.z);
+  }
+
+  /** Line of sight between two points under the map's predicate (always true without one). */
+  sightClear(from: Vec3, to: Vec3): boolean {
+    const f = this.index.sightClear;
+    return f ? f(from, to) : true;
+  }
+
+  /** The first anchor of a kind (a mode's `beacon-shell`), or null. */
+  firstOfKind(kind: string): AnchorLike | null {
+    return this.index.ofKind(kind)[0] ?? null;
   }
 
   /**
@@ -145,6 +158,7 @@ export class SpawnScheduler {
       const r = this.rng.range(rLo, rHi);
       set(this.pos, eye.x + this.dir.x * r, eye.y + this.dir.y * r, eye.z + this.dir.z * r);
       if (!this.inBounds(this.pos)) continue;
+      if (this.index.sightClear && !this.index.sightClear(eye, this.pos)) continue;
       out.x = this.pos.x;
       out.y = this.pos.y;
       out.z = this.pos.z;
@@ -157,6 +171,7 @@ export class SpawnScheduler {
   private reservoir(list: readonly AnchorLike[], q: SpawnQuery, useAngle: boolean, useDist: boolean, out: Vec3): AnchorLike | null {
     const floor = this.floors.spawnMinDistance;
     const eye = this.eye;
+    const sight = this.index.sightClear;
     let chosen: AnchorLike | null = null;
     let seen = 0;
     for (let i = 0; i < list.length; i++) {
@@ -170,6 +185,7 @@ export class SpawnScheduler {
       const dz = p.z - eye.z;
       const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (d < floor) continue;
+      if (sight && !sight(eye, p)) continue;
       if (useDist && (d < q.minDist || d > q.maxDist)) continue;
       if (useAngle) {
         this.dir.x = dx / d;

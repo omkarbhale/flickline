@@ -330,3 +330,67 @@ describe('determinism', () => {
     expect(s.world.targetField.aliveCount).toBe(0);
   });
 });
+
+describe('Beacon scale (design §9.4: ×3.0 → ×1.0 of real head size)', () => {
+  it('scales the orb radius for hit detection and the bounding sphere; humanoids ignore it', () => {
+    const { world, bus, run } = setup();
+    // 10 m ahead, level with the eye; aim 0.3 m off to the side: misses a ×1 orb (0.14 m), hits a ×3 one (0.42 m).
+    const eyeY = world.player.pos.y + world.player.eyeHeight;
+    const small = world.spawnTarget('beacon', 0.3, eyeY, -10, bus, { scale: 1 });
+    run(1);
+    expect(world.targetField.byId(small)!.radius).toBeCloseTo(0.14, 9);
+    expect(world.targetField.byId(small)!.scale).toBe(1);
+    world.despawnTarget(small, bus);
+    const big = world.spawnTarget('beacon', 0.3, eyeY, -10, bus, { scale: 3 });
+    expect(world.targetField.byId(big)!.radius).toBeCloseTo(0.42, 9);
+    const post = world.spawnTarget('post', 5, 0, -10, bus, { scale: 3 });
+    expect(world.targetField.byId(post)!.scale).toBe(1);
+  });
+
+  it('a shot that grazes the scaled orb hits it, the same shot misses the real-size one', () => {
+    for (const [scale, expectHit] of [[1, false], [3, true]] as const) {
+      const { world, bus, log, run } = setup();
+      const eyeY = world.player.pos.y + world.player.eyeHeight;
+      world.spawnTarget('beacon', 0.3, eyeY, -10, bus, { scale });
+      run(1, { fire: true });
+      expect(log.filter((l) => l.type === 'targetHit')).toHaveLength(expectHit ? 1 : 0);
+    }
+  });
+});
+
+describe('player lock and instant weapon select (mode support)', () => {
+  it('movementLocked ignores movement, jump and crouch but keeps look and fire', () => {
+    const { world, run } = setup();
+    world.movementLocked = true;
+    run(64, { moveZ: 1, moveX: 1, jump: true, crouch: false, yaw: 0.5, pitch: 0.1 });
+    expect(world.player.pos.x).toBe(0);
+    expect(world.player.pos.z).toBe(0);
+    expect(world.player.yaw).toBeCloseTo(0.5, 9);
+    expect(world.player.pitch).toBeCloseTo(0.1, 9);
+    world.movementLocked = false;
+    run(64, { moveZ: 1, moveX: 0, jump: false, yaw: 0, pitch: 0 });
+    expect(world.player.pos.z).toBeLessThan(-1);
+  });
+
+  it('equipWeapon puts the weapon in hand at once with a fresh spray, and refuses unknown ones', () => {
+    const { world } = setup();
+    expect(world.weapon.slots[world.weapon.active]!.id).toBe('kestrel');
+    expect(world.equipWeapon('pace')).toBe(true);
+    expect(world.weapon.slots[world.weapon.active]!.id).toBe('pace');
+    expect(world.weapon.equipLeft).toBe(0);
+    expect(world.weapon.sprayCount).toBe(0);
+    expect(world.equipWeapon('nope' as never)).toBe(false);
+  });
+
+  it('placePlayer stands the player at rest, level, facing yaw', () => {
+    const { world } = setup();
+    world.player.vel.x = 5;
+    world.player.pitch = 0.4;
+    world.placePlayer(3, 0, -2, 1);
+    expect(world.player.pos).toEqual({ x: 3, y: 0, z: -2 });
+    expect(world.player.prevPos).toEqual({ x: 3, y: 0, z: -2 });
+    expect(world.player.vel.x).toBe(0);
+    expect(world.player.yaw).toBe(1);
+    expect(world.player.pitch).toBe(0);
+  });
+});

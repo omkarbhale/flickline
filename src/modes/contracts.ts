@@ -69,6 +69,11 @@ export interface AnchorLike {
 export interface AnchorSource {
   readonly anchors: readonly AnchorLike[];
   readonly bounds?: { readonly min: Vec3; readonly max: Vec3 };
+  /**
+   * Line of sight between two points (true = nothing in between). The picker skips candidates that
+   * fail it, so nothing is spawned behind a pillar. Absent = everything is visible.
+   */
+  readonly sightClear?: (from: Vec3, to: Vec3) => boolean;
 }
 
 /** Read-only view of the player (the sim's `PlayerState` satisfies it). */
@@ -99,7 +104,8 @@ export interface SourceEvents {
   };
   /** A target left the field unkilled (lifetime, or removed by the mode). */
   targetExpired: { tick: number; targetId: number };
-  shotImpact: { tick: number; onTarget: boolean };
+  /** One bullet landed. The sim's payload carries more (`zone`, `point`, ...); `targetId` is -1 on a miss. */
+  shotImpact: { tick: number; onTarget: boolean; targetId?: number; zone?: 'head' | 'body' | 'leg' | null };
 }
 
 /** Run-level facts about the player the runner listens to (not mode events: modes never see them). */
