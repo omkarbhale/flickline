@@ -53,7 +53,7 @@ engine.play(cueId, { pitchStep?, position?, gain? })
 | `enemyTell { id, durationMs }` | `enemyTell` at the enemy, exactly `durationMs` long |
 | `enemyFired { id, hit, dir }` | `enemyShot` at the enemy; on a miss also `whiz` where the bullet line passes the head |
 | `playerDamaged` | `damageThud` (centred, not positional) and the master low-pass dip |
-| enemy motion | `enemyFootstep` at the enemy, one per 2.2 m walked, within 30 m (derived from target motion per sim tick: the sim has no enemy step event) |
+| enemy motion | `enemyFootstep` at the enemy, one per 2.2 m run, within 30 m, only above `audio.enemy.silentBelowMps` (3 m/s: a walk is silent, a run is heard; #212) (derived from target motion per sim tick: the sim has no enemy step event) |
 | `runReady` / `runStarted` | `uiReady` blip / `uiGo` chirp |
 | `runEnded` | `resultsFanfare` for `timer` and `complete`, `runEnd` (the closing root note) for `death` and `quit`; also stops the Surge loop |
 | `surgeStarted` / `surgeEnded` | `surgeWhoosh` + the `surgeShimmer` loop / loop fade-out (a restart or run end also stops it) |
@@ -224,7 +224,7 @@ So the hits bus is at least 6 dB above the weapons bus at every hit. Before the 
 * **Enemy tell volume (#41).** -14 dBFS, 2 dB under a hit, so it can never mask one. Design gives no number.
 * **No bot harness yet (#41).** The mix check replays a scripted busiest-moment event stream through the real wiring; swap in the bot harness (#28) when it lands.
 * **Left/right test runs in Chromium (#41).** The acceptance criterion asks for a headless left/right energy test; the HRTF panner exists only in the browser, so it runs in headless Chromium via `audioProbe('spatial')` and the bearing maths is unit-tested in Vitest.
-* **Enemy footsteps are derived (#41).** The sim has no enemy step event, so `EnemyFootsteps` counts the distance each enemy walks per sim tick (a stride of 2.2 m, like the player's).
+* **Enemy footsteps are derived (#41).** The sim has no enemy step event, so `EnemyFootsteps` counts the distance each enemy covers per sim tick (a stride of 2.2 m, like the player's) at running speed; slower movement, a walk, makes no sound and does not count towards the next step (#212, design 4.4 "walking is silent").
 * **Vane has no sound of its own.** Design 12 describes Pace, Kestrel, Rill and Longnail; an unknown weapon id plays the Kestrel shot until Vane's character is designed.
 * **Own footsteps and counter-strafing.** Design 12 says own footsteps are quiet clicks "while not counter-strafing"; the sim's `footstep` event only says walking or not, so own steps sound whenever the sim emits them and the player is not holding walk.
 * **Chain layer count.** One extra chime for a chain of 2, two for 3, three for 4 or more (design 12: one per chain step, capped by `chain.gains`).

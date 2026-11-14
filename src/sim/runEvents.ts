@@ -136,6 +136,12 @@ export interface RunEvents extends SprayEvents, SectorEvents {
     points: number;
     /** The scenario card the contact was drawn from (Sweep, design §4.4); absent where contacts have no card. */
     card?: string;
+    /**
+     * Meet contacts (#212, design §4.2): which side first dropped to counter-strafe speed or below (the accuracy
+     * deadzone, `sweep.meet.stopSpeedMps`) once the contact opened: the player, an Echo, both in the same tick, or
+     * neither before it settled. Absent on every other card.
+     */
+    stopFirst?: 'player' | 'echo' | 'both' | 'neither';
   };
 }
 

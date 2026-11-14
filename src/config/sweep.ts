@@ -5,12 +5,18 @@
  * Seconds, metres; names ending `Deg` are degrees.
  */
 
-/** The scenario cards a v0 take sector can deal (design §4.4; the rest arrive with #97, #204, #212). */
-export type SweepCard = 'take-unaware' | 'take-expected' | 'clear' | 'crossfire';
-export const SWEEP_CARDS: readonly SweepCard[] = ['take-unaware', 'take-expected', 'clear', 'crossfire'];
+/**
+ * The scenario cards a sector can deal (design §4.4; the rest arrive with #97, #204). A take sector
+ * deals the first four, a meet sector (#212) always deals `meet`.
+ */
+export type SweepCard = 'take-unaware' | 'take-expected' | 'clear' | 'crossfire' | 'meet';
+export const SWEEP_CARDS: readonly SweepCard[] = ['take-unaware', 'take-expected', 'clear', 'crossfire', 'meet'];
+
+/** Who has to move in a sector (design §4.2). */
+export type SectorRole = 'take' | 'hold' | 'meet';
 
 /** The skill a contact's trials count for (design §3.1: where a run exercises each skill). */
-export type SweepTrialSkill = 'precision' | 'flick' | 'angles' | 'switch';
+export type SweepTrialSkill = 'precision' | 'flick' | 'angles' | 'switch' | 'track';
 
 export interface SweepTunables {
   /** HP restored by a kill (design §4.1: "a body kill restores 5 HP, a headshot kill 10"); capped at max HP. A leg kill counts as a body kill. */
@@ -35,6 +41,40 @@ export interface SweepTunables {
   maxCardRun: number;
   /** What each card's trials count for (design §3.1). */
   cardSkill: Readonly<Record<SweepCard, SweepTrialSkill>>;
+  /**
+   * The mix of sector roles for sectors 2 and later (design §4.2: takes 50%, holds 35%, meets 15%; HYPOTHESIS), drawn
+   * per sector; the Opener is always a take. The same role is never drawn three times in a row. A role the run cannot
+   * play yet plays as a take: holds until #204.
+   */
+  roleMix: Readonly<Record<SectorRole, number>>;
+  /**
+   * Meet sectors (design §4.2, #212): an Echo group crosses the player's corridor on a route from the sector's exit
+   * to its entry. Walks and runs are the Echo's gait; a walk is silent, a run is heard (`audio.enemy.silentBelowMps`).
+   */
+  meet: {
+    /** Chance the group has two Echoes rather than one, by sector index (the last entry repeats). */
+    groupTwoShare: readonly number[];
+    /** Share of groups that run (else they walk). */
+    runShare: number;
+    /** Gait speeds, m/s: a rifle run (spec §7.2) and the walk (`movement.walkFraction` of it, spec §2.2). */
+    runSpeedMps: number;
+    walkSpeedMps: number;
+    /** The lead Echo starts this far behind the sector's exit (seeded uniform, shortened to what is walkable), metres. */
+    startBackMinM: number;
+    startBackMaxM: number;
+    /** The second Echo starts this far behind the first, along the route (seeded uniform), metres. */
+    gapMinM: number;
+    gapMaxM: number;
+    /** The second Echo walks this far to one side of the first (the side is seeded; dropped where it would clip a wall), metres. */
+    lateralM: number;
+    /** A route ends this far before the sector's entry: an Echo that never sees the player stops there, metres. */
+    endShortM: number;
+    /**
+     * Horizontal speed at or below which a side counts as stopped when the report asks who stopped first, m/s: the
+     * accuracy deadzone of a rifle (spec §2.4: 27.5% of its run speed), the speed a counter-strafed shot is accurate at.
+     */
+    stopSpeedMps: number;
+  };
   /** Echo placement on hold anchors. */
   place: {
     /** A Strafer's lane is drawn in this length range, then shortened until all of it is hidden from the entry. */
@@ -67,10 +107,24 @@ export const sweep: SweepTunables = {
   depthMultiplier: [1.0, 1.2, 1.4, 1.6],
   contactsMin: [1, 1, 2, 2],
   contactsMax: [1, 2, 2, 3],
-  cardWeight: { 'take-unaware': 0.3, 'take-expected': 0.35, clear: 0.2, crossfire: 0.25 },
+  cardWeight: { 'take-unaware': 0.3, 'take-expected': 0.35, clear: 0.2, crossfire: 0.25, meet: 0 },
   crossfireFromSector: 2,
   maxCardRun: 2,
-  cardSkill: { 'take-unaware': 'angles', 'take-expected': 'precision', clear: 'angles', crossfire: 'switch' },
+  cardSkill: { 'take-unaware': 'angles', 'take-expected': 'precision', clear: 'angles', crossfire: 'switch', meet: 'track' },
+  roleMix: { take: 0.5, hold: 0.35, meet: 0.15 },
+  meet: {
+    groupTwoShare: [0, 0.4, 0.5, 0.6],
+    runShare: 0.6,
+    runSpeedMps: 5.4,
+    walkSpeedMps: 2.7,
+    startBackMinM: 0,
+    startBackMaxM: 4,
+    gapMinM: 2.5,
+    gapMaxM: 4.5,
+    lateralM: 0.55,
+    endShortM: 3,
+    stopSpeedMps: 1.5,
+  },
   place: {
     laneMinM: 1.2,
     laneMaxM: 3,

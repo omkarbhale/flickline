@@ -1,4 +1,4 @@
-import { secondsToTicks } from '../core/time';
+import { secondsToTicks, TICK_RATE } from '../core/time';
 import { vec3 } from '../core/vec3';
 import { SKILL_IDS } from '../config/dial';
 import type { EnemyKind } from '../config/scoring';
@@ -39,7 +39,18 @@ interface ContactRt {
   lastSightTick: number;
   /** It opened at least once: its Echoes' trials count. */
   engaged: boolean;
+  /** Meet contacts: where each Echo was a tick ago (to read its speed) and who stopped first (`StopFirst`) since the contact opened. */
+  prevX: number[];
+  prevZ: number[];
+  /** An Echo has run above stop speed (a standing start is not a stop). */
+  moved: boolean[];
+  /** The player has run above stop speed since the contact opened. */
+  playerMoved: boolean;
+  stopFirst: StopFirst;
 }
+
+/** Who first dropped to counter-strafe speed in a meet contact (design §4.2). */
+type StopFirst = 'none' | 'player' | 'echo' | 'both';
 
 export interface SweepState {
   plan: RunPlan;
@@ -90,6 +101,14 @@ function spawnEcho(ctx: ModeContext<SweepState>, c: ContactRt, e: EchoPlan): num
   const cfg = ctx.tunables.sweep;
   const fire = { tellSec: a.tellSec!, reactionSec: a.enemyReactionSec!, hitChance: a.enemyHitChance!, expectation: e.expectation };
   const common = { fire, crouched: e.crouched, card: c.plan.card, skill: cfg.cardSkill[c.plan.card], placed: true };
+  if (e.gait) {
+    // A meet Echo: it travels its route at its gait, stops once it has reacted to the player, then strafes in stops.
+    const speed = e.gait === 'run' ? cfg.meet.runSpeedMps : cfg.meet.walkSpeedMps;
+    return ctx.spawn('strafer', e.feet, {
+      ...common,
+      strafe: { speed, legSec: a.strafeLegSec!, standStillSec: a.standStillSec!, laneA: e.laneA ?? e.feet, laneB: e.laneB ?? e.feet, travel: true },
+    });
+  }
   if (e.kind === 'peeker' && e.peek) {
     return ctx.spawn('peeker', e.feet, { ...common, peek: { pattern: e.peek.pattern, hold: e.peek.hold, out: e.peek.out, wideSec: a.peekWideSec } });
   }
@@ -116,11 +135,15 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
   for (const cp of sp.contacts) {
     const c: ContactRt = {
       plan: cp, id: -1, open: false, echoIds: [], kinds: [], alive: 0, startEhp: 0, damage: 0, lastSightTick: 0, engaged: false,
+      prevX: [], prevZ: [], moved: [], playerMoved: false, stopFirst: 'none',
     };
     for (const e of cp.echoes) {
       const id = spawnEcho(ctx, c, e);
       c.echoIds.push(id);
       c.kinds.push(e.kind);
+      c.prevX.push(e.feet.x);
+      c.prevZ.push(e.feet.z);
+      c.moved.push(false);
       if (id >= 0) {
         c.alive++;
         echoes++;
@@ -135,6 +158,7 @@ function enterSector(ctx: ModeContext<SweepState>, i: number): void {
   ev.t = ctx.timeSec;
   ev.sectorId = sp.sectorId;
   ev.mapId = sp.mapId;
+  ev.role = sp.role;
   ev.index = i;
   ev.of = st.plan.sectors.length;
   ev.dial = ctx.dial;
@@ -162,6 +186,45 @@ function openContact(ctx: ModeContext<SweepState>, c: ContactRt, lostAlready = 0
   c.startEhp = ehp(ctx) + lostAlready;
   c.damage = 0;
   c.lastSightTick = ctx.simTick;
+  c.stopFirst = 'none';
+  c.playerMoved = false;
+}
+
+/**
+ * Meet contacts: note which side first drops to counter-strafe speed or below once the contact is open (design §4.2,
+ * `sweep.meet.stopSpeedMps`). A side has to have run to stop: an Echo's speed is read from its movement since the last
+ * tick, and a player who stands still throughout stopped first by standing (`stoppedFirst` at the settle). Cheap: a
+ * few multiplies per Echo, no allocation.
+ */
+function trackStop(ctx: ModeContext<SweepState>, c: ContactRt, open: boolean): void {
+  const stop = ctx.tunables.sweep.meet.stopSpeedMps;
+  const stopSq = stop * stop;
+  let echoStopped = false;
+  for (let k = 0; k < c.echoIds.length; k++) {
+    const id = c.echoIds[k]!;
+    if (id < 0 || !ctx.targetPosition(id, body)) continue;
+    const dx = (body.x - c.prevX[k]!) * TICK_RATE, dz = (body.z - c.prevZ[k]!) * TICK_RATE;
+    c.prevX[k] = body.x;
+    c.prevZ[k] = body.z;
+    if (dx * dx + dz * dz > stopSq) c.moved[k] = true;
+    else if (c.moved[k]) echoStopped = true;
+  }
+  if (!open) return;
+  const v = ctx.player.vel;
+  const playerSlow = v.x * v.x + v.z * v.z <= stopSq;
+  if (!playerSlow) c.playerMoved = true;
+  if (c.stopFirst !== 'none') return;
+  const playerStopped = c.playerMoved && playerSlow;
+  if (playerStopped && echoStopped) c.stopFirst = 'both';
+  else if (playerStopped) c.stopFirst = 'player';
+  // An Echo stops while the player is still running, or while the player has stood still all along.
+  else if (echoStopped) c.stopFirst = !c.playerMoved && playerSlow ? 'player' : 'echo';
+}
+
+/** Who stopped first in a settled meet contact: a player who never ran stood still the whole time and stopped first. */
+function stoppedFirst(c: ContactRt): 'player' | 'echo' | 'both' | 'neither' {
+  if (c.stopFirst !== 'none') return c.stopFirst;
+  return c.playerMoved ? 'neither' : 'player';
 }
 
 /** Settle an open contact once (design §8.1); its points carry the sector's depth multiplier. */
@@ -189,6 +252,7 @@ function settleOpen(ctx: ModeContext<SweepState>, c: ContactRt, died: boolean): 
   e.enemies = facts.kinds.length;
   e.points = points;
   e.card = c.plan.card;
+  e.stopFirst = c.plan.card === 'meet' ? stoppedFirst(c) : undefined;
   ctx.events.emit('contactSettled', e);
 }
 
@@ -286,6 +350,8 @@ export const sweep: ModeDef<SweepState> = {
     const holdTicks = secondsToTicks(ctx.tunables.scoring.contact.disengageSec);
     for (let i = 0; i < st.contacts.length; i++) {
       const c = st.contacts[i]!;
+      // A meet group is moving before its contact opens: keep each Echo's last position, so its speed is right at the opening tick.
+      if (c.plan.card === 'meet') trackStop(ctx, c, c.open);
       if (!c.open) continue;
       if (inSight(ctx, c)) c.lastSightTick = ctx.simTick;
       // Two seconds with no line of sight either way: the contact is over (design §2.3).

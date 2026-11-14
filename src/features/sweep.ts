@@ -86,7 +86,7 @@ export const feature = defineFeature({
       const st = state();
       const sp = st?.plan.sectors[e.index];
       if (sp) marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
-      label.textContent = `Sector ${e.index + 1} / ${e.of}`;
+      label.textContent = `Sector ${e.index + 1} / ${e.of} · ${e.role}`;
       label.style.opacity = '0.9';
       if (pending) {
         pending.to = e.sectorId;
@@ -144,11 +144,12 @@ export const feature = defineFeature({
             sector: st.sector,
             of: st.plan.sectors.length,
             sectorId: st.plan.sectors[st.sector]?.sectorId,
+            role: st.plan.sectors[st.sector]?.role,
             mapId: game.modes.currentMap.id,
             won: st.won,
             lost: st.lost,
             contacts: st.contacts.map((c) => ({ card: c.plan.card, open: c.open, alive: c.alive, echoes: c.echoIds.slice(), engaged: c.engaged })),
-            route: st.plan.sectors.map((s) => `${s.mapId}/${s.sectorId}: ${s.contacts.map((c) => c.card).join(', ')}`),
+            route: st.plan.sectors.map((s) => `${s.mapId}/${s.sectorId} (${s.role}): ${s.contacts.map((c) => c.card).join(', ')}`),
             switches: switches.slice(),
             hp: game.world.health.hp,
             shield: game.world.health.shield,
