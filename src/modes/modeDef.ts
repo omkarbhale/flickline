@@ -20,6 +20,8 @@ export interface PlayerSetup {
   lockMovement?: boolean;
   /** No reload (the design's "infinite magazine"). */
   infiniteMagazine?: boolean;
+  /** The run has a loadout: `1` / `2` swap primary and sidearm (default false; Sweep only, design §4). */
+  allowSwap?: boolean;
 }
 
 /**

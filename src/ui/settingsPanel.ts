@@ -9,6 +9,8 @@ import { h, tabs, toggle, type TabsHandle } from './kit/kit';
 
 const TOGGLES: readonly [keyof Settings, string][] = [
   ['coachingCues', 'Coaching cues (amber moving-shot tracer, ⇆)'],
+  ['cueFading', 'Fade cues as I improve (they step back as your rating rises)'],
+  ['cleanRun', 'One clean run per session (no cues, like the reference game)'],
   ['missGhost', 'Miss ghost ring'],
   ['damageNumbers', 'Damage numbers'],
   ['reduceFlashing', 'Reduce flashing (no screen pulses)'],

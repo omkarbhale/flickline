@@ -38,18 +38,27 @@ export function closestApproach(out: Vec3, from: Readonly<Vec3>, dir: Readonly<V
  * Enemy sounds (design 5.3, 12), all positioned at the enemy by an HRTF panner so direction is
  * readable; none of this allocates (scratch vectors, reused payloads on the bus).
  *
- *  enemyTell    -> the rising 300 to 900 Hz tone at the enemy, exactly `durationMs` long
+ *  enemyTell    -> the rising 300 to 900 Hz tone at the enemy, exactly `durationMs` long; quieter, then silent,
+ *                  as the tell-cue axis fades it (design 7.4)
  *  enemyFired   -> the enemy shot at the enemy; a miss also plays the whiz where the bullet line
  *                  passes the head (`dir` is the unit direction the bullet travelled, world space),
  *                  so it comes from the side the shot passed
  *  playerDamaged-> the damage thud, centred in the head (not positional); the master low-pass dip
  *                  is `damageAudio.ts`
  */
-export function attachEnemySfx(bus: Subscribable<EnemyEvents>, audio: CuePlayer, world: AudioWorld, t: AudioTunables): () => void {
+export function attachEnemySfx(
+  bus: Subscribable<EnemyEvents>,
+  audio: CuePlayer,
+  world: AudioWorld,
+  t: AudioTunables,
+  /** How loud the added tell tone is, 1 .. 0 (fading cues, design §7.4: the tone fades with the dial); default full. */
+  tellStrength: () => number = () => 1,
+): () => void {
   const offs = [
     bus.on('enemyTell', (e) => {
-      if (!world.enemyVoice(e.id, enemyAt)) return;
-      audio.play('enemyTell', { position: enemyAt, durationMs: e.durationMs });
+      const strength = tellStrength();
+      if (strength <= 0 || !world.enemyVoice(e.id, enemyAt)) return;
+      audio.play('enemyTell', strength >= 1 ? { position: enemyAt, durationMs: e.durationMs } : { position: enemyAt, durationMs: e.durationMs, gain: strength });
     }),
     bus.on('enemyFired', (e) => {
       if (!world.enemyVoice(e.id, enemyAt)) return;

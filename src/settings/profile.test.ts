@@ -29,10 +29,16 @@ describe('profile store', () => {
     const store = new ProfileStore(new EventBus<ProfileEvents>(), st);
     expect(store.get()).toEqual(DEFAULT_PROFILE);
     store.set({ selfReport: 'experienced', firstRunDone: true });
-    expect(JSON.parse(st.data[PROFILE_KEY]!)).toEqual({ selfReport: 'experienced', firstRunDone: true });
+    expect(JSON.parse(st.data[PROFILE_KEY]!)).toEqual({ selfReport: 'experienced', firstRunDone: true, runsCompleted: 0 });
     const again = new ProfileStore(new EventBus<ProfileEvents>(), st);
     expect(again.get().firstRunDone).toBe(true);
     expect(again.prior().mean).toBe(55);
+  });
+  it('keeps the completed-run count as a clamped whole number', () => {
+    expect(sanitizeProfile({ runsCompleted: 7.9 }).runsCompleted).toBe(7);
+    expect(sanitizeProfile({ runsCompleted: -3 }).runsCompleted).toBe(0);
+    expect(sanitizeProfile({ runsCompleted: 'many' }).runsCompleted).toBe(0);
+    expect(sanitizeProfile({ runsCompleted: 1e12 }).runsCompleted).toBe(1_000_000);
   });
   it('emits only when something changed', () => {
     const bus = new EventBus<ProfileEvents>();

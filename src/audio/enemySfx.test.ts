@@ -12,7 +12,7 @@ type E = RunEvents & SimEvents;
 
 interface Call { cue: CueId; opts: PlayOptions; at: Vec3 | null }
 
-function setup(enemies: Record<number, Vec3> = { 7: vec3(10, 1.3, -20) }, eye: Vec3 = vec3(0, 1.6, 0)) {
+function setup(enemies: Record<number, Vec3> = { 7: vec3(10, 1.3, -20) }, eye: Vec3 = vec3(0, 1.6, 0), tellStrength?: () => number) {
   const bus = new EventBus<E>();
   const calls: Call[] = [];
   const player: CuePlayer = {
@@ -29,7 +29,7 @@ function setup(enemies: Record<number, Vec3> = { 7: vec3(10, 1.3, -20) }, eye: V
     },
     playerEye: (out) => { out.x = eye.x; out.y = eye.y; out.z = eye.z; },
   };
-  attachEnemySfx(bus, player, world, audio);
+  attachEnemySfx(bus, player, world, audio, tellStrength);
   return { bus, calls };
 }
 
@@ -54,6 +54,19 @@ describe('attachEnemySfx', () => {
     bus.emit('enemyTell', { tick: 1, id: 7, durationMs: 183 });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ cue: 'enemyTell', opts: { durationMs: 183 }, at: { x: 10, y: 1.3, z: -20 } });
+  });
+
+  it('the tell tone fades with the tell-cue axis: quieter, then silent (design §7.4)', () => {
+    let strength = 0.5;
+    const { bus, calls } = setup(undefined, undefined, () => strength);
+    bus.emit('enemyTell', { tick: 1, id: 7, durationMs: 183 });
+    expect(calls[0]!.opts).toMatchObject({ durationMs: 183, gain: 0.5 });
+    strength = 0;
+    bus.emit('enemyTell', { tick: 2, id: 7, durationMs: 183 });
+    expect(calls).toHaveLength(1); // the true cues (the shot, footsteps) are other handlers
+    strength = 1;
+    bus.emit('enemyTell', { tick: 3, id: 7, durationMs: 183 });
+    expect(calls[1]!.opts.gain).toBeUndefined();
   });
 
   it('is silent for an enemy that is not in the field', () => {

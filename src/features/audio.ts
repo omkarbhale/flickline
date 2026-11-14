@@ -4,6 +4,7 @@ import { attachDamageAudio } from '../audio/damageAudio';
 import { attachEnemySfx } from '../audio/enemySfx';
 import { EnemyFootsteps } from '../audio/enemyFootsteps';
 import { attachSfx } from '../audio/sfx';
+import { movingCueShown, tellStrength } from '../feedback/cueGate';
 import { attachUiSounds } from '../audio/uiSounds';
 import type { CueId } from '../config/audio';
 
@@ -30,7 +31,9 @@ export const feature = defineFeature({
   id: 'audio',
   stage: 'presentation',
   setup(game) {
-    attachSfx(game.bus, game.audio, game.tunables.audio);
+    attachSfx(game.bus, game.audio, game.tunables.audio, (e) =>
+      movingCueShown(game.feedbackOptions, game.tunables.cues, e.speed, e.airborne),
+    );
     attachUiSounds(document, game.audio);
     attachDamageAudio(game.bus, game.audio);
     const world = game.world;
@@ -50,7 +53,10 @@ export const feature = defineFeature({
         out.y = p.pos.y + p.eyeHeight;
         out.z = p.pos.z;
       },
-    }, game.tunables.audio);
+    }, game.tunables.audio, () =>
+      // The added tell tone fades as the dial rises (design 7.4); the true cues (footsteps, the shot) are separate.
+      tellStrength(game.feedbackOptions, game.tunables.cues, game.tunables.dial, game.modes.runner.dial),
+    );
     const steps = new EnemyFootsteps(game.audio, enemy, world.targets.length);
     game.onTick(() => steps.tick(world.targets, world.player.pos.x, world.player.pos.z));
     game.onReset(() => steps.reset());

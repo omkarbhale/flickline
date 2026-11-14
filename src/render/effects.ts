@@ -37,7 +37,7 @@ import {
 const NEAR_CLIP = 0.05;
 
 /** Camera-facing strip from A to B (tracers and the miss arrow). Dashed when aParams.y > 0.5. */
-const TRACER_VERT = /* glsl */ `
+export const TRACER_VERT = /* glsl */ `
 uniform float uMinPx;
 uniform float uViewportH;
 attribute vec3 aA;
@@ -74,7 +74,7 @@ void main() {
   vDashed = aParams.y;
 }`;
 
-const TRACER_FRAG = /* glsl */ `
+export const TRACER_FRAG = /* glsl */ `
 uniform float uDash;
 varying vec3 vColor;
 varying float vAlpha;
@@ -89,7 +89,7 @@ void main() {
 }`;
 
 /** Camera-facing billboards: kind 0 = spark (glow + 4-point star), 1 = thin ring (miss ghost). */
-const SPRITE_VERT = /* glsl */ `
+export const SPRITE_VERT = /* glsl */ `
 attribute vec3 aPos;
 attribute vec3 aColor;
 attribute vec4 aParams; // size, alpha, kind, rotation
@@ -111,7 +111,7 @@ void main() {
   vKind = aParams.z;
 }`;
 
-const SPRITE_FRAG = /* glsl */ `
+export const SPRITE_FRAG = /* glsl */ `
 varying vec3 vColor;
 varying vec2 vP;
 varying float vAlpha;
@@ -201,7 +201,8 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
-function strip(): InstancedBufferGeometry {
+/** One unit quad as the base of an instanced strip or billboard (shared with `render/enemyFx.ts`). */
+export function strip(): InstancedBufferGeometry {
   const plane = new PlaneGeometry(1, 1);
   const g = new InstancedBufferGeometry();
   g.index = plane.index;
@@ -210,7 +211,7 @@ function strip(): InstancedBufferGeometry {
   return g;
 }
 
-function instAttr(
+export function instAttr(
   g: InstancedBufferGeometry,
   name: string,
   count: number,
@@ -223,7 +224,7 @@ function instAttr(
   return a.array as Float32Array;
 }
 
-function fxMaterial(
+export function fxMaterial(
   vertex: string,
   fragment: string,
   uniforms: ShaderMaterial['uniforms'],
