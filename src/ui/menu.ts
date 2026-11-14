@@ -4,6 +4,7 @@ import { QUALITY_LEVELS } from '../config/render';
 import type { Tunables } from '../config/tunables';
 import type { ProfileStore } from '../settings/profile';
 import type { SettingsStore } from '../settings/settings';
+import { CrosshairEditor } from './crosshairEditor';
 
 /**
  * - `firstRun`: a new player (design 13.4): compact bottom-centre panel over the live Range with
@@ -36,6 +37,7 @@ export class Menu {
   private readonly raw: HTMLElement;
   private readonly chips: HTMLButtonElement[];
   private mode: MenuMode = 'main';
+  private readonly crosshair: CrosshairEditor;
 
   constructor(
     root: HTMLElement,
@@ -62,6 +64,7 @@ export class Menu {
           <label class="not-first">Volume<input data-k="vol" name="vol" id="set-vol" type="range" min="0" max="1" step="0.01" /></label>
           <label class="not-first">Graphics<select data-k="quality" name="quality" id="set-quality">${QUALITY_LEVELS.map((q) => `<option value="${q}">${q}</option>`).join('')}</select></label>
         </div>
+        <details class="ch-editor not-first"><summary>Crosshair</summary><div data-k="crosshair"></div></details>
         <p class="note not-first"></p>
         <p class="keys not-first">WASD move · Space jump · Ctrl/C crouch · Shift walk · LMB shoot · \` debug overlay</p>
       </div>`;
@@ -71,6 +74,7 @@ export class Menu {
     this.cm = q('cm');
     this.vol = q('vol');
     this.quality = q('quality');
+    this.crosshair = new CrosshairEditor(q('crosshair'), store);
     this.title = root.querySelector('[data-title]') as HTMLElement;
     this.play = root.querySelector('.play') as HTMLButtonElement;
     this.raw = root.querySelector('[data-raw]') as HTMLElement;
@@ -140,6 +144,7 @@ export class Menu {
     this.quality.value = s.quality;
     const picked = this.profile.get().selfReport;
     for (const chip of this.chips) chip.setAttribute('aria-pressed', String(chip.dataset.chip === picked));
+    this.crosshair.sync();
   }
 
   setMode(mode: MenuMode): void {
