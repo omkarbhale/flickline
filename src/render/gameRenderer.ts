@@ -3,14 +3,10 @@ import {
   Color,
   DirectionalLight,
   Fog,
-  InstancedMesh,
-  Matrix4,
   Mesh,
-  MeshBasicMaterial,
   MeshLambertMaterial,
   PerspectiveCamera,
   BoxGeometry,
-  SphereGeometry,
   Scene,
   WebGLRenderer,
 } from 'three';
@@ -29,6 +25,7 @@ import { applyEnvQuality, createEnvUniforms, horizonColor, type EnvUniforms } fr
 import { buildLevelMesh, type LevelMesh } from './levelMesh';
 import { Sky } from './sky';
 import { PostPipeline, createVignetteEffect } from './post';
+import { TargetsView } from './targetsView';
 
 export interface RenderStats {
   drawCalls: number;
@@ -36,9 +33,6 @@ export interface RenderStats {
   geometries: number;
   textures: number;
 }
-
-const BASE_TARGET_COLOR = palette.ember;
-const FLASH_TICKS = 14;
 
 /**
  * Everything three.js. Reads sim state (never writes it), interpolates between the last two
@@ -59,12 +53,9 @@ export class GameRenderer {
   private readonly sky: Sky;
   private readonly blobs: BlobShadows;
   private readonly fog: Fog;
-  private targetMesh: InstancedMesh | null = null;
+  private targetsView: TargetsView | null = null;
   private readonly effects: ShotEffects;
   private readonly viewmodel: Mesh;
-  private readonly m4 = new Matrix4();
-  private readonly color = new Color();
-  private flashState: Uint8Array = new Uint8Array(0);
   private width = 1;
   private height = 1;
   private viewmodelBaseZ = -0.34;
@@ -161,25 +152,12 @@ export class GameRenderer {
     this.blobs.setLevel(world.level.boxes);
     this.applyQuality();
 
-    if (this.targetMesh) {
-      this.scene.remove(this.targetMesh);
-      this.targetMesh.geometry.dispose();
-      (this.targetMesh.material as MeshBasicMaterial).dispose();
-      this.targetMesh.dispose();
+    if (this.targetsView) {
+      this.scene.remove(this.targetsView.root);
+      this.targetsView.dispose();
     }
-    const n = Math.max(1, world.targets.length);
-    // Unlit and unfogged on purpose: an Echo stays the highest-contrast thing on screen at any
-    // distance (design section 11). The Echo shader (#18) replaces this material.
-    this.targetMesh = new InstancedMesh(
-      new SphereGeometry(1, 24, 16),
-      new MeshBasicMaterial({ color: 0xffffff, fog: false }),
-      n,
-    );
-    this.targetMesh.count = world.targets.length;
-    this.targetMesh.frustumCulled = false;
-    for (let i = 0; i < world.targets.length; i++) this.targetMesh.setColorAt(i, this.color.setHex(BASE_TARGET_COLOR));
-    this.flashState = new Uint8Array(n);
-    this.scene.add(this.targetMesh);
+    this.targetsView = new TargetsView(this.tunables, world.targets.length);
+    this.scene.add(this.targetsView.root);
     // Compile shaders now so the first shot / first frame does not hitch.
     this.renderer.compile(this.scene, this.camera);
   }
@@ -201,8 +179,8 @@ export class GameRenderer {
     this.effects.update(dt);
     this.viewmodel.position.z = this.viewmodelBaseZ + this.effects.kick * 0.04;
     this.viewmodel.rotation.x = this.effects.kick * 0.06;
-    this.updateTargets(world);
-    this.blobs.update(world.targets);
+    this.targetsView?.update(world, alpha);
+    this.blobs.update(world.targets, this.tunables.targets);
 
     this.renderer.info.reset();
     this.post.render(this.renderer, this.scene, this.camera);
@@ -213,29 +191,9 @@ export class GameRenderer {
     this.stats.textures = info.memory.textures;
   }
 
-  private updateTargets(world: World): void {
-    const mesh = this.targetMesh;
-    if (!mesh) return;
-    let colorDirty = false;
-    for (let i = 0; i < world.targets.length; i++) {
-      const t = world.targets[i]!;
-      const s = t.alive ? t.radius : 0;
-      this.m4.makeScale(s, s, s).setPosition(t.pos.x, t.pos.y, t.pos.z);
-      mesh.setMatrixAt(i, this.m4);
-      const age = world.tick - t.lastHitTick;
-      const flashing = t.lastHitTick >= 0 && age < FLASH_TICKS ? 1 : 0;
-      if (flashing !== this.flashState[i]) {
-        this.flashState[i] = flashing;
-        mesh.setColorAt(i, this.color.setHex(flashing ? 0xffffff : BASE_TARGET_COLOR));
-        colorDirty = true;
-      }
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    if (colorDirty && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }
-
   dispose(): void {
     this.effects.dispose();
+    this.targetsView?.dispose();
     this.post.dispose();
     this.level?.dispose();
     this.sky.dispose();

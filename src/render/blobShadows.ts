@@ -1,5 +1,6 @@
 import { Color, InstancedMesh, Matrix4, PlaneGeometry } from 'three';
 import type { RenderTunables } from '../config/render';
+import type { TargetTunables } from '../config/targets';
 import type { BoxDef, TargetState } from '../sim/types';
 import { createBlobMaterial } from './envShaders';
 import { isPillar } from './envLayout';
@@ -49,16 +50,25 @@ export class BlobShadows {
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 
-  /** Per-frame: one blob under each living target. No allocation. */
-  update(targets: readonly TargetState[]): void {
+  /** Per-frame: one blob under each living target (humanoids stand on the floor, orbs float). No allocation. */
+  update(targets: readonly TargetState[], cfg: TargetTunables): void {
     const cap = this.cfg.capacity;
     let n = this.staticCount;
     for (let i = 0; i < targets.length && n < cap; i++) {
       const t = targets[i]!;
       if (!t.alive) continue;
-      const clearance = Math.max(0, t.pos.y - t.radius);
+      const def = cfg.kinds[t.kind];
+      let clearance: number;
+      let size: number;
+      if (def.shape === 'orb') {
+        clearance = Math.max(0, t.pos.y - def.orbRadius);
+        size = def.orbRadius * 2 * this.cfg.echoScale;
+      } else {
+        clearance = Math.max(0, t.pos.y); // `pos` is the feet centre
+        size = cfg.hit.torsoWidth * this.cfg.echoScale * 2;
+      }
       const a = Math.max(MIN_ALPHA, 1 - clearance / FADE_HEIGHT);
-      this.place(n, t.pos.x, LIFT, t.pos.z, t.radius * 2 * this.cfg.echoScale, a);
+      this.place(n, t.pos.x, LIFT, t.pos.z, size, a);
       n++;
     }
     this.mesh.count = n;

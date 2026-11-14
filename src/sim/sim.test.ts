@@ -12,7 +12,7 @@ function setup(level: LevelDef = testRoom, seed = 1) {
   const world = new World({ level, tunables: cloneTunables(), seed });
   const bus = new EventBus<SimEvents>();
   const log: { type: keyof SimEvents; data: unknown }[] = [];
-  for (const t of ['shotFired', 'shotImpact', 'targetHit', 'targetKilled', 'targetRespawned', 'playerJumped', 'playerLanded', 'footstep'] as const) {
+  for (const t of ['shotFired', 'shotImpact', 'targetSpawned', 'targetVisible', 'targetHit', 'targetKilled', 'targetExpired', 'targetRespawned', 'playerJumped', 'playerLanded', 'footstep'] as const) {
     bus.on(t, (e) => log.push({ type: t, data: JSON.parse(JSON.stringify(e)) }));
   }
   const input = createTickInput();
@@ -201,21 +201,22 @@ describe('hitscan weapon', () => {
     expect((walk.log.find((l) => l.type === 'shotFired')!.data as { moving: boolean }).moving).toBe(true);
   });
 
-  it('hits, damages and kills a target, then it respawns', () => {
+  it('kills a beacon with one bullet, then it respawns', () => {
     const { world, run, count, log } = setup();
     run(4);
     const aim = aimAtTarget0(world);
+    expect(world.targets[0]!.kind).toBe('beacon');
     run(1, { ...aim, fire: true });
     expect(count('shotFired')).toBe(1);
     expect(count('targetHit')).toBe(1);
-    expect(world.targets[0]!.hp).toBe(world.tunables.targets.maxHp - world.tunables.weapon.damage);
-    run(TICK_RATE, aim); // fire stays held
     expect(count('targetKilled')).toBe(1);
     expect(world.targets[0]!.alive).toBe(false);
-    run(0, { fire: false });
+    run(1, { fire: false });
     run(Math.ceil(TICK_RATE * 1.5), { fire: false });
     expect(world.targets[0]!.alive).toBe(true);
+    expect(world.targets[0]!.hp).toBe(world.tunables.targets.maxHp);
     expect(count('targetRespawned')).toBeGreaterThanOrEqual(1);
+    expect(count('targetSpawned')).toBeGreaterThanOrEqual(1);
     expect(log.some((l) => l.type === 'shotImpact')).toBe(true);
   });
 
