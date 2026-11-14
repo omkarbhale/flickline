@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { EventBus } from '../core/eventBus';
 import { results as cfg } from '../config/results';
+import { cloneTunables } from '../config/tunables';
+import { leanView } from '../modes/lean';
 import { displayRating } from '../adaptive/dial';
 import type { RunLog } from './eventLog';
 import type { RunStory } from './runStory';
@@ -9,6 +11,8 @@ import {
   buildCard, DASH, depthLabel, fill, formatDelta, formatThousands, nextSeed, pickFix, ResultsRecorder, shotSplit,
   statCells, timeToShotBaselineMs, type ResultsEvents, type ShotSplit,
 } from './results';
+
+const tunables = cloneTunables();
 
 function target(p: Partial<TargetStat> = {}): TargetStat {
   return {
@@ -454,5 +458,27 @@ describe('the run results card (design §8.2, #213)', () => {
     expect(c.situations[0]!.rate).toBeCloseTo(2 / 3, 9);
     expect(c.situations[1]).toMatchObject({ label: 'Crossfire', summary: 'avoided', rate: null, recent: '' });
     expect(c.situations[2]).toMatchObject({ label: 'Brand New', tone: 'bad' });
+  });
+  describe('the lean line (#210)', () => {
+    const leanFor = (kind: string) => leanView(kind, tunables.lean, tunables.sweep);
+    const moving = () => sweep({ movingShots: 20, shots: 50 });
+
+    it('names what the next run leans toward under the one thing to fix, from cards the run can deal', () => {
+      const c = make(moving(), story(2), { leanFor });
+      expect(c.fix.kind).toBe('movingShots');
+      expect(c.fix.lean?.cards).toEqual(['meet', 'take-expected']);
+      expect(c.fix.lean?.line).toBe('Next run leans: meets in a corridor and takes against enemies who expect you, where the stop decides the fight.');
+    });
+
+    it('says nothing when nothing stood out, when there are no shots, or when no lean is offered', () => {
+      expect(make(sweep(), story(2), { leanFor }).fix.lean).toBeNull(); // placeholder: nothing stood out
+      expect(make(sweep({ shots: 0, hits: 0, movingShots: 0 }), story(2), { leanFor }).fix.lean).toBeNull();
+      expect(make(moving(), story(2)).fix.lean).toBeNull();
+    });
+
+    it('says nothing on the Daily Route (everyone plays the same route that day) or for a drill', () => {
+      expect(make(moving(), story(2), { leanFor, daily: '2026-11-15' }).fix.lean).toBeNull();
+      expect(make(stats({ movingShots: 20, shots: 50 }), undefined, { leanFor }).fix.lean).toBeNull();
+    });
   });
 });

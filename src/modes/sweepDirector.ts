@@ -1,6 +1,7 @@
 import { Rng } from '../core/rng';
 import type { Vec3 } from '../core/vec3';
 import type { SectorRole, SweepCard, SweepTunables } from '../config/sweep';
+import { leanedSweep, type LeanSpec } from './lean';
 import type { PeekPattern } from '../sim/mapTypes';
 import type { Expectation } from '../sim/enemyTiming';
 
@@ -186,8 +187,6 @@ export function drawRole(rng: Rng, cfg: SweepTunables, index: number, drawn: rea
 /** Roles in the order the draw walks them, and how many of one role may follow each other (design §4.2: never three). */
 const ROLE_ORDER: readonly SectorRole[] = ['take', 'hold', 'meet'];
 const ROLE_RUN_MAX = 2;
-/** The roles a run plays today. Holds arrive with #204: a drawn hold plays as a take until then. */
-const PLAYABLE: readonly SectorRole[] = ['take', 'meet'];
 
 /** How many anchors a card needs. */
 export function cardSpots(card: SweepCard): number {
@@ -395,9 +394,12 @@ export function placeMeet(rng: Rng, cfg: SweepTunables, s: SectorSource, sectorI
 /**
  * The whole run's plan: `cfg.sectors` sectors drawn from `catalog` (the Opener a take, the rest by `cfg.roleMix`;
  * a role the catalog cannot play falls back to a take), each with its contacts, cards and Echo placements. Throws
- * if the catalog has no take sector with a hidden hold anchor.
+ * if the catalog has no take sector with a hidden hold anchor. `lean`: the cards the run leans toward (design §4.4,
+ * #210): their weights rise by the lean's boost, capped at twice their base share.
  */
-export function planRun(seed: number, catalog: readonly SectorSource[], cfg: SweepTunables, body: PlanBody): RunPlan {
+export function planRun(seed: number, catalog: readonly SectorSource[], base: SweepTunables, body: PlanBody, lean: LeanSpec | null = null): RunPlan {
+  // The lean (#210) changes the weights the draws read, nothing else: same seed and no lean is the plan it always was.
+  const cfg = leanedSweep(base, lean);
   const rng = new Rng(planSeed(seed));
   const byName = (a: SectorSource, b: SectorSource): number => (a.mapId + '/' + a.id < b.mapId + '/' + b.id ? -1 : 1);
   const takes = catalog.filter((s) => s.roles.includes('take') && hiddenSpots(s, body).length > 0).sort(byName);
@@ -413,7 +415,7 @@ export function planRun(seed: number, catalog: readonly SectorSource[], cfg: Swe
   for (let i = 0; i < cfg.sectors; i++) {
     const wanted = drawRole(rng, cfg, i, drawn);
     drawn.push(wanted);
-    let role: SectorRole = PLAYABLE.includes(wanted) ? wanted : 'take';
+    let role: SectorRole = cfg.playableRoles.includes(wanted) ? wanted : 'take';
     let s = role === 'meet' ? meetDeck.draw(last) : null;
     if (!s) {
       role = 'take';

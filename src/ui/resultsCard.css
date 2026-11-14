@@ -69,6 +69,7 @@ body.results-open #hud { visibility: hidden; }
 .rc-fix h3 { margin-bottom: 4px; }
 .rc-fix-title { margin: 0 0 3px; font: 700 16px/1.2 var(--font-ui); }
 .rc-fix p { margin: 2px 0; font: 500 13px/1.35 var(--font-ui); }
+.rc-fix p.rc-lean { margin-top: 5px; color: var(--trim); font-weight: 600; }
 .rc-fix p.rc-fix-title { font: 700 16px/1.2 var(--font-ui); }
 
 .rc-rating { display: grid; gap: 5px; }

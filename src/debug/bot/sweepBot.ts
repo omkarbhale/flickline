@@ -41,6 +41,8 @@ export class SweepBot {
   /** Tick the current fight began (the bot stopped being idle), -1 while idle, and how long it keeps running into it. */
   private engagedAt = -1;
   private holdOffTicks = 0;
+  /** This fight is one the bot fires in on the move (the planted weakness). */
+  private movingFight = false;
   private readonly rng: Rng;
 
   /**
@@ -54,6 +56,12 @@ export class SweepBot {
     private readonly game: BotGame,
     private readonly stopDelayMaxSec = 0,
     seed = 1,
+    /**
+     * A planted weakness (#210, the lean's A/B): this share of the fights it takes, it never stops: it keeps running its
+     * route and fires on the move, as a player who has not learned to counter-strafe does. 0 (the default): it stops in
+     * every fight, as every report before the lean assumed. No random draw is made at 0, so those reports do not change.
+     */
+    private readonly movingFireShare = 0,
   ) {
     this.rng = new Rng((seed ^ 0x2545f491) >>> 0 || 1);
     bot.visibleOnly = true;
@@ -81,6 +89,19 @@ export class SweepBot {
     else if (this.engagedAt < 0) {
       this.engagedAt = world.tick;
       this.holdOffTicks = this.stopDelayMaxSec > 0 ? secondsToTicks(this.rng.next() * this.stopDelayMaxSec) : 0;
+      this.movingFight = this.movingFireShare > 0 && this.rng.next() < this.movingFireShare;
+    }
+    if (!this.bot.idle && this.movingFight) {
+      // The planted weakness: keep running the route and shoot whatever is in plain sight, stopped or not.
+      const wp = this.path[this.wp];
+      if (wp) this.moveTowards(wp, out);
+      const t = world.targetField.byId(this.bot.target);
+      if (out.fire && t) {
+        targetAimPoint(t, this.game.tunables.targets, this.aim);
+        if (!lineClear(world.boxes, p.pos.x, eyeY, p.pos.z, this.aim.x, this.aim.y, this.aim.z)) out.fire = false;
+      }
+      this.fought = true;
+      return out;
     }
     if (!this.bot.idle && world.tick - this.engagedAt < this.holdOffTicks) {
       // Seen, not stopped yet: keep running the route (aim stays on the Echo; no shot while moving).

@@ -20,7 +20,7 @@ declare module '../debug/hook' {
   interface FlicklineDebug {
     /**
      * Sweep, the run (#201). `state()`: the sector, its contacts and Echoes, the run's cards and every
-     * measured sector switch. `plan(seed)`: the plan a seed gives. `toExit()`: stand the player on the
+     * measured sector switch. `plan(seed, lean)`: the plan a seed gives (with the cards the run leans toward, #210). `state()` also says the lean the run was dealt and the one pending for the next. `toExit()`: stand the player on the
      * current sector's exit and step one tick (the next sector loads). `walk(maxTicks, stopAtM)`: walk
      * the sector's route towards its exit, looking where it goes, until an Echo comes into sight, the
      * player is within `stopAtM` metres of the exit (default 0: walk out), or the ticks run out;
@@ -28,7 +28,7 @@ declare module '../debug/hook' {
      */
     readonly sweep: {
       state(): unknown;
-      plan(seed?: number): unknown;
+      plan(seed?: number, lean?: readonly string[]): unknown;
       toExit(): boolean;
       walk(maxTicks?: number, stopAtM?: number): { ticks: number; seen: number };
       /**
@@ -141,6 +141,8 @@ export const feature = defineFeature({
           if (!st) return null;
           return {
             seed: st.plan.seed,
+            lean: game.lean.now.slice(),
+            nextLean: game.lean.next.slice(),
             sector: st.sector,
             of: st.plan.sectors.length,
             sectorId: st.plan.sectors[st.sector]?.sectorId,
@@ -155,7 +157,7 @@ export const feature = defineFeature({
             shield: game.world.health.shield,
           };
         },
-        plan: (seed) => sweepPlan(seed ?? game.world.seed, game.tunables),
+        plan: (seed, lean) => sweepPlan(seed ?? game.world.seed, game.tunables, lean ?? []),
         toExit() {
           const st = state();
           if (!st) return false;

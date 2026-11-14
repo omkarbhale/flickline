@@ -9,6 +9,7 @@ import { difficultyMultiplier } from '../feedback/scoring';
 import { MAPS } from '../sim/mapLoader';
 import type { RunEvents, SectorEvents } from '../sim/runEvents';
 import type { ModeContext, ModeDef, ModeEvent } from './modeDef';
+import { NO_LEAN, type Lean } from './lean';
 import { sectorCatalog } from './sweepCatalog';
 import { perSector, planRun, type ContactPlan, type EchoPlan, type RunPlan, type SectorSource } from './sweepDirector';
 
@@ -87,8 +88,9 @@ export function sweepCatalog(tunables: Tunables): SectorSource[] {
 }
 
 /** The plan a seed gives (what `setup` plays): for tests, the bot report and the debug hook. */
-export function sweepPlan(seed: number, tunables: Tunables): RunPlan {
-  return planRun(seed, sweepCatalog(tunables), tunables.sweep, tunables.movement);
+export function sweepPlan(seed: number, tunables: Tunables, lean: Lean = NO_LEAN): RunPlan {
+  const spec = lean.length > 0 ? { cards: lean, boost: tunables.lean.boost, maxShareFactor: tunables.lean.maxShareFactor } : null;
+  return planRun(seed, sweepCatalog(tunables), tunables.sweep, tunables.movement, spec);
 }
 
 function ehp(ctx: ModeContext<SweepState>): number {
@@ -338,7 +340,7 @@ export const sweep: ModeDef<SweepState> = {
 
   setup(ctx) {
     ctx.state = {
-      plan: sweepPlan(ctx.seed, ctx.tunables), sector: 0, contacts: [], entryEhp: 0, entryScore: 0, nextContactId: 0, won: 0, lost: 0, done: false,
+      plan: sweepPlan(ctx.seed, ctx.tunables, ctx.lean), sector: 0, contacts: [], entryEhp: 0, entryScore: 0, nextContactId: 0, won: 0, lost: 0, done: false,
     };
     enterSector(ctx, 0);
     return ctx.state;

@@ -211,7 +211,7 @@ export class ModeHost {
     this.clearField();
     this.applyPlayerSetup(mode);
     this.active = mode;
-    this.runner.begin(mode, { seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors });
+    this.runner.begin(mode, { seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors, lean: opts.lean });
     return true;
   }
 
