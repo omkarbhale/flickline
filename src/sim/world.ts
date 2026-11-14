@@ -6,7 +6,15 @@ import type { Tunables } from '../config/tunables';
 import type { BehaviourContext } from './fsm';
 import { TargetField, type SpawnOptions } from './targets';
 import { levelTargetsReset } from './targetsInit';
-import { createTraceResult, stepWeapon, type TraceResult } from './weapon';
+import type { WeaponId } from '../config/weapon';
+import {
+  createWeaponScratch,
+  createWeaponState,
+  resetWeaponState,
+  stepWeapon,
+  type WeaponScratch,
+  type WeaponWorld,
+} from './weapon';
 import { stepPlayer } from './movement';
 import type { LevelDef, PlayerState, SimEvents, TargetKind, TargetState, TickInput, WeaponState } from './types';
 
@@ -16,6 +24,8 @@ export interface WorldOptions {
   level: LevelDef;
   tunables: Tunables;
   seed?: number;
+  /** Weapons by slot (primary, sidearm). Default: `tunables.weaponRules.defaultLoadout`. */
+  loadout?: WeaponId[];
 }
 
 /**
@@ -34,8 +44,10 @@ export class World {
   readonly targetField: TargetField;
   /** Registry slots: fixed capacity, a slot holds a target when `alive`. Same array as the field's. */
   readonly targets: TargetState[];
-  readonly weapon: WeaponState = { cooldown: 0, shots: 0 };
-  private readonly trace: TraceResult = createTraceResult();
+  readonly loadout: readonly WeaponId[];
+  readonly weapon: WeaponState;
+  private readonly weaponWorld: WeaponWorld;
+  private readonly weaponScratch: WeaponScratch = createWeaponScratch();
   /** Reused every tick for target behaviours (`events` is swapped in per step). */
   private readonly behaviourCtx: BehaviourContext;
 
@@ -47,6 +59,15 @@ export class World {
     this.targetField = new TargetField(opts.tunables);
     this.targets = this.targetField.slots;
     this.behaviourCtx = { tick: 0, rng: this.rng, tunables: opts.tunables, events: NULL_SINK };
+    this.loadout = [...(opts.loadout ?? opts.tunables.weaponRules.defaultLoadout)];
+    this.weapon = createWeaponState(this.loadout, opts.tunables.weapon);
+    this.weaponWorld = {
+      boxes: this.level.boxes,
+      field: this.targetField,
+      table: opts.tunables.weapon,
+      rules: opts.tunables.weaponRules,
+      rng: this.rng,
+    };
     const m = opts.tunables.movement;
     this.player = {
       pos: vec3(),
@@ -81,8 +102,7 @@ export class World {
     p.height = m.standHeight;
     p.eyeHeight = p.prevEyeHeight = m.standEyeHeight;
     p.stepAccum = 0;
-    this.weapon.cooldown = 0;
-    this.weapon.shots = 0;
+    resetWeaponState(this.weapon, this.loadout, this.tunables.weapon);
     this.behaviourCtx.tick = 0;
     this.behaviourCtx.events = NULL_SINK;
     levelTargetsReset(this.targetField, this.level, this.behaviourCtx);
@@ -94,11 +114,7 @@ export class World {
     const t = this.tunables;
     stepPlayer(this.player, input, this.level.boxes, t.movement, TICK_DT, this.tick, events);
     this.targetField.updateVisibility(this.player, this.level.boxes, this.tick, events);
-    stepWeapon(
-      this.weapon, input.fire, this.player, this.level.boxes, this.targetField,
-      t.weapon, this.tick, events, this.trace,
-      t.movement.runSpeed * t.weapon.movingSpeedFraction,
-    );
+    stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, events, this.weaponScratch);
     this.stepTargets(events);
   }
 
@@ -151,7 +167,12 @@ export class World {
     mix(p.vel.x); mix(p.vel.y); mix(p.vel.z);
     mix(p.yaw); mix(p.pitch);
     mix(p.grounded ? 1 : 0); mix(p.crouching ? 1 : 0); mix(p.eyeHeight);
-    mix(this.weapon.shots);
+    const w = this.weapon;
+    mix(w.shots); mix(w.active); mix(w.cooldown); mix(w.equipLeft); mix(w.reloadLeft);
+    mix(w.sprayCount); mix(w.recoilIndex); mix(w.recoilPitch); mix(w.recoilYaw); mix(w.yawSign);
+    for (let i = 0; i < w.slots.length; i++) {
+      mix(w.slots[i]!.mag); mix(w.slots[i]!.reserve);
+    }
     this.targetField.hashInto(mix);
     mix(this.rng.getState());
     return h >>> 0;

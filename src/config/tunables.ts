@@ -6,7 +6,7 @@ import { render, type RenderTunables } from './render';
 import { scoring, type ScoringTunables } from './scoring';
 import { targets, type TargetTunables } from './targets';
 import { view, type ViewTunables } from './view';
-import { weapon, type WeaponTunables } from './weapon';
+import { weapon, weaponRules, type WeaponRules, type WeaponTable } from './weapon';
 
 /**
  * The single source of tunable numbers. Each area keeps its values in its own file in this folder
@@ -16,7 +16,10 @@ import { weapon, type WeaponTunables } from './weapon';
  */
 export interface Tunables {
   movement: MovementTunables;
-  weapon: WeaponTunables;
+  /** Weapon definitions keyed by id: `weapon.pace`, `weapon.kestrel`. */
+  weapon: WeaponTable;
+  /** Rules shared by every weapon (spec §7.1 global keys). */
+  weaponRules: WeaponRules;
   targets: TargetTunables;
   view: ViewTunables;
   render: RenderTunables;
@@ -27,7 +30,7 @@ export interface Tunables {
 }
 
 /** Live, mutable instance. Only the debug hook and settings UI may mutate it at runtime. */
-export const tunables: Tunables = { movement, weapon, targets, view, render, audio, dial, scoring, modes };
+export const tunables: Tunables = { movement, weapon, weaponRules, targets, view, render, audio, dial, scoring, modes };
 
 /** Deep copy for tests and what-if runs (tunables are JSON-safe plain data). */
 export function cloneTunables(t: Tunables = tunables): Tunables {

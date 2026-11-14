@@ -88,7 +88,7 @@ describe('Post behaviour', () => {
     const trace = (seed: number): number[] => {
       const w = new World({ level: { ...testRoom, targets: [{ kind: 'post', pos: { x: 0, y: 0, z: -10 } }] }, tunables: cloneTunables(), seed });
       const bus = new EventBus<SimEvents>();
-      const input = { moveX: 0, moveZ: 0, yaw: 0, pitch: 0, jump: false, crouch: false, walk: false, fire: false };
+      const input = { moveX: 0, moveZ: 0, yaw: 0, pitch: 0, jump: false, crouch: false, walk: false, fire: false, reload: false, switchTo: -1 };
       const out: number[] = [];
       for (let i = 0; i < TICK_RATE * 20; i++) {
         w.step(input, bus);

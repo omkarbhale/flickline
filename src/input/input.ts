@@ -11,7 +11,7 @@ import { defaultBindings, type Bindings } from './bindings';
  * Latency design: mouse deltas are applied to `look` (yaw/pitch) inside the mousemove handler, so
  * the camera can render the freshest angles every frame with no tick-rate delay. sample() copies
  * the current state into a TickInput once per rendered frame; ticks run in that frame reuse it.
- * Edge inputs (jump, fire click) persist until a tick actually consumes them (endFrame).
+ * Edge inputs (jump, reload, fire click) persist until a tick actually consumes them (endFrame).
  */
 export class InputManager {
   /** Live view angles in radians (yaw 0 = -Z, + = left; pitch + = up). */
@@ -26,6 +26,7 @@ export class InputManager {
   private mouseFire = false;
   private fireEdge = false;
   private jumpEdge = false;
+  private reloadEdge = false;
   private readonly codeToAction = new Map<string, keyof Bindings>();
   onToggleDebug: (() => void) | null = null;
 
@@ -108,6 +109,8 @@ export class InputManager {
     out.crouch = this.locked && this.isDown('crouch');
     out.walk = this.locked && this.isDown('walk');
     out.fire = this.mouseFire || this.fireEdge;
+    out.reload = this.reloadEdge;
+    out.switchTo = -1;
   }
 
   /** Call after the frame's ticks: edges are cleared only if a tick consumed them. */
@@ -115,6 +118,7 @@ export class InputManager {
     if (ticksRan > 0) {
       this.jumpEdge = false;
       this.fireEdge = false;
+      this.reloadEdge = false;
     }
   }
 
@@ -157,6 +161,7 @@ export class InputManager {
     if (e.repeat) return;
     this.down.add(e.code);
     if (action === 'jump') this.jumpEdge = true;
+    if (action === 'reload') this.reloadEdge = true;
   };
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {

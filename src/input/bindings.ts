@@ -7,6 +7,7 @@ export interface Bindings {
   jump: string[];
   crouch: string[];
   walk: string[];
+  reload: string[];
   toggleDebug: string[];
 }
 
@@ -18,5 +19,6 @@ export const defaultBindings: Bindings = {
   jump: ['Space'],
   crouch: ['ControlLeft', 'KeyC'],
   walk: ['ShiftLeft'],
+  reload: ['KeyR'],
   toggleDebug: ['Backquote'],
 };
