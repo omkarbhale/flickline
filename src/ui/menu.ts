@@ -177,6 +177,8 @@ export class Menu {
       if (e.target === root && this.screen === 'pause') host.resume();
     });
     window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('resize', this.fit);
+    this.fit();
     root.addEventListener('keydown', this.onArrowKey);
 
     this.setRawInput(null);
@@ -432,6 +434,12 @@ export class Menu {
     } else if (e.key.startsWith('Arrow')) {
       e.preventDefault();
     }
+  };
+
+  /** The menus are laid out for 1280 x 720; larger windows scale them up to 2x so they stay readable (like the results card). */
+  private readonly fit = (): void => {
+    const z = Math.max(1, Math.min(2, Math.min(window.innerWidth / 1280, window.innerHeight / 720)));
+    this.el.style.setProperty('--menu-zoom', z.toFixed(3));
   };
 
   /** Cards per row, read from the layout (the first row is the cards that share the first card's top). */

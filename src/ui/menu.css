@@ -10,7 +10,7 @@
   backdrop-filter: blur(4px);
 }
 #menu.open { display: block; }
-#menu .screen { box-sizing: border-box; min-height: 100%; padding: 36px clamp(16px, 4vw, 48px); }
+#menu .screen { zoom: var(--menu-zoom, 1); box-sizing: border-box; min-height: calc(100% / var(--menu-zoom, 1)); padding: 36px clamp(16px, 4vw, 48px); }
 #menu [hidden] { display: none !important; }
 .brand { display: inline-flex; }
 
