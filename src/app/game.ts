@@ -26,6 +26,7 @@ import { createTickInput, type TickInput } from '../sim/types';
 import type { MapDef } from '../sim/mapTypes';
 import { rangeMap } from '../sim/mapLoader';
 import { World } from '../sim/world';
+import { nextSeed } from '../feedback/results';
 import { Menu } from '../ui/menu';
 import { FEATURES } from './features';
 import { ModeHost } from './modeHost';
@@ -115,10 +116,10 @@ export class Game {
   private readonly scriptInput = createTickInput();
   private lastTs = 0;
   private running = false;
-  /** View angles frozen at the moment of death (radians; the frame the results card sits over). */
+  /** View angles frozen when the run ends or the player dies (radians; the frame the results card sits over). */
   private frozenYaw = 0;
   private frozenPitch = 0;
-  private wasAlive = true;
+  private wasFrozen = false;
   /** Has the pointer been locked at least once this page load (pause panel vs landing menu). */
   private hasPlayed = false;
   /** The first-run hint is showing and waits for the first hit. */
@@ -370,13 +371,14 @@ export class Game {
       if (o.switchTo !== undefined) inp.switchTo = o.switchTo;
     }
 
-    // A dead player freezes the world and the view: the last frame the results card is drawn over.
+    // A dead player and a finished run freeze the world and the view: the last frame the results card is drawn over.
     const alive = this.world.health.alive;
-    if (!alive && this.wasAlive) {
+    const frozen = !alive || this.run.state === 'result';
+    if (frozen && !this.wasFrozen) {
       this.frozenYaw = this.input.yaw;
       this.frozenPitch = this.input.pitch + this.world.player.aimPunch;
     }
-    this.wasAlive = alive;
+    this.wasFrozen = frozen;
 
     let ticks = 0;
     if ((this.input.locked || this.forceRun) && !this.hold && alive) {
@@ -416,14 +418,19 @@ export class Game {
     for (let i = 0; i < this.tickHooks.length; i++) this.tickHooks[i]!();
   }
 
-  /** The yaw the camera shows: the live mouse yaw, frozen once the player is dead. */
+  /** The view stops following the mouse once the player is dead or the run is over. */
+  private get viewFrozen(): boolean {
+    return !this.world.health.alive || this.run.state === 'result';
+  }
+
+  /** The yaw the camera shows: the live mouse yaw, frozen once the view is. */
   private viewYaw(): number {
-    return this.world.health.alive ? this.input.yaw : this.frozenYaw;
+    return this.viewFrozen ? this.frozenYaw : this.input.yaw;
   }
 
   private drawFrame(alpha: number, dt: number): void {
     const w = this.world;
-    if (!w.health.alive) {
+    if (this.viewFrozen) {
       this.renderer.render(w, 1, this.frozenYaw, this.frozenPitch, dt);
       return;
     }
@@ -507,6 +514,36 @@ export class Game {
     this.afterRunReset();
     this.noteRestart(t0);
     return true;
+  }
+
+  /**
+   * The results card's `Enter`: the next run of the same mode and dial on a fresh seed
+   * (`nextSeed`), straight back to `ready` with no scene rebuild. `pressedAt` is the key event's
+   * timestamp, so `lastRestartToFrameMs` measures key press to the first drawn `ready` frame.
+   * Takes the pointer lock back if it was lost (the key press is a user gesture). False when
+   * there is no finished run to follow up.
+   */
+  playAgain(pressedAt: number = performance.now()): boolean {
+    const info = this.run.info;
+    if (!info || this.run.state !== 'result') return false;
+    const seed = nextSeed(info.seed, this.tunables.results);
+    if (this.run.isSelfDriven) {
+      if (!this.run.restartRun(seed)) return false;
+    } else {
+      // A mode run does not reset the world itself: do it here (health, weapon, position), then ready the mode.
+      this.world.reset(seed);
+      if (!this.modes.start(info.mode, { seed })) return false;
+    }
+    this.afterRunReset();
+    this.noteRestart(pressedAt);
+    if (!this.input.locked) this.play();
+    return true;
+  }
+
+  /** Show the menu over whatever is on screen (the results card's `Esc` when the pointer is already free). */
+  openMenu(): void {
+    this.menu.setVisible(true);
+    this.hud.setVisible(false);
   }
 
   /** End the current run, whoever times it. */

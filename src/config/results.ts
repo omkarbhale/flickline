@@ -50,6 +50,8 @@ export interface ResultsTunables {
   /** The two key metrics of a mode; `defaultKeyMetrics` for modes not listed. */
   keyMetrics: Record<string, readonly [MetricId, MetricId]>;
   defaultKeyMetrics: readonly [MetricId, MetricId];
+  /** Badge colour per tier, lowest first (design §8.4: Chalk, Brass, Steel, Cobalt, Neon, Prism, Zenith). The badge always carries the tier name too. */
+  tierColours: readonly string[];
   /** Why the run ended, shown above the mode name. */
   endLabels: Record<'timer' | 'death' | 'complete' | 'quit', string>;
   /** Display names of the skills the rating row names (`line` = the mean of all seven). */
@@ -97,6 +99,7 @@ export const results: ResultsTunables = {
     sweep: ['bestChain', 'preAimError'],
   },
   defaultKeyMetrics: ['firstShotRate', 'preAimError'],
+  tierColours: ['#aab4c2', '#d9a35a', '#9fb4cc', '#5b8cff', '#38e8ff', '#c792ff', '#ffd23f'],
   endLabels: { timer: "Time's up", death: 'Eliminated', complete: 'Run complete', quit: 'Run ended early' },
   skillLabels: {
     precision: 'Precision', flick: 'Flick', track: 'Tracking', footwork: 'Footwork', spray: 'Spray control',
