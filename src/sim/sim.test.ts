@@ -57,7 +57,7 @@ describe('player movement', () => {
     run(4);
     run(TICK_RATE, { moveZ: 1 });
     const speed = Math.hypot(world.player.vel.x, world.player.vel.z);
-    expect(speed).toBeCloseTo(world.tunables.movement.runSpeed, 3);
+    expect(speed).toBeCloseTo(world.maxSpeed(), 3);
     expect(world.player.pos.z).toBeLessThan(8 - 4); // moved forward (-Z)
   });
 
@@ -65,7 +65,7 @@ describe('player movement', () => {
     const { world, run } = setup();
     run(4);
     run(TICK_RATE, { moveZ: 1, moveX: 1 });
-    expect(Math.hypot(world.player.vel.x, world.player.vel.z)).toBeCloseTo(world.tunables.movement.runSpeed, 3);
+    expect(Math.hypot(world.player.vel.x, world.player.vel.z)).toBeCloseTo(world.maxSpeed(), 3);
     expect(world.player.vel.x).toBeGreaterThan(0); // +X is right
   });
 
@@ -73,11 +73,11 @@ describe('player movement', () => {
     const a = setup();
     a.run(4);
     a.run(TICK_RATE, { moveZ: 1, walk: true });
-    expect(Math.hypot(a.world.player.vel.x, a.world.player.vel.z)).toBeCloseTo(a.world.tunables.movement.walkSpeed, 3);
+    expect(Math.hypot(a.world.player.vel.x, a.world.player.vel.z)).toBeCloseTo(a.world.maxSpeed() * a.world.tunables.movement.walkFraction, 3);
     const b = setup();
     b.run(4);
     b.run(TICK_RATE, { moveZ: 1, crouch: true });
-    expect(Math.hypot(b.world.player.vel.x, b.world.player.vel.z)).toBeCloseTo(b.world.tunables.movement.crouchSpeed, 3);
+    expect(Math.hypot(b.world.player.vel.x, b.world.player.vel.z)).toBeCloseTo(b.world.maxSpeed() * b.world.tunables.movement.crouchWalkFraction, 3);
   });
 
   it('is stopped by walls', () => {
@@ -93,7 +93,7 @@ describe('player movement', () => {
     const { world, run, count } = setup();
     run(4);
     const m = world.tunables.movement;
-    const expected = (m.jumpSpeed * m.jumpSpeed) / (2 * m.gravity);
+    const expected = m.jumpApex;
     let peak = 0;
     run(1, { jump: true });
     for (let i = 0; i < TICK_RATE; i++) {

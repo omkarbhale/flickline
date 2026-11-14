@@ -134,6 +134,7 @@ export class World implements EnemyWorld {
       field: this.targetField,
       table: opts.tunables.weapon,
       rules: opts.tunables.weaponRules,
+      move: opts.tunables.movement,
       rng: this.rng,
       swapLocked: false,
     };
@@ -201,7 +202,7 @@ export class World implements EnemyWorld {
       l.pitch = input.pitch;
       moveInput = l;
     }
-    stepPlayer(this.player, moveInput, this.level.boxes, t.movement, TICK_DT, this.tick, events);
+    stepPlayer(this.player, moveInput, this.level.boxes, t.movement, this.maxSpeed(), TICK_DT, this.tick, events);
     if (!this.live) {
       relay.target = NULL_SINK;
       return;
@@ -211,6 +212,12 @@ export class World implements EnemyWorld {
     this.stepTargets(relay);
     relay.target = NULL_SINK;
     stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events, this.level);
+  }
+
+  /** The player's max speed: the equipped weapon's run speed (spec §2.1). */
+  maxSpeed(): number {
+    const w = this.weapon;
+    return this.tunables.weapon[w.slots[w.active]!.id].runSpeedMps;
   }
 
   /** Enemies shoot only while the run is live, the player is alive and the mode lets them (`EnemyWorld`). */
