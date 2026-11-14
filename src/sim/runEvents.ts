@@ -69,8 +69,10 @@ export interface SectorEvents {
     t: number;
     sectorId: string;
     mapId: string;
-    /** 0-based position in the run. */
+    /** 0-based position in the run (design §4.1's rows: 0 is the Opener; a placing Opener's contact sectors are all 0). */
     index: number;
+    /** One of a new profile's placing Opener's contact sectors (design §9.2, #203). */
+    opener: boolean;
     /** Sectors in the run. */
     of: number;
     role: SweepSectorRole;
@@ -162,6 +164,10 @@ export interface RunEvents extends SprayEvents, SectorEvents {
     points: number;
     /** The scenario card the contact was drawn from (Sweep, design §4.4); absent where contacts have no card. */
     card?: string;
+    /** Skill trials the contact's facts produced up to its settle (Sweep, design §3.1); absent elsewhere. */
+    trials?: number;
+    /** The contact's item difficulty (its placement dial + its card's offset, design §9.1): a decided contact feeds the fight track at it (#203). */
+    difficulty?: number;
     /**
      * Meet contacts (#212, design §4.2): which side first dropped to counter-strafe speed or below (the accuracy
      * deadzone, `sweep.meet.stopSpeedMps`) once the contact opened: the player, an Echo, both in the same tick, or

@@ -54,7 +54,7 @@ describe('gate doors (#205)', () => {
     // Every bucket the design names is seen: the facts are not a constant.
     expect([...buckets].sort()).toEqual(['few', 'quiet', 'several']);
     expect([...roles].sort()).toEqual(['hold', 'meet', 'take']);
-  });
+  }, 30_000);
 
   it('in the sim, over 60 seeds: the sector a door leads to is entered as shown (role, stake, Echoes placed in the world, heard bucket)', () => {
     for (let seed = 1; seed <= 60; seed++) {

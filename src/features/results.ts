@@ -3,6 +3,7 @@ import { MODES } from '../app/modeHost';
 import { scriptedRun } from '../debug/scriptedSweep';
 import { PLACEMENT_MODE } from '../modes/placement';
 import '../feedback/cuePlanner'; // declares the cueScheduleSet event
+import { leanView } from '../modes/lean';
 import { ArmourNoteTracker } from '../feedback/armourNoteTracker';
 import { ResultsRecorder, type CardModel, type RatedSkill } from '../feedback/results';
 import { RunStoryTracker, storyConfigFrom } from '../feedback/runStory';
@@ -121,7 +122,10 @@ export const feature = defineFeature({
       ratings: game.modes.skills,
       skillOf,
       pb: { best: () => (fake === undefined ? before : fake), keepsBest: (mode) => runModes.includes(mode) },
+      leanFor: (kind) => leanView(kind, game.tunables.lean, game.tunables.sweep),
       onCard: (model) => {
+        // The next run leans toward what the card says (#210); a card that names nothing leaves the next run unleaned.
+        game.lean.setNext(model.fix.lean?.cards ?? []);
         card.show(model, endedAt);
       },
       onNewRun: () => card.hide(),

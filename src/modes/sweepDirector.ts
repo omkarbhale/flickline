@@ -149,6 +149,8 @@ export interface SectorPlan {
   readonly arms?: string;
   /** Longest sightline from the entry, metres (the sector source's). */
   readonly sightlineM: number;
+  /** One of a new profile's placing Opener sectors (design §9.2, #203): one single-Echo contact on the staircase. */
+  readonly opener?: boolean;
   /** The sector's economy (design §4.6): `full` unless the run dealt it a light or an eco condition. */
   readonly condition: Economy;
   readonly contacts: readonly ContactPlan[];
@@ -185,7 +187,15 @@ export interface GatePlan {
  */
 export interface RunPlan {
   readonly seed: number;
+  /**
+   * The route played. While a placing Opener runs, `sectors[0]` is its current contact sector (the
+   * mode swaps the next of `openerStages` in at each exit, until the staircase is done).
+   */
   readonly sectors: SectorPlan[];
+  /** The run places a new profile (design §9.2): its Opener is `openerStages`, short take sectors of one single-Echo contact each. */
+  readonly placing: boolean;
+  /** A placing Opener's contact sectors, in order (empty when the run does not place). */
+  readonly openerStages: readonly SectorPlan[];
   readonly gates: GatePlan[];
   readonly doors: (0 | 1)[];
 }
@@ -299,7 +309,9 @@ export function cardSpots(card: SweepCard): number {
  * `crossfireFromSector`, enough anchors left, and never `maxCardRun + 1` of the same card in a row).
  * Returns null when no card fits.
  */
-export function drawCard(rng: Rng, cfg: SweepTunables, sectorIndex: number, spotsLeft: number, recent: readonly SweepCard[]): TakeCard | null {
+export function drawCard(
+  rng: Rng, cfg: SweepTunables, sectorIndex: number, spotsLeft: number, recent: readonly SweepCard[], cards: readonly TakeCard[] = CARD_ORDER,
+): TakeCard | null {
   const run = cfg.maxCardRun;
   let streakCard: SweepCard | null = null;
   if (recent.length >= run) {
@@ -307,7 +319,6 @@ export function drawCard(rng: Rng, cfg: SweepTunables, sectorIndex: number, spot
     for (let i = recent.length - run; i < recent.length; i++) if (recent[i] !== streakCard) streakCard = null;
   }
   let total = 0;
-  const cards = CARD_ORDER;
   for (const c of cards) if (allowed(c)) total += cfg.cardWeight[c];
   if (total <= 0) return null;
   let u = rng.next() * total;
@@ -733,9 +744,9 @@ export function drawableSectors(catalog: readonly SectorSource[], body: PlanBody
   return catalog.filter(ok).sort((a, b) => (sectorKey(a) < sectorKey(b) ? -1 : 1));
 }
 
-/** The role a sector plays as: a drawn role is played (the gate planner falls back to a take where the catalog has no sector for it). */
-export function playedRole(wanted: SectorRole): SectorRole {
-  return wanted;
+/** The role a sector plays as: a role the run cannot play (`cfg.playableRoles`) plays as a take. */
+export function playedRole(wanted: SectorRole, cfg: SweepTunables): SectorRole {
+  return cfg.playableRoles.includes(wanted) ? wanted : 'take';
 }
 
 /**
@@ -764,9 +775,12 @@ export interface DoorStake {
  * One sector's plan. A take: `want` contacts drawn card by card (`recent` is the route's cards so far and
  * is extended as they are dealt, so pass a copy), each placed on hidden hold anchors. A meet: one `meet`
  * contact, the Echo group crossing the corridor. `firstContact` is the run-wide index of its first contact.
+ * `cards`: the cards a take may deal (a placing Opener's are the gentlest; the no-streak rule is waived
+ * there when it would leave none).
  */
 export function buildSector(
   rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody, index: number, role: SectorRole, drawn: SectorRole, condition: Economy, recent: SweepCard[], want: number, door: DoorStake, firstContact: number,
+  cards?: readonly SweepCard[],
 ): SectorPlan {
   const contacts: ContactPlan[] = [];
   let contactIndex = firstContact;
@@ -781,7 +795,11 @@ export function buildSector(
     for (let c = 0; c < want && free.length > 0; c++) {
       // Leave one anchor for each contact still to come.
       const spare = free.length - (want - c - 1);
-      const card = drawCard(rng, cfg, index, Math.max(1, spare), recent);
+      // The opener's cards are take cards (config `opener.cards`).
+      const takeCards = cards as readonly TakeCard[] | undefined;
+      const card = takeCards
+        ? drawCard(rng, cfg, index, Math.max(1, spare), recent, takeCards) ?? drawCard(rng, cfg, index, Math.max(1, spare), [], takeCards)
+        : drawCard(rng, cfg, index, Math.max(1, spare), recent);
       if (!card) break;
       recent.push(card);
       const spots: SectorSpot[] = [];
@@ -810,13 +828,33 @@ export function routeCards(sectors: readonly SectorPlan[]): SweepCard[] {
   return out;
 }
 
-/** The run's opener: a take sector drawn from the seed (design §4.1: always a take), no stake. The rest of the route is drawn gate by gate (`sweepGate.ts`). */
-export function planRun(seed: number, catalog: readonly SectorSource[], cfg: SweepTunables, body: PlanBody): RunPlan {
+/**
+ * The run's opener: a take sector drawn from the seed (design §4.1: always a take), no stake. The rest of the route is drawn gate by gate (`sweepGate.ts`).
+ * `placing` (a new profile's first run, design §9.2, #203): the Opener is `opener.maxSectors` short take sectors with one single-Echo
+ * contact each from the gentlest cards (never the same sector twice in a row), played until the staircase is done (`SectorDial.openerDone`).
+ * The same `(seed, placing)` gives the same plan.
+ */
+export function planRun(seed: number, catalog: readonly SectorSource[], cfg: SweepTunables, body: PlanBody, placing = false): RunPlan {
+  // `cfg` already carries the lean (`leanedSweep`, #210): the draws read its weights and nothing else changes.
   const takes = drawableSectors(catalog, body, 'take');
   if (takes.length === 0) throw new Error('sweep: no take sector with a hidden hold anchor');
   const rng = sectorStream(seed, 0);
-  const s = takes[rng.int(takes.length)]!;
-  const base = baseContacts(rng, cfg, 0, hiddenSpots(s, body).length);
-  const opener = buildSector(rng, cfg, s, body, 0, 'take', 'take', drawConditions(seed, cfg.sectors, cfg)[0]!, [], base, { stake: 'plain' }, 0);
-  return { seed, sectors: [opener], gates: [], doors: [] };
+  const condition = drawConditions(seed, cfg.sectors, cfg)[0]!;
+  if (!placing) {
+    const s = takes[rng.int(takes.length)]!;
+    const base = baseContacts(rng, cfg, 0, hiddenSpots(s, body).length);
+    const opener = buildSector(rng, cfg, s, body, 0, 'take', 'take', condition, [], base, { stake: 'plain' }, 0);
+    return { seed, sectors: [opener], gates: [], doors: [], placing: false, openerStages: [] };
+  }
+  const stages: SectorPlan[] = [];
+  const recent: SweepCard[] = [];
+  let last: SectorSource | null = null;
+  for (let k = 0; k < Math.max(1, cfg.opener.maxSectors); k++) {
+    let s = takes[rng.int(takes.length)]!;
+    if (s === last && takes.length > 1) s = takes[(takes.indexOf(s) + 1 + rng.int(takes.length - 1)) % takes.length]!;
+    last = s;
+    const stage = buildSector(rng, cfg, s, body, 0, 'take', 'take', condition, recent, 1, { stake: 'plain' }, k, cfg.opener.cards);
+    stages.push({ ...stage, opener: true });
+  }
+  return { seed, sectors: [stages[0]!], gates: [], doors: [], placing: true, openerStages: stages };
 }
