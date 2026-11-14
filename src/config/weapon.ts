@@ -87,7 +87,7 @@ export interface WeaponDef {
   recoilFlipTimeSec: number;
   /**
    * Seconds after the last shot that the aim offset holds before it returns (spec §3.5). The
-   * return is a straight line that reaches the crosshair at `recoverySec`, so this must be shorter
+   * return is a smoothstep glide that reaches the crosshair at `recoverySec`, so this must be shorter
    * than `recoverySec`; at least `heldFireIntervals` shot intervals keeps a held spray climbing.
    */
   recoilReturnDelaySec: number;

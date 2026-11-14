@@ -391,15 +391,21 @@ export function stepWeapon(
   }
 
   // Recoil: yaw direction swing (switch time) and return towards the crosshair (spec §3.5): held
-  // for `recoilReturnDelaySec`, then a straight line that lands on the crosshair exactly at the gun
-  // recovery time, so the offset never outlives the reset (#191). Each tick scales the offset by
-  // remaining / (remaining + dt), which is linear in time; inline so no double is boxed per tick.
+  // for `recoilReturnDelaySec`, then a smoothstep glide (no velocity jump at either end) along the
+  // offset's own direction that lands on the crosshair exactly at the gun recovery time, so the
+  // offset never outlives the reset (#191). Stateless: each tick scales the offset by
+  // ease(u) / ease(u one tick ago). Inline maths, so no double is boxed per tick.
   stepYawSign(def, w, dt);
   if (w.recoilPitch !== 0 || w.recoilYaw !== 0) {
     const sinceShot = time - w.lastShotTime;
     if (sinceShot >= def.recoilReturnDelaySec - EPS) {
-      const remaining = def.recoverySec - sinceShot;
-      const k = remaining > EPS ? remaining / (remaining + dt) : 0;
+      const span = def.recoverySec - def.recoilReturnDelaySec;
+      let k = 0;
+      if (def.recoverySec - sinceShot > EPS && span > EPS) {
+        const u = (sinceShot - def.recoilReturnDelaySec) / span;
+        const v = u - dt / span < 0 ? 0 : u - dt / span;
+        k = (1 - u * u * (3 - 2 * u)) / (1 - v * v * (3 - 2 * v));
+      }
       w.recoilPitch *= k;
       w.recoilYaw *= k;
     }

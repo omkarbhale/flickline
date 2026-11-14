@@ -256,7 +256,7 @@ describe('recoil as data (spec §3.5)', () => {
     expect(patternAt([], 3)).toBe(0);
   });
 
-  it('the aim offset holds through held fire, then returns in a straight line that ends at the gun recovery time (#191)', () => {
+  it('the aim offset holds through held fire, then glides back along its direction and lands at the gun recovery time (#191)', () => {
     const s = setup();
     const w = s.world.weapon;
     while (w.shots < 12) s.run(1, { fire: true }); // past the 8 protected bullets: both axes kicked
@@ -274,7 +274,7 @@ describe('recoil as data (spec §3.5)', () => {
       const since = k * TICK_DT;
       if (since < delay - 1e-9) expect(w.recoilPitch).toBe(peakPitch);
       expect(w.recoilPitch).toBeLessThanOrEqual(prev);
-      if (w.recoilPitch !== 0) expect(w.recoilYaw / w.recoilPitch).toBeCloseTo(peakYaw / peakPitch, 9); // straight line
+      if (w.recoilPitch !== 0) expect(w.recoilYaw / w.recoilPitch).toBeCloseTo(peakYaw / peakPitch, 9); // along its own direction
       if (since >= recovery - 1e-9) {
         expect(w.recoilPitch).toBe(0);
         expect(w.recoilYaw).toBe(0);
@@ -284,7 +284,7 @@ describe('recoil as data (spec §3.5)', () => {
       if (mid < 0 && since >= (delay + recovery) / 2) mid = w.recoilPitch;
       prev = w.recoilPitch;
     }
-    expect(mid / peakPitch).toBeCloseTo(0.5, 1); // linear in time over the return window
+    expect(mid / peakPitch).toBeCloseTo(0.5, 1); // half-way at the window's midpoint (smoothstep)
   });
 
 });
