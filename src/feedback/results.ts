@@ -52,6 +52,8 @@ export interface RatingView {
   /** Index into the tier table of the rating after the run (for the badge colour). */
   tierIndex: number;
   tierShift: 'up' | 'down' | 'same';
+  /** The player's first rating (the Placement run): there is no "before" worth showing, only the prior it started from. */
+  first: boolean;
   /** Progress 0..1 through the current sub-tier. */
   progress: number;
   progressText: string;
@@ -111,7 +113,7 @@ export interface ResultsInput {
   /** The mode's score; null for a run that does not score. */
   score: number | null;
   /** Dial-scale ratings (0-100) before and after, for the skill the run moves; null if none. */
-  rating: { skill: RatedSkill; before: number; after: number } | null;
+  rating: { skill: RatedSkill; before: number; after: number; first?: boolean } | null;
   /** Personal best score for this mode and dial band before this run, or null. */
   pb: number | null;
   medals: readonly string[];
@@ -320,17 +322,19 @@ function ratingView(r: NonNullable<ResultsInput['rating']>, cfg: ResultsTunables
   const ta = tierOf(r.after, createTierInfo());
   const delta = after - before;
   const top = ta.index === tunables.dial.tiers.length - 1;
+  const first = r.first === true;
   return {
     skill: cfg.skillLabels[r.skill] ?? titleCase(r.skill),
     before,
     after,
     delta,
-    deltaText: formatDelta(delta),
-    tone: toneOf(delta),
+    deltaText: first ? '' : formatDelta(delta),
+    tone: first ? 'none' : toneOf(delta),
     beforeTier: tb.label,
     afterTier: ta.label,
     tierIndex: ta.index,
-    tierShift: ta.index > tb.index || (ta.index === tb.index && ta.division > tb.division) ? 'up'
+    first,
+    tierShift: first ? 'same' : ta.index > tb.index || (ta.index === tb.index && ta.division > tb.division) ? 'up'
       : ta.index < tb.index || (ta.index === tb.index && ta.division < tb.division) ? 'down' : 'same',
     progress: ta.progress,
     progressText: top && ta.division === 0 ? 'Top tier' : `${Math.round(ta.progress * 100)}% to the next division`,
@@ -403,6 +407,8 @@ export interface ResultsRecorderDeps {
   onNewRun?(): void;
   /** Whether the run that just started is a clean run (read at `runEnded`). */
   isClean?(): boolean;
+  /** True for a mode whose result is the player's first rating (the Placement run): shown without a delta. */
+  firstRating?(mode: string): boolean;
 }
 
 /**
@@ -414,6 +420,7 @@ export class ResultsRecorder {
   last: CardModel | null = null;
   private skill: RatedSkill | null = null;
   private before = 0;
+  private first = false;
   private score: number | null = null;
   private medals: string[] = [];
   private readonly pbSource: PbSource;
@@ -425,6 +432,7 @@ export class ResultsRecorder {
     deps.bus.on('runReady', (e) => {
       this.skill = deps.skillOf(e.mode);
       this.before = this.skill === null ? 0 : deps.ratings.rating(this.skill);
+      this.first = deps.firstRating?.(e.mode) === true;
       this.score = null;
       this.medals = [];
       this.last = null;
@@ -440,7 +448,7 @@ export class ResultsRecorder {
   private finish(): void {
     const { run, ratings } = this.deps;
     const stats = run.liveStats();
-    const rating = this.skill === null ? null : { skill: this.skill, before: this.before, after: ratings.rating(this.skill) };
+    const rating = this.skill === null ? null : { skill: this.skill, before: this.before, after: ratings.rating(this.skill), first: this.first };
     const card = buildCard(
       {
         stats,

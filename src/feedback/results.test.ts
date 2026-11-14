@@ -231,7 +231,7 @@ describe('buildCard', () => {
 });
 
 describe('ResultsRecorder', () => {
-  function setup(skill: 'precision' | 'line' | null, isClean?: () => boolean) {
+  function setup(skill: 'precision' | 'line' | null, isClean?: () => boolean, firstRating?: (mode: string) => boolean) {
     const bus = new EventBus<ResultsEvents>();
     let rating = 40;
     const cards: unknown[] = [];
@@ -246,9 +246,20 @@ describe('ResultsRecorder', () => {
       onCard: (c) => cards.push(c),
       onNewRun: () => newRuns++,
       isClean,
+      firstRating,
     });
     return { bus, rec, cards, setRating: (r: number) => (rating = r), newRuns: () => newRuns };
   }
+
+  it('marks the rating of a first-rating mode as first, and only that mode', () => {
+    const { bus, rec } = setup('line', undefined, (m) => m === 'placement');
+    bus.emit('runReady', { tick: 0, mode: 'placement', seed: 1, dial: 30 });
+    bus.emit('runEnded', { tick: 9, t: 45, reason: 'timer' });
+    expect(rec.last!.rating!.first).toBe(true);
+    bus.emit('runReady', { tick: 0, mode: 'coldStart', seed: 1, dial: 30 });
+    bus.emit('runEnded', { tick: 9, t: 60, reason: 'timer' });
+    expect(rec.last!.rating!.first).toBe(false);
+  });
 
   it('builds one card at runEnded from the score, medals and the rating before and after', () => {
     const { bus, rec, cards, setRating, newRuns } = setup('precision');

@@ -5,6 +5,9 @@ import type { SkillId } from './contracts';
 import type { ModeContext, ModeDef } from './modeDef';
 import { OrbitTrial } from './orbit';
 
+/** The Placement run's mode id: the first-run flow starts it, and it is never replayed or listed on a card. */
+export const PLACEMENT_MODE = 'placement';
+
 export interface PlacementState {
   /** The 2-up/1-down staircase on the dial (design §9.2); its position is the next trial's difficulty. */
   staircase: Staircase;
@@ -27,7 +30,7 @@ export interface PlacementState {
  * have no dial-driven pacing of their own: the staircase is the only difficulty input.
  */
 export const placement: ModeDef<PlacementState> = {
-  id: 'placement',
+  id: PLACEMENT_MODE,
   skills: ['flick', 'precision'],
   map: 'range',
   weapon: 'kestrel',
