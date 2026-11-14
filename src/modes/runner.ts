@@ -14,6 +14,7 @@ import type {
 } from './contracts';
 import { effectiveDial } from './itemDifficulty';
 import type { AwardOptions, ModeContext, ModeDef, ModeEvent, ResolveOptions, RunPhase, RunStats, SpawnOptions, TrialOptions, WeaponEvent } from './modeDef';
+import { mindSkillFor } from './modeDef';
 import { AnchorIndex, SpawnScheduler } from './scheduler';
 
 export interface RunnerDeps {
@@ -165,6 +166,10 @@ export class ModeRunner implements ModeContext<unknown> {
 
   get events(): EventSink<ModeEvents> {
     return this.deps.events;
+  }
+
+  get mindSkill(): number {
+    return mindSkillFor(this.mode, this.dial);
   }
 
   get timeSec(): number {
