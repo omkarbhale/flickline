@@ -302,6 +302,8 @@ export interface WeaponWorld {
   table: WeaponTable;
   rules: WeaponRules;
   rng: Rng;
+  /** A mode without a loadout ignores `switchTo` (design §4: swapping belongs to Sweep). */
+  swapLocked: boolean;
 }
 
 /**
@@ -354,7 +356,7 @@ export function stepWeapon(
   }
 
   // Swap (design §6: a swap cancels a reload exactly as the spec says; spec §3.1 equip time).
-  const to = input.switchTo;
+  const to = world.swapLocked ? -1 : input.switchTo;
   if (to >= 0 && to < w.slots.length && to !== w.active) {
     if (w.reloadLeft > 0) {
       w.reloadLeft = 0;
