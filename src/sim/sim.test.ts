@@ -182,6 +182,25 @@ describe('hitscan weapon', () => {
     return { yaw: 0, pitch: Math.atan2(dy, p.pos.z - t.pos.z) };
   };
 
+  it('flags shotFired.moving only above the accuracy deadzone speed', () => {
+    const still = setup();
+    still.run(8, { fire: true });
+    const shots = still.log.filter((l) => l.type === 'shotFired');
+    expect(shots.length).toBeGreaterThan(0);
+    expect(shots.every((l) => (l.data as { moving: boolean }).moving === false)).toBe(true);
+
+    const run = setup();
+    run.run(40, { moveZ: 1 }); // reach run speed
+    run.run(1, { moveZ: 1, fire: true });
+    const first = run.log.find((l) => l.type === 'shotFired')!;
+    expect((first.data as { moving: boolean }).moving).toBe(true);
+
+    const walk = setup();
+    walk.run(40, { moveZ: 1, walk: true }); // walk speed 2.7 of 5.4 is above 27.5%
+    walk.run(1, { moveZ: 1, walk: true, fire: true });
+    expect((walk.log.find((l) => l.type === 'shotFired')!.data as { moving: boolean }).moving).toBe(true);
+  });
+
   it('hits, damages and kills a target, then it respawns', () => {
     const { world, run, count, log } = setup();
     run(4);

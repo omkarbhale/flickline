@@ -2,6 +2,7 @@ import { cmPer360, sensitivityFromCmPer360 } from '../core/sensitivity';
 import { QUALITY_LEVELS } from '../config/render';
 import type { Tunables } from '../config/tunables';
 import type { SettingsStore } from '../settings/settings';
+import { CrosshairEditor } from './crosshairEditor';
 
 /**
  * Start / pause menu with the settings panel. Shown whenever the pointer is not locked.
@@ -15,6 +16,7 @@ export class Menu {
   private readonly vol: HTMLInputElement;
   private readonly quality: HTMLSelectElement;
   private readonly title: HTMLElement;
+  private readonly crosshair: CrosshairEditor;
 
   constructor(
     root: HTMLElement,
@@ -36,6 +38,7 @@ export class Menu {
           <label>Volume<input data-k="vol" name="vol" id="set-vol" type="range" min="0" max="1" step="0.01" /></label>
           <label>Graphics<select data-k="quality" name="quality" id="set-quality">${QUALITY_LEVELS.map((q) => `<option value="${q}">${q}</option>`).join('')}</select></label>
         </div>
+        <details class="ch-editor"><summary>Crosshair</summary><div data-k="crosshair"></div></details>
         <p class="note"></p>
         <p class="keys">WASD move · Space jump · Ctrl/C crouch · Shift walk · LMB shoot · R reload · \` debug overlay</p>
       </div>`;
@@ -45,6 +48,7 @@ export class Menu {
     this.cm = q('cm');
     this.vol = q('vol');
     this.quality = q('quality');
+    this.crosshair = new CrosshairEditor(q('crosshair'), store);
     this.title = root.querySelector('[data-title]') as HTMLElement;
     (root.querySelector('.note') as HTMLElement).textContent = tunables.view.fovLockNote;
 
@@ -85,6 +89,7 @@ export class Menu {
     this.cm.value = cmPer360(s.sensitivity, s.dpi).toFixed(1);
     this.vol.value = String(s.volume);
     this.quality.value = s.quality;
+    this.crosshair.sync();
   }
 
   setVisible(v: boolean): void {

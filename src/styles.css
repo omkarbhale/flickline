@@ -10,15 +10,9 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); o
 canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; }
 
 #hud { position: fixed; inset: 0; pointer-events: none; }
-.crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
-.crosshair i { position: absolute; background: #7dff9c; box-shadow: 0 0 0 1px rgba(0,0,0,.55); }
-.ch-dot { width: 2px; height: 2px; left: -1px; top: -1px; }
-.ch-t { width: 2px; height: 7px; left: -1px; top: -13px; }
-.ch-b { width: 2px; height: 7px; left: -1px; top: 6px; }
-.ch-l { width: 7px; height: 2px; left: -13px; top: -1px; }
-.ch-r { width: 7px; height: 2px; left: 6px; top: -1px; }
+.crosshair-canvas { position: absolute; left: 0; top: 0; display: block; pointer-events: none; will-change: transform; }
 .hitmarker { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
-.hitmarker i { position: absolute; width: 9px; height: 2px; background: #fff; box-shadow: 0 0 3px rgba(0,0,0,.8); }
+.hitmarker i { position: absolute; width: 9px; height: 2px; background: var(--hit-color, #fff); box-shadow: 0 0 3px rgba(0,0,0,.8); }
 .hitmarker i:nth-child(1) { transform: translate(7px, 7px) rotate(45deg); }
 .hitmarker i:nth-child(2) { transform: translate(-16px, 7px) rotate(-45deg); }
 .hitmarker i:nth-child(3) { transform: translate(7px, -9px) rotate(-45deg); }
@@ -32,7 +26,7 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 
 #menu { position: fixed; inset: 0; display: none; place-items: center; background: rgba(7,10,14,.72); backdrop-filter: blur(3px); }
 #menu.open { display: grid; }
-.panel { width: min(520px, 92vw); padding: 28px 32px; background: #11161d; border: 1px solid #243040; border-radius: 10px; }
+.panel { width: min(520px, 92vw); max-height: 92vh; overflow-y: auto; box-sizing: border-box; padding: 28px 32px; background: #11161d; border: 1px solid #243040; border-radius: 10px; }
 .panel h1 { margin: 0; letter-spacing: .28em; font-size: 28px; }
 .panel .tag { margin: 4px 0 18px; color: var(--dim); }
 .play { width: 100%; padding: 14px; font: 700 16px inherit; background: var(--accent); color: #140a05; border: 0; border-radius: 6px; cursor: pointer; }
@@ -48,3 +42,27 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 #debug[hidden] { display: none; }
 #debug canvas { display: block; margin-top: 6px; }
 #debug .bad { color: #ff7a7a; }
+
+/* Crosshair editor (menu) */
+.ch-editor { margin-top: 16px; border-top: 1px solid #243040; padding-top: 12px; }
+.ch-editor summary { cursor: pointer; font-weight: 700; letter-spacing: .08em; font-size: 13px; }
+.ch-top { display: flex; gap: 14px; margin: 12px 0; align-items: stretch; }
+.ch-preview { position: relative; width: 200px; height: 120px; flex: none; border-radius: 6px; border: 1px solid #243040;
+  background: linear-gradient(90deg, #1b2430 0 33%, #6f7b88 33% 66%, #d9dee4 66% 100%); overflow: hidden; }
+.ch-side { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
+.ch-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.ch-editor button { font: 600 12px inherit; padding: 6px 8px; background: #0b0e12; color: var(--fg); border: 1px solid #243040; border-radius: 4px; cursor: pointer; }
+.ch-editor button:hover { border-color: var(--accent); }
+.ch-editor button.active { border-color: var(--accent); color: var(--accent); }
+.ch-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; align-items: start; }
+.ch-group { margin: 0; padding: 6px 8px 8px; border: 1px solid #243040; border-radius: 6px; min-width: 0; }
+.ch-group legend { padding: 0 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+.ch-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); padding: 2px 0; }
+.ch-row input[type=range] { width: 90px; }
+.ch-row output { min-width: 32px; text-align: right; color: var(--fg); font: 12px ui-monospace, monospace; }
+.ch-share { margin-top: 12px; display: grid; gap: 8px; }
+.ch-code { display: grid; gap: 4px; font-size: 12px; color: var(--dim); }
+.ch-codebox { display: flex; gap: 6px; }
+.ch-codebox input { flex: 1; min-width: 0; font: 13px ui-monospace, monospace; padding: 6px 8px; background: #0b0e12; color: var(--fg); border: 1px solid #243040; border-radius: 4px; }
+.ch-msg { margin: 0; min-height: 16px; font-size: 12px; color: #7dff9c; }
+.ch-msg.bad { color: #ff7a7a; }

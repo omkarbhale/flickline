@@ -114,12 +114,15 @@ export interface WeaponState {
 }
 
 /** What a static collision box represents (renderer picks materials from this). */
-export type BoxTag = 'floor' | 'wall' | 'crate' | 'platform';
+export const BOX_TAGS = ['floor', 'wall', 'crate', 'platform', 'cover', 'pillar', 'panel', 'ceiling'] as const;
+export type BoxTag = (typeof BOX_TAGS)[number];
 
 export interface BoxDef {
   min: Vec3;
   max: Vec3;
   tag: BoxTag;
+  /** Optional stable name; map anchors (peek cover, spray panel) refer to boxes by id. */
+  id?: string;
 }
 
 export interface TargetSpawn {
