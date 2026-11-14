@@ -42,6 +42,8 @@ export interface FlicklineDebug {
   setSetting(key: 'sensitivity' | 'dpi' | 'volume' | 'quality', value: number | string): void;
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
+  /** Named timestamps (ms since page load): panel shown, play clicked, lock, first shot. */
+  timeline(): Record<string, number>;
   /** Live tunables object (mutate for experiments; not persisted). */
   readonly tunables: unknown;
 }
@@ -108,6 +110,7 @@ export function installDebugHook(game: Game): FlicklineDebug {
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);
     },
+    timeline: () => game.timeline.toObject(),
     tunables: game.tunables,
   };
   window.__flickline = hook;
