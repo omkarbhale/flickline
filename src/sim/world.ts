@@ -96,7 +96,8 @@ export class World {
     this.targetField.updateVisibility(this.player, this.level.boxes, this.tick, events);
     stepWeapon(
       this.weapon, input.fire, this.player, this.level.boxes, this.targetField,
-      t.weapon, t.movement, t.targets, this.tick, events, this.trace,
+      t.weapon, this.tick, events, this.trace,
+      t.movement.runSpeed * t.weapon.movingSpeedFraction,
     );
     this.stepTargets(events);
   }

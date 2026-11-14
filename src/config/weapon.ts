@@ -23,6 +23,11 @@ export interface WeaponTunables {
   fireIntervalSec: number;
   /** Maximum hitscan range, metres. */
   range: number;
+  /**
+   * Fraction of max run speed above which a shot counts as fired while moving (the accuracy
+   * deadzone, mechanics spec 2.6: 27.5%). Drives `shotFired.moving`.
+   */
+  movingSpeedFraction: number;
 }
 
 export const weapon: WeaponTunables = {
@@ -34,4 +39,5 @@ export const weapon: WeaponTunables = {
   ],
   fireIntervalSec: 0.1,
   range: 200,
+  movingSpeedFraction: 0.275,
 };

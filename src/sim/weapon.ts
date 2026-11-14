@@ -1,8 +1,6 @@
 import type { EventSink } from '../core/eventBus';
 import { directionFromAngles, vec3, type Vec3 } from '../core/vec3';
 import { secondsToTicks } from '../core/time';
-import type { TargetTunables } from '../config/targets';
-import type { MovementTunables } from '../config/movement';
 import type { WeaponTunables } from '../config/weapon';
 import { rayBox } from './collision';
 import { zoneDamage } from './damage';
@@ -89,11 +87,10 @@ export function stepWeapon(
   boxes: readonly BoxDef[],
   field: TargetField,
   wt: WeaponTunables,
-  mt: MovementTunables,
-  tt: TargetTunables,
   tick: number,
   events: EventSink<SimEvents>,
   result: TraceResult,
+  movingSpeed: number,
 ): void {
   if (w.cooldown > 0) w.cooldown--;
   if (!firing || w.cooldown > 0) return;
@@ -107,15 +104,13 @@ export function stepWeapon(
   o.z = p.pos.z;
   const d = directionFromAngles(scratchDir, p.yaw, p.pitch);
 
-  events.emit('shotFired', { tick, origin: o, dir: d });
+  const moving = p.vel.x * p.vel.x + p.vel.z * p.vel.z > movingSpeed * movingSpeed;
+  events.emit('shotFired', { tick, origin: o, dir: d, moving });
   trace(boxes, field, o.x, o.y, o.z, d.x, d.y, d.z, wt.range, result);
 
-  // A moving shot: above the accuracy deadzone, or airborne (design §3). The weapon task (#14)
-  // will supply this flag per weapon; until then it is derived from run speed here.
-  const speed = Math.hypot(p.vel.x, p.vel.z);
-  const moving = !p.grounded || speed > tt.movingShotSpeedFraction * mt.runSpeed;
+  // A moving shot also counts when airborne (design §3); it breaks a clean kill.
   const hitId = result.kind === 2 ? field.slots[result.targetIndex]!.id : -1;
-  field.registerShot(o.x, o.y, o.z, d.x, d.y, d.z, hitId, moving, tick, events);
+  field.registerShot(o.x, o.y, o.z, d.x, d.y, d.z, hitId, moving || !p.grounded, tick, events);
 
   if (result.kind !== 0) {
     const im = impactPayload;

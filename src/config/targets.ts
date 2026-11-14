@@ -81,12 +81,6 @@ export interface TargetTunables {
    * fixed reference aspect (16:9) rather than the player's.
    */
   visibilityAspect: number;
-  /**
-   * A shot is a "moving shot" (breaks a clean kill) when horizontal speed exceeds this fraction
-   * of run speed, or the player is airborne. `move.deadzone_fraction` (spec §2.4). The weapon
-   * task (#14) supplies the per-weapon flag later; this is the stand-in until then.
-   */
-  movingShotSpeedFraction: number;
 }
 
 export const targets: TargetTunables = {
@@ -124,5 +118,4 @@ export const targets: TargetTunables = {
   shotAtDeg: 1,
   reactionAimDeg: 5,
   visibilityAspect: 16 / 9,
-  movingShotSpeedFraction: 0.275,
 };
