@@ -65,8 +65,32 @@ export interface ResultsTunables {
   oneBulletTile: MetricId;
   /** Badge colour per tier, lowest first (design §8.4: Chalk, Brass, Steel, Cobalt, Neon, Prism, Zenith). The badge always carries the tier name too. */
   tierColours: readonly string[];
-  /** Why the run ended, shown above the mode name. */
-  endLabels: Record<'timer' | 'death' | 'complete' | 'quit' | 'left', string>;
+  /** Why the run ended, shown above the mode name (`left` = a Leave gate, design §4.7). */
+  endLabels: Record<string, string>;
+  /**
+   * The run results card (design §8.2). `modes` are the modes whose runs are sector runs: they get the six headline
+   * stats of §8.2 and the route and situation rows; `routeSectors` is the sector count before Overtime (the Finale is
+   * the last); `maxSectors` caps the route strip.
+   */
+  run: {
+    modes: readonly string[];
+    routeSectors: number;
+    maxSectors: number;
+    /** The six headline stats, in order (`StatCell` ids). */
+    headline: readonly string[];
+    /** Tiles wrap to a second row above this many. */
+    tilesPerRow: number;
+    /** A sector that cost at least this much health shows its HP in the damage colour. */
+    hurtHp: number;
+  };
+  /** Words on the route strip and the fights row; unknown ids are title-cased, an empty string hides the word. */
+  roleLabels: Record<string, string>;
+  conditionLabels: Record<string, string>;
+  stakeLabels: Record<string, string>;
+  /** Scenario cards (design §4.4). */
+  cardLabels: Record<string, string>;
+  /** The header's depth line. */
+  depthCopy: { sector: string; finale: string; finaleDied: string; overtime: string; routeDone: string };
   /** Display names of the skills the rating row names (`line` = the mean of all seven). */
   skillLabels: Record<string, string>;
   /** Display names of medal ids (design §8.4); unknown ids are title-cased. */
@@ -117,7 +141,37 @@ export const results: ResultsTunables = {
   oneBulletModes: ['coldStart', 'orbit', 'placement'],
   oneBulletTile: 'cleanStreak',
   tierColours: ['#aab4c2', '#d9a35a', '#9fb4cc', '#5b8cff', '#38e8ff', '#c792ff', '#ffd23f'],
-  endLabels: { timer: "Time's up", death: 'Eliminated', complete: 'Run complete', quit: 'Run ended early', left: 'Made it out' },
+  endLabels: { timer: "Time's up", death: 'Eliminated', complete: 'Run complete', left: 'Made it out', quit: 'Run ended early' },
+  run: {
+    modes: ['sweep'],
+    routeSectors: 6,
+    maxSectors: 16,
+    headline: ['accuracy', 'headshotRate', 'timeToShot', 'ttk', 'movingShots', 'stopLatency'],
+    tilesPerRow: 8,
+    hurtHp: 30,
+  },
+  roleLabels: { take: 'Take', hold: 'Hold', meet: 'Meet' },
+  conditionLabels: { full: '', light: 'Light', eco: 'Eco', cold: 'Cold' },
+  stakeLabels: { plain: '', shield: 'Shield', arms: 'Arms', hot: 'Hot' },
+  cardLabels: {
+    'take-expected': 'Take, expected',
+    'take-unaware': 'Take, unaware',
+    hold: 'Hold',
+    clear: 'Clear',
+    trade: 'Trade',
+    meet: 'Meet',
+    breach: 'Breach',
+    crossfire: 'Crossfire',
+    flank: 'Flank',
+    'known-duel': 'Known duel',
+  },
+  depthCopy: {
+    sector: 'Sector {n} of {total}',
+    finale: 'Finale cleared',
+    finaleDied: 'Fell in the Finale',
+    overtime: 'Overtime {k}',
+    routeDone: 'Route cleared, {n} sectors',
+  },
   skillLabels: {
     precision: 'Precision', flick: 'Flick', track: 'Tracking', footwork: 'Footwork', spray: 'Spray control',
     switch: 'Target switching', angles: 'Angles', line: 'Line rating',
