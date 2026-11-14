@@ -1,8 +1,10 @@
 import { movement as defaultMovement, type MovementTunables } from '../config/movement';
 import { vec3, type Vec3 } from '../core/vec3';
 import { hullBlocked, hullOverlaps, restHeight, rayBox, supportBelow } from './collision';
+import { targets as defaultTargets, type HitTunables } from '../config/targets';
+import { holdStance, holdStandPos } from './mapQuery';
 import { walkReach } from './mapReach';
-import type { Anchor, MapDef } from './mapTypes';
+import type { Anchor, MapDef, SectorDef, SectorRole, Stance } from './mapTypes';
 import type { BoxDef } from './types';
 
 /**
@@ -15,6 +17,12 @@ import type { BoxDef } from './types';
  * see the checkpoint they serve, ramps walkable (slope, both ends meet a floor), every raised
  * (or sunken) hold reachable on foot from the spawn, box overlap tolerance, posts/lanes visible
  * from the spawn (warnings), sightline report.
+ *
+ * Sectors (design 4.2, 10.2): entry and exit reachable from each other on foot without leaving the
+ * region, every hold anchor inside the region, and in a take sector every hold anchor out of
+ * sight of the entry at standing eye height (an Echo is never visible when the sector opens),
+ * every approach lane reaching the region on foot, regions that do not overlap; the report gives
+ * each sector's longest sightline.
  */
 
 export type LintSeverity = 'error' | 'warning';
@@ -44,15 +52,26 @@ export interface SightlineReport {
   spawnForward: number;
 }
 
+export interface SectorReport {
+  id: string;
+  role: SectorRole[];
+  holdAnchors: number;
+  /** Longest unobstructed horizontal sightline at eye height inside the region, from the entry, the exit, a hold anchor or a nav node in it. */
+  longest: { length: number; from: string; bearingDeg: number };
+}
+
 export interface LintReport {
   mapId: string;
   issues: LintIssue[];
   sightlines: SightlineReport;
+  sectors: SectorReport[];
   stats: { boxes: number; anchors: number; navNodes: number; navEdges: number; checkpoints: number };
 }
 
 export interface LintOptions {
   movement?: MovementTunables;
+  /** Humanoid hit zones: the body points of a placed Echo that must stay hidden from a take sector's entry. */
+  hit?: HitTunables;
 }
 
 const EPS = 1e-6;
@@ -65,6 +84,10 @@ const EDGE_SAMPLE_STEP = 0.25;
 /** A hold counts as reached when a walkable floor lies within this many metres of its height (ramps put the hull a little above the surface under its centre). */
 const RAISED_TOLERANCE = 0.25;
 const BIN_EDGES = [5, 10, 20, 30, 40];
+/** A take sector wants at least this many hold anchors (a lighter sector is a warning, none an error). */
+const MIN_HOLD_ANCHORS = 2;
+/** Regions closer than this on an axis count as touching, not overlapping. */
+const REGION_EPS = 1e-6;
 
 const _n = vec3();
 
@@ -123,6 +146,8 @@ function anchorPoints(a: Anchor): { label: string; pos: Vec3; solid: boolean }[]
       return [{ label: 'min', pos: a.min, solid: false }, { label: 'max', pos: a.max, solid: false }];
     case 'spray-alcove':
       return [{ label: 'stand', pos: a.stand, solid: true }, { label: 'post', pos: a.post, solid: true }];
+    case 'hold':
+      return [{ label: 'pos', pos: a.pos, solid: true }];
   }
 }
 
@@ -356,6 +381,9 @@ export function lintMap(map: MapDef, opts: LintOptions = {}): LintReport {
     }
   }
 
+  // --- sectors ------------------------------------------------------------------------------------
+  const sectorReports = lintSectors(map, mv, opts.hit ?? defaultTargets.hit, add, buried);
+
   // --- sightlines -------------------------------------------------------------------------------
   const sources = map.nav.nodes.length > 0 ? map.nav.nodes : [{ id: 'spawn', pos: map.spawn.pos }];
   const counts = new Array<number>(BIN_EDGES.length + 1).fill(0);
@@ -388,6 +416,7 @@ export function lintMap(map: MapDef, opts: LintOptions = {}): LintReport {
   return {
     mapId: map.id,
     issues,
+    sectors: sectorReports,
     sightlines: {
       eyeHeight: eye,
       rays: sources.length * SIGHTLINE_RAYS,
@@ -406,6 +435,161 @@ export function lintMap(map: MapDef, opts: LintOptions = {}): LintReport {
   };
 }
 
+const inRegion = (r: { min: Vec3; max: Vec3 }, p: Vec3): boolean =>
+  p.x >= r.min.x - EPS && p.x <= r.max.x + EPS &&
+  p.y >= r.min.y - EPS && p.y <= r.max.y + EPS &&
+  p.z >= r.min.z - EPS && p.z <= r.max.z + EPS;
+
+/** Body points of an Echo standing (or crouching) with its feet at `feet`: head centre, torso middle, leg middle. */
+function bodyPoints(feet: Vec3, stance: Stance, hit: HitTunables, out: Vec3[]): void {
+  const crouch = stance === 'crouch';
+  const head = crouch ? hit.headCentreCrouch : hit.headCentreStand;
+  const torso = crouch ? (hit.torsoBottomCrouch + hit.torsoTopCrouch) / 2 : (hit.torsoBottomStand + hit.torsoTopStand) / 2;
+  const legs = (crouch ? hit.legTopCrouch : hit.legTopStand) / 2;
+  const ys = [head, torso, legs];
+  for (let i = 0; i < 3; i++) {
+    const q = out[i]!;
+    q.x = feet.x; q.y = feet.y + ys[i]!; q.z = feet.z;
+  }
+}
+
+/** Sector checks and the per-sector sightline report. */
+function lintSectors(
+  map: MapDef,
+  mv: MovementTunables,
+  hit: HitTunables,
+  add: (severity: LintSeverity, check: string, where: string, message: string) => void,
+  buried: (p: Vec3) => boolean,
+): SectorReport[] {
+  const boxes = map.boxes;
+  const hw = mv.hullHalfWidth;
+  const eye = mv.standEyeHeight;
+  const anchorIndex = new Map(map.anchors.map((a) => [a.id, a]));
+  const laneIndex = new Map(map.lanes.map((l) => [l.id, l]));
+  const reports: SectorReport[] = [];
+  const body = [vec3(), vec3(), vec3()];
+  const eyePoint = vec3();
+
+  const standsOnFloor = (p: Vec3): boolean => {
+    const floor = supportBelow(boxes, p.x, p.z, hw, p.y + mv.stepHeight);
+    return floor !== -Infinity && Math.abs(floor - p.y) <= RAISED_TOLERANCE;
+  };
+
+  for (const sector of map.sectors) {
+    const where = `sector ${sector.id}`;
+    const region = sector.region;
+    const isTake = sector.role.includes('take');
+
+    // entry and exit: in bounds, in the region, on a floor, and reachable from each other without leaving the region
+    let gatesOk = true;
+    for (const [label, p] of [['entry', sector.entry], ['exit', sector.exit]] as const) {
+      if (!inBounds(map, p)) { add('error', 'sector-gate', where, `${label} ${fmt(p)} is outside the map bounds`); gatesOk = false; }
+      else if (buried(p)) { add('error', 'sector-gate', where, `${label} ${fmt(p)} is inside geometry`); gatesOk = false; }
+      else if (!standsOnFloor(p)) { add('error', 'sector-gate', where, `${label} ${fmt(p)} has no floor under it`); gatesOk = false; }
+      if (!inRegion(region, p)) { add('error', 'sector-gate', where, `${label} ${fmt(p)} is outside the sector's region`); gatesOk = false; }
+    }
+    if (gatesOk) {
+      const fromEntry = walkReach(boxes, map.bounds, sector.entry, mv, region);
+      if (!fromEntry.reaches(sector.exit.x, sector.exit.y, sector.exit.z, RAISED_TOLERANCE)) {
+        add('error', 'sector-reach', where, `exit ${fmt(sector.exit)} cannot be reached on foot from the entry ${fmt(sector.entry)} inside the region`);
+      } else {
+        const fromExit = walkReach(boxes, map.bounds, sector.exit, mv, region);
+        if (!fromExit.reaches(sector.entry.x, sector.entry.y, sector.entry.z, RAISED_TOLERANCE)) {
+          add('error', 'sector-reach', where, `entry ${fmt(sector.entry)} cannot be reached on foot back from the exit ${fmt(sector.exit)} inside the region (a drop of more than a step)`);
+        }
+      }
+    }
+
+    // hold anchors: inside the region; in a take sector, hidden from the entry
+    eyePoint.x = sector.entry.x; eyePoint.y = sector.entry.y + eye; eyePoint.z = sector.entry.z;
+    let holds = 0;
+    for (const id of sector.holdAnchors) {
+      const a = anchorIndex.get(id);
+      const pos = a === undefined ? undefined : holdStandPos(a);
+      if (a === undefined || pos === undefined) {
+        add('error', 'sector-hold', where, `hold anchor "${id}" is not a hold or peek anchor of this map`);
+        continue;
+      }
+      holds++;
+      if (!inRegion(region, pos)) {
+        add('error', 'sector-hold', `${where} anchor ${id}`, `stands at ${fmt(pos)}, outside the sector's region`);
+        continue;
+      }
+      if (!isTake || !gatesOk) continue;
+      bodyPoints(pos, holdStance(a), hit, body);
+      const seen = body.findIndex((q) => segmentClear(boxes, eyePoint, q));
+      if (seen >= 0) {
+        add('error', 'sector-hold-visible', `${where} anchor ${id}`, `an Echo at ${fmt(pos)} (${holdStance(a)}) is in line of sight of the entry ${fmt(sector.entry)} at standing eye height (its ${['head', 'torso', 'legs'][seen]} shows); a take sector must not open with an Echo in view`);
+      }
+    }
+    if (isTake && holds === 0) add('error', 'sector-hold', where, 'a take sector needs hold anchors to place Echoes on');
+    else if ((isTake || sector.role.includes('hold')) && holds < MIN_HOLD_ANCHORS) add('warning', 'sector-hold', where, `only ${holds} hold anchor(s); a run wants at least ${MIN_HOLD_ANCHORS} so the placement can vary`);
+
+    // approach lanes: each ends inside the region and can be walked from its start
+    if (sector.role.includes('hold') && sector.approaches.length === 0) {
+      add('error', 'sector-approach', where, 'a hold sector needs at least one approach lane (the enemies arrive along it)');
+    }
+    for (const id of sector.approaches) {
+      const lane = laneIndex.get(id);
+      if (lane === undefined) { add('error', 'sector-approach', where, `approach lane "${id}" does not exist`); continue; }
+      if (!inRegion(region, lane.end)) {
+        add('error', 'sector-approach', `${where} lane ${id}`, `ends at ${fmt(lane.end)}, outside the sector's region, so it does not reach it`);
+        continue;
+      }
+      if (inRegion(region, lane.start)) add('warning', 'sector-approach', `${where} lane ${id}`, `starts at ${fmt(lane.start)} inside the region: enemies would arrive from nowhere`);
+      const walk = walkReach(boxes, map.bounds, lane.start, mv);
+      if (!walk.reaches(lane.end.x, lane.end.y, lane.end.z, RAISED_TOLERANCE)) {
+        add('error', 'sector-approach', `${where} lane ${id}`, `its end ${fmt(lane.end)} cannot be reached on foot from its start ${fmt(lane.start)}`);
+      }
+    }
+
+    reports.push({ id: sector.id, role: sector.role, holdAnchors: holds, longest: sectorSightline(map, sector, eye) });
+  }
+
+  // regions never overlap (touching is fine); regions that differ in height may share a footprint
+  for (let i = 0; i < map.sectors.length; i++) {
+    const a = map.sectors[i]!.region;
+    for (let j = i + 1; j < map.sectors.length; j++) {
+      const b = map.sectors[j]!.region;
+      const ox = Math.min(a.max.x, b.max.x) - Math.max(a.min.x, b.min.x);
+      const oy = Math.min(a.max.y, b.max.y) - Math.max(a.min.y, b.min.y);
+      const oz = Math.min(a.max.z, b.max.z) - Math.max(a.min.z, b.min.z);
+      if (ox > REGION_EPS && oy > REGION_EPS && oz > REGION_EPS) {
+        add('error', 'sector-overlap', `sectors ${map.sectors[i]!.id} / ${map.sectors[j]!.id}`, `regions overlap by ${round(ox)} x ${round(oz)} m on the floor plan`);
+      }
+    }
+  }
+  return reports;
+}
+
+/** Longest horizontal eye-height ray, cut off where it leaves the region, from the sector's gates, hold anchors and nav nodes. */
+function sectorSightline(map: MapDef, sector: SectorDef, eye: number): SectorReport['longest'] {
+  const { min, max } = sector.region;
+  const sources: { id: string; pos: Vec3 }[] = [{ id: 'entry', pos: sector.entry }, { id: 'exit', pos: sector.exit }];
+  for (const id of sector.holdAnchors) {
+    const a = map.anchors.find((x) => x.id === id);
+    const pos = a === undefined ? undefined : holdStandPos(a);
+    if (pos !== undefined) sources.push({ id, pos });
+  }
+  for (const n of map.nav.nodes) if (inRegion(sector.region, n.pos)) sources.push({ id: n.id, pos: n.pos });
+  const best = { length: 0, from: '', bearingDeg: 0 };
+  const o = vec3();
+  for (const s of sources) {
+    o.x = s.pos.x; o.y = s.pos.y + eye; o.z = s.pos.z;
+    for (let k = 0; k < SIGHTLINE_RAYS; k++) {
+      const yaw = (k / SIGHTLINE_RAYS) * Math.PI * 2;
+      const dx = -Math.sin(yaw);
+      const dz = -Math.cos(yaw);
+      const tx = dx > EPS ? (max.x - o.x) / dx : dx < -EPS ? (min.x - o.x) / dx : Infinity;
+      const tz = dz > EPS ? (max.z - o.z) / dz : dz < -EPS ? (min.z - o.z) / dz : Infinity;
+      const cut = Math.max(0, Math.min(tx, tz, SIGHTLINE_CAP));
+      const len = firstHit(map.boxes, o, dx, 0, dz, cut);
+      if (len > best.length) { best.length = len; best.from = s.id; best.bearingDeg = Math.round((yaw * 180) / Math.PI); }
+    }
+  }
+  return best;
+}
+
 export function lintErrors(report: LintReport): LintIssue[] {
   return report.issues.filter((i) => i.severity === 'error');
 }
@@ -416,12 +600,15 @@ export function formatLintReport(report: LintReport): string[] {
   const out: string[] = [];
   const errors = report.issues.filter((i) => i.severity === 'error').length;
   const warnings = report.issues.length - errors;
-  out.push(`${report.mapId}: ${s.boxes} boxes, ${s.anchors} anchors, ${s.navNodes} nav nodes / ${s.navEdges} edges, ${s.checkpoints} checkpoints`);
+  out.push(`${report.mapId}: ${s.boxes} boxes, ${s.anchors} anchors, ${s.navNodes} nav nodes / ${s.navEdges} edges, ${s.checkpoints} checkpoints, ${report.sectors.length} sectors`);
   for (const i of report.issues) out.push(`  ${i.severity === 'error' ? 'ERROR' : 'warn '} [${i.check}] ${i.where}: ${i.message}`);
   out.push(`  sightlines (eye ${sl.eyeHeight} m, ${sl.rays} rays): longest ${round(sl.longest.length)} m from ${sl.longest.from} at bearing ${sl.longest.bearingDeg} deg; spawn straight ahead ${round(sl.spawnForward)} m`);
   out.push(`  histogram: ${sl.histogram.map((b) => `${b.label}: ${b.count}`).join(' | ')}`);
   const top = [...sl.perNode].sort((a, b) => b.longest - a.longest).slice(0, 5);
   out.push(`  longest per node: ${top.map((n) => `${n.id} ${round(n.longest)} m`).join(', ')}`);
+  for (const sec of report.sectors) {
+    out.push(`  sector ${sec.id} [${sec.role.join('+')}]: ${sec.holdAnchors} hold anchors, longest sightline ${round(sec.longest.length)} m from ${sec.longest.from} at bearing ${sec.longest.bearingDeg} deg`);
+  }
   out.push(`  ${errors} error(s), ${warnings} warning(s)`);
   return out;
 }
