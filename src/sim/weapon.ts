@@ -89,6 +89,7 @@ export function stepWeapon(
   tick: number,
   events: EventSink<SimEvents>,
   result: TraceResult,
+  runSpeed: number,
 ): void {
   if (w.cooldown > 0) w.cooldown--;
   if (!firing || w.cooldown > 0) return;
@@ -102,7 +103,10 @@ export function stepWeapon(
   o.z = p.pos.z;
   const d = directionFromAngles(scratchDir, p.yaw, p.pitch);
 
-  events.emit('shotFired', { tick, origin: o, dir: d });
+  const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.z * p.vel.z);
+  const airborne = !p.grounded;
+  const moving = airborne || speed > wt.deadzoneFraction * runSpeed;
+  events.emit('shotFired', { tick, origin: o, dir: d, moving, speed, airborne });
   trace(boxes, targets, o.x, o.y, o.z, d.x, d.y, d.z, wt.range, result);
 
   if (result.kind !== 0) {
@@ -125,11 +129,13 @@ export function stepWeapon(
       damage: wt.damage,
       hpLeft: Math.max(0, tg.hp),
       distance: result.distance,
+      zone: 'body',
+      killed: tg.hp <= 0,
     });
     if (tg.hp <= 0) {
       tg.alive = false;
       tg.respawnTick = tick + secondsToTicks(tt.respawnSec);
-      events.emit('targetKilled', { tick, targetId: tg.id, point: result.point, distance: result.distance });
+      events.emit('targetKilled', { tick, targetId: tg.id, point: result.point, distance: result.distance, zone: 'body' });
     }
   }
 }

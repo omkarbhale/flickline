@@ -82,13 +82,44 @@ export interface LevelDef {
   targets: TargetSpawn[];
 }
 
+/** Which part of a target a bullet hit. Sphere placeholder targets only ever report 'body'. */
+export type HitZone = 'head' | 'body' | 'leg';
+
 /** Events the simulation emits. Payloads are read-only and valid only during the callback. */
 export interface SimEvents {
-  shotFired: { tick: number; origin: Vec3; dir: Vec3 };
+  shotFired: {
+    tick: number;
+    origin: Vec3;
+    dir: Vec3;
+    /** Fired while above the accuracy deadzone speed or airborne (design §3 "moving shot"), flagged at fire time. */
+    moving: boolean;
+    /** Horizontal speed at fire time, m/s. */
+    speed: number;
+    airborne: boolean;
+  };
   /** Where a shot ended (world surface, target, or max range). */
   shotImpact: { tick: number; point: Vec3; normal: Vec3; onTarget: boolean; distance: number };
-  targetHit: { tick: number; targetId: number; point: Vec3; damage: number; hpLeft: number; distance: number };
-  targetKilled: { tick: number; targetId: number; point: Vec3; distance: number };
+  targetHit: {
+    tick: number;
+    targetId: number;
+    point: Vec3;
+    damage: number;
+    hpLeft: number;
+    distance: number;
+    zone: HitZone;
+    /** This hit killed the target (a targetKilled follows in the same tick). */
+    killed: boolean;
+  };
+  targetKilled: {
+    tick: number;
+    targetId: number;
+    point: Vec3;
+    distance: number;
+    zone: HitZone;
+    /** Reaction time and time-to-kill in ms (design §3); absent until the enemy framework (#15) supplies them. */
+    rtMs?: number;
+    ttkMs?: number;
+  };
   targetRespawned: { tick: number; targetId: number };
   playerJumped: { tick: number };
   playerLanded: { tick: number; impactSpeed: number };

@@ -7,10 +7,12 @@ import { attachSfx } from '../audio/sfx';
 import { DebugOverlay } from '../debug/overlay';
 import { PerfStats } from '../debug/perfStats';
 import { SessionStats } from '../feedback/sessionStats';
+import { applySettingsToOptions, createFeedbackOptions } from '../feedback/options';
+import { ShotCues } from '../feedback/shotCues';
 import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
-import { SettingsStore } from '../settings/settings';
+import { SETTINGS_KEY, SettingsStore } from '../settings/settings';
 import { createTickInput, type SimEvents, type TickInput } from '../sim/types';
 import { testRoom } from '../sim/levels';
 import { World } from '../sim/world';
@@ -45,6 +47,10 @@ export class Game {
   readonly overlay: DebugOverlay;
   readonly perf = new PerfStats();
   readonly session = new SessionStats();
+  /** Per-shot effect cues (pure model; the renderer draws them). */
+  readonly cues: ShotCues;
+  /** Feedback-related settings, shared (live) with the cue model and the HUD. */
+  readonly feedbackOptions: ReturnType<typeof createFeedbackOptions>;
   readonly stepper = new FixedStepper(TICK_DT, 8);
 
   /** Debug: never auto-tick (deterministic stepping only via step()). */
@@ -53,6 +59,8 @@ export class Game {
   forceRun = false;
   /** Debug: sticky scripted input merged over live input on every frame. */
   override: Partial<Pick<TickInput, 'moveX' | 'moveZ' | 'jump' | 'crouch' | 'walk' | 'fire'>> | null = null;
+  /** Debug: draw with dt = 0 so transient effects hold still for screenshots. */
+  freezeFx = false;
   menuHidden = false;
   readonly eventLog: LoggedEvent[] = [];
 
@@ -68,14 +76,21 @@ export class Game {
     } catch {
       storage = null;
     }
+    const firstRun = storage === null || storage.getItem(SETTINGS_KEY) === null;
     this.settings = new SettingsStore(this.bus, storage);
+    // Research R12: Reduce flashing defaults on when the OS asks for reduced motion (first run only).
+    if (firstRun && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      this.settings.set({ reduceFlashing: true });
+    }
     const s = this.settings.get();
+    this.feedbackOptions = createFeedbackOptions(s);
 
     const seedParam = new URLSearchParams(window.location.search).get('seed');
     const seed = seedParam !== null && Number.isFinite(Number(seedParam)) ? Number(seedParam) : 1;
     this.world = new World({ level: testRoom, tunables: this.tunables, seed });
 
-    this.renderer = new GameRenderer(canvas, this.bus, this.tunables, s.quality);
+    this.cues = new ShotCues(this.bus, this.tunables.feedback, this.feedbackOptions, this.world.targets);
+    this.renderer = new GameRenderer(canvas, this.tunables, s.quality, this.cues);
     this.renderer.loadLevel(this.world);
 
     this.input = new InputManager(canvas, this.bus);
@@ -89,7 +104,11 @@ export class Game {
     attachSfx(this.bus, this.audio);
     this.session.attach(this.bus);
 
-    this.hud = new Hud(hudRoot, this.bus, this.session);
+    this.hud = new Hud(hudRoot, this.bus, this.session, {
+      options: this.feedbackOptions,
+      cfg: this.tunables.feedback,
+      project: (x, y, z, out) => this.renderer.projectToScreen(x, y, z, out),
+    });
     this.menu = new Menu(menuRoot, this.settings, this.tunables, () => this.play());
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
@@ -105,6 +124,7 @@ export class Game {
       if (changed.includes('sensitivity')) this.input.setSensitivity(settings.sensitivity);
       if (changed.includes('volume')) this.audio.setVolume(settings.volume);
       if (changed.includes('quality')) this.renderer.setQuality(settings.quality);
+      applySettingsToOptions(this.feedbackOptions, settings);
       this.menu.sync();
     });
     this.bus.on('pointerLockChanged', () => this.refreshChrome());
@@ -140,6 +160,7 @@ export class Game {
   private readonly frame = (ts: number): void => {
     requestAnimationFrame(this.frame);
     this.perf.beginFrame(ts);
+    this.cues.beginFrame();
     const dt = this.lastTs === 0 ? 0 : Math.min((ts - this.lastTs) / 1000, 0.25);
     this.lastTs = ts;
 
@@ -178,7 +199,7 @@ export class Game {
   };
 
   private drawFrame(alpha: number, dt: number): void {
-    this.renderer.render(this.world, alpha, this.input.yaw, this.input.pitch, dt);
+    this.renderer.render(this.world, alpha, this.input.yaw, this.input.pitch, this.freezeFx ? 0 : dt);
   }
 
   /** Render once immediately with no interpolation lag (used after deterministic stepping). */
@@ -213,6 +234,7 @@ export class Game {
   resetWorld(seed?: number): void {
     this.world.reset(seed);
     this.session.reset();
+    this.cues.clear();
     this.hud.refresh();
     this.input.setLook(this.world.player.yaw, 0);
     this.stepper.reset();
@@ -226,7 +248,8 @@ export class Game {
       `pos ${f(p.pos.x)} ${f(p.pos.y)} ${f(p.pos.z)}  speed ${f(speed)} m/s\n` +
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
-      `tick ${this.world.tick}  quality ${this.settings.get().quality}`
+      `tick ${this.world.tick}  quality ${this.settings.get().quality}\n` +
+      `fx latency max ${this.cues.latency.max} frame(s) over ${this.cues.latency.samples} cues, ${this.cues.latency.late} late`
     );
   }
 

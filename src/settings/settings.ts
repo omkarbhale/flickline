@@ -10,6 +10,14 @@ export interface Settings {
   /** Master volume 0..1. */
   volume: number;
   quality: QualityLevel;
+  /** Amber moving-shot tracer, `⇆` glyph (design §13.3 "Coaching cues"). */
+  coachingCues: boolean;
+  /** Ghost ring where the nearest target's head was, after a miss. */
+  missGhost: boolean;
+  /** Floating damage numbers on hits. */
+  damageNumbers: boolean;
+  /** Disables screen pulses and chromatic effects (design §13.3). */
+  reduceFlashing: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -17,6 +25,10 @@ export const DEFAULT_SETTINGS: Settings = {
   dpi: 800,
   volume: 0.7,
   quality: 'medium',
+  coachingCues: true,
+  missGhost: true,
+  damageNumbers: true,
+  reduceFlashing: false,
 };
 
 export interface SettingsEvents {
@@ -44,6 +56,11 @@ export function sanitizeSettings(raw: unknown): Settings {
   if (typeof r.quality === 'string' && (QUALITY_LEVELS as readonly string[]).includes(r.quality)) {
     out.quality = r.quality as QualityLevel;
   }
+  const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
+  out.coachingCues = bool(r.coachingCues, out.coachingCues);
+  out.missGhost = bool(r.missGhost, out.missGhost);
+  out.damageNumbers = bool(r.damageNumbers, out.damageNumbers);
+  out.reduceFlashing = bool(r.reduceFlashing, out.reduceFlashing);
   return out;
 }
 

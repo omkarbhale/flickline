@@ -7,6 +7,8 @@ export interface WeaponTunables {
   fireIntervalSec: number;
   /** Maximum hitscan range, metres. */
   range: number;
+  /** Moving-shot threshold as a fraction of run speed (spec §2.4 `move.deadzone_fraction`: 0.275). */
+  deadzoneFraction: number;
 }
 
 export const weapon: WeaponTunables = {
@@ -15,4 +17,5 @@ export const weapon: WeaponTunables = {
   damage: 34,
   fireIntervalSec: 0.1,
   range: 200,
+  deadzoneFraction: 0.275,
 };

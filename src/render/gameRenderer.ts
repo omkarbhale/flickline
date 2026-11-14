@@ -11,14 +11,15 @@ import {
   BoxGeometry,
   SphereGeometry,
   Scene,
+  Vector3,
   WebGLRenderer,
 } from 'three';
-import type { Subscribable } from '../core/eventBus';
 import { lerp } from '../core/math';
+import { TICK_RATE } from '../core/time';
+import type { ShotCues } from '../feedback/shotCues';
 import { REFERENCE_ASPECT, verticalFovDeg } from '../core/view';
 import { QUALITY_LEVELS, type QualityLevel } from '../config/render';
 import type { Tunables } from '../config/tunables';
-import type { SimEvents } from '../sim/types';
 import type { World } from '../sim/world';
 import { ShotEffects } from './effects';
 import { buildLevelMesh, type LevelMesh } from './levelMesh';
@@ -32,7 +33,6 @@ export interface RenderStats {
 }
 
 const BASE_TARGET_COLOR = 0xff6a3d;
-const FLASH_TICKS = 14;
 
 /**
  * Everything three.js. Reads sim state (never writes it), interpolates between the last two
@@ -54,6 +54,8 @@ export class GameRenderer {
   private readonly viewmodel: Mesh;
   private readonly m4 = new Matrix4();
   private readonly color = new Color();
+  private readonly flashTicks: number;
+  private readonly proj = new Vector3();
   private flashState: Uint8Array = new Uint8Array(0);
   private width = 1;
   private height = 1;
@@ -61,11 +63,12 @@ export class GameRenderer {
 
   constructor(
     canvas: HTMLCanvasElement,
-    bus: Subscribable<SimEvents>,
     private readonly tunables: Tunables,
     initialQuality: QualityLevel,
+    private readonly cues: ShotCues,
   ) {
     this.quality = initialQuality;
+    this.flashTicks = Math.max(1, Math.round(tunables.feedback.targetFlashSec * TICK_RATE));
     const preset = tunables.render.quality[initialQuality];
     this.renderer = new WebGLRenderer({
       canvas,
@@ -88,7 +91,7 @@ export class GameRenderer {
     sun.position.set(6, 12, 4);
     this.scene.add(sun);
 
-    this.effects = new ShotEffects(this.scene, bus);
+    this.effects = new ShotEffects(this.scene, this.camera, cues, tunables.feedback);
 
     // Placeholder first-person weapon model, parented to the camera.
     this.viewmodel = new Mesh(new BoxGeometry(0.05, 0.07, 0.36), new MeshLambertMaterial({ color: 0x3b4452 }));
@@ -121,6 +124,7 @@ export class GameRenderer {
     this.camera.updateProjectionMatrix();
     const pr = this.renderer.getPixelRatio();
     const p = this.tunables.render.quality[this.quality];
+    this.effects.setViewportHeight(this.height * pr);
     this.post.setSize(Math.floor(this.width * pr), Math.floor(this.height * pr), p.antialias ? 4 : 0);
   }
 
@@ -163,17 +167,30 @@ export class GameRenderer {
     this.camera.rotation.set(pitch, yaw, 0);
 
     this.effects.update(dt);
-    this.viewmodel.position.z = this.viewmodelBaseZ + this.effects.kick * 0.04;
-    this.viewmodel.rotation.x = this.effects.kick * 0.06;
+    this.viewmodel.position.z = this.viewmodelBaseZ + this.cues.kick * 0.04;
+    this.viewmodel.rotation.x = this.cues.kick * 0.06;
     this.updateTargets(world);
 
     this.renderer.info.reset();
     this.post.render(this.renderer, this.scene, this.camera);
+    this.cues.markDrawn();
     const info = this.renderer.info;
     this.stats.drawCalls = info.render.calls;
     this.stats.triangles = info.render.triangles;
     this.stats.geometries = info.memory.geometries;
     this.stats.textures = info.memory.textures;
+  }
+
+  /**
+   * Project a world point to CSS pixels using the camera of the last drawn frame (used to anchor
+   * floating numbers). Returns false when the point is behind the camera. No allocation.
+   */
+  projectToScreen(x: number, y: number, z: number, out: { x: number; y: number }): boolean {
+    const v = this.proj.set(x, y, z).project(this.camera);
+    if (v.z > 1) return false;
+    out.x = (v.x * 0.5 + 0.5) * this.width;
+    out.y = (-v.y * 0.5 + 0.5) * this.height;
+    return true;
   }
 
   private updateTargets(world: World): void {
@@ -186,7 +203,7 @@ export class GameRenderer {
       this.m4.makeScale(s, s, s).setPosition(t.pos.x, t.pos.y, t.pos.z);
       mesh.setMatrixAt(i, this.m4);
       const age = world.tick - t.lastHitTick;
-      const flashing = t.lastHitTick >= 0 && age < FLASH_TICKS ? 1 : 0;
+      const flashing = t.lastHitTick >= 0 && age < this.flashTicks ? 1 : 0;
       if (flashing !== this.flashState[i]) {
         this.flashState[i] = flashing;
         mesh.setColorAt(i, this.color.setHex(flashing ? 0xffffff : BASE_TARGET_COLOR));
