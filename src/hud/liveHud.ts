@@ -26,7 +26,7 @@ export interface HudClock {
 
 type LiveHudEvents = Pick<
   SimEvents,
-  'shotFired' | 'targetHit' | 'targetKilled' | 'reloadStarted' | 'reloadCompleted' | 'reloadCancelled' | 'weaponSwitched' | 'playerDamaged' | 'playerHealed'
+  'shotFired' | 'targetHit' | 'targetKilled' | 'reloadStarted' | 'reloadCompleted' | 'reloadCancelled' | 'weaponSwitched' | 'playerDamaged' | 'playerHealed' | 'playerShielded'
 > &
   Pick<ModeEvents, 'runReady' | 'runStarted' | 'runEnded' | 'scoreAwarded' | 'chainUpdated' | 'streakUpdated'> &
   Pick<EconomyEvents, 'economyApplied' | 'primaryPicked'> &
@@ -206,6 +206,7 @@ export class LiveHud {
       restart(this.hpBars, 'lh-hit');
     });
     bus.on('playerHealed', (e) => this.setHp(e.hp, e.maxHp, this.shNow, this.shMax));
+    bus.on('playerShielded', (e) => this.setHp(e.hp, e.maxHp, e.shield, e.maxShield));
     // A sector's economy changed what the shield can hold (design §4.6): the bar follows it (health stays on screen mid-run).
     bus.on('economyApplied', (e) => {
       const h = this.d.health;

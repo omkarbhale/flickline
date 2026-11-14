@@ -1,6 +1,7 @@
 import { parseMap, type MapIssue } from './mapSchema';
 import type { MapDef } from './mapTypes';
 import elbowJson from './levels/elbow.json';
+import gateJson from './levels/gate.json';
 import laneJson from './levels/lane.json';
 import rangeJson from './levels/range.json';
 
@@ -29,10 +30,13 @@ export function loadMap(raw: unknown, label = 'map'): MapDef {
 export const rangeMap: MapDef = loadMap(rangeJson, 'range');
 export const laneMap: MapDef = loadMap(laneJson, 'lane');
 export const elbowMap: MapDef = loadMap(elbowJson, 'elbow');
+/** The gate room Sweep walks the player through between sectors (design §4.5, #205): not a sector map, no sectors of its own. */
+export const gateMap: MapDef = loadMap(gateJson, 'gate');
 
 /** Every shipped map by id (`?map=<id>` in the URL picks one until the modes choose their own). */
 export const MAPS: Readonly<Record<string, MapDef>> = {
   [rangeMap.id]: rangeMap,
   [laneMap.id]: laneMap,
   [elbowMap.id]: elbowMap,
+  [gateMap.id]: gateMap,
 };

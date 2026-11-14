@@ -2,16 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { cloneTunables } from '../config/tunables';
 import { HeadlessGame } from '../debug/bot/headless';
 import { createTickInput } from '../sim/types';
-import { sweepPlan, type SweepState } from './sweep';
-import { drawConditions } from './sweepDirector';
+import { sweepEnv, type SweepState } from './sweep';
+import { drawConditions, type RunPlan } from './sweepDirector';
+import { planRoute } from './sweepGate';
 
 const tunables = cloneTunables();
+// These tests are about the economy of a sector, not the stake of the door before it: every door is Plain, and the player takes the left one.
+tunables.sweep.gate.stakeWeight = { shield: 0, arms: 0, hot: 0, plain: 1 };
 const cfg = tunables.sweep;
+
+/** The whole route a seed gives along the left door of every gate (the gates are drawn as the run reaches them; this walks them offline). */
+function sweepPlan(seed: number, t = tunables): RunPlan {
+  return planRoute(seed, sweepEnv(t), () => 0);
+}
 
 /** A seed whose plan deals an eco (or light) sector at index 1..`notAfter`, and a full sector right after it (so what comes back can be read). */
 function seedWith(cond: 'eco' | 'light', notAfter = 99): number {
   for (let s = 1; s < 500; s++) {
-    const sectors = sweepPlan(s, tunables).sectors;
+    const sectors = sweepPlan(s).sectors;
     const i = sectors.findIndex((x) => x.condition === cond);
     if (i >= 1 && i <= notAfter && sectors[i + 1]?.condition === 'full') return s;
   }
@@ -22,7 +30,7 @@ describe('sector conditions (#207, design §4.6)', () => {
   it('limits hold over 500 seeds: at most one eco and one light, never the Opener or the Finale, and both do come up', () => {
     let eco = 0, light = 0, both = 0, none = 0;
     for (let seed = 1; seed <= 500; seed++) {
-      const conds = sweepPlan(seed, tunables).sectors.map((s) => s.condition);
+      const conds = sweepPlan(seed).sectors.map((s) => s.condition);
       const nEco = conds.filter((c) => c === 'eco').length;
       const nLight = conds.filter((c) => c === 'light').length;
       expect(nEco, `seed ${seed}`).toBeLessThanOrEqual(1);
@@ -54,12 +62,12 @@ describe('sector conditions (#207, design §4.6)', () => {
   });
 
   it('conditions are a function of the seed alone, and dealing them moves no placement', () => {
-    expect(sweepPlan(11, tunables).sectors.map((s) => s.condition)).toEqual(sweepPlan(11, tunables).sectors.map((s) => s.condition));
+    expect(sweepPlan(11).sectors.map((s) => s.condition)).toEqual(sweepPlan(11).sectors.map((s) => s.condition));
     const noCond = cloneTunables();
     noCond.sweep.conditions.ecoChance = 0;
     noCond.sweep.conditions.lightChance = 0;
     for (const seed of [3, 8, 21]) {
-      const a = sweepPlan(seed, tunables).sectors.map((s) => [s.sectorId, s.contacts]);
+      const a = sweepPlan(seed).sectors.map((s) => [s.sectorId, s.contacts]);
       const b = sweepPlan(seed, noCond).sectors.map((s) => [s.sectorId, s.contacts]);
       expect(a).toEqual(b);
     }
@@ -67,16 +75,21 @@ describe('sector conditions (#207, design §4.6)', () => {
 });
 
 function start(seed: number, pick?: string) {
-  const g = new HeadlessGame({ seed });
+  const g = new HeadlessGame({ seed, tunables });
   const input = createTickInput();
   const entered: { index: number; condition: string }[] = [];
   g.bus.on('sectorEntered', (e) => entered.push({ index: e.index, condition: e.condition }));
   expect(g.modes.start('sweep', { seed, pick })).toBe(true);
   const state = (): SweepState => g.modes.runner.state as SweepState;
+  /** Leave the sector by its exit and walk through the left door of the gate behind it (none after the last sector). */
   const toExit = (): void => {
     const sp = state().plan.sectors[state().sector]!;
     g.world.placePlayer(sp.exit.x, sp.exit.y, sp.exit.z, 0);
     g.advance(input);
+    const gc = cfg.gate;
+    if (!state().gate) return;
+    g.world.placePlayer(gc.doors[0].x, 0, gc.doors[0].z - gc.commitDepthM - 0.1, 0);
+    for (let k = 0; k < Math.ceil(gc.commitSec * 128) + 3 && state().gate; k++) g.advance(input);
   };
   return { g, input, state, toExit, entered };
 }

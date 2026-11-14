@@ -6,12 +6,19 @@ import { playMode } from '../debug/bot/play';
 import { bodyTop, lineClear } from '../sim/exposure';
 import { MAPS } from '../sim/mapLoader';
 import { createTickInput } from '../sim/types';
-import { planCards, sweepCatalog, sweepPlan, type SweepState } from './sweep';
-import { cardSpots, drawCard, perSector } from './sweepDirector';
+import { planCards, sweepCatalog, sweepEnv, type SweepState } from './sweep';
+import { cardSpots, drawCard, perSector, type RunPlan } from './sweepDirector';
+import { planRoute } from './sweepGate';
 import { Rng } from '../core/rng';
 
 const tunables = cloneTunables();
 const cfg = tunables.sweep;
+const env = sweepEnv(tunables);
+
+/** The whole route a seed gives when the player takes door `(seed + depth) & 1` at each gate (a mix of both doors). */
+function sweepPlan(seed: number): RunPlan {
+  return planRoute(seed, env, (_g, plan) => ((seed + plan.sectors.length) & 1) as 0 | 1);
+}
 
 /** A finer body grid than the director's own (9 x 13, crown included): an independent check that nothing shows. */
 const showsMemo = new Map<string, boolean>();
@@ -52,9 +59,9 @@ describe('Sweep run director (#201)', () => {
   });
 
   it('same seed, same plan; different seeds, different runs', () => {
-    expect(sweepPlan(42, tunables)).toEqual(sweepPlan(42, tunables));
+    expect(sweepPlan(42)).toEqual(sweepPlan(42));
     const shapes = new Set<string>();
-    for (let s = 1; s <= 30; s++) shapes.add(JSON.stringify(sweepPlan(s, tunables).sectors.map((x) => [x.sectorId, x.contacts.map((c) => [c.card, c.spots])])));
+    for (let s = 1; s <= 30; s++) shapes.add(JSON.stringify(sweepPlan(s).sectors.map((x) => [x.sectorId, x.contacts.map((c) => [c.card, c.spots])])));
     expect(shapes.size).toBeGreaterThan(20);
   });
 
@@ -71,7 +78,7 @@ describe('Sweep run director (#201)', () => {
   it('a plan is four sectors, the Opener a take, none twice in a row, with the card rules of design §4.4', () => {
     const counts: Record<string, number> = {};
     for (let seed = 1; seed <= 300; seed++) {
-      const plan = sweepPlan(seed, tunables);
+      const plan = sweepPlan(seed);
       expect(plan.sectors).toHaveLength(cfg.sectors);
       expect(plan.sectors[0]!.role).toBe('take');
       for (let i = 0; i < plan.sectors.length; i++) {
@@ -84,7 +91,7 @@ describe('Sweep run director (#201)', () => {
           counts.meet = (counts.meet ?? 0) + 1;
           continue;
         }
-        expect(s.contacts.length).toBeLessThanOrEqual(perSector(cfg.contactsMax, i));
+        expect(s.contacts.length).toBeLessThanOrEqual(perSector(cfg.contactsMax, i) + (s.stake === 'hot' ? cfg.gate.hotExtraContacts : 0));
         const used = new Set<string>();
         for (const c of s.contacts) {
           if (c.card === 'crossfire') expect(i).toBeGreaterThanOrEqual(cfg.crossfireFromSector);
@@ -121,7 +128,10 @@ describe('Sweep run director (#201)', () => {
     const eyeH = tunables.movement.standEyeHeight;
     let echoes = 0;
     for (let seed = 1; seed <= 200; seed++) {
-      for (const s of sweepPlan(seed, tunables).sectors) {
+      const plan = sweepPlan(seed);
+      // Both doors of every gate are checked, not only the one the route took: the other sector is planned just as well.
+      const sectors = [plan.sectors[0]!, ...plan.gates.flatMap((g) => [g.doors[0].sector, g.doors[1].sector])];
+      for (const s of sectors) {
         // A meet sector hides nothing by design (its Echoes start 15 m or more away, in view, and are heard when they run).
         if (s.role === 'meet') continue;
         const eye = { x: s.entry.x, y: s.entry.y + eyeH, z: s.entry.z };
@@ -155,14 +165,27 @@ function startRun(seed: number) {
     g.world.placePlayer(sp.exit.x, sp.exit.y, sp.exit.z, 0);
     g.advance(input);
   };
-  return { g, log, input, state, toExit };
+  /** In a gate: stand the player through door `door`, then let the other door close and the sector load. */
+  const throughGate = (door: 0 | 1 = 0): void => {
+    const gc = cfg.gate;
+    expect(state().gate, 'in a gate').not.toBeNull();
+    g.world.placePlayer(gc.doors[door].x, 0, gc.doors[door].z - gc.commitDepthM - 0.1, 0);
+    g.advance(input);
+    for (let k = 0; k <= Math.ceil(gc.commitSec * 128) + 1 && state().gate; k++) g.advance(input);
+  };
+  /** The sector's exit, then through door `door` of the gate behind it. */
+  const next = (door: 0 | 1 = 0): void => {
+    toExit();
+    if (g.run.state !== 'result') throughGate(door);
+  };
+  return { g, log, input, state, toExit, throughGate, next };
 }
 
 describe('Sweep mode (#201)', () => {
   it('in the sim: every Echo is out of sight when the player arrives (200 seeds) and while the player stands at the entry (50 seeds)', () => {
     const eyeH = tunables.movement.standEyeHeight;
     for (let seed = 1; seed <= 200; seed++) {
-      const { g, log, input, state, toExit } = startRun(seed);
+      const { g, log, input, state, next } = startRun(seed);
       const ready = Math.ceil(tunables.run.readySec * 128) + 1;
       for (let k = 0; k < ready; k++) g.advance(input);
       for (let i = 0; i < 4; i++) {
@@ -173,7 +196,7 @@ describe('Sweep mode (#201)', () => {
           // A meet sector is the other kind: nothing hides, but no Echo starts closer than the fairness floor.
           const p = g.world.player.pos;
           for (const t of g.world.targets) if (t.alive) expect(Math.hypot(t.pos.x - p.x, t.pos.z - p.z)).toBeGreaterThan(15);
-          toExit();
+          next((seed & 1) as 0 | 1);
           continue;
         }
         // Stand still at the entry (1 s for the first 50 seeds, else the arrival tick): no Echo shows, by the fine
@@ -192,29 +215,40 @@ describe('Sweep mode (#201)', () => {
         }
         expect(log.slice(from).filter((l) => l.type === 'targetVisible'), `seed ${seed} sector ${sp.sectorId}`).toEqual([]);
         if (g.run.state === 'result') break;
-        toExit();
+        next((seed & 1) as 0 | 1);
       }
     }
   }, 30_000);
 
   it('health carries over, the depth multiplier and dial offset follow the sector, and the last exit ends the run as left', () => {
-    const { g, log, input, state, toExit } = startRun(9);
+    const { g, log, input, state, toExit, next } = startRun(9);
     for (let k = 0; k < 120; k++) g.advance(input);
-    // Take a hit in sector 1: the damage must still be there in sector 2.
+    // Take a hit in sector 1: the damage must still be there in sector 2 (unless the door walked through gave a shield back).
     g.world.hitPlayer('kestrel', 'body', 0, 1.2, 0, -1, g.bus);
     const hp = g.world.health.hp, shield = g.world.health.shield;
     expect(hp + shield).toBeLessThan(150);
     toExit();
-    expect(state().sector).toBe(1);
+    expect(state().gate, 'a gate after the opener').not.toBeNull();
+    expect(g.modes.currentMap.id).toBe(cfg.gate.mapId);
     expect(g.world.health.hp).toBe(hp);
     expect(g.world.health.shield).toBe(shield);
-    toExit();
-    toExit();
+    const stake = state().gate!.plan.doors[0].facts.stake;
+    state().gate!.door = -1;
+    // Walk through door 0.
+    const gc = cfg.gate;
+    g.world.placePlayer(gc.doors[0].x, 0, gc.doors[0].z - gc.commitDepthM - 0.1, 0);
+    for (let k = 0; k < Math.ceil(gc.commitSec * 128) + 3 && state().gate; k++) g.advance(input);
+    expect(state().sector).toBe(1);
+    expect(g.world.health.hp).toBe(hp);
+    if (stake !== 'shield') expect(g.world.health.shield).toBe(shield);
+    next();
+    next();
     toExit();
     expect(g.run.state).toBe('result');
     const entered = log.filter((l) => l.type === 'sectorEntered').map((l) => l.e);
     expect(entered.map((e) => e.index)).toEqual([0, 1, 2, 3]);
     expect(entered.map((e) => e.depth)).toEqual(cfg.depthMultiplier.slice(0, 4));
+    expect(entered.map((e) => e.stake)[0]).toBe('plain');
     // The dial moves with the sector's offset (the posterior did not change: no trials resolved).
     const d0 = entered[0]!.dial as number;
     for (let i = 1; i < 4; i++) {

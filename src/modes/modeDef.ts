@@ -247,6 +247,10 @@ export interface ModeContext<S = unknown> {
    * Returns false for an unknown map.
    */
   loadMap(id: string): boolean;
+  /** Fill the player's shield up to `to` (Sweep's Shield door); returns what was added (0 when it was already there). */
+  refillShield(to: number): number;
+  /** Put another primary weapon in the player's primary slot and in hand (Sweep's Arms door); false when it is not a primary. */
+  setPrimary(weaponId: string): boolean;
   /**
    * Equip both sides as `economy` does (design §4.6, `config/economy.ts`) from now on: the Echoes spawned
    * after this carry its shield and weapon, the player wears its shield (never more than the shield he
