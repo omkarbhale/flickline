@@ -15,7 +15,14 @@ declare module '../debug/hook' {
     /** Create/resume the audio context without a click (headless checks). */
     audioUnlock(): void;
     /** Audio state: running, voices, sound-set render stats, and the most recent plays (what was scheduled where). */
-    audio(count?: number): { running: boolean; voices: number; stats: SoundSetStats | null; plays: PlayLogEntry[] };
+    audio(count?: number): {
+      running: boolean;
+      voices: number;
+      stats: SoundSetStats | null;
+      plays: PlayLogEntry[];
+      /** What the audio settings did to the graph: hit style and its tone cutoff, mono, bus gains, the master channel mixing. */
+      mix: { hitStyle: string; hitToneHz: number; hitsBusGain: number; mono: boolean; masterChannels: number; masterGain: number } | null;
+    };
     /**
      * Measure the real audio graph offline (OfflineAudioContext, no sound played): `spatial` left/right
      * energy of positioned cues at +-60 degrees, `dip` the damage low-pass dip on a steady tone, `mix`
@@ -76,6 +83,7 @@ export const feature = defineFeature({
           voices: game.audio.activeVoices,
           stats: game.audio.stats,
           plays: game.audio.recentPlays(count),
+          mix: game.audio.mixState(),
         };
       },
     });

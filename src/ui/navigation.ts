@@ -3,7 +3,7 @@
  * section 13.4 first-run). One table, pure, so the rules are tested instead of scattered over
  * handlers. The DOM layer (`menu.ts`) only describes the situation and performs the action.
  *
- *  - In a run: `Backspace` restarts it from anywhere (ready, live, result). `Esc` is the browser's: it
+ *  - In a run: `Backspace` (the `restart` key) restarts it from anywhere (ready, live, result). `Esc` is the browser's: it
  *    releases the pointer, and that opens the pause menu. `Enter` on the result card is the card's
  *    (`ui/resultsCard.ts`): it starts the next run through `Game.playAgain`.
  *  - Pause menu: `Esc`/`Enter` resume, `Backspace` restarts, `S` settings, `M` menu, `K` skips the session step.
@@ -47,11 +47,21 @@ const SKIP_STEP: NavAction = { type: 'skipStep' };
 
 const DIGIT = /^Digit([1-9])$/;
 
+/** The rebindable keys the menus honour (design §13.3: `restart` is Backspace and `confirm` Enter by default). */
+export interface NavKeys {
+  readonly restart: readonly string[];
+  readonly confirm: readonly string[];
+}
+
+export const DEFAULT_NAV_KEYS: NavKeys = { restart: ['Backspace'], confirm: ['Enter'] };
+
 /** What `code` (a `KeyboardEvent.code`) does in this situation, or null to leave it alone. */
-export function resolveKey(code: string, st: NavState): NavAction | null {
+export function resolveKey(code: string, st: NavState, keys: NavKeys = DEFAULT_NAV_KEYS): NavAction | null {
+  const restart = keys.restart.includes(code);
+  const confirm = keys.confirm.includes(code);
   if (!st.menuOpen) {
     // In a run (pointer locked).
-    if (code === 'Backspace') return RESTART; // also in free play: a reset from the seed
+    if (restart) return RESTART; // also in free play: a reset from the seed
     return null;
   }
 
@@ -67,14 +77,14 @@ export function resolveKey(code: string, st: NavState): NavAction | null {
       return code === 'Escape' ? BACK : null;
     case 'pause':
       if (code === 'Escape') return RESUME;
-      if (code === 'Enter' && !st.onButton) return RESUME;
-      if (code === 'Backspace') return RESTART;
+      if (confirm && !st.onButton) return RESUME;
+      if (restart) return RESTART;
       if (code === 'KeyS') return OPEN_SETTINGS;
       if (code === 'KeyM') return TO_MENU;
       if (code === 'KeyK' && st.sessionActive) return SKIP_STEP;
       return null;
     case 'main': {
-      if (code === 'Enter' && !st.onButton) return PLAY_SESSION;
+      if (confirm && !st.onButton) return PLAY_SESSION;
       if (code === 'KeyS') return OPEN_SETTINGS;
       if (code === 'KeyK' && st.sessionActive) return SKIP_STEP;
       const m = DIGIT.exec(code);
