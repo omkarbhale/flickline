@@ -64,14 +64,14 @@ const tun = cloneTunables();
 const cfg = tun.enemies.strafer;
 
 describe('Strafer FSM at the dial endpoints (design §5.2, §9.4, spec §5.3)', () => {
-  it('dial 0: speed 2.0 m/s, legs in 0.3-1.0 s, stand-still in 0.2-0.4 s, real stops', () => {
+  it('dial 0: speed 2.0 m/s, legs in 0.35-1.0 s, stand-still in 0.25-0.4 s, real stops', () => {
     const r = run(0, 7, 128 * 60);
     expect(Math.max(...r.vel.map(Math.abs))).toBeCloseTo(2.0, 5);
     const legs = spans(r.state, STRAFER_LEG);
     expect(legs.length).toBeGreaterThan(30);
     // A leg lasts its drawn length, then the brake starts: the leg state is exactly the leg.
     for (const l of legs) {
-      expect(l).toBeGreaterThanOrEqual(0.3 - TICK);
+      expect(l).toBeGreaterThanOrEqual(0.35 - TICK);
       expect(l).toBeLessThanOrEqual(1.0 + TICK);
     }
     // ... and the draw really spans the range, not a constant.
@@ -79,7 +79,7 @@ describe('Strafer FSM at the dial endpoints (design §5.2, §9.4, spec §5.3)', 
     expect(Math.min(...legs)).toBeLessThan(0.5);
     const stands = spans(r.state, STRAFER_STAND);
     for (const s of stands) {
-      expect(s).toBeGreaterThanOrEqual(0.2 - TICK);
+      expect(s).toBeGreaterThanOrEqual(0.25 - TICK);
       expect(s).toBeLessThanOrEqual(0.4 + TICK);
     }
     expect(Math.max(...stands)).toBeGreaterThan(0.35);
@@ -87,11 +87,11 @@ describe('Strafer FSM at the dial endpoints (design §5.2, §9.4, spec §5.3)', 
     r.state.forEach((st, i) => { if (st === STRAFER_STAND) expect(r.vel[i]).toBe(0); });
   });
 
-  it('dial 100: speed 5.4 m/s, legs 0.3 s, stand-still 0.2 s', () => {
+  it('dial 100: speed 5.4 m/s, legs 0.35 s, stand-still 0.25 s (the adopted research values, #130)', () => {
     const r = run(100, 11, 128 * 60);
     expect(Math.max(...r.vel.map(Math.abs))).toBeCloseTo(5.4, 5);
-    for (const l of spans(r.state, STRAFER_LEG)) expect(Math.abs(l - 0.3)).toBeLessThanOrEqual(TICK);
-    for (const s of spans(r.state, STRAFER_STAND)) expect(Math.abs(s - 0.2)).toBeLessThanOrEqual(TICK);
+    for (const l of spans(r.state, STRAFER_LEG)) expect(Math.abs(l - axes(100).strafeLegSec)).toBeLessThanOrEqual(TICK);
+    for (const s of spans(r.state, STRAFER_STAND)) expect(Math.abs(s - axes(100).standStillSec)).toBeLessThanOrEqual(TICK);
   });
 
   it('every stop takes the spec\'s 0.16 s, at the slowest and the fastest speed', () => {

@@ -107,7 +107,7 @@ describe('Cold Start', () => {
     const h = start(coldStart, 8, 50);
     untilTarget(h);
     const t = targetOf(h);
-    const exposure = h.runner.axes.exposureSec!;
+    const exposure = h.runner.axes.coldStartExposureSec!;
     h.step(secondsToTicks(exposure) - 3);
     expect(h.targets.has(t.id)).toBe(true);
     h.step(6);
@@ -163,7 +163,7 @@ describe('Orbit', () => {
     expect(orbit.weapon).toBe('pace');
     expect(orbit.durationSec).toBe(60);
     expect(orbit.player).toEqual({ standAt: 'beacon-shell', lockMovement: true, infiniteMagazine: true });
-    expect(orbit.axes).toEqual(['beaconScale', 'flickMinDeg', 'flickMaxDeg', 'exposureSec']);
+    expect(orbit.axes).toEqual(['beaconScale', 'flickMinDeg', 'flickMaxDeg', 'orbitExposureSec']);
   });
 
   it('puts each Beacon on the 8-25 m shell, pitch -20..+25, an angle from the previous one inside the dial range, at the dial scale', () => {
@@ -208,7 +208,7 @@ describe('Orbit', () => {
     const h = start(orbit, 22, 50);
     untilTarget(h);
     const first = targetOf(h);
-    const ttl = h.runner.axes.exposureSec!;
+    const ttl = h.runner.axes.orbitExposureSec!;
     h.step(secondsToTicks(ttl) - 3);
     expect(h.targets.has(first.id)).toBe(true);
     h.step(6);

@@ -140,7 +140,7 @@ export class LiveHud {
         <div class="lh-strip">
           <div class="lh-stat" ${ELEMENT_ATTR}="acc"><span class="k">ACC</span><span class="v" data-v>–</span></div>
           <div class="lh-stat" ${ELEMENT_ATTR}="hs"><span class="k">HS</span><span class="v" data-v>–</span></div>
-          <div class="lh-stat" ${ELEMENT_ATTR}="rt"><span class="k">RT</span><span class="v" data-v>–</span></div>
+          <div class="lh-stat" ${ELEMENT_ATTR}="rt" title="Median time to shot: target visible to your first shot aimed at it"><span class="k">TTS</span><span class="v" data-v>–</span></div>
           <div class="lh-stat" ${ELEMENT_ATTR}="ttk"><span class="k">TTK</span><span class="v" data-v>–</span></div>
           <div class="lh-stat" ${ELEMENT_ATTR}="moving"><span class="k">MOVING</span><span class="v" data-v>0</span></div>
         </div>

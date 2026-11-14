@@ -151,7 +151,7 @@ function play(f: Fight, seconds: number, strafe = false): void {
 }
 
 describe('shooting model: tells, bursts, fairness floors', () => {
-  it('the tell is never shorter than 0.15 s at any dial, and enemyTell fires at its start', () => {
+  it('the tell is never shorter than 0.15 s (nor the dial floor) at any dial, and enemyTell fires at its start', () => {
     for (const kind of ['strafer', 'peeker'] as const) {
       for (const dial of [0, 25, 50, 75, 100]) {
         for (const seed of [1, 2]) {
@@ -160,6 +160,7 @@ describe('shooting model: tells, bursts, fairness floors', () => {
           expect(f.tells.length, `${kind} dial ${dial}`).toBeGreaterThan(1);
           for (const t of f.tells) {
             expect(t.durationMs).toBeGreaterThanOrEqual(150);
+            expect(t.durationMs).toBeGreaterThanOrEqual(base.dial.floors.tellSec * 1000 - 1e-6);
             expect(t.startTick).toBe(t.tick);
             // The first shot after a tell comes no sooner than the tell's length.
             const shot = f.shots.find((s) => s.tick >= t.tick);
@@ -171,13 +172,13 @@ describe('shooting model: tells, bursts, fairness floors', () => {
     }
   });
 
-  it('the tell length follows the dial (0.5 s at dial 0, about 0.18 s at dial 100)', () => {
+  it('the tell length follows the dial (0.7 s at dial 0, 0.30 s at dial 100)', () => {
     const lo = fight({ dial: 0, seed: 4 });
     const hi = fight({ dial: 100, seed: 4 });
     play(lo, 20);
     play(hi, 20);
-    for (const t of lo.tells) expect(Math.abs(t.durationMs - 500)).toBeLessThan(10);
-    for (const t of hi.tells) expect(Math.abs(t.durationMs - 180)).toBeLessThan(10);
+    for (const t of lo.tells) expect(Math.abs(t.durationMs - axes(0).tellSec * 1000)).toBeLessThan(10);
+    for (const t of hi.tells) expect(Math.abs(t.durationMs - axes(100).tellSec * 1000)).toBeLessThan(10);
   });
 
   it('bursts are 1-3 shots at the weapon\'s fire rate', () => {

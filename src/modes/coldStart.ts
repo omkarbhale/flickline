@@ -88,7 +88,7 @@ export class ColdStartTrial implements TrialEngine {
     this.tracker.begin(ctx.player, this.head, ctx.liveTick);
     const eye = ctx.scheduler.eyePosition();
     this.distance = Math.hypot(this.head.x - eye.x, this.head.y - eye.y, this.head.z - eye.z);
-    const exposure = Math.max(axes.exposureSec ?? 1, ctx.tunables.dial.floors.exposureSec);
+    const exposure = Math.max(axes.coldStartExposureSec ?? 1, ctx.tunables.dial.floors.exposureSec);
     this.expireAt = ctx.liveTick + secondsToTicks(exposure);
     this.leaveAt = -1;
     return true;
@@ -187,7 +187,7 @@ export const coldStart: ModeDef<State> = {
   weapon: 'kestrel',
   player: { infiniteMagazine: true },
   durationSec: modeCfg.drillSec,
-  axes: ['distance', 'exposureSec'],
+  axes: ['distance', 'coldStartExposureSec'],
 
   setup: () => ({ trial: new ColdStartTrial(), nextAt: 0 }),
 

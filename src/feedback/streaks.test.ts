@@ -16,6 +16,19 @@ function setup() {
 }
 
 describe('chain (kills within 1.5 s)', () => {
+  it('a crossfire kill (not isolated, #132) neither extends nor starts a chain, but keeps the clean streak', () => {
+    const { tr, chain, streak, T } = setup();
+    tr.onKill(T(1), 1, true);
+    tr.onKill(T(1.5), 1.5, true, false); // swung into a second angle: no chain credit
+    expect(chain).toEqual([1]);
+    expect(tr.chain).toBe(1);
+    expect(streak.map((s) => s[0])).toEqual([1, 2]);
+    tr.onKill(T(2.4), 2.4, true); // 1.4 s after the last isolated kill: the chain goes on
+    expect(chain).toEqual([1, 2]);
+    tr.onKill(T(5), 5, true, false); // after a lapse: does not start a new chain either
+    expect(tr.chain).toBe(0);
+  });
+
   it('extends while each kill is within 1.5 s of the previous one', () => {
     const { tr, chain, T } = setup();
     tr.onKill(T(1), 1, true);

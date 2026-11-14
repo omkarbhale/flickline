@@ -125,12 +125,13 @@ describe('Peeker patterns expose the design\'s fractions of the body (raycast, d
     expect(Math.max(...lengths) - Math.min(...lengths)).toBeGreaterThan(0.05);
   });
 
-  it('wide at the top of the dial: the dial\'s exposure with its floor (0.3 s)', () => {
+  it('wide at the top of the dial: the dial\'s exposure (jittered, never under the floor)', () => {
     const wide = axes(100).peekWideSec;
-    expect(wide).toBeCloseTo(0.3, 5);
+    const floor = tun.dial.floors.exposureSec;
+    const j = tun.enemies.peek.wide.jitter;
     for (const h of runsOf(runPeek('wide', 12, { wideSec: wide }), PEEK_HOLD)) {
-      expect(secs(h)).toBeGreaterThanOrEqual(0.3 - TICK);
-      expect(secs(h)).toBeLessThanOrEqual(0.36 + TICK);
+      expect(secs(h)).toBeGreaterThanOrEqual(Math.max(floor, wide * (1 - j)) - TICK);
+      expect(secs(h)).toBeLessThanOrEqual(wide * (1 + j) + TICK);
     }
   });
 

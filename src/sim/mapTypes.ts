@@ -123,9 +123,13 @@ export interface CheckpointDef {
   angleAnchors: string[];
 }
 
-/** A flat marking painted on the floor (visual only, never collides): distance ticks, start lines. */
+/**
+ * A flat marking painted on the floor (visual only, never collides): distance ticks, start lines.
+ * `armed` marks are the stripe of a lane that lights up while a mode says it is armed (Lane's
+ * Stop & Pop); the renderer draws them dim until a `laneArmedChanged` event turns them on.
+ */
 export interface FloorMark {
-  kind: 'tick' | 'major' | 'line';
+  kind: 'tick' | 'major' | 'line' | 'armed';
   a: Vec3;
   b: Vec3;
   /** Stripe width in metres. */

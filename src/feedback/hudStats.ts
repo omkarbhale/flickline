@@ -13,7 +13,7 @@ export interface HudStatsSource {
   readonly accuracy: number;
   /** Head hits ÷ all hits, NaN with no hits. */
   readonly headshotRate: number;
-  /** Median reaction time (ms) over the targets so far, NaN with none. */
+  /** Median time to shot (ms; design §3, `rtMs` until #137) over the targets so far, NaN with none. */
   readonly medianRtMs: number;
   /** Median time to kill (ms) over the kills so far, NaN with none. */
   readonly medianTtkMs: number;

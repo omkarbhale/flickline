@@ -9,11 +9,11 @@
 /** Strafer motion (design §5.2, spec §2.3 braking, spec §5.3 leg and stand-still ranges). */
 export interface StraferTunables {
   /**
-   * Shortest strafe leg (spec §5.3: "direction change every 0.3 to 1.0 s"). A leg is drawn from
-   * `legMinSec` up to the dial's leg value (1.0 s at dial 0, 0.3 s at dial 100).
+   * Shortest strafe leg (design §5.2, #130: 0.35-1.0 s; spec §5.3 had 0.3). A leg is drawn from
+   * `legMinSec` up to the dial's leg value (1.0 s at dial 0, 0.35 s at dial 100).
    */
   legMinSec: number;
-  /** Shortest stand-still window; the dial's value (0.4 s at dial 0, 0.2 s at dial 100) is the longest. */
+  /** Shortest stand-still window; the dial's value (0.4 s at dial 0, 0.25 s at dial 100) is the longest. */
   standMinSec: number;
   /** Seconds from rest to the cruise speed (spec §9 Q3 default: 0.20 s). */
   accelSec: number;
@@ -150,8 +150,8 @@ export interface EnemiesTunables {
 
 export const enemies: EnemiesTunables = {
   strafer: {
-    legMinSec: 0.3,
-    standMinSec: 0.2,
+    legMinSec: 0.35,
+    standMinSec: 0.25,
     accelSec: 0.2,
     brakeHigh: 39,
     brakeLow: 24,

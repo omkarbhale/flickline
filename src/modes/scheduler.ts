@@ -1,3 +1,4 @@
+import { isFairSpawn } from '../adaptive/dial';
 import { DEG2RAD } from '../core/math';
 import type { Rng } from '../core/rng';
 import { secondsToTicks } from '../core/time';
@@ -11,8 +12,9 @@ import type { AnchorLike, AnchorSource, PlayerView } from './contracts';
  * away, 5-25 degrees off the crosshair" into a position, so no mode knows a map's contents.
  *
  * Everything is deterministic under the run's Rng and allocation-free after construction (queries
- * and results are caller-owned scratch objects). The fairness floor is unconditional: nothing is
- * ever placed closer than the dial floor `spawnMinDistance` (3 m) to the player's eye, whatever the query says.
+ * and results are caller-owned scratch objects). The fairness floors are unconditional: nothing is
+ * ever placed closer than the dial floor `spawnMinDistance` (4 m) to the player's eye, nor inside the
+ * view cone closer than `spawnViewConeDistance` (5 m), whatever the query says (design §9.3.5).
  */
 
 /** What to pick. Reuse one query object per mode and mutate it. */
@@ -78,6 +80,7 @@ export class SpawnScheduler {
   private readonly ref = vec3();
   private readonly pos = vec3();
   private readonly dir = vec3();
+  private readonly view = vec3();
   /** Spawns rejected by the fairness floor or exhausted constraints (for the debug hook). */
   rejected = 0;
 
@@ -93,6 +96,23 @@ export class SpawnScheduler {
   eyePosition(): Vec3 {
     const p = this.player;
     return set(this.eye, p.pos.x, p.pos.y + p.eyeHeight, p.pos.z);
+  }
+
+  /**
+   * Spawn fairness for a world point against the player's current eye and view (design §9.3.5,
+   * `isFairSpawn`): never closer than `spawnMinDistance`, never inside the view cone closer than
+   * `spawnViewConeDistance`.
+   */
+  fairAt(p: Vec3): boolean {
+    const eye = this.eyePosition();
+    const dx = p.x - eye.x;
+    const dy = p.y - eye.y;
+    const dz = p.z - eye.z;
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (d < 1e-6) return false;
+    set(this.dir, dx / d, dy / d, dz / d);
+    directionFromAngles(this.view, this.player.yaw, this.player.pitch);
+    return isFairSpawn(angleBetweenDeg(this.dir, this.view), d, this.floors);
   }
 
   /** Line of sight between two points under the map's predicate (always true without one). */
@@ -158,6 +178,7 @@ export class SpawnScheduler {
       const r = this.rng.range(rLo, rHi);
       set(this.pos, eye.x + this.dir.x * r, eye.y + this.dir.y * r, eye.z + this.dir.z * r);
       if (!this.inBounds(this.pos)) continue;
+      if (!this.fairAt(this.pos)) continue;
       if (this.index.sightClear && !this.index.sightClear(eye, this.pos)) continue;
       out.x = this.pos.x;
       out.y = this.pos.y;
@@ -184,7 +205,7 @@ export class SpawnScheduler {
       const dy = p.y - eye.y;
       const dz = p.z - eye.z;
       const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      if (d < floor) continue;
+      if (d < floor || !this.fairAt(p)) continue;
       if (sight && !sight(eye, p)) continue;
       if (useDist && (d < q.minDist || d > q.maxDist)) continue;
       if (useAngle) {
