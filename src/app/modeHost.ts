@@ -10,13 +10,16 @@ import type { AnchorSource, AxisValues, DialSource, StrafeSpawn, TargetSpawner }
 import type { ModeDef } from '../modes/modeDef';
 import { orbit } from '../modes/orbit';
 import { placement, type PlacementState } from '../modes/placement';
+import { sprayWall } from '../modes/sprayWall';
 import { strafeTrack } from '../modes/strafeTrack';
 import { stopAndPop } from '../modes/stopAndPop';
 import { ModeRunner, type RunOptions } from '../modes/runner';
 import { testMode } from '../modes/testMode';
 import { economyShield } from '../sim/damage';
 import { rayBox } from '../sim/collision';
+import { MAPS } from '../sim/mapLoader';
 import type { MapDef } from '../sim/mapTypes';
+import type { SpawnOptions } from '../sim/targets';
 import type { World } from '../sim/world';
 import type { GameEvents } from '../core/gameEvents';
 
@@ -26,19 +29,26 @@ export const MODES: Readonly<Record<string, ModeDef<never>>> = {
   coldStart: coldStart as ModeDef<never>,
   orbit: orbit as ModeDef<never>,
   placement: placement as ModeDef<never>,
+  sprayWall: sprayWall as ModeDef<never>,
   strafeTrack: strafeTrack as ModeDef<never>,
   stopAndPop: stopAndPop as ModeDef<never>,
 };
+
+/** A durable target's health: a spray cannot kill it. */
+const DURABLE_HP = 1e6;
 
 /** The sim's target registry as the framework's spawner (#15). Only the kinds the sim has yet (Rusher, Bulwark and Gnat: #33). */
 class WorldSpawner implements TargetSpawner {
   constructor(private readonly world: World, private readonly bus: EventBus<GameEvents>) {}
 
-  /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. */
-  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn): number {
+  /** `scale` sizes an orb (Beacon); humanoids keep the spec's hit volumes. `durable` = Spray Wall's Post. */
+  spawn(kind: EnemyKind, pos: Vec3, scale: number, strafe?: StrafeSpawn, durable?: boolean): number {
     if (kind !== 'post' && kind !== 'beacon' && kind !== 'strafer' && kind !== 'peeker') return -1;
     // A Strafer's numbers and lane go to the sim as given; the sim copies them at spawn.
-    return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, strafe ? { scale, strafe } : { scale });
+    const o: SpawnOptions = { scale };
+    if (strafe) o.strafe = strafe;
+    if (durable) o.hp = DURABLE_HP;
+    return this.world.spawnTarget(kind, pos.x, pos.y, pos.z, this.bus, o);
   }
 
   despawn(id: number): void {
@@ -90,41 +100,77 @@ export interface PlacementOutcome {
  */
 export class ModeHost {
   readonly runner: ModeRunner;
-  /** The player's skill state (placeholder prior until the profile/persistence work). */
-  readonly skills = new SkillState('skip');
+  /** The player's skill state: restored from the progress save when there is one (`features/progress.ts` saves it after every run), else a prior of 'skip' until the self-report sets it. */
+  readonly skills: SkillState;
   /** Result of the last finished Placement run, or null. */
   placementOutcome: PlacementOutcome | null = null;
   private active: ModeDef<never> | null = null;
   /** The player's difficulty pin for a mode (setting `difficultyPin`), or undefined for matched difficulty. */
   pinFor: (modeId: string) => number | undefined = () => undefined;
-  private readonly anchors: AnchorSource;
+  private anchors: AnchorSource;
   private priorInfiniteMagazine = false;
+  private priorInfiniteReserve = false;
   private readonly ray = vec3();
+  private readonly placedEv = { tick: 0, x: 0, y: 0, z: 0, yaw: 0 };
+  private readonly mapEv = { tick: 0, mapId: '' };
 
   constructor(
     private readonly world: World,
     private readonly bus: EventBus<GameEvents>,
-    private readonly map: MapDef,
+    private map: MapDef,
     private readonly tunables: Tunables,
+    skills: SkillState = new SkillState('skip'),
   ) {
-    const skills = this.skills;
+    this.skills = skills;
     const dial: DialSource = {
       dialFor: (mode, beat, wave) => skills.dialFor(mode, beat, wave),
       axes: (d) => axes(d, undefined, tunables.dial) as unknown as AxisValues,
     };
-    this.runner = new ModeRunner({ events: bus, tunables, dial, spawner: new WorldSpawner(world, bus), player: world.player });
+    this.runner = new ModeRunner({
+      events: bus, tunables, dial, spawner: new WorldSpawner(world, bus), player: world.player,
+      placePlayer: (x, y, z, yaw) => this.placePlayer(x, y, z, yaw),
+    });
     this.runner.attach(bus);
-    this.anchors = { anchors: map.anchors, bounds: map.bounds, sightClear: (from, to) => this.sightClear(from, to) };
-    bus.on('skillTrial', (e) => skills.observeTrial(e));
+    this.anchors = this.anchorsOf(map);
+    // Benchmark trials (the cold opener's, design §8.5) are a separate measurement: the matched posterior never consumes them.
+    bus.on('skillTrial', (e) => {
+      if (e.source !== 'baseline') skills.observeTrial(e);
+    });
     bus.on('runEnded', (e) => {
       if (this.active?.id === 'placement' && e.reason !== 'quit') this.finishPlacement();
     });
+  }
+
+  /** The map in the world now: the one the last started mode asked for (the URL's `?map=` or Range until one starts). */
+  get currentMap(): MapDef {
+    return this.map;
+  }
+
+  private anchorsOf(map: MapDef): AnchorSource {
+    return { anchors: map.anchors, bounds: map.bounds, sightClear: (from, to) => this.sightClear(from, to) };
+  }
+
+  /**
+   * Load the map a mode is designed for (`ModeDef.map`) when it is not the one in the world: the
+   * sim's level, this host's anchors and, through `mapLoaded`, the renderer's level visuals. A mode
+   * naming a map that is not shipped plays on the current one.
+   */
+  private loadMapFor(mode: ModeDef<never>): void {
+    const next = MAPS[mode.map];
+    if (!next || next === this.map) return;
+    this.map = next;
+    this.anchors = this.anchorsOf(next);
+    this.world.setLevel(next);
+    this.mapEv.tick = this.world.tick;
+    this.mapEv.mapId = next.id;
+    this.bus.emit('mapLoaded', this.mapEv);
   }
 
   start(id: string, opts: Partial<RunOptions> = {}): boolean {
     const mode = MODES[id];
     if (!mode) return false;
     this.stop(); // the previous run ends before the field is cleared
+    this.loadMapFor(mode); // before the reset: the world resets onto the mode's map, spawn and placed targets
     const seed = opts.seed ?? this.world.seed;
     this.world.reset(seed); // the run starts from the seed: same seed, same spread, same sway, same layout
     this.clearField();
@@ -138,6 +184,7 @@ export class ModeHost {
     if (this.active) {
       this.runner.end('quit');
       this.world.weapon.infiniteMagazine = this.priorInfiniteMagazine;
+      this.world.weapon.infiniteReserve = this.priorInfiniteReserve;
     }
     this.world.movementLocked = false;
     this.world.swapLocked = false;
@@ -201,12 +248,26 @@ export class ModeHost {
     w.swapLocked = !(setup?.allowSwap ?? false);
     this.priorInfiniteMagazine = w.weapon.infiniteMagazine;
     w.weapon.infiniteMagazine = setup?.infiniteMagazine ?? this.priorInfiniteMagazine;
+    this.priorInfiniteReserve = w.weapon.infiniteReserve;
+    w.weapon.infiniteReserve = setup?.infiniteReserve ?? this.priorInfiniteReserve;
     w.movementLocked = setup?.lockMovement ?? false;
     const level = mode.economy ? economyShield(mode.economy, this.tunables.economy, this.tunables.player.shield) : 0;
     w.setShields(level, level);
     // A mode with an economy is a mode where enemies shoot back (design §5.3); drills never have one.
     w.enemiesFire = mode.economy !== undefined;
     if (mode.economy) w.enemyWeapon = this.tunables.economy.levels[mode.economy].enemyWeapon;
+  }
+
+  /** A mode moves the player (Spray Wall's alcoves): place the sim's player and tell the view to follow. */
+  private placePlayer(x: number, y: number, z: number, yaw: number): void {
+    this.world.placePlayer(x, y, z, yaw);
+    const e = this.placedEv;
+    e.tick = this.world.tick;
+    e.x = x;
+    e.y = y;
+    e.z = z;
+    e.yaw = yaw;
+    this.bus.emit('playerPlaced', e);
   }
 
   /** Line of sight between two points through the level's collision boxes. */

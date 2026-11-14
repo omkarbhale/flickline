@@ -3,6 +3,7 @@ import { DEG2RAD } from '../core/math';
 import type { Rng } from '../core/rng';
 import { TICK_DT } from '../core/time';
 import { directionFromAngles, vec3, type Vec3 } from '../core/vec3';
+import type { MovementTunables } from '../config/movement';
 import type { WeaponDef, WeaponId, WeaponRules, WeaponTable } from '../config/weapon';
 import { rayBox } from './collision';
 import { createAimInfo, nearestAimTarget, type AimInfo } from './aim';
@@ -14,7 +15,6 @@ import {
   damageFor,
   isMovingShot,
   movementErrorDeg,
-  returnRecoil,
   sprayAccumDeg,
   sprayIncrement,
   stepYawSign,
@@ -311,6 +311,8 @@ export interface WeaponWorld {
   field: TargetField;
   table: WeaponTable;
   rules: WeaponRules;
+  /** Movement tunables: the walk fractions the movement-error ramp shares with the walk speeds. */
+  move: MovementTunables;
   rng: Rng;
   /** A mode without a loadout ignores `switchTo` (design §4: swapping belongs to Sweep). */
   swapLocked: boolean;
@@ -388,10 +390,25 @@ export function stepWeapon(
     events.emit('weaponSwitched', e);
   }
 
-  // Recoil: yaw direction swing (switch time) and return towards the crosshair (spec §3.5).
+  // Recoil: yaw direction swing (switch time) and return towards the crosshair (spec §3.5): held
+  // for `recoilReturnDelaySec`, then a smoothstep glide (no velocity jump at either end) along the
+  // offset's own direction that lands on the crosshair exactly at the gun recovery time, so the
+  // offset never outlives the reset (#191). Stateless: each tick scales the offset by
+  // ease(u) / ease(u one tick ago). Inline maths, so no double is boxed per tick.
   stepYawSign(def, w, dt);
-  if (time - w.lastShotTime >= def.recoilReturnDelaySec - EPS && (w.recoilPitch !== 0 || w.recoilYaw !== 0)) {
-    returnRecoil(w, def.recoilReturnDegPerSec * dt);
+  if (w.recoilPitch !== 0 || w.recoilYaw !== 0) {
+    const sinceShot = time - w.lastShotTime;
+    if (sinceShot >= def.recoilReturnDelaySec - EPS) {
+      const span = def.recoverySec - def.recoilReturnDelaySec;
+      let k = 0;
+      if (def.recoverySec - sinceShot > EPS && span > EPS) {
+        const u = (sinceShot - def.recoilReturnDelaySec) / span;
+        const v = u - dt / span < 0 ? 0 : u - dt / span;
+        k = (1 - u * u * (3 - 2 * u)) / (1 - v * v * (3 - 2 * v));
+      }
+      w.recoilPitch *= k;
+      w.recoilYaw *= k;
+    }
   }
 
   if (input.reload && canReload(w, def)) startReload(w, def, tick, events, s);
@@ -430,8 +447,11 @@ function fire(
   // Spray count and stationary spread (spec §3.3).
   const sinceLast = time - w.lastShotTime;
   if (sinceLast >= def.recoverySec - EPS) {
+    // The reset is the whole spray: spread, pattern position and aim offset (#191).
     w.sprayCount = 0;
     w.recoilIndex = 0;
+    w.recoilPitch = 0;
+    w.recoilYaw = 0;
     w.yawSign = 1;
     w.yawTarget = 1;
   }
@@ -448,7 +468,7 @@ function fire(
   const landing = time - w.landTime < rules.landingSpreadSec - EPS ? rules.landingSpreadAddDeg : 0;
   const spreadDeg =
     accum * stanceMult +
-    movementErrorDeg(def, rules, speed / def.runSpeedMps, p.crouching, airborne) +
+    movementErrorDeg(def, world.move, speed / def.runSpeedMps, p.crouching, airborne) +
     landing;
 
   // Direction: view + recoil offset, then a random point in the spread cone (half-angle, spec §3.3;

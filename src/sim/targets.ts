@@ -107,6 +107,11 @@ export interface SpawnOptions {
   scale?: number;
   /** Humanoids only: shield points at spawn (spec §4.1). Default: the field's `enemyShield`. Orbs never carry one. */
   shield?: number;
+  /**
+   * Health at spawn (default `maxHp`). A mode that needs a target to take any number of hits
+   * without dying (Spray Wall's Post) passes a very large value: it still emits `targetHit`, never `targetKilled`.
+   */
+  hp?: number;
   /** Strafer: the dial's speed, leg and stand-still and the lane it runs (defaults: the dial-50 values, a line square to the player). */
   strafe?: StrafeParams;
   /** Peeker: the anchor and pattern (default: a shoulder peek one metre to the right of where it spawned). */
@@ -252,7 +257,7 @@ export class TargetField {
       t.boundsY = top / 2;
       t.radius = Math.hypot(top / 2, h.torsoWidth / 2) + 0.05;
     }
-    t.hp = t.maxHp = tt.maxHp;
+    t.hp = t.maxHp = opts?.hp ?? tt.maxHp;
     t.shield = t.maxShield = def.shape === 'humanoid' ? Math.max(0, opts?.shield ?? this.enemyShield) : 0;
     t.alive = true;
     t.lastHitTick = -1;

@@ -81,6 +81,18 @@ export interface SprayAlcoveAnchor extends AnchorBase {
   distance: number;
 }
 
+/**
+ * Where a placed Echo stands at the start of a sector (design 4.2, 10.2): feet centre `pos`,
+ * facing `yaw`. A separate kind from `post` so the drills' post queries never pick it up; a
+ * sector's `holdAnchors` may also name existing `peek` anchors (their `hold` spot is used).
+ */
+export interface HoldAnchor extends AnchorBase {
+  kind: 'hold';
+  pos: Vec3;
+  yaw: number;
+  stance?: Stance;
+}
+
 export type Anchor =
   | PostAnchor
   | BeaconShellAnchor
@@ -88,11 +100,12 @@ export type Anchor =
   | PeekAnchor
   | GateAnchor
   | DroneVolumeAnchor
-  | SprayAlcoveAnchor;
+  | SprayAlcoveAnchor
+  | HoldAnchor;
 
 export type AnchorKind = Anchor['kind'];
 export const ANCHOR_KINDS: readonly AnchorKind[] = [
-  'post', 'beacon-shell', 'strafe-lane', 'peek', 'gate', 'drone-volume', 'spray-alcove',
+  'post', 'beacon-shell', 'strafe-lane', 'peek', 'gate', 'drone-volume', 'spray-alcove', 'hold',
 ];
 
 export type AnchorOfKind<K extends AnchorKind> = Extract<Anchor, { kind: K }>;
@@ -136,6 +149,26 @@ export interface FloorMark {
   width: number;
 }
 
+export type SectorRole = 'take' | 'hold' | 'meet';
+export const SECTOR_ROLES: readonly SectorRole[] = ['take', 'hold', 'meet'];
+
+/**
+ * A sector (design 4.2): a region of the map with an entry gate, an exit gate and placement
+ * anchors. `role` lists every role the run director may give it (a sector can serve more than one).
+ * `entry` and `exit` are feet positions on the floor; `holdAnchors` name `hold` or `peek` anchors
+ * where Echoes stand; `approaches` name `lanes` the arriving enemies of a hold sector walk along.
+ * Regions of one map never overlap (the lint checks it).
+ */
+export interface SectorDef {
+  id: string;
+  role: SectorRole[];
+  region: { min: Vec3; max: Vec3 };
+  entry: Vec3;
+  exit: Vec3;
+  holdAnchors: string[];
+  approaches: string[];
+}
+
 export interface MapLook {
   /** Sky/background and fog colour, `#rrggbb`. */
   sky: string;
@@ -164,6 +197,8 @@ export interface MapDef extends LevelDef {
   nav: NavGraph;
   lanes: LaneDef[];
   checkpoints: CheckpointDef[];
+  /** Empty for a map without sectors (Range, the Lobby). */
+  sectors: SectorDef[];
   marks: FloorMark[];
   look: MapLook;
   lint: MapLintOptions;

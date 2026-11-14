@@ -25,7 +25,7 @@ const shot = (tick: number, moving: boolean, weapon: WeaponId = 'kestrel'): E['s
 const hit = (zone: HitZone): E['targetHit'] => ({ tick: 1, t: 0, targetId: 1, kind: 'beacon', zone, point: v, damage: 1, absorbed: 0, hpLeft: 1, shieldLeft: 0, distance: 1, killed: false });
 const kill = (zone: HitZone): E['targetKilled'] => ({ tick: 1, t: 0, targetId: 1, kind: 'beacon', zone, point: v, distance: 1, ttkMs: 0, rtMs: 0, firstBullet: true, bullets: 1, shield: 0, clean: true });
 
-function setup() {
+function setup(options?: { referenceLike: boolean }) {
   const bus = new EventBus<E>();
   const calls: { cue: CueId; opts?: PlayOptions }[] = [];
   const loops: string[] = [];
@@ -33,7 +33,7 @@ function setup() {
     play: (cue, opts) => { calls.push({ cue, opts }); },
     setLoop: (cue, on) => { loops.push(`${cue}:${on ? 'on' : 'off'}`); },
   };
-  attachSfx(bus, player, audio);
+  attachSfx(bus, player, audio, undefined, options);
   const cues = (): CueId[] => calls.map((c) => c.cue);
   return { bus, calls, cues, loops };
 }
@@ -187,5 +187,40 @@ describe('attachSfx', () => {
     off();
     bus.emit('shotFired', shot(1, false));
     expect(calls).toEqual([]);
+  });
+
+  describe('in a reference-like run (design 8.5)', () => {
+    it('keeps the shot, the miss, the hit sounds and a plain kill chime', () => {
+      const { bus, cues, calls } = setup({ referenceLike: true });
+      bus.emit('shotFired', shot(1, false));
+      bus.emit('shotImpact', impact(false));
+      bus.emit('targetHit', hit('body'));
+      bus.emit('targetHit', hit('head'));
+      bus.emit('targetKilled', kill('body'));
+      expect(cues()).toEqual(['shotKestrel', 'miss', 'hitBody', 'hitHead', 'kill']);
+      expect(calls[4]!.opts).toEqual({ pitchStep: 1 });
+    });
+
+    it('drops the moving-shot tock, the kill ladder, the sparkle, the chain layers and the streak break', () => {
+      const { bus, calls, cues } = setup({ referenceLike: true });
+      bus.emit('shotFired', shot(1, true));
+      expect(cues()).toEqual(['shotKestrel']);
+      calls.length = 0;
+      bus.emit('streakUpdated', { streak: 8, mult: 2 });
+      bus.emit('chainUpdated', { tick: 2, t: 0, count: 9 });
+      bus.emit('targetKilled', kill('head'));
+      expect(calls.map((c) => [c.cue, c.opts?.pitchStep])).toEqual([['kill', 1]]);
+      bus.emit('streakUpdated', { streak: 0, mult: 1 });
+      expect(cues()).toEqual(['kill']);
+    });
+
+    it('is a live switch: the same sound map plays the full set again when the flag goes off', () => {
+      const opts = { referenceLike: true };
+      const { bus, cues } = setup(opts);
+      bus.emit('targetKilled', kill('head'));
+      opts.referenceLike = false;
+      bus.emit('targetKilled', kill('head'));
+      expect(cues()).toEqual(['kill', 'kill', 'killSparkle']);
+    });
   });
 });

@@ -135,7 +135,7 @@ export type Axis = 'x' | 'y' | 'z';
  * freshly computed or loaded double allocates once per double per call (architecture §7 rule 1);
  * objects, integers and a typed-array store do not.
  */
-const sweepDelta = new Float64Array(1);
+export const sweepDelta = new Float64Array(1);
 
 /**
  * Move the hull along `axis` by `sweepDelta[0]` and resolve overlaps. Returns true if blocked (the
@@ -170,6 +170,15 @@ function sweepAxis(boxes: readonly BoxDef[], p: PlayerState, axis: Axis, m: Move
 export function moveAxis(boxes: readonly BoxDef[], p: PlayerState, axis: Axis, dt: number, m: MovementTunables): boolean {
   sweepDelta[0] = (axis === 'x' ? p.vel.x : axis === 'z' ? p.vel.z : p.vel.y) * dt;
   return sweepAxis(boxes, p, axis, m);
+}
+
+/**
+ * Move the hull vertically by `sweepDelta[0]` (the caller's trapezoid step, `0.5 * (vy0 + vy) * dt`,
+ * stored there rather than passed, so no double crosses the call) and resolve overlaps. Returns
+ * true if blocked.
+ */
+export function moveAxisY(boxes: readonly BoxDef[], p: PlayerState, m: MovementTunables): boolean {
+  return sweepAxis(boxes, p, 'y', m);
 }
 
 /**

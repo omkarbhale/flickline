@@ -17,8 +17,9 @@ export const LOGGED_EVENT_TYPES: readonly (keyof AllEvents)[] = [
   'playerJumped', 'playerLanded', 'footstep',
   'targetSpawned', 'targetVisible', 'targetExpired', 'targetShielded',
   'enemyTell', 'enemyFired', 'enemyFootstep', 'enemyLanded', 'enemyReloadStarted', 'enemySawPlayer', 'playerDamaged', 'playerSlowed', 'playerDied',
-  'surgeStarted', 'surgeEnded', 'medalAwarded',
+  'surgeStarted', 'surgeEnded', 'medalAwarded', 'contactSettled',
   'aimOnTarget', 'leadSampled', 'headHeightSampled', 'playerStopped',
+  'sprayStarted', 'sprayEnded',
 ];
 
 /** The immutable-by-convention record of a run that `computeStats` consumes. */

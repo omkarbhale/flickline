@@ -43,6 +43,9 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 @keyframes hm { 0% { opacity: 1; transform: scale(1.3); } 100% { opacity: 0; transform: scale(1); } }
 @keyframes hm-b { 0% { opacity: 1; transform: scale(1.3); } 100% { opacity: 0; transform: scale(1); } }
 
+/* Reference-like run (design 8.5, the Daily Baseline): a clean run (.hud-clean hides the stat strip, ghost pace and edge meter) that also drops the clock, score and streak counters. */
+#hud.ref-like .lh-top, #hud.ref-like .lh-counters { display: none; }
+
 .move-glyph { position: absolute; left: 50%; top: 50%; transform: translate(-50%, 22px); font: 700 17px/1 ui-monospace, monospace; color: var(--warn); text-shadow: 0 1px 2px #000; opacity: 0; }
 .move-glyph.show { animation: glyph var(--glyph-ms) ease-out; }
 .move-glyph.show-b { animation: glyph-b var(--glyph-ms) ease-out; }
@@ -54,14 +57,15 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .fnum span { display: block; transform: translate(-50%, -50%); font: 700 18px/1 ui-monospace, monospace; color: #fff; text-shadow: 0 1px 3px #000, 0 0 6px rgba(0,0,0,.6); white-space: nowrap; }
 .fnum.f-leg span { color: rgba(255,255,255,.6); font-size: 14px; }
 .fnum.f-head span { color: var(--gold); font-size: 22px; }
-.fnum.f-kill span { color: var(--core); font-size: 24px; }
+/* A kill's number starts lifted clear of the crosshair (the kill point is where the player aims): #176. */
+.fnum.f-kill span { color: var(--core); font-size: 24px; transform: translate(-50%, calc(-50% - var(--kill-lift))); }
 .fnum.f-kill.f-head span { color: var(--gold); font-size: 28px; }
 .fnum.show { animation: float-up var(--float-ms) ease-out; }
 .fnum.show-b { animation: float-up-b var(--float-ms) ease-out; }
-@keyframes float-up { 0% { opacity: 1; margin-top: 0; } 70% { opacity: 1; } 100% { opacity: 0; margin-top: calc(var(--float-rise) * -1); } }
-@keyframes float-up-b { 0% { opacity: 1; margin-top: 0; } 70% { opacity: 1; } 100% { opacity: 0; margin-top: calc(var(--float-rise) * -1); } }
+@keyframes float-up { 0% { opacity: 1; margin-top: 0; } 45% { opacity: 1; } 100% { opacity: 0; margin-top: calc(var(--float-rise) * -1); } }
+@keyframes float-up-b { 0% { opacity: 1; margin-top: 0; } 45% { opacity: 1; } 100% { opacity: 0; margin-top: calc(var(--float-rise) * -1); } }
 
-.rt-float { position: absolute; left: 50%; top: 50%; transform: translate(26px, 16px); font: 600 14px/1 ui-monospace, monospace; color: #fff; text-shadow: 0 1px 3px #000; white-space: nowrap; opacity: 0; }
+.rt-float { position: absolute; left: 50%; top: 50%; transform: translate(-50%, var(--rt-drop)); font: 600 14px/1 ui-monospace, monospace; color: rgba(255,255,255,.85); text-shadow: 0 1px 3px #000; white-space: nowrap; opacity: 0; }
 .rt-float.show { animation: rt var(--rt-ms) ease-out; }
 .rt-float.show-b { animation: rt-b var(--rt-ms) ease-out; }
 @keyframes rt { 0% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
@@ -176,7 +180,13 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .broke-b { animation: lh-broke-b 360ms ease-out; }
 @keyframes lh-broke { 0% { filter: saturate(0) brightness(1.4); } 100% { filter: none; } }
 @keyframes lh-broke-b { 0% { filter: saturate(0) brightness(1.4); } 100% { filter: none; } }
-@media (prefers-reduced-motion: reduce) { .pop, .pop-b, .broke, .broke-b { animation: none; } }
+/* The health bar's hit flash (design §7.1 "HP bar flashes"): a red ring and a brief swell, restarted by hud/liveHud.ts on playerDamaged. */
+.lh-hp-bars { border-radius: calc(var(--u) * 6); }
+.lh-hit { animation: lh-hp-flash var(--lh-hp-flash-ms, 260ms) ease-out; }
+.lh-hit-b { animation: lh-hp-flash-b var(--lh-hp-flash-ms, 260ms) ease-out; }
+@keyframes lh-hp-flash { 0% { box-shadow: 0 0 0 0 rgba(255, 61, 90, .95); transform: scaleY(1.35); } 100% { box-shadow: 0 0 0 calc(var(--u) * 8) rgba(255, 61, 90, 0); transform: scaleY(1); } }
+@keyframes lh-hp-flash-b { 0% { box-shadow: 0 0 0 0 rgba(255, 61, 90, .95); transform: scaleY(1.35); } 100% { box-shadow: 0 0 0 calc(var(--u) * 8) rgba(255, 61, 90, 0); transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) { .pop, .pop-b, .broke, .broke-b, .lh-hit, .lh-hit-b { animation: none; } }
 
 /* HUD settings group (menu) */
 .hud-set { display: grid; gap: 8px; }
@@ -225,16 +235,19 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .dmg-desat.hit { animation: dmg-desat var(--dmg-desat-ms, 150ms) ease-out; }
 @keyframes dmg-desat { 0% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
 .dmg-arcs { position: absolute; left: 50%; top: 50%; width: 84vmin; height: 84vmin; transform: translate(-50%, -50%); display: block; }
-.hp { position: absolute; left: 16px; bottom: 34px; width: 150px; height: 14px; border-radius: 3px; background: rgba(8,10,14,.62); border: 1px solid rgba(232,237,242,.28);
-  opacity: 0; transition: opacity .15s linear; overflow: hidden; }
-.hp.shown { opacity: 1; }
-.hp-fill { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--hp, 1) * 100%); background: #cfd8e3; }
-.hp.low .hp-fill { background: #ff3d5a; }
-.hp-shield { position: absolute; left: 0; top: 0; height: 4px; width: calc(var(--sh, 0) * 100%); background: #62c4ff; display: none; }
-.hp.shielded .hp-shield { display: block; }
-.hp-text { position: absolute; left: 6px; top: 0; line-height: 14px; font: 700 11px/14px ui-monospace, monospace; letter-spacing: .06em; color: #fff; text-shadow: 0 0 2px #000, 0 1px 1px #000; }
-.hp.hit { animation: hp-flash var(--dmg-hp-flash-ms, 260ms) ease-out; }
-@keyframes hp-flash { 0% { box-shadow: 0 0 0 0 rgba(255,61,90,.95); transform: scaleY(1.5); } 100% { box-shadow: 0 0 0 8px rgba(255,61,90,0); transform: scaleY(1); } }
+
+/* ---- Spray Wall prompt (design 4.5): bullet count, the spray's verdict, the reload prompt. Text only, written from events. */
+.spray-prompt { position: absolute; left: 50%; top: calc(50% + 150px); transform: translateX(-50%); text-align: center; pointer-events: none;
+  font: 700 22px/1.25 ui-sans-serif, system-ui, sans-serif; letter-spacing: .04em; text-shadow: 0 1px 3px rgba(0, 0, 0, .9); font-variant-numeric: tabular-nums; }
+.spray-prompt[hidden], .spray-prompt [hidden] { display: none; }
+.spray-prompt .sp-count { color: var(--core); }
+.spray-prompt .sp-count.good { color: var(--ok); }
+.spray-prompt .sp-count.bad { color: var(--alert); }
+.spray-prompt .sp-reload { margin-top: 6px; font-size: 26px; color: var(--gold); animation: sp-pulse .9s ease-in-out infinite; }
+.spray-prompt .sp-reload b { display: inline-block; min-width: 1.4em; padding: 0 .25em; border: 2px solid var(--gold); border-radius: 4px; }
+@keyframes sp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .spray-prompt .sp-reload { animation: none; } }
+:root[data-reduce-flashing='true'] .spray-prompt .sp-reload { animation: none; }
 
 /* FPS and 1% lows (settings: Show FPS): one quiet line in the top-left corner; text written at 4 Hz by hud/fpsReadout.ts. */
 .fps-readout { position: absolute; left: 10px; top: 8px; font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--fg); opacity: .8; text-shadow: 0 1px 2px rgba(0, 0, 0, .9); font-variant-numeric: tabular-nums; }
@@ -243,6 +256,7 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 /* Reduce flashing (settings): the one switch for every DOM pulse or glow. The edge pulse is also gated in code
    (hud/hud.ts); a future Surge glow or chromatic pulse in the DOM only needs one of these classes to be covered. */
 :root[data-reduce-flashing='true'] :is(.edge-pulse, .surge-glow, .chromatic-pulse, .flash-pulse) { display: none !important; }
+:root[data-reduce-flashing='true'] :is(.lh-hit, .lh-hit-b) { animation: none; }
 
 /* Clean run (design §7.4): a reference-like HUD. The readouts that answer "how am I doing" go (stat strip, edge meter,
    ghost-pace bar); the crosshair, ammo, health, timer and the reward counters stay. visibility keeps the layout still. */

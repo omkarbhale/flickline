@@ -38,8 +38,12 @@ export const feature = defineFeature({
   id: 'audio',
   stage: 'presentation',
   setup(game) {
-    attachSfx(game.bus, game.audio, game.tunables.audio, (e) =>
-      movingCueShown(game.feedbackOptions, game.tunables.cues, e.speed, e.airborne),
+    attachSfx(
+      game.bus,
+      game.audio,
+      game.tunables.audio,
+      (e) => movingCueShown(game.feedbackOptions, game.tunables.cues, e.speed, e.airborne),
+      game.feedbackOptions,
     );
     attachUiSounds(document, game.audio);
     attachDamageAudio(game.bus, game.audio);

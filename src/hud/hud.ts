@@ -81,6 +81,8 @@ export class Hud {
     root.style.setProperty('--float-ms', `${cfg.floatText.ms}ms`);
     root.style.setProperty('--rt-ms', `${cfg.floatText.rtTtkMs}ms`);
     root.style.setProperty('--float-rise', `${cfg.floatText.riseRem}rem`);
+    root.style.setProperty('--kill-lift', `${cfg.floatText.killLiftRem}rem`);
+    root.style.setProperty('--rt-drop', `${cfg.floatText.rtDropRem}rem`);
     root.style.setProperty('--pulse-ms', `${cfg.pulse.ms}ms`);
     root.style.setProperty('--pulse-alpha', String(cfg.pulse.maxAlpha));
     for (const k of ['trim', 'gold', 'ok', 'warn', 'alert', 'core'] as const) {
@@ -116,6 +118,7 @@ export class Hud {
       this.applyHitColor(settings.crosshair);
     });
     bus.on('shotFired', (e) => {
+      if (fx.options.referenceLike) return; // the reference game has no moving-shot cue
       if (e.moving) this.crosshair.pulse();
       if (e.moving && movingCueShown(fx.options, this.cues, e.speed, e.airborne)) this.restart(this.moveGlyph, 'show');
     });
@@ -125,6 +128,7 @@ export class Hud {
       if (!e.killed && damageNumbersShown(fx.options, this.cues)) this.floatNumber(e.point.x, e.point.y, e.point.z, e.damage, e.zone, false);
     });
     bus.on('targetKilled', (e) => {
+      if (fx.options.referenceLike) return; // no reward pulse, points or time-to-shot readout (the hit marker above stays)
       if (!fx.options.reduceFlashing && this.budget.tryAcquire(e.tick * TICK_DT)) this.restart(this.pulse, 'show');
       this.floatNumber(e.point.x, e.point.y, e.point.z, provisionalKillScore(e.zone, fx.cfg), e.zone, true);
       const text = formatRtTtk(e.rtMs, e.ttkMs);

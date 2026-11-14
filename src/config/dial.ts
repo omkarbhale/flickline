@@ -64,6 +64,8 @@ export interface DialAxesTunables {
   enemyHitChance: AxisDef;
   /** Simultaneous targets. */
   density: AxisDef;
+  /** Spray Wall: the share of a spray's bullets that must land in the head or body zone (design §4.5). */
+  sprayHitFraction: AxisDef;
 }
 
 /**
@@ -243,6 +245,8 @@ export const dial: DialTunables = {
     tellSec: { at0: 0.7, at100: 0.3, curve: 'linear' },
     enemyHitChance: { at0: 0.15, at100: 0.6, curve: 'linear' },
     density: { at0: 1, at100: 6, curve: 'step' },
+    // Design §4.5: 60% at dial 0 up to 85% at dial 100.
+    sprayHitFraction: { at0: 0.6, at100: 0.85, curve: 'linear' },
   },
   // HYPOTHESIS (#129): tells fade over Steel-Cobalt; the settling experiment (#164) moves these.
   tellCue: { fullBelow: 35, goneAbove: 60 },

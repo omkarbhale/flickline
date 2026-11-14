@@ -132,7 +132,10 @@ export class Bot {
     if (!world.health.alive || !world.live) return this.write(out, false);
 
     const now = world.tick;
-    if (this.phase === IDLE && !this.pickTarget(world, now)) return this.write(out, false);
+    if (this.phase === IDLE && !this.pickTarget(world, now)) {
+      out.reload = this.wantsReload(world);
+      return this.write(out, false);
+    }
 
     // The target must still be there; if not, the engagement is over.
     const t = this.targetId >= 0 ? world.targetField.byId(this.targetId) : null;
@@ -161,6 +164,13 @@ export class Bot {
       default:
         return this.engage(world, t, now, out);
     }
+  }
+
+  /** With nothing to shoot at, a player tops up a part-empty magazine (Spray Wall asks for it after every spray). */
+  private wantsReload(world: World): boolean {
+    const w = world.weapon;
+    const slot = w.slots[w.active]!;
+    return !w.infiniteMagazine && w.reloadLeft <= 0 && w.equipLeft <= 0 && slot.mag < this.tunables.weapon[slot.id].magazine;
   }
 
   private write(out: TickInput, fire: boolean): TickInput {

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { movement } from '../config/movement';
 import { cloneTunables } from '../config/tunables';
 import { weapon as weaponTable, weaponRules, type WeaponDef } from '../config/weapon';
 import { EventBus } from '../core/eventBus';
 import { RAD2DEG } from '../core/math';
 import { Rng } from '../core/rng';
-import { TICK_RATE } from '../core/time';
+import { TICK_DT, TICK_RATE } from '../core/time';
 import { directionFromAngles, vec3, type Vec3 } from '../core/vec3';
 import { testRoom } from './levels';
 import { createTickInput, type LevelDef, type SimEvents, type TickInput } from './types';
@@ -114,18 +115,18 @@ describe('spread (spec §3.3)', () => {
 
 describe('movement accuracy (spec §2.4, §3.4)', () => {
   it('movement error follows the deadzone / walk / run / air thresholds', () => {
-    const r = weaponRules;
-    expect(movementErrorDeg(kestrel, r, 0, false, false)).toBe(0);
-    expect(movementErrorDeg(kestrel, r, 0.275, false, false)).toBe(0);
-    expect(movementErrorDeg(kestrel, r, 0.28, false, false)).toBeGreaterThan(0);
-    expect(movementErrorDeg(kestrel, r, 0.5, false, false)).toBeCloseTo(3, 12);
-    expect(movementErrorDeg(kestrel, r, 0.75, false, false)).toBeCloseTo(4.5, 12);
-    expect(movementErrorDeg(kestrel, r, 1, false, false)).toBeCloseTo(6, 12);
-    expect(movementErrorDeg(kestrel, r, 0.34, true, false)).toBeCloseTo(0.8, 12);
-    expect(movementErrorDeg(kestrel, r, 0, false, true)).toBe(10);
-    expect(movementErrorDeg(pace, r, 1, false, false)).toBeCloseTo(2.3, 12);
-    expect(movementErrorDeg(pace, r, 0.5, false, false)).toBeCloseTo(1.1, 12);
-    expect(movementErrorDeg(pace, r, 0, false, true)).toBe(7);
+    const m = movement;
+    expect(movementErrorDeg(kestrel, m, 0, false, false)).toBe(0);
+    expect(movementErrorDeg(kestrel, m, 0.275, false, false)).toBe(0);
+    expect(movementErrorDeg(kestrel, m, 0.28, false, false)).toBeGreaterThan(0);
+    expect(movementErrorDeg(kestrel, m, 0.5, false, false)).toBeCloseTo(3, 12);
+    expect(movementErrorDeg(kestrel, m, 0.75, false, false)).toBeCloseTo(4.5, 12);
+    expect(movementErrorDeg(kestrel, m, 1, false, false)).toBeCloseTo(6, 12);
+    expect(movementErrorDeg(kestrel, m, 0.34, true, false)).toBeCloseTo(0.8, 12);
+    expect(movementErrorDeg(kestrel, m, 0, false, true)).toBe(10);
+    expect(movementErrorDeg(pace, m, 1, false, false)).toBeCloseTo(2.3, 12);
+    expect(movementErrorDeg(pace, m, 0.5, false, false)).toBeCloseTo(1.1, 12);
+    expect(movementErrorDeg(pace, m, 0, false, true)).toBe(7);
   });
 
   it('a shot is moving above 27.5% of the equipped run speed, or airborne', () => {
@@ -255,20 +256,37 @@ describe('recoil as data (spec §3.5)', () => {
     expect(patternAt([], 3)).toBe(0);
   });
 
-  it('the aim offset returns to the crosshair after the gun recovery time', () => {
+  it('the aim offset holds through held fire, then glides back along its direction and lands at the gun recovery time (#191)', () => {
     const s = setup();
     const w = s.world.weapon;
-    while (w.shots < 10) s.run(1, { fire: true });
-    const peak = w.recoilPitch;
-    expect(peak).toBeCloseTo(10 * 0.3, 9);
-    s.run(Math.floor(0.34 * TICK_RATE), { fire: false });
-    expect(w.recoilPitch).toBe(peak); // still inside the 0.35 s delay
-    s.run(2, { fire: false });
-    expect(w.recoilPitch).toBeLessThan(peak);
-    s.run(Math.ceil((peak / kestrel.recoilReturnDegPerSec) * TICK_RATE) + 1, { fire: false });
-    expect(w.recoilPitch).toBe(0);
-    expect(w.recoilYaw).toBe(0);
+    while (w.shots < 12) s.run(1, { fire: true }); // past the 8 protected bullets: both axes kicked
+    const peakPitch = w.recoilPitch;
+    const peakYaw = w.recoilYaw;
+    expect(peakPitch).toBeGreaterThan(3);
+    expect(peakYaw).not.toBe(0);
+    const delay = kestrel.recoilReturnDelaySec;
+    const recovery = kestrel.recoverySec;
+    expect(delay).toBeGreaterThan(1 / kestrel.fireRateHz); // a held spray never returns between bullets
+    let prev = peakPitch;
+    let mid = -1;
+    for (let k = 1; k * TICK_DT < recovery + 0.1; k++) {
+      s.run(1, { fire: false });
+      const since = k * TICK_DT;
+      if (since < delay - 1e-9) expect(w.recoilPitch).toBe(peakPitch);
+      expect(w.recoilPitch).toBeLessThanOrEqual(prev);
+      if (w.recoilPitch !== 0) expect(w.recoilYaw / w.recoilPitch).toBeCloseTo(peakYaw / peakPitch, 9); // along its own direction
+      if (since >= recovery - 1e-9) {
+        expect(w.recoilPitch).toBe(0);
+        expect(w.recoilYaw).toBe(0);
+      } else {
+        expect(w.recoilPitch).toBeGreaterThan(0); // a glide, not a snap at the end
+      }
+      if (mid < 0 && since >= (delay + recovery) / 2) mid = w.recoilPitch;
+      prev = w.recoilPitch;
+    }
+    expect(mid / peakPitch).toBeCloseTo(0.5, 1); // half-way at the window's midpoint (smoothstep)
   });
+
 });
 
 describe('damage (spec §3.2)', () => {

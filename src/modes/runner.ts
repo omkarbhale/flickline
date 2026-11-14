@@ -9,10 +9,10 @@ import { createScoreBreakdown, scoreKill, type ScoreBreakdown } from '../feedbac
 import { StreakTracker } from '../feedback/streaks';
 import type {
   AnchorSource, AxisValues, DialSource, ModeEvents, MotionView, PlayerSourceEvents, RunEndReason, SkillId, SourceEvents,
-  TargetSpawner,
+  TargetSpawner, WeaponSourceEvents,
 } from './contracts';
 import { effectiveDial } from './itemDifficulty';
-import type { ModeContext, ModeDef, ModeEvent, ResolveOptions, RunPhase, RunStats, SpawnOptions } from './modeDef';
+import type { AwardOptions, ModeContext, ModeDef, ModeEvent, ResolveOptions, RunPhase, RunStats, SpawnOptions, WeaponEvent } from './modeDef';
 import { AnchorIndex, SpawnScheduler } from './scheduler';
 
 export interface RunnerDeps {
@@ -21,6 +21,8 @@ export interface RunnerDeps {
   dial: DialSource;
   spawner: TargetSpawner;
   player: MotionView;
+  /** Move the player (the host places the sim's player and re-syncs the view). Absent: `placePlayer` does nothing. */
+  placePlayer?: (x: number, y: number, z: number, yaw: number) => void;
 }
 
 export interface RunOptions {
@@ -83,6 +85,9 @@ export class ModeRunner implements ModeContext<unknown> {
   private readonly impactEv: ModeEvent & { type: 'shotImpact' };
   private readonly firedEv: ModeEvent & { type: 'shotFired' };
   private readonly stoppedEv: ModeEvent & { type: 'playerStopped' };
+  private readonly weaponFiredEv: WeaponEvent & { type: 'shotFired' };
+  private readonly reloadStartedEv: WeaponEvent & { type: 'reloadStarted' };
+  private readonly reloadCompletedEv: WeaponEvent & { type: 'reloadCompleted' };
   private readonly trialEv: ModeEvents['skillTrial'] = { tick: 0, t: 0, skill: 'precision', itemDifficulty: 0, success: false };
   private readonly scoreEv: ModeEvents['scoreAwarded'] = {
     tick: 0, t: 0, targetId: 0, kind: 'post', points: 0, total: 0, base: 0, precision: 1, speed: 1, streak: 1, difficulty: 1, surge: 1,
@@ -119,6 +124,9 @@ export class ModeRunner implements ModeContext<unknown> {
     this.impactEv = { type: 'shotImpact', payload: null as never };
     this.firedEv = { type: 'shotFired', payload: null as never };
     this.stoppedEv = { type: 'playerStopped', payload: null as never };
+    this.weaponFiredEv = { type: 'shotFired', payload: null as never };
+    this.reloadStartedEv = { type: 'reloadStarted', payload: null as never };
+    this.reloadCompletedEv = { type: 'reloadCompleted', payload: null as never };
   }
 
   get events(): EventSink<ModeEvents> {
@@ -145,13 +153,18 @@ export class ModeRunner implements ModeContext<unknown> {
   }
 
   /** Feed the runner the sim's facts (design §14.3 shape). Returns the unsubscribe function. */
-  attach(bus: Subscribable<SourceEvents & PlayerSourceEvents>): () => void {
+  attach(bus: Subscribable<SourceEvents & PlayerSourceEvents & WeaponSourceEvents>): () => void {
     const offs = [
       bus.on('targetKilled', (e) => this.onKilled(e)),
       bus.on('targetExpired', (e) => this.onExpired(e)),
       bus.on('shotImpact', (e) => this.onImpact(e)),
-      bus.on('shotFired', (e) => this.onFired(e)),
+      bus.on('shotFired', (e) => {
+        this.onFired(e);
+        this.onWeaponFired(e);
+      }),
       bus.on('playerStopped', (e) => this.onStopped(e)),
+      bus.on('reloadStarted', (e) => this.onReload(this.reloadStartedEv, e)),
+      bus.on('reloadCompleted', (e) => this.onReload(this.reloadCompletedEv, e)),
       bus.on('playerDied', () => this.end('death')),
     ];
     return () => offs.forEach((f) => f());
@@ -241,7 +254,7 @@ export class ModeRunner implements ModeContext<unknown> {
       return -1;
     }
     const scale = Math.max(opts?.scale ?? 1, fl.minTargetScale);
-    const id = this.deps.spawner.spawn(kind, pos, scale, opts?.strafe);
+    const id = this.deps.spawner.spawn(kind, pos, scale, opts?.strafe, opts?.durable);
     if (id < 0) {
       this.refusedSpawns++;
       return -1;
@@ -281,11 +294,61 @@ export class ModeRunner implements ModeContext<unknown> {
     e.success = success;
     e.rtMs = rt >= 0 ? rt : undefined;
     e.extra = opts?.extra;
+    e.source = this.mode.trialSource ?? 'matched';
     this.deps.events.emit('skillTrial', e);
     this.stats.trials++;
     if (success) this.stats.trialsWon++;
     else this.streaks.onBreak(this.simTick, t);
     return true;
+  }
+
+  awardScore(id: number, opts: AwardOptions): number {
+    if (this.phase !== 'live') return 0;
+    const rec = this.find(id);
+    const t = this.timeSec;
+    const cfg = this.tunables.scoring;
+    const kind = opts.kind ?? 'post';
+    this.streaks.step(this.simTick, t);
+    const kill = scoreKill(this.lastScore, {
+      kind,
+      headshot: opts.headshot ?? false,
+      firstBullet: opts.firstBullet ?? false,
+      ttkMs: (opts.durationSec ?? 0) * 1000,
+      // No duration given: no speed term (a spray is judged on its bullets, not its clock).
+      parSec: opts.durationSec === undefined ? 0 : this.mode.parSec ? this.mode.parSec(kind, this.axes) : cfg.defaultParSec,
+      cleanStreak: this.streaks.streak,
+      dial: rec?.dial ?? this.dial,
+      surge: this.surge,
+    }, cfg);
+    const w = clamp(opts.weight, 0, 1);
+    kill.base *= w;
+    kill.raw *= w;
+    kill.total = Math.round(kill.raw);
+    this.streaks.onKill(this.simTick, t, opts.clean ?? true);
+    this.stats.score += kill.total;
+    this.emitScore(this.simTick, t, id, kind, kill);
+    return kill.total;
+  }
+
+  placePlayer(x: number, y: number, z: number, yaw: number): void {
+    this.deps.placePlayer?.(x, y, z, yaw);
+  }
+
+  private emitScore(tick: number, t: number, targetId: number, kind: EnemyKind, kill: ScoreBreakdown): void {
+    const a = this.scoreEv;
+    a.tick = tick;
+    a.t = t;
+    a.targetId = targetId;
+    a.kind = kind;
+    a.points = kill.total;
+    a.total = this.stats.score;
+    a.base = kill.base;
+    a.precision = kill.precision;
+    a.speed = kill.speed;
+    a.streak = kill.streak;
+    a.difficulty = kill.difficulty;
+    a.surge = kill.surge;
+    this.deps.events.emit('scoreAwarded', a);
   }
 
   // ---- facts from the sim ----------------------------------------------------------------
@@ -314,20 +377,7 @@ export class ModeRunner implements ModeContext<unknown> {
     s.kills++;
     if (e.zone === 'head') s.headshotKills++;
     s.score += kill.total;
-    const a = this.scoreEv;
-    a.tick = e.tick;
-    a.t = t;
-    a.targetId = e.targetId;
-    a.kind = e.kind;
-    a.points = kill.total;
-    a.total = s.score;
-    a.base = kill.base;
-    a.precision = kill.precision;
-    a.speed = kill.speed;
-    a.streak = kill.streak;
-    a.difficulty = kill.difficulty;
-    a.surge = kill.surge;
-    this.deps.events.emit('scoreAwarded', a);
+    this.emitScore(e.tick, t, e.targetId, e.kind, kill);
     this.killEv.payload = e;
     this.mode.onEvent(this, this.killEv);
     this.resolveTrial(e.targetId, true);
@@ -348,7 +398,7 @@ export class ModeRunner implements ModeContext<unknown> {
     if (this.phase !== 'live') return;
     if (!e.onTarget) {
       this.stats.misses++;
-      if (this.tunables.scoring.missBreaksStreak) this.streaks.onBreak(e.tick, (e.tick - this.liveStartSimTick) * TICK_DT);
+      if (this.mode.missBreaksStreak ?? this.tunables.scoring.missBreaksStreak) this.streaks.onBreak(e.tick, (e.tick - this.liveStartSimTick) * TICK_DT);
     }
     this.impactEv.payload = e;
     this.mode.onEvent(this, this.impactEv);
@@ -358,6 +408,18 @@ export class ModeRunner implements ModeContext<unknown> {
     if (this.phase !== 'live') return;
     this.firedEv.payload = e;
     this.mode.onEvent(this, this.firedEv);
+  }
+
+  private onWeaponFired(e: WeaponSourceEvents['shotFired']): void {
+    if (this.phase !== 'live') return;
+    this.weaponFiredEv.payload = e;
+    this.mode.onWeapon?.(this, this.weaponFiredEv);
+  }
+
+  private onReload(wrap: WeaponEvent & { type: 'reloadStarted' | 'reloadCompleted' }, e: { tick: number }): void {
+    if (this.phase !== 'live') return;
+    wrap.payload = e;
+    this.mode.onWeapon?.(this, wrap);
   }
 
   private onStopped(e: SourceEvents['playerStopped']): void {

@@ -104,6 +104,8 @@ Nothing else: no wall-highlight, no exact last-seen marker, no radar dots. Infor
 
 ### 4.4 Information variants in the drills
 
+> **Changed by #187.** The drills are retired (design §4.10); Corner Clear and Vigil survive as take and hold sectors of a Sweep run, and the cued variants below survive only as scenario cards the run director draws.
+
 | Mode | Change | Why |
 |---|---|---|
 | Cold Start (#23) | None: stays uncued, known position. | Its job is pure first-bullet precision. |

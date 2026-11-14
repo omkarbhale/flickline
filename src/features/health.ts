@@ -80,7 +80,7 @@ export const feature = defineFeature({
           tick: w.tick,
         };
       },
-      hpAlwaysVisible: (v = true) => game.damage.setHpAlwaysVisible(v),
+      hpAlwaysVisible: (v = true) => game.hud.live.setHpAlwaysVisible(v),
     });
   },
 });

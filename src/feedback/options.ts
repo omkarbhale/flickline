@@ -24,6 +24,15 @@ export interface FeedbackOptions {
   clean?: boolean;
   /** Surge is active: the tells come back (first release). */
   surge?: boolean;
+  /**
+   * A reference-like run is on (design §8.5: the Daily Baseline), set per run by `features/baseline.ts`
+   * and never by settings. It is a clean run (`clean`: no coaching cues, no stat strip, ghost pace or
+   * edge meter, whatever the settings say) that also drops the rewards the reference game does not
+   * have: the HUD's clock, score and streak counters, the floating points and time-to-shot readout,
+   * the screen pulse, and the kill ladder, sparkle, chain and streak-break sounds. The shot, the
+   * target's reaction and the hit and kill sounds are unchanged.
+   */
+  referenceLike?: boolean;
 }
 
 export function createFeedbackOptions(s: Readonly<Settings>): FeedbackOptions {
@@ -36,6 +45,7 @@ export function createFeedbackOptions(s: Readonly<Settings>): FeedbackOptions {
     cuePhase: 'every',
     clean: false,
     surge: false,
+    referenceLike: false,
   };
 }
 

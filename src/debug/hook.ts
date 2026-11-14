@@ -1,4 +1,5 @@
 import type { Game } from '../app/game';
+import { drawMapPlan } from './mapPlan';
 import type { Settings } from '../settings/settings';
 import type { TickInput } from '../sim/types';
 
@@ -62,6 +63,8 @@ export interface CoreDebug {
   setSetting(key: keyof Settings, value: number | string | boolean): void;
   /** Toggle the debug overlay. */
   overlay(visible?: boolean): void;
+  /** Show or hide a full-window top-down plan of the loaded map: sector regions, gates, hold anchors, approach lanes (see `debug/mapPlan.ts`). */
+  mapPlan(visible?: boolean): void;
   /** Named timestamps (ms since page load): panel shown, play clicked, lock, first shot. */
   timeline(): Record<string, number>;
   /** Live tunables object (mutate for experiments; not persisted). */
@@ -80,6 +83,7 @@ const DEG = Math.PI / 180;
 const MEASURING: ReadonlySet<string> = new Set(['perf', 'perfRun', 'perfStatus', 'timeline']);
 
 export function installDebugHook(game: Game): FlicklineDebug {
+  let plan: HTMLCanvasElement | null = null;
   const core: CoreDebug = {
     version: 1,
     pause() {
@@ -145,6 +149,21 @@ export function installDebugHook(game: Game): FlicklineDebug {
     },
     overlay(visible) {
       game.overlay.setVisible(visible ?? !game.overlay.isVisible);
+    },
+    mapPlan(visible) {
+      if (plan === null) {
+        plan = document.createElement('canvas');
+        plan.id = 'map-plan';
+        plan.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;z-index:2147483000;';
+        document.body.append(plan);
+      }
+      const on = visible ?? plan.hidden;
+      plan.hidden = !on;
+      if (!on) return;
+      plan.width = window.innerWidth;
+      plan.height = window.innerHeight;
+      const p = game.world.player;
+      drawMapPlan(plan.getContext('2d')!, plan.width, plan.height, game.map, { player: { pos: p.pos, yaw: p.yaw } });
     },
     timeline: () => game.timeline.toObject(),
     tunables: game.tunables,

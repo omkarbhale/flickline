@@ -24,7 +24,8 @@ import type { HudClock } from '../hud/liveHud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
 import { DEFAULT_PROFILE, ProfileStore } from '../settings/profile';
-import { PlayLog, sanitizePlayLog } from '../settings/playLog';
+import { ProgressStore } from '../progress/store';
+import { SkillState } from '../adaptive/skillModel';
 import { buildSave, type SaveParts } from '../settings/saveData';
 import { SettingsStore, SETTINGS_KEY, type Settings } from '../settings/settings';
 import { createTickInput, type TickInput } from '../sim/types';
@@ -78,12 +79,21 @@ export class Game {
   readonly tunables: Tunables = liveTunables;
   readonly settings: SettingsStore;
   readonly profile: ProfileStore;
-  /** Best scores, finished-run counts and the flagged skill behind the mode cards and Today's session. */
-  readonly playLog: PlayLog;
+  /**
+   * The progress save (design §14.5): skill posteriors, ranks, personal bests per mode and dial band, medals and
+   * the run history. Also the best scores, finished-run counts and flagged skill behind the mode cards and
+   * Today's session.
+   */
+  readonly progress: ProgressStore;
   /** Today's session: which mode is next (the menu shows it, the game launches it). */
   readonly todaysSession: SessionFlow;
-  /** Range unless the URL says `?map=lane|elbow` (a dev/playtest switch until the modes choose their own map). */
-  readonly map: MapDef = mapFromUrl();
+  /**
+   * The map in the world now. Range, or the URL's `?map=lane|elbow` (a dev/playtest switch), until a
+   * mode starts: starting a mode loads the map it is designed for (`ModeDef.map`, see `ModeHost.start`).
+   */
+  get map(): MapDef {
+    return this.modes.currentMap;
+  }
   readonly world: World;
   readonly renderer: GameRenderer;
   readonly input: InputManager;
@@ -137,6 +147,7 @@ export class Game {
 
   private readonly tickHooks: (() => void)[] = [];
   private readonly frameHooks: ((dt: number) => void)[] = [];
+  private readonly frameEndHooks: (() => void)[] = [];
   private readonly resetHooks: (() => void)[] = [];
   private readonly overlayLines: (() => string)[] = [];
   private readonly snapshotSections = new Map<string, () => unknown>();
@@ -171,14 +182,15 @@ export class Game {
       this.settings.set({ reduceFlashing: true });
     }
     this.profile = new ProfileStore(this.bus, storage);
-    this.playLog = new PlayLog(this.bus, storage);
+    this.progress = new ProgressStore(this.bus, storage);
     const s = this.settings.get();
     this.feedbackOptions = createFeedbackOptions(s);
 
     const seedParam = new URLSearchParams(window.location.search).get('seed');
     this.urlSeed = seedParam !== null && Number.isFinite(Number(seedParam)) ? Number(seedParam) : null;
     const seed = this.urlSeed ?? 1;
-    this.world = new World({ level: this.map, tunables: this.tunables, seed });
+    const initialMap = mapFromUrl();
+    this.world = new World({ level: initialMap, tunables: this.tunables, seed });
 
     this.cues = new ShotCues(this.bus, this.tunables.feedback, this.feedbackOptions, this.world.targets, this.tunables.targets);
     this.renderer = new GameRenderer(canvas, this.tunables, s.quality);
@@ -198,7 +210,7 @@ export class Game {
     this.edge = new EdgeMeter(this.tunables.hud);
     this.edge.attach(this.bus);
     // The mode runner is a feedback producer too: it emits `streakUpdated` before the kill chime reads it.
-    this.modes = new ModeHost(this.world, this.bus, this.map, this.tunables);
+    this.modes = new ModeHost(this.world, this.bus, initialMap, this.tunables, SkillState.deserialize(this.progress.snapshot.ratings, this.tunables.dial) ?? undefined);
     this.run = new RunController(this.world, this.bus, this.tunables);
     this.hudStats = new TrackerHudStats(this.run);
     this.hudStats.attach(this.bus);
@@ -213,6 +225,7 @@ export class Game {
       weapon: this.world.weapon,
       weapons: this.tunables.weapon,
       health: this.world.health,
+      hpFlashMs: this.tunables.damageFx.hpFlashMs,
     }, {
       options: this.feedbackOptions,
       cfg: this.tunables.feedback,
@@ -221,7 +234,7 @@ export class Game {
       medianRtMs: () => this.hudStats.medianRtMs,
     });
     this.damage = new DamageView(
-      hudRoot, this.bus, this.tunables.damageFx, this.world.health, s.reduceFlashing,
+      hudRoot, this.bus, this.tunables.damageFx, s.reduceFlashing,
       () => performance.now(), () => this.viewYaw(),
     );
     this.tunables.player.flinch.strength = s.flinchStrength;
@@ -229,7 +242,7 @@ export class Game {
     this.todaysSession = new SessionFlow(
       this.bus,
       { registry: MODES, skills: modes.skills, get modeId() { return modes.modeId; } },
-      this.playLog,
+      this.progress,
       this.tunables.menu,
       this.tunables.dial,
     );
@@ -267,7 +280,10 @@ export class Game {
     // Features, in stage order: producers subscribe before presentation (see app/feature.ts). Then
     // the level loads, so the render layers they added get their shaders compiled with it.
     for (const f of FEATURES) f.setup(this);
-    this.renderer.loadLevel(this.world, this.map);
+    this.renderer.loadLevel(this.world, initialMap);
+
+    // A mode started on a map other than the loaded one (ModeHost.start): show that map's level before the run's first frame.
+    this.bus.on('mapLoaded', () => this.renderer.loadLevel(this.world, this.modes.currentMap));
 
     this.bus.on('settingsChanged', ({ settings, changed }) => {
       if (changed.includes('sensitivity')) this.input.setSensitivity(settings.sensitivity);
@@ -288,7 +304,7 @@ export class Game {
       this.refreshChrome();
     });
     this.bus.on('rawInputChanged', ({ on, requested }) => this.menu.setRawInput(on, requested));
-    this.bus.on('playLogChanged', () => this.menu.refresh());
+    this.bus.on('progressChanged', () => this.menu.refresh());
     this.bus.on('shotFired', () => this.timeline.mark('firstShot'));
     this.bus.on('targetHit', () => this.dismissHint());
     // The Placement run's first orb appears after the run goes live, not at the click: the hint waits for it.
@@ -319,6 +335,11 @@ export class Game {
   /** Run once per rendered frame, after that frame's ticks and before drawing. Must not allocate. */
   onFrame(fn: (dt: number) => void): void {
     this.frameHooks.push(fn);
+  }
+
+  /** Run once per rendered frame, after the frame has been drawn (debug timing probes). Must not allocate. */
+  onFrameEnd(fn: () => void): void {
+    this.frameEndHooks.push(fn);
   }
 
   /** Run whenever the world is reset or a run restarts, after the reset (clear per-run state). */
@@ -400,10 +421,10 @@ export class Game {
 
   // --- Data: the save file of the settings menu (design §13.3) ----------------------------------
 
-  /** The save as JSON text: settings, profile and play log. */
+  /** The save as JSON text: settings, profile and the progress save (design §14.5). */
   exportSave(): string {
     return buildSave(
-      { settings: { ...this.settings.get() }, profile: { ...this.profile.get() }, playLog: this.playLog.snapshot() },
+      { settings: { ...this.settings.get() }, profile: { ...this.profile.get() }, progress: this.progress.exportData() },
       new Date().toISOString(),
     );
   }
@@ -412,13 +433,13 @@ export class Game {
   importSave(parts: SaveParts): void {
     if (parts.settings) this.settings.set(parts.settings);
     if (parts.profile) this.profile.set(parts.profile);
-    if (parts.playLog) this.playLog.replace(parts.playLog);
+    if (parts.progress) this.progress.replace(parts.progress);
   }
 
-  /** Reset progress: the profile (so the first-run flow starts again) and the play log. Settings stay. The caller reloads. */
+  /** Reset progress: the profile (so the first-run flow starts again) and the progress save. Settings stay. The caller reloads. */
   resetProgress(): void {
     this.profile.set(DEFAULT_PROFILE);
-    this.playLog.replace(sanitizePlayLog(null));
+    this.progress.reset();
   }
 
   // --- Menu flow: what the menu's buttons and keys do (design section 2) -------------------------
@@ -477,7 +498,7 @@ export class Game {
     const dial = this.tunables.dial;
     const skills = this.modes.skills;
     return buildCards(registeredModes(MODES, dial), this.tunables.menu, {
-      bestScore: (id) => this.playLog.best(id),
+      bestScore: (id) => this.progress.best(id),
       matchedDial: (id) => {
         const d = dial.modes[id];
         return d ? skills.targetDial(d.skill, d.targetSuccess) : null;
@@ -608,6 +629,7 @@ export class Game {
     this.hud.update();
     this.drawFrame(this.stepper.alpha, dt);
     this.damage.update();
+    for (let i = 0; i < this.frameEndHooks.length; i++) this.frameEndHooks[i]!();
     if (this.restartStartedAt >= 0) {
       this.lastRestartToFrameMs = performance.now() - this.restartStartedAt;
       this.restartStartedAt = -1;

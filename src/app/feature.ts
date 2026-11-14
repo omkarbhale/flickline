@@ -17,7 +17,7 @@ export type FeatureStage = (typeof FEATURE_STAGES)[number];
  * A self-contained piece of the game, wired in by adding one file `src/features/<id>.ts` that
  * exports `feature = defineFeature({...})`. The game finds every such file at build time (no list
  * to edit) and calls `setup` once, after every core subsystem exists. `setup` registers what the
- * feature needs through the game's registration API (`onTick`, `onFrame`, `onReset`,
+ * feature needs through the game's registration API (`onTick`, `onFrame`, `onFrameEnd`, `onReset`,
  * `addOverlayLines`, `addSnapshot`, `addDebug`, `renderer.addLayer`) and the bus.
  */
 export interface Feature {

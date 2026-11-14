@@ -1,4 +1,5 @@
 import type { Rng } from '../core/rng';
+import type { MovementTunables } from '../config/movement';
 import type { WeaponDef, WeaponRules } from '../config/weapon';
 import { zoneDamage } from './damage';
 import type { HitZone } from './types';
@@ -27,11 +28,12 @@ export function sprayIncrement(def: WeaponDef, rules: WeaponRules, sinceLastSec:
 /**
  * Spec §3.4: degrees of movement error for a horizontal speed fraction `f` of the equipped run
  * speed. Zero at or below the deadzone, ramps to the walk (or crouch-walk) value at the walk
- * fraction, then to the run value at full speed; airborne replaces all of it.
+ * fraction, then to the run value at full speed; airborne replaces all of it. The walk fractions
+ * are the movement's own (`config/movement.ts`), so the error ramp and the walk speeds share one source.
  */
 export function movementErrorDeg(
   def: WeaponDef,
-  rules: WeaponRules,
+  move: Pick<MovementTunables, 'walkFraction' | 'crouchWalkFraction'>,
   f: number,
   crouching: boolean,
   airborne: boolean,
@@ -39,7 +41,7 @@ export function movementErrorDeg(
   if (airborne) return def.errAirDeg;
   const dz = def.deadzoneFraction;
   if (f <= dz) return 0;
-  const midFraction = crouching ? rules.crouchWalkFraction : rules.walkFraction;
+  const midFraction = crouching ? move.crouchWalkFraction : move.walkFraction;
   const midAdd = crouching ? def.errCrouchMoveDeg : def.errWalkDeg;
   if (f <= midFraction) return (midAdd * (f - dz)) / (midFraction - dz);
   const g = Math.min(1, (f - midFraction) / (1 - midFraction));
@@ -108,19 +110,4 @@ export function stepYawSign(def: WeaponDef, state: RecoilState, dt: number): voi
   const maxDelta = (2 * dt) / def.recoilFlipTimeSec;
   const d = state.yawTarget - state.yawSign;
   state.yawSign = Math.abs(d) <= maxDelta ? state.yawTarget : state.yawSign + Math.sign(d) * maxDelta;
-}
-
-/** Spec §3.5 view recovery: move the aim offset towards zero by `maxDeg` (straight line). */
-export function returnRecoil(state: RecoilState, maxDeg: number): void {
-  const p = state.recoilPitch;
-  const y = state.recoilYaw;
-  const len = Math.sqrt(p * p + y * y);
-  if (len <= maxDeg) {
-    state.recoilPitch = 0;
-    state.recoilYaw = 0;
-    return;
-  }
-  const k = (len - maxDeg) / len;
-  state.recoilPitch = p * k;
-  state.recoilYaw = y * k;
 }

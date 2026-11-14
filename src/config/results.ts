@@ -18,7 +18,8 @@ export type MetricId =
   | 'stopLatency'
   | 'headHeight'
   | 'bestChain'
-  | 'cleanKills';
+  | 'cleanKills'
+  | 'cleanStreak';
 
 export interface FixCopy {
   title: string;
@@ -54,6 +55,12 @@ export interface ResultsTunables {
   /** The two key metrics of a mode; `defaultKeyMetrics` for modes not listed. */
   keyMetrics: Record<string, readonly [MetricId, MetricId]>;
   defaultKeyMetrics: readonly [MetricId, MetricId];
+  /**
+   * Modes whose kills are one bullet by design (a one-tap headshot on a Post or a Beacon): their "Time to kill"
+   * (first shot to death) is ~0 ms and says nothing, so the card shows `oneBulletTile` in its place (#175).
+   */
+  oneBulletModes: readonly string[];
+  oneBulletTile: MetricId;
   /** Badge colour per tier, lowest first (design §8.4: Chalk, Brass, Steel, Cobalt, Neon, Prism, Zenith). The badge always carries the tier name too. */
   tierColours: readonly string[];
   /** Why the run ended, shown above the mode name. */
@@ -105,6 +112,8 @@ export const results: ResultsTunables = {
     sweep: ['bestChain', 'preAimError'],
   },
   defaultKeyMetrics: ['firstShotRate', 'preAimError'],
+  oneBulletModes: ['coldStart', 'orbit', 'placement'],
+  oneBulletTile: 'cleanStreak',
   tierColours: ['#aab4c2', '#d9a35a', '#9fb4cc', '#5b8cff', '#38e8ff', '#c792ff', '#ffd23f'],
   endLabels: { timer: "Time's up", death: 'Eliminated', complete: 'Run complete', quit: 'Run ended early' },
   skillLabels: {
@@ -124,6 +133,8 @@ export const results: ResultsTunables = {
     untouched: 'Untouched',
     flawless: 'Flawless',
     ascent: 'Ascent',
+    // The 13th medal (a Daily Baseline that reports "Improved"): its criterion lives with the Baseline series (#151, #153).
+    retained: 'Retained',
   },
   copy: {
     movingShots: {

@@ -165,7 +165,7 @@ export function stepRunProbe(
 ): void {
   const oy = p.pos.y + p.eyeHeight;
   directionFromAngles(dir, p.yaw, p.pitch);
-  const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.z * p.vel.z);
+  const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.z * p.vel.z); // not Math.hypot: V8 boxes its result (#152)
   // `accuracyThreshold` inline: a double returned from a function V8 does not inline is boxed.
   const def = t.weapon[w.slots[w.active]!.id];
   const thr = def.deadzoneFraction * def.runSpeedMps;
@@ -215,7 +215,7 @@ export function stepRunProbe(
   }
 
   // Stop latency: from the stop/counter-strafe input to speed first at or below the threshold.
-  const mag = Math.sqrt(input.moveX * input.moveX + input.moveZ * input.moveZ);
+  const mag = Math.sqrt(input.moveX * input.moveX + input.moveZ * input.moveZ); // not Math.hypot (#152)
   const rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
   const wx = rx * input.moveX + -Math.sin(p.yaw) * input.moveZ;
   const wz = rz * input.moveX + -Math.cos(p.yaw) * input.moveZ;

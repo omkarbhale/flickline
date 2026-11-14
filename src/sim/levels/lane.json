@@ -44,7 +44,12 @@
     {"kind":"post","id":"post-27_5-2","tags":["band-27_5","alcove"],"pos":[0,0,-13.5],"yaw":-3.142},
     {"kind":"post","id":"post-27_5-3","tags":["band-27_5","alcove"],"pos":[1,0,-13.5],"yaw":3.105},
     {"kind":"post","id":"post-28_5-1","tags":["band-28_5","alcove"],"pos":[-0.8,0,-14.5],"yaw":-3.114},
-    {"kind":"post","id":"post-28_5-2","tags":["band-28_5","alcove"],"pos":[0.8,0,-14.5],"yaw":3.114}
+    {"kind":"post","id":"post-28_5-2","tags":["band-28_5","alcove"],"pos":[0.8,0,-14.5],"yaw":3.114},
+    {"kind":"hold","id":"hold-take-stop4","tags":["sector-take","half-cover"],"pos":[2.0,0,-6.7],"yaw":2.688,"stance":"crouch"},
+    {"kind":"hold","id":"hold-take-stop5","tags":["sector-take","half-cover"],"pos":[-2.0,0,-11.7],"yaw":-2.925,"stance":"crouch"},
+    {"kind":"hold","id":"hold-meet-stop1","tags":["sector-meet","half-cover"],"pos":[-2.0,0,8.3],"yaw":-2.804,"stance":"crouch"},
+    {"kind":"hold","id":"hold-meet-stop2","tags":["sector-meet","half-cover"],"pos":[2.0,0,3.3],"yaw":2.957,"stance":"crouch"},
+    {"kind":"hold","id":"hold-meet-stop3","tags":["sector-meet","half-cover"],"pos":[-2.0,0,-1.7],"yaw":-3.015,"stance":"crouch"}
   ],
   "nav": {
     "nodes": [
@@ -71,6 +76,12 @@
   },
   "lanes": [
     {"id":"lane","start":[0,0,12],"end":[0,0,-14.6],"width":6}
+  ],
+  "sectors": [
+    {"id":"lane-meet-near","role":["meet"],"region":{"min":[-3,0,-2.2],"max":[3,4,15]},"entry":[0,0,14],"exit":[0,0,-1.8],
+      "holdAnchors":["hold-meet-stop1","hold-meet-stop2","hold-meet-stop3"]},
+    {"id":"lane-take-far","role":["take"],"region":{"min":[-3,0,-15],"max":[3,4,-2.2]},"entry":[0,0,-2.6],"exit":[0,0,-14],
+      "holdAnchors":["hold-take-stop4","hold-take-stop5"]}
   ],
   "marks": [
     {"kind":"line","a":[-3,0,12],"b":[3,0,12],"width":0.25},

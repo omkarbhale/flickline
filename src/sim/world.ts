@@ -63,7 +63,8 @@ export interface WorldOptions {
  * Everything advances only through step(). Emits SimEvents; presentation subscribes.
  */
 export class World implements EnemyWorld {
-  readonly level: LevelDef;
+  /** The loaded level. Replaced only by `setLevel` (a mode on another map); never assigned elsewhere. */
+  level: LevelDef;
   readonly tunables: Tunables;
   readonly rng: Rng;
   seed: number;
@@ -142,6 +143,7 @@ export class World implements EnemyWorld {
       field: this.targetField,
       table: opts.tunables.weapon,
       rules: opts.tunables.weaponRules,
+      move: opts.tunables.movement,
       rng: this.rng,
       swapLocked: false,
     };
@@ -165,6 +167,17 @@ export class World implements EnemyWorld {
     // Until the enemy minds (#89) answer, a firing enemy "sees" the player by the one sight rule its fire model already uses.
     this.attribution.perception = { seesPlayer: (t) => t.ai.fireOn && this.firing && seesPlayer(t, this.behaviourCtx) };
     this.reset(this.seed);
+  }
+
+  /**
+   * Load another level in place: its collision boxes (weapon rays, enemy sight, attribution), spawn
+   * point and placed targets replace the old level's. Takes effect with the next `reset()`, which the
+   * caller runs straight after (`ModeHost.start`); nothing else about the world changes.
+   */
+  setLevel(level: LevelDef): void {
+    this.level = level;
+    this.weaponWorld.boxes = level.boxes;
+    this.attribution.setBoxes(level.boxes);
   }
 
   /** Restore the initial state; optionally with a new seed. */
@@ -213,7 +226,7 @@ export class World implements EnemyWorld {
       l.pitch = input.pitch;
       moveInput = l;
     }
-    stepPlayer(this.player, moveInput, this.level.boxes, t.movement, TICK_DT, this.tick, events);
+    stepPlayer(this.player, moveInput, this.level.boxes, t.movement, t.weapon[this.weapon.slots[this.weapon.active]!.id], TICK_DT, this.tick, events);
     if (!this.live) {
       relay.target = NULL_SINK;
       return;
@@ -224,6 +237,12 @@ export class World implements EnemyWorld {
     this.attribution.step(this.tick, events);
     relay.target = NULL_SINK;
     stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events, this.level);
+  }
+
+  /** The player's max speed: the equipped weapon's run speed (spec §2.1). */
+  maxSpeed(): number {
+    const w = this.weapon;
+    return this.tunables.weapon[w.slots[w.active]!.id].runSpeedMps;
   }
 
   /** Enemies shoot only while the run is live, the player is alive and the mode lets them (`EnemyWorld`). */

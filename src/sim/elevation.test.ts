@@ -62,7 +62,7 @@ describe('step-up', () => {
     expect(world.player.pos.y).toBeCloseTo(0.3, 6);
     expect(world.player.grounded).toBe(true);
     expect(airborne).toBe(0);
-    expect(minSpeed).toBeCloseTo(m.runSpeed, 3);
+    expect(minSpeed).toBeCloseTo(world.maxSpeed(), 3);
   });
 
   it('climbs a stair of 0.3 m risers', () => {
@@ -115,7 +115,7 @@ describe('step-up', () => {
     const b = setup(level([box('platform', -3, 0, -3, 3, 1, 3)], vec3(0, 1, 0)));
     b.run(4);
     let sawAir = false;
-    b.run(TICK_RATE, { moveZ: 1 }, () => {
+    b.run(TICK_RATE * 1.5, { moveZ: 1 }, () => {
       if (!b.world.player.grounded) sawAir = true;
     });
     expect(sawAir).toBe(true);
@@ -160,7 +160,7 @@ describe('ramps', () => {
       expect(airborne).toBe(0);
       expect(monotone).toBe(true);
       // The spec's speeds are unchanged on a ramp: horizontal speed is the flat run speed.
-      expect(slowest).toBeCloseTo(m.runSpeed, 3);
+      expect(slowest).toBeCloseTo(world.maxSpeed(), 3);
     });
   }
 
@@ -210,7 +210,7 @@ describe('ramps', () => {
     const lv = level([ramp('-z', 0, -2, 0, -4, 2, 2, 4)], vec3(8, 0, 3.9), Math.PI / 2);
     const { world, run } = setup(lv);
     run(4);
-    run(TICK_RATE * 2, { moveZ: 1 });
+    run(TICK_RATE * 2.5, { moveZ: 1 });
     expect(world.player.pos.x).toBeLessThan(-2.5); // walked over and off the other side
 
   });
@@ -290,7 +290,7 @@ describe('shared movement code', () => {
     const bus = new EventBus<SimEvents>();
     const input = createTickInput();
     input.moveZ = 1;
-    for (let i = 0; i < TICK_RATE * 4; i++) stepPlayer(body, input, lv.boxes, t.movement, 1 / TICK_RATE, i + 1, bus);
+    for (let i = 0; i < TICK_RATE * 4; i++) stepPlayer(body, input, lv.boxes, t.movement, t.weapon.kestrel, 1 / TICK_RATE, i + 1, bus);
     expect(body.pos.y).toBeCloseTo(2, 6);
     expect(body.grounded).toBe(true);
   });

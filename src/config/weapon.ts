@@ -85,10 +85,12 @@ export interface WeaponDef {
   recoilFlipChance: number;
   /** Seconds the yaw direction takes to swing fully to the other side (spec §3.5 "switch time"). */
   recoilFlipTimeSec: number;
-  /** Seconds after the last shot before the aim offset starts returning (spec §3.5). */
+  /**
+   * Seconds after the last shot that the aim offset holds before it returns (spec §3.5). The
+   * return is a smoothstep glide that reaches the crosshair at `recoverySec`, so this must be shorter
+   * than `recoverySec`; at least `heldFireIntervals` shot intervals keeps a held spray climbing.
+   */
   recoilReturnDelaySec: number;
-  /** Return speed of the aim offset towards the crosshair, deg/s (spec §3.5). */
-  recoilReturnDegPerSec: number;
   /** Pitch-kick multiplier for a moving or airborne shot (spec §3.5, PN 4.0 / PN 6.11). */
   recoilMovingPitchMult: number;
   /** Yaw-kick multiplier for a moving or airborne shot (spec §3.5, PN 4.0). */
@@ -101,10 +103,6 @@ export interface WeaponDef {
 export interface WeaponRules {
   /** Hitscan reach, metres. Spec §3.2 bands end at 50 m; this only bounds the trace. */
   rangeM: number;
-  /** `move.walk_fraction` (spec §2.2): walk speed as a fraction of the equipped run speed. */
-  walkFraction: number;
-  /** `move.crouch_walk_fraction` (spec §2.2). */
-  crouchWalkFraction: number;
   /** `move.landing_spread_add` (spec §2.6): degrees added for a window after landing. */
   landingSpreadAddDeg: number;
   /** `move.landing_spread_duration` (spec §2.6), seconds. */
@@ -160,8 +158,7 @@ export const weapon: WeaponTable = {
     recoilProtectedBullets: 0, // spec §3.5: no pattern, so no switching
     recoilFlipChance: 0, // spec §3.5
     recoilFlipTimeSec: 0, // spec §3.5
-    recoilReturnDelaySec: 0, // spec §3.5 "recovers within 0.25 s": returns from the first tick...
-    recoilReturnDegPerSec: 2.4, // ...at 0.6 deg / 0.25 s (DERIVED)
+    recoilReturnDelaySec: 0, // spec §3.5 "recovers within 0.25 s": returns from the first tick
     recoilMovingPitchMult: 1.5, // spec §3.5 (PN 4.0, both axes x1.5)
     recoilMovingYawMult: 1.5, // spec §3.5 (PN 4.0)
     recoilCrouchYawMult: 0.85, // spec §3.5 (PN 0.50)
@@ -202,8 +199,7 @@ export const weapon: WeaponTable = {
     recoilProtectedBullets: 8, // spec §3.5 (PN 11.08)
     recoilFlipChance: 0.1, // spec §3.5 (PN 11.08)
     recoilFlipTimeSec: 0.6, // spec §3.5 (PN 11.08)
-    recoilReturnDelaySec: 0.35, // spec §3.5: returns once the gun recovery time has elapsed
-    recoilReturnDegPerSec: 8, // spec §3.5 (PLACEHOLDER)
+    recoilReturnDelaySec: 1.5 / 11, // spec §3.5: holds through held fire (1.5 shot intervals), back at recoverySec
     recoilMovingPitchMult: 1.8, // spec §3.5 (PN 6.11, vertical while running, rifles)
     recoilMovingYawMult: 1.5, // spec §3.5 (PN 4.0)
     recoilCrouchYawMult: 0.85, // spec §3.5 (PN 0.50)
@@ -242,8 +238,7 @@ export const weapon: WeaponTable = {
     recoilProtectedBullets: 6, // spec §3.5 (PN 11.08)
     recoilFlipChance: 0.1, // spec §3.5 (PN 11.08)
     recoilFlipTimeSec: 0.6, // spec §3.5 (PN 11.08)
-    recoilReturnDelaySec: 0.375, // spec §3.5: returns once the gun recovery time has elapsed
-    recoilReturnDegPerSec: 8, // spec §3.5 (PLACEHOLDER)
+    recoilReturnDelaySec: 1.5 / 9.75, // spec §3.5: holds through held fire (1.5 shot intervals), back at recoverySec
     recoilMovingPitchMult: 1.8, // spec §3.5 (PN 6.11, vertical while running)
     recoilMovingYawMult: 1.5, // spec §3.5 (PN 4.0)
     recoilCrouchYawMult: 0.85, // spec §3.5 (PN 0.50)
@@ -285,8 +280,7 @@ export const weapon: WeaponTable = {
     recoilProtectedBullets: 5, // spec §3.5 (PN 11.08)
     recoilFlipChance: 0.1, // spec §3.5 (ASSUMED: PN 11.08 states no chance for the smg)
     recoilFlipTimeSec: 0.28, // spec §3.5 (PN 11.08)
-    recoilReturnDelaySec: 0.25, // spec §3.5: returns once the gun recovery time has elapsed
-    recoilReturnDegPerSec: 8, // spec §3.5 (PLACEHOLDER)
+    recoilReturnDelaySec: 1.5 / 13.333, // spec §3.5: holds through held fire (1.5 shot intervals), back at recoverySec
     recoilMovingPitchMult: 1.8, // spec §3.5 (PN 6.11, vertical while running, also the SMG)
     recoilMovingYawMult: 1.5, // spec §3.5 (PN 4.0)
     recoilCrouchYawMult: 0.85, // spec §3.5 (PN 0.50)
@@ -295,8 +289,6 @@ export const weapon: WeaponTable = {
 
 export const weaponRules: WeaponRules = {
   rangeM: 200,
-  walkFraction: 0.5, // spec §7.1 `move.walk_fraction`
-  crouchWalkFraction: 0.34, // spec §7.1 `move.crouch_walk_fraction`
   landingSpreadAddDeg: 7, // spec §7.1 `move.landing_spread_add`
   landingSpreadSec: 0.225, // spec §7.1 `move.landing_spread_duration`
   centreBiasPowerStill: 1.5, // spec §7.1 `spread.center_bias_power_still`
