@@ -168,6 +168,10 @@ export class Game {
     this.onResize();
     this.refreshChrome();
     this.timeline.mark(this.profile.get().firstRunDone ? 'mainMenuShown' : 'firstRunPanelShown');
+
+    // `?mode=orbit` readies that mode now; it starts ticking when the player clicks Play (the sim only runs with the pointer locked). The menu for choosing modes is #27.
+    const modeParam = new URLSearchParams(window.location.search).get('mode');
+    if (modeParam) this.startMode(modeParam);
   }
 
   private applyAudioSettings(s: Readonly<Settings>): void {
@@ -308,7 +312,7 @@ export class Game {
    * Deterministic stepping for tests and automated playtests: run exactly `n` ticks with a clean
    * scripted input (physical keys/mouse are ignored; view angles come from input.setLook).
    */
-  step(n: number, partial: Partial<TickInput> = {}): void {
+  step(n: number, partial: Partial<TickInput> = {}, render = true): void {
     const s = this.scriptInput;
     s.moveX = partial.moveX ?? 0;
     s.moveZ = partial.moveZ ?? 0;
@@ -329,7 +333,7 @@ export class Game {
       s.jump = false;
       s.reload = false;
     }
-    this.renderNow();
+    if (render) this.renderNow();
   }
 
   /**
@@ -399,6 +403,22 @@ export class Game {
     const p = w.player;
     const dx = c.x - p.pos.x, dy = c.y - (p.pos.y + p.eyeHeight), dz = c.z - p.pos.z;
     this.input.setLook(Math.atan2(-dx, -dz), Math.asin(dy / Math.hypot(dx, dy, dz)));
+    this.renderNow();
+    return true;
+  }
+
+  /**
+   * Ready a run of a mode (its player setup is applied by the host): the view is reset to the
+   * stand pose and the per-run counters start fresh. Returns false for an unknown mode id.
+   */
+  startMode(id: string, opts: { seed?: number; pinDial?: number } = {}): boolean {
+    if (!this.modes.start(id, opts)) return false;
+    const p = this.world.player;
+    this.input.setLook(p.yaw, p.pitch);
+    this.session.reset();
+    this.cues.clear();
+    this.hud.refresh();
+    this.stepper.reset();
     this.renderNow();
     return true;
   }

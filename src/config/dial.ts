@@ -158,6 +158,8 @@ export const dial: DialTunables = {
     test: { skill: 'precision', targetSuccess: 0.7 },
     coldStart: { skill: 'precision', targetSuccess: 0.55 },
     orbit: { skill: 'flick', targetSuccess: 0.7 },
+    // The Placement run's own dial is the staircase; this entry only gives it a sensible starting dial (design §9.2).
+    placement: { skill: 'flick', targetSuccess: 0.7 },
     strafeTrack: { skill: 'track', targetSuccess: 0.7 },
     stopAndPop: { skill: 'footwork', targetSuccess: 0.7 },
     sprayWall: { skill: 'spray', targetSuccess: 0.7 },

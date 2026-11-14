@@ -11,12 +11,13 @@ import {
   createWeaponScratch,
   createWeaponState,
   resetWeaponState,
+  selectWeapon,
   stepWeapon,
   type WeaponScratch,
   type WeaponWorld,
 } from './weapon';
 import { stepPlayer } from './movement';
-import type { LevelDef, PlayerState, SimEvents, TargetKind, TargetState, TickInput, WeaponState } from './types';
+import { createTickInput, type LevelDef, type PlayerState, type SimEvents, type TargetKind, type TargetState, type TickInput, type WeaponState } from './types';
 
 const NULL_SINK: EventSink<SimEvents> = { emit() {} };
 
@@ -39,6 +40,12 @@ export class World {
   readonly rng: Rng;
   seed: number;
   tick = 0;
+  /**
+   * A mode may lock the player in place (Orbit, design §4.2): movement keys, jump, crouch and walk
+   * are ignored; look angles, fire, reload and weapon switching still work. Not reset by `reset()`
+   * (it belongs to the run); the mode host sets and clears it.
+   */
+  movementLocked = false;
   readonly player: PlayerState;
   /** The target registry (see `sim/targets.ts`). */
   readonly targetField: TargetField;
@@ -48,6 +55,7 @@ export class World {
   readonly weapon: WeaponState;
   private readonly weaponWorld: WeaponWorld;
   private readonly weaponScratch: WeaponScratch = createWeaponScratch();
+  private readonly lockedInput = createTickInput();
   /** Reused every tick for target behaviours (`events` is swapped in per step). */
   private readonly behaviourCtx: BehaviourContext;
 
@@ -112,7 +120,14 @@ export class World {
   step(input: TickInput, events: EventSink<SimEvents>): void {
     this.tick++;
     const t = this.tunables;
-    stepPlayer(this.player, input, this.level.boxes, t.movement, TICK_DT, this.tick, events);
+    let moveInput = input;
+    if (this.movementLocked) {
+      const l = this.lockedInput;
+      l.yaw = input.yaw;
+      l.pitch = input.pitch;
+      moveInput = l;
+    }
+    stepPlayer(this.player, moveInput, this.level.boxes, t.movement, TICK_DT, this.tick, events);
     this.targetField.updateVisibility(this.player, this.level.boxes, this.tick, events);
     stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, events, this.weaponScratch);
     this.stepTargets(events);
@@ -144,6 +159,23 @@ export class World {
   /** Remove a target without a kill; emits `targetExpired`. Returns whether it existed. */
   despawnTarget(id: number, events: EventSink<SimEvents>): boolean {
     return this.targetField.despawn(id, this.tick, events);
+  }
+
+  /** Stand the player at a feet position, at rest, facing `yaw` (radians), level. */
+  placePlayer(x: number, y: number, z: number, yaw: number): void {
+    const p = this.player;
+    p.pos.x = p.prevPos.x = x;
+    p.pos.y = p.prevPos.y = y;
+    p.pos.z = p.prevPos.z = z;
+    p.vel.x = p.vel.y = p.vel.z = 0;
+    p.yaw = yaw;
+    p.pitch = 0;
+    p.grounded = false;
+  }
+
+  /** Put a loadout weapon in hand at once (see `selectWeapon`). */
+  equipWeapon(id: WeaponId): boolean {
+    return selectWeapon(this.weapon, id);
   }
 
   /** Simulation time in seconds. */

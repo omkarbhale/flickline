@@ -213,6 +213,10 @@ export class ModeRunner implements ModeContext<unknown> {
     if (this.phase === 'live') this.applyBeat(this.beat + 1);
   }
 
+  axesAt(dial: number): AxisValues {
+    return this.deps.dial.axes(clamp(dial, 0, 100));
+  }
+
   setSurge(on: boolean): void {
     this.surge = on;
   }

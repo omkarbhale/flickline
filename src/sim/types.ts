@@ -83,6 +83,8 @@ export interface TargetState {
   /** Bounding sphere around (`pos.x`, `pos.y + boundsY`, `pos.z`): a cheap early-out for hitscan. */
   radius: number;
   boundsY: number;
+  /** Orbs: radius multiplier over the roster's `orbRadius` (Beacon scale, design §9.4). Humanoids ignore it (spec hit volumes). */
+  scale: number;
   hp: number;
   maxHp: number;
   alive: boolean;

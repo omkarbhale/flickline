@@ -89,7 +89,7 @@ export class TargetsView {
       const def = kinds[t.kind];
       const sway = lerp(t.prevSway, t.sway, alpha);
       if (def.shape === 'orb') {
-        const r = def.orbRadius;
+        const r = def.orbRadius * t.scale;
         this.m4.makeScale(r, r, r).setPosition(t.pos.x, t.pos.y, t.pos.z);
         this.head.setMatrixAt(i, this.m4);
         this.m4.makeScale(0, 0, 0);

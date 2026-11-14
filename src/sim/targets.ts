@@ -23,6 +23,8 @@ export interface SpawnOptions {
   crouched?: boolean;
   /** Seconds until the target expires (`targetExpired`). Default: never. */
   lifetimeSec?: number;
+  /** Orbs only: radius multiplier over the roster's orb radius (default 1). */
+  scale?: number;
 }
 
 function createSlot(): TargetState {
@@ -35,6 +37,7 @@ function createSlot(): TargetState {
     crouched: false,
     radius: 0,
     boundsY: 0,
+    scale: 1,
     hp: 0,
     maxHp: 0,
     alive: false,
@@ -135,8 +138,9 @@ export class TargetField {
     t.home.y = t.pos.y = y;
     t.home.z = t.pos.z = z;
     t.crouched = def.shape === 'humanoid' && (opts?.crouched ?? false);
+    t.scale = def.shape === 'orb' ? Math.max(opts?.scale ?? 1, 0.01) : 1;
     if (def.shape === 'orb') {
-      t.radius = def.orbRadius;
+      t.radius = def.orbRadius * t.scale;
       t.boundsY = 0;
     } else {
       const h = tt.hit;

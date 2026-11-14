@@ -6,6 +6,8 @@
 export interface ModeTunables {
   /** `ready` phase length: crosshair and movement work, targets not live (§2 definitions). */
   readySec: number;
+  /** Length of a drill's live phase, seconds (design §4: every drill is a 60-second run). */
+  drillSec: number;
   /** Spawn picker: random candidates tried before the constraints are relaxed. */
   spawnMaxTries: number;
   /** Beacon-shell sampling: pitch limits in degrees from the horizon (§4.2). */
@@ -13,12 +15,67 @@ export interface ModeTunables {
   shellPitchMaxDeg: number;
   /** Beacon-shell sampling: the pitch is biased towards this value (head height, roughly level). */
   shellPitchBiasDeg: number;
+  coldStart: ColdStartTunables;
+  orbit: OrbitTunables;
+  placement: PlacementTunables;
+}
+
+/** Cold Start (design §4.1): one Post at a time, 5-25 degrees from the crosshair, the first bullet decides. */
+export interface ColdStartTunables {
+  /** Angular distance of a new Post from the crosshair direction, degrees. */
+  minAngleDeg: number;
+  maxAngleDeg: number;
+  /** A Post leaves this long after the first bullet fired at it (spraying is pointless by design). */
+  leaveAfterFirstBulletSec: number;
+  /** Seeded gap between a Post leaving or dying and the next one appearing. */
+  gapMinSec: number;
+  gapMaxSec: number;
+  /** Distance band around the dial's `distance` axis (multipliers): the picker widens it if nothing fits. */
+  distanceLoMult: number;
+  distanceHiMult: number;
+}
+
+/** Orbit (design §4.2): one Beacon at a time on the 8-25 m shell around the player. */
+export interface OrbitTunables {
+  /** Radius band of the shell the Beacon is placed in, metres (clipped to the map's shell anchor). */
+  minDistM: number;
+  maxDistM: number;
+  /** Gap after a kill and after an expiry, seconds. */
+  gapAfterKillSec: number;
+  gapAfterExpirySec: number;
+}
+
+/**
+ * The Placement run (design §9.2): a fixed hybrid of Orbit and Cold Start trials driven by the
+ * staircase. Each trial keeps the pacing of its own mode (gaps in `coldStart` / `orbit`).
+ */
+export interface PlacementTunables {
+  durationSec: number;
 }
 
 export const modes: ModeTunables = {
   readySec: 0.8,
+  drillSec: 60,
   spawnMaxTries: 24,
   shellPitchMinDeg: -20,
   shellPitchMaxDeg: 25,
   shellPitchBiasDeg: 2,
+  coldStart: {
+    minAngleDeg: 5,
+    maxAngleDeg: 25,
+    leaveAfterFirstBulletSec: 0.25,
+    gapMinSec: 0.5,
+    gapMaxSec: 0.9,
+    distanceLoMult: 0.7,
+    distanceHiMult: 1.4,
+  },
+  orbit: {
+    minDistM: 8,
+    maxDistM: 25,
+    gapAfterKillSec: 0.1,
+    gapAfterExpirySec: 0.2,
+  },
+  placement: {
+    durationSec: 45,
+  },
 };
