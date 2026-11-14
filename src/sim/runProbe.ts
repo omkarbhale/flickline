@@ -154,7 +154,7 @@ export function stepRunProbe(
 ): void {
   const ox = p.pos.x, oy = p.pos.y + p.eyeHeight, oz = p.pos.z;
   directionFromAngles(dir, p.yaw, p.pitch);
-  const speed = Math.hypot(p.vel.x, p.vel.z);
+  const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.z * p.vel.z); // not Math.hypot: V8 boxes its result (#152)
   const thr = accuracyThreshold(w, t);
 
   let anyVisible = false;
@@ -202,7 +202,7 @@ export function stepRunProbe(
   }
 
   // Stop latency: from the stop/counter-strafe input to speed first at or below the threshold.
-  const mag = Math.hypot(input.moveX, input.moveZ);
+  const mag = Math.sqrt(input.moveX * input.moveX + input.moveZ * input.moveZ); // not Math.hypot (#152)
   const rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
   const wx = rx * input.moveX + -Math.sin(p.yaw) * input.moveZ;
   const wz = rz * input.moveX + -Math.cos(p.yaw) * input.moveZ;

@@ -15,7 +15,6 @@ import {
   damageFor,
   isMovingShot,
   movementErrorDeg,
-  returnRecoil,
   sprayAccumDeg,
   sprayIncrement,
   stepYawSign,
@@ -392,11 +391,18 @@ export function stepWeapon(
   }
 
   // Recoil: yaw direction swing (switch time) and return towards the crosshair (spec §3.5): held
-  // for `recoilReturnDelaySec`, then a straight line that ends at the gun recovery time (#191).
+  // for `recoilReturnDelaySec`, then a straight line that lands on the crosshair exactly at the gun
+  // recovery time, so the offset never outlives the reset (#191). Each tick scales the offset by
+  // remaining / (remaining + dt), which is linear in time; inline so no double is boxed per tick.
   stepYawSign(def, w, dt);
-  const sinceShot = time - w.lastShotTime;
-  if (sinceShot >= def.recoilReturnDelaySec - EPS && (w.recoilPitch !== 0 || w.recoilYaw !== 0)) {
-    returnRecoil(w, dt, def.recoverySec - sinceShot);
+  if (w.recoilPitch !== 0 || w.recoilYaw !== 0) {
+    const sinceShot = time - w.lastShotTime;
+    if (sinceShot >= def.recoilReturnDelaySec - EPS) {
+      const remaining = def.recoverySec - sinceShot;
+      const k = remaining > EPS ? remaining / (remaining + dt) : 0;
+      w.recoilPitch *= k;
+      w.recoilYaw *= k;
+    }
   }
 
   if (input.reload && canReload(w, def)) startReload(w, def, tick, events, s);
