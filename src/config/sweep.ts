@@ -9,9 +9,6 @@
 export type SweepCard = 'take-unaware' | 'take-expected' | 'clear' | 'crossfire';
 export const SWEEP_CARDS: readonly SweepCard[] = ['take-unaware', 'take-expected', 'clear', 'crossfire'];
 
-/** The skill a contact's trials count for (design §3.1: where a run exercises each skill). */
-export type SweepTrialSkill = 'precision' | 'flick' | 'angles' | 'switch';
-
 export interface SweepTunables {
   /** HP restored by a kill (design §4.1: "a body kill restores 5 HP, a headshot kill 10"); capped at max HP. A leg kill counts as a body kill. */
   killHeal: { body: number; head: number };
@@ -33,8 +30,6 @@ export interface SweepTunables {
   crossfireFromSector: number;
   /** The same card never this many times in a row (design §4.4: never three in a row). */
   maxCardRun: number;
-  /** What each card's trials count for (design §3.1). */
-  cardSkill: Readonly<Record<SweepCard, SweepTrialSkill>>;
   /** Echo placement on hold anchors. */
   place: {
     /** A Strafer's lane is drawn in this length range, then shortened until all of it is hidden from the entry. */
@@ -50,6 +45,21 @@ export interface SweepTunables {
     clearPeekerShare: number;
     /** Share of `take-unaware` Echoes that walk a lane rather than stand (`unaware` and moving: it is busy elsewhere). */
     unawareMoverShare: number;
+  };
+  /**
+   * A new profile's first Opener (design §9.2): instead of one or two contacts it is a chain of short
+   * take sectors with one single-Echo contact each, dealt from the gentlest cards, on a placement
+   * staircase (`adaptive/sectorDial.ts`). It ends once `contactsMin` contacts were fought if the
+   * staircase has turned by then, else at `contactsMax`, or after `maxSectors` sectors. A contact
+   * counts as won for the staircase when it was cleared with at most `winMaxShieldLoss` of the full
+   * shield lost.
+   */
+  opener: {
+    contactsMin: number;
+    contactsMax: number;
+    maxSectors: number;
+    cards: readonly SweepCard[];
+    winMaxShieldLoss: number;
   };
   /** A sector's exit: the player's feet within this horizontal radius of the exit point, and this height of it, leave the sector. */
   exitRadiusM: number;
@@ -70,7 +80,6 @@ export const sweep: SweepTunables = {
   cardWeight: { 'take-unaware': 0.3, 'take-expected': 0.35, clear: 0.2, crossfire: 0.25 },
   crossfireFromSector: 2,
   maxCardRun: 2,
-  cardSkill: { 'take-unaware': 'angles', 'take-expected': 'precision', clear: 'angles', crossfire: 'switch' },
   place: {
     laneMinM: 1.2,
     laneMaxM: 3,
@@ -80,6 +89,8 @@ export const sweep: SweepTunables = {
     clearPeekerShare: 0.6,
     unawareMoverShare: 0.7,
   },
+  // `hold` is gentle too, and joins the list with hold sectors (#204).
+  opener: { contactsMin: 4, contactsMax: 6, maxSectors: 9, cards: ['take-unaware', 'clear'], winMaxShieldLoss: 0.5 },
   exitRadiusM: 1.2,
   exitHeightM: 1.5,
   clearKills: 3,

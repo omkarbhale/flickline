@@ -68,6 +68,12 @@ Sweep (#201) is a run with no clock: `SweepBot` walks each sector from its entry
 
 `npm run bot -- --sweep-report [--runs 50] [--skills 30,50,70] [--dial D]` plays seeded runs at each skill and prints the balance table posted on #201: contact win rate (cleared ÷ fights; a contact the player left unhurt is not a fight), fights per run, depth reached, the share of runs that made it out, mean health+shield at each sector exit, run length and score.
 
+### Trials from contacts and the skill harness (#203)
+
+`npm run bot -- --trial-report [--runs 50] [--skills 30,50,70] [--profile-runs 5]` plays runs on profiles of `--profile-runs` runs each (the first run of each places it with the staircase Opener) and counts every `skillTrial` per skill, with its win rate, and the contacts that produced no trial (there must be none). The bot never pre-aims and fires short bursts, so it produces almost no `precision` or `spray` items and fails most `angles` ones.
+
+`npm run bot -- --skill-harness [--seeds 100] [--skills 10,30,50,70,90]` runs the run-level simulated-player harness of design §9.6 (`../skillHarness.ts`): abstract players of known ability play whole runs through the real plan, sector dial and posterior, and the table gives placement error after the first Opener and after three runs, the run-2 overshoot, the session contact win rate and the dial's steadiness. `skillHarness.test.ts` checks the same in CI.
+
 ### The skill model (`skill.ts`)
 
 One number, `skill` 0..100, on the same scale as the difficulty dial and the latent ability of

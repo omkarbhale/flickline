@@ -86,7 +86,7 @@ export const feature = defineFeature({
       const st = state();
       const sp = st?.plan.sectors[e.index];
       if (sp) marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
-      label.textContent = `Sector ${e.index + 1} / ${e.of}`;
+      label.textContent = `Sector ${e.sector + 1} / ${e.of}`;
       label.style.opacity = '0.9';
       if (pending) {
         pending.to = e.sectorId;
@@ -131,7 +131,8 @@ export const feature = defineFeature({
       const st = state();
       if (!st) return '';
       const last = switches[switches.length - 1];
-      return `sweep sector ${st.sector + 1}/${st.plan.sectors.length} ${lastSector}` + (last ? ` | switch ${last.setupMs.toFixed(1)} ms, frame ${last.firstFrameMs.toFixed(1)} ms` : '');
+      const sp = st.plan.sectors[st.sector];
+      return `sweep sector ${(sp?.depth ?? 0) + 1}/${st.plan.depthCount}${sp?.opener ? ' opener' : ''} ${lastSector} dial ${st.dial.dial.toFixed(1)}` + (last ? ` | switch ${last.setupMs.toFixed(1)} ms, frame ${last.firstFrameMs.toFixed(1)} ms` : '');
     });
 
     game.addDebug({
@@ -147,7 +148,17 @@ export const feature = defineFeature({
             mapId: game.modes.currentMap.id,
             won: st.won,
             lost: st.lost,
-            contacts: st.contacts.map((c) => ({ card: c.plan.card, open: c.open, alive: c.alive, echoes: c.echoIds.slice(), engaged: c.engaged })),
+            contacts: st.contacts.map((c) => ({ card: c.plan.card, open: c.open, alive: c.alive, echoes: c.echoIds.slice(), engaged: c.engaged, trials: c.trials })),
+            // Skill matching (#203): the sector's dial, the matched dial behind it, and the placing Opener's staircase.
+            dial: {
+              sector: st.dial.dial, matched: st.dial.matched, placing: st.dial.placing, openerFought: st.openerFought,
+              staircase: st.dial.staircase ? { dial: st.dial.staircase.dial, step: st.dial.staircase.step, reversals: st.dial.staircase.reversals } : null,
+              target: game.modes.skills.targetDial('line', game.tunables.dial.modes.sweep!.targetSuccess),
+              line: game.modes.skills.rating('line'),
+              match: game.modes.skills.matchRating(),
+            },
+            depth: st.plan.sectors[st.sector]?.depth,
+            opener: st.plan.sectors[st.sector]?.opener,
             route: st.plan.sectors.map((s) => `${s.mapId}/${s.sectorId}: ${s.contacts.map((c) => c.card).join(', ')}`),
             switches: switches.slice(),
             hp: game.world.health.hp,

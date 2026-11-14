@@ -609,7 +609,8 @@ export class StatTracker {
 
   /** Snapshot of every stat so far (final once the run has ended). Allocates; not for per-frame use. */
   private onSectorEntered(e: AllEvents['sectorEntered']): void {
-    this.sectorsReached = Math.max(this.sectorsReached, e.index + 1);
+    // The run's sector (a placing Opener's short contact sectors all count as sector 1), not the plan position.
+    this.sectorsReached = Math.max(this.sectorsReached, (e.sector ?? e.index) + 1);
     this.sectorsTotal = e.of;
   }
 

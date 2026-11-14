@@ -148,7 +148,7 @@ export class LiveHud {
           <div class="lh-stat" ${ELEMENT_ATTR}="ttk"><span class="k">TTK</span><span class="v" data-v>–</span></div>
           <div class="lh-stat" ${ELEMENT_ATTR}="moving"><span class="k">MOVING</span><span class="v" data-v>0</span></div>
         </div>
-        <div class="lh-edge" ${ELEMENT_ATTR}="edge" title="Rolling success rate over your last ${d.hud.edgeWindow} trials. Target zone ${Math.round(zoneLo)}–${Math.round(zoneLo + zoneW)}%.">
+        <div class="lh-edge" ${ELEMENT_ATTR}="edge" title="Fights won of your last ${d.hud.edgeWindow}. Target zone ${Math.round(zoneLo)}–${Math.round(zoneLo + zoneW)}%: Echoes are matched so you win about 7 in 10.">
           <span class="k">EDGE</span>
           <div class="lh-edge-track"><u style="left:${zoneLo}%;width:${zoneW}%"></u><i></i></div>
           <span class="v" data-v>–</span>

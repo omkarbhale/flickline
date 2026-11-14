@@ -73,7 +73,15 @@ export interface ContactPlan {
 }
 
 export interface SectorPlan {
+  /** Position in the plan (0-based). */
   readonly index: number;
+  /**
+   * The sector of the run it plays as (design §4.1's row: 0 is the Opener): its dial offset and depth
+   * multiplier. Equal to `index` except after a placing Opener, whose contact sectors are all 0.
+   */
+  readonly depth: number;
+  /** One of a new profile's placing Opener sectors (design §9.2): one single-Echo contact on the staircase. */
+  readonly opener: boolean;
   readonly mapId: string;
   readonly sectorId: string;
   readonly entry: Vec3;
@@ -85,6 +93,10 @@ export interface SectorPlan {
 export interface RunPlan {
   readonly seed: number;
   readonly sectors: readonly SectorPlan[];
+  /** The run places a new profile: its Opener is the `opener` sectors (design §9.2). */
+  readonly placing: boolean;
+  /** Sectors of the run (design §4.1 rows), the placing Opener counting as one. */
+  readonly depthCount: number;
 }
 
 /** What the plan needs about the player: eye height when standing at an entry. */
@@ -142,7 +154,9 @@ export function cardSpots(card: SweepCard): number {
  * `crossfireFromSector`, enough anchors left, and never `maxCardRun + 1` of the same card in a row).
  * Returns null when no card fits.
  */
-export function drawCard(rng: Rng, cfg: SweepTunables, sectorIndex: number, spotsLeft: number, recent: readonly SweepCard[]): SweepCard | null {
+export function drawCard(
+  rng: Rng, cfg: SweepTunables, sectorIndex: number, spotsLeft: number, recent: readonly SweepCard[], cards: readonly SweepCard[] = CARD_ORDER,
+): SweepCard | null {
   const run = cfg.maxCardRun;
   let streakCard: SweepCard | null = null;
   if (recent.length >= run) {
@@ -150,7 +164,6 @@ export function drawCard(rng: Rng, cfg: SweepTunables, sectorIndex: number, spot
     for (let i = recent.length - run; i < recent.length; i++) if (recent[i] !== streakCard) streakCard = null;
   }
   let total = 0;
-  const cards = CARD_ORDER;
   for (const c of cards) if (allowed(c)) total += cfg.cardWeight[c];
   if (total <= 0) return null;
   let u = rng.next() * total;
@@ -288,29 +301,38 @@ export function placeEcho(rng: Rng, cfg: SweepTunables, s: SectorSource, body: P
 
 /**
  * The whole run's plan: `cfg.sectors` take sectors drawn from `catalog`, each with its contacts,
- * cards and Echo placements. Throws if the catalog has no take sector with a hidden hold anchor.
+ * cards and Echo placements. `placing` (a new profile's first run, design §9.2): the Opener is
+ * `opener.maxSectors` short take sectors with one single-Echo contact each from the gentlest cards,
+ * of which the run plays until enough contacts were fought (`SectorDial.openerDone`). The same
+ * `(seed, placing)` gives the same plan. Throws if the catalog has no take sector with a hidden hold anchor.
  */
-export function planRun(seed: number, catalog: readonly SectorSource[], cfg: SweepTunables, body: PlanBody): RunPlan {
+export function planRun(seed: number, catalog: readonly SectorSource[], cfg: SweepTunables, body: PlanBody, placing = false): RunPlan {
   const rng = new Rng(planSeed(seed));
   const takes = catalog
     .filter((s) => s.roles.includes('take') && hiddenSpots(s, body).length > 0)
     .sort((a, b) => (a.mapId + '/' + a.id < b.mapId + '/' + b.id ? -1 : 1));
   if (takes.length === 0) throw new Error('sweep: no take sector with a hidden hold anchor');
-  const chain = pickSectors(rng, takes, cfg.sectors);
+  const op = cfg.opener;
+  const openerSectors = placing ? Math.max(1, op.maxSectors) : 0;
+  const chain = pickSectors(rng, takes, cfg.sectors + (placing ? openerSectors - 1 : 0));
   const recent: SweepCard[] = [];
   const sectors: SectorPlan[] = [];
   let contactIndex = 0;
   for (let i = 0; i < chain.length; i++) {
     const s = chain[i]!;
+    const opener = i < openerSectors;
+    const depth = placing ? Math.max(0, i - openerSectors + 1) : i;
     const free = hiddenSpots(s, body);
-    const lo = perSector(cfg.contactsMin, i);
-    const hi = Math.max(lo, perSector(cfg.contactsMax, i));
+    const lo = opener ? 1 : perSector(cfg.contactsMin, depth);
+    const hi = opener ? 1 : Math.max(lo, perSector(cfg.contactsMax, depth));
     const want = Math.min(free.length, lo + rng.int(hi - lo + 1));
     const contacts: ContactPlan[] = [];
     for (let c = 0; c < want && free.length > 0; c++) {
       // Leave one anchor for each contact still to come.
       const spare = free.length - (want - c - 1);
-      const card = drawCard(rng, cfg, i, Math.max(1, spare), recent);
+      // The gentle Opener has two cards; when the no-streak rule leaves none that fits, it is waived there.
+      const card = drawCard(rng, cfg, depth, Math.max(1, spare), recent, opener ? op.cards : CARD_ORDER)
+        ?? (opener ? drawCard(rng, cfg, depth, Math.max(1, spare), [], op.cards) : null);
       if (!card) break;
       recent.push(card);
       const spots: SectorSpot[] = [];
@@ -325,7 +347,7 @@ export function planRun(seed: number, catalog: readonly SectorSource[], cfg: Swe
       }
       contacts.push({ index: contactIndex++, card, spots: spots.map((p) => p.id), echoes });
     }
-    sectors.push({ index: i, mapId: s.mapId, sectorId: s.id, entry: { ...s.entry }, entryYaw: s.entryYaw, exit: { ...s.exit }, contacts });
+    sectors.push({ index: i, depth, opener, mapId: s.mapId, sectorId: s.id, entry: { ...s.entry }, entryYaw: s.entryYaw, exit: { ...s.exit }, contacts });
   }
-  return { seed, sectors };
+  return { seed, sectors, placing, depthCount: chain.length - openerSectors + (placing ? 1 : 0) };
 }

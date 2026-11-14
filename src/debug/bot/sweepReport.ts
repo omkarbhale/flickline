@@ -1,3 +1,4 @@
+import { SKILL_IDS, type SkillId } from '../../config/dial';
 import { HeadlessGame } from './headless';
 import { playMode } from './play';
 
@@ -49,11 +50,11 @@ export function sweepRun(skill: number, seed: number, pinDial?: number): SweepRu
     liveSec: 0, score: 0, kills: 0, cards: [],
   };
   g.bus.on('sectorEntered', (e) => {
-    f.reached = e.index + 1;
+    f.reached = e.sector + 1;
     f.sectors = e.of;
   });
   g.bus.on('sectorEnded', (e) => {
-    if (e.reason === 'exit') f.ehpAtExit[e.index] = g.world.health.hp + g.world.health.shield;
+    if (e.reason === 'exit') f.ehpAtExit[e.sector] = g.world.health.hp + g.world.health.shield;
   });
   g.bus.on('contactSettled', (e) => {
     f.contacts[e.outcome]++;
@@ -116,6 +117,98 @@ export function formatSweepReport(rows: readonly SweepSkillRow[]): string[] {
     out.push(
       `| ${r.skill} | ${r.runs} | ${(r.contactWinRate * 100).toFixed(0)} % | ${r.contactsPerRun.toFixed(1)} | ${r.meanReached.toFixed(2)} | ${(r.finishedShare * 100).toFixed(0)} % | ${ehp} | ${r.meanLiveSec.toFixed(1)} | ${r.meanScore.toFixed(0)} |`,
     );
+  }
+  return out;
+}
+
+/** One run of the trial report: what the classifier made of its contacts (#203). */
+export interface TrialRunFacts {
+  skill: number;
+  seed: number;
+  /** Run number on its profile (1 = the new profile's first run, with the placing Opener). */
+  profileRun: number;
+  placing: boolean;
+  trials: Record<SkillId, number>;
+  wins: Record<SkillId, number>;
+  /** Contacts that opened (settled at least once), and those that settled with no trial at all. */
+  contacts: number;
+  contactsWithoutTrial: number;
+  /** Contacts won (cleared) and fought (cleared, died, disengaged). */
+  won: number;
+  fought: number;
+  /** Dial of each sector entered, in order. */
+  dials: number[];
+  /** Line rating (posterior mean of the seven) after the run. */
+  lineAfter: number;
+}
+
+/**
+ * The trial report (#203): bots play `profileRuns` runs per profile (the first places it), for
+ * `runs` runs per skill, and every `skillTrial` and contact settle is counted: trials per skill per
+ * run, and the contacts that produced none (there must be none: every contact that opens yields one).
+ */
+export function trialReport(skills: readonly number[], runs: number, profileRuns = 5, firstSeed = 1): TrialRunFacts[] {
+  const out: TrialRunFacts[] = [];
+  for (const skill of skills) {
+    let g: HeadlessGame | null = null;
+    for (let i = 0; i < runs; i++) {
+      const seed = firstSeed + i;
+      const profileRun = (i % profileRuns) + 1;
+      if (profileRun === 1) g = new HeadlessGame({ seed });
+      const game = g!;
+      const f: TrialRunFacts = {
+        skill, seed, profileRun, placing: game.modes.newProfile, trials: zeroes(), wins: zeroes(), contacts: 0, contactsWithoutTrial: 0, won: 0, fought: 0,
+        dials: [], lineAfter: 0,
+      };
+      const offs = [
+        game.bus.on('skillTrial', (e) => {
+          f.trials[e.skill]++;
+          if (e.success) f.wins[e.skill]++;
+        }),
+        game.bus.on('contactSettled', (e) => {
+          f.contacts++;
+          if (e.trials === 0) f.contactsWithoutTrial++;
+          if (e.outcome === 'cleared') f.won++;
+          if (e.outcome !== 'avoided') f.fought++;
+        }),
+        game.bus.on('sectorEntered', (e) => f.dials.push(Math.round(e.dial * 10) / 10)),
+      ];
+      playMode(game, { mode: 'sweep', skill, seed });
+      offs.forEach((off) => off());
+      f.lineAfter = game.modes.skills.rating('line');
+      out.push(f);
+    }
+  }
+  return out;
+}
+
+function zeroes(): Record<SkillId, number> {
+  const o = {} as Record<SkillId, number>;
+  for (const s of SKILL_IDS) o[s] = 0;
+  return o;
+}
+
+/** The trial report as Markdown: per bot skill, trials per run by skill (wins in brackets) and contacts without a trial. */
+export function formatTrialReport(runs: readonly TrialRunFacts[]): string[] {
+  const out = [
+    `| Bot skill | Runs | ${SKILL_IDS.join(' | ')} | Trials / run | Contacts / run | Contacts with no trial | Contact win rate |`,
+    `|---|---|${SKILL_IDS.map(() => '---').join('|')}|---|---|---|---|`,
+  ];
+  const skills = [...new Set(runs.map((r) => r.skill))];
+  for (const skill of skills) {
+    const list = runs.filter((r) => r.skill === skill);
+    const n = list.length || 1;
+    const cells = SKILL_IDS.map((s) => {
+      const t = list.reduce((a, r) => a + r.trials[s], 0);
+      const w = list.reduce((a, r) => a + r.wins[s], 0);
+      return `${(t / n).toFixed(2)} (${t ? Math.round((100 * w) / t) : 0} %)`;
+    });
+    const total = list.reduce((a, r) => a + SKILL_IDS.reduce((b, s) => b + r.trials[s], 0), 0);
+    const contacts = list.reduce((a, r) => a + r.contacts, 0);
+    const none = list.reduce((a, r) => a + r.contactsWithoutTrial, 0);
+    const won = list.reduce((a, r) => a + r.won, 0);
+    const fought = list.reduce((a, r) => a + r.fought, 0);
+    out.push(`| ${skill} | ${list.length} | ${cells.join(' | ')} | ${(total / n).toFixed(1)} | ${(contacts / n).toFixed(1)} | ${none} of ${contacts} | ${fought ? Math.round((100 * won) / fought) : 0} % |`);
   }
   return out;
 }

@@ -58,6 +58,15 @@ export class Staircase {
     this.dial = clamp(this.dial + dir * this.step, DIAL_MIN, DIAL_MAX);
   }
 
+  /**
+   * An outcome that is neither a success nor a failure for the rule (the Opener's contact won but
+   * with more than half the shield lost, design §9.2): it breaks a run of successes, no step.
+   */
+  hold(): void {
+    this.trials++;
+    this.streak = 0;
+  }
+
   /** Mean dial of the last `n` reversals, or NaN before the first reversal. */
   reversalMean(n: number = this.cfg.staircase.reversalsForBound): number {
     const r = this.reversalDials;

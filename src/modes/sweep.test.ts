@@ -120,14 +120,14 @@ describe('Sweep run director (#201)', () => {
   });
 });
 
-/** Start a Sweep run headless and hand back what the tests read. */
-function startRun(seed: number) {
+/** Start a Sweep run headless and hand back what the tests read (`newProfile`: the first run of a profile, which places it). */
+function startRun(seed: number, newProfile = false) {
   const g = new HeadlessGame({ seed });
   const log: { type: string; e: Record<string, unknown> }[] = [];
-  for (const type of ['sectorEntered', 'sectorEnded', 'contactSettled', 'runEnded', 'targetVisible', 'mapLoaded'] as const) {
+  for (const type of ['sectorEntered', 'sectorEnded', 'contactSettled', 'runEnded', 'targetVisible', 'mapLoaded', 'skillTrial', 'beatStarted'] as const) {
     g.bus.on(type, (e) => log.push({ type, e: JSON.parse(JSON.stringify(e)) as Record<string, unknown> }));
   }
-  expect(g.modes.start('sweep', { seed })).toBe(true);
+  expect(g.modes.start('sweep', { seed, newProfile })).toBe(true);
   const input = createTickInput();
   const state = (): SweepState => g.modes.runner.state as SweepState;
   /** Walk straight out: stand the player on the exit and let one tick see it. */
@@ -188,6 +188,10 @@ describe('Sweep mode (#201)', () => {
     expect(g.run.state).toBe('result');
     const entered = log.filter((l) => l.type === 'sectorEntered').map((l) => l.e);
     expect(entered.map((e) => e.index)).toEqual([0, 1, 2, 3]);
+    expect(entered.map((e) => e.sector)).toEqual([0, 1, 2, 3]);
+    expect(entered.every((e) => e.opener === false && e.of === 4)).toBe(true);
+    // One dial per sector, set at its entry and nowhere else (design §9.3.2).
+    expect(log.filter((l) => l.type === 'beatStarted').map((l) => l.e.dial)).toEqual(entered.map((e) => e.dial));
     expect(entered.map((e) => e.depth)).toEqual(cfg.depthMultiplier.slice(0, 4));
     // The dial moves with the sector's offset (the posterior did not change: no trials resolved).
     const d0 = entered[0]!.dial as number;
@@ -251,5 +255,78 @@ describe('Sweep mode (#201)', () => {
     expect(b.r.hash).toBe(a.r.hash);
     expect(b.r.modeRun?.score).toBe(a.r.modeRun?.score);
     expect(play(12).facts).not.toEqual(a.facts);
+  });
+});
+
+describe('skill matching inside the run (#203)', () => {
+  it('a placing plan opens with short single-Echo sectors from the gentlest cards, then the run as usual', () => {
+    for (let seed = 1; seed <= 60; seed++) {
+      const plan = sweepPlan(seed, tunables, true);
+      expect(plan.placing).toBe(true);
+      expect(plan.depthCount).toBe(cfg.sectors);
+      const opener = plan.sectors.filter((s) => s.opener);
+      expect(opener).toHaveLength(cfg.opener.maxSectors);
+      expect(plan.sectors.slice(0, opener.length).every((s) => s.opener && s.depth === 0)).toBe(true);
+      for (const s of opener) {
+        expect(s.contacts, `${seed} ${s.sectorId}`).toHaveLength(1);
+        expect(s.contacts[0]!.echoes).toHaveLength(1);
+        expect(cfg.opener.cards).toContain(s.contacts[0]!.card);
+      }
+      const rest = plan.sectors.slice(opener.length);
+      expect(rest.map((s) => s.depth)).toEqual([1, 2, 3]);
+      for (let i = 1; i < plan.sectors.length; i++) expect(plan.sectors[i]!.sectorId).not.toBe(plan.sectors[i - 1]!.sectorId);
+    }
+    expect(sweepPlan(5, tunables, true)).toEqual(sweepPlan(5, tunables, true));
+    expect(sweepPlan(5, tunables, false).placing).toBe(false);
+  });
+
+  it('a new profile plays the placing Opener on the staircase; without fights it runs to the last Opener sector, then sector 2', () => {
+    const { g, log, input, state, toExit } = startRun(21, true);
+    for (let k = 0; k < 120; k++) g.advance(input);
+    expect(state().plan.placing).toBe(true);
+    const n = cfg.opener.maxSectors;
+    for (let i = 0; i < n; i++) toExit();
+    const entered = log.filter((l) => l.type === 'sectorEntered').map((l) => l.e);
+    expect(entered.map((e) => e.sector)).toEqual([...Array(n).fill(0), 1]);
+    expect(entered.map((e) => e.opener)).toEqual([...Array(n).fill(true), false]);
+    // No contact fought: the staircase never moved, and its dial seeds sector 2 (offset −3, no ±3 move).
+    const d0 = entered[0]!.dial as number;
+    expect(entered.slice(0, n).every((e) => e.dial === d0)).toBe(true);
+    expect(entered[n]!.dial).toBeCloseTo(d0 + cfg.dialOffset[1]!, 9);
+    expect(g.run.liveStats()).toMatchObject({ sectorsReached: 2, sectorsTotal: 4 });
+  });
+
+  it('Echoes produce no trial of their own: a contact the player loses unseen is a failed angles trial', () => {
+    const { g, log, input } = startRun(4);
+    for (let k = 0; k < 120; k++) g.advance(input);
+    const echo = g.world.targets.find((t) => t.alive)!;
+    for (let k = 0; k < 20 && g.world.health.alive; k++) g.world.hitPlayer('kestrel', 'head', echo.pos.x, 1.4, echo.pos.z, echo.id, g.bus);
+    const trials = log.filter((l) => l.type === 'skillTrial').map((l) => l.e);
+    expect(trials.map((t) => [t.skill, t.success])).toEqual([['angles', false]]);
+    const settled = log.filter((l) => l.type === 'contactSettled').map((l) => l.e);
+    expect(settled.map((e) => e.trials)).toEqual([1]);
+    const card = settled[0]!.card as keyof typeof tunables.trials.cardOffset;
+    const dial = log.find((l) => l.type === 'sectorEntered')!.e.dial as number;
+    expect(trials[0]!.itemDifficulty).toBeCloseTo(dial + tunables.trials.cardOffset[card], 4);
+    expect(trials[0]!.card).toBe(card);
+  });
+
+  it('bot sample: every contact that opens yields at least one trial, and the trials reach the posterior', () => {
+    let contacts = 0;
+    for (const seed of [31, 32, 33, 34, 35, 36]) {
+      const g = new HeadlessGame({ seed });
+      let trials = 0;
+      g.bus.on('skillTrial', () => trials++);
+      g.bus.on('contactSettled', (e) => {
+        contacts++;
+        expect(e.trials, `seed ${seed} contact ${e.contactId}`).toBeGreaterThanOrEqual(1);
+      });
+      playMode(g, { mode: 'sweep', skill: 50, seed });
+      expect(trials).toBeGreaterThan(0);
+      let observed = 0;
+      for (const s of ['precision', 'flick', 'track', 'footwork', 'spray', 'switch', 'angles'] as const) observed += g.modes.skills.trialCount(s);
+      expect(observed).toBe(trials);
+    }
+    expect(contacts).toBeGreaterThan(10);
   });
 });

@@ -84,6 +84,30 @@ describe('EdgeMeter (rolling success over the last 20 trials)', () => {
     bus.emit('runReady', { tick: 0, mode: 'test', seed: 1, dial: 50 });
     expect(m.count).toBe(0);
   });
+  it('in a contact mode (Sweep) it is the rolling contact win rate, across runs (#203)', () => {
+    const bus = new EventBus<Ev>();
+    const m = new EdgeMeter(hud);
+    m.attach(bus);
+    const settled = (outcome: 'cleared' | 'disengaged' | 'avoided' | 'died') =>
+      bus.emit('contactSettled', { tick: 0, t: 0, contactId: 0, outcome, kept: 1, enemies: 1, points: 0 });
+    bus.emit('runReady', { tick: 0, mode: 'sweep', seed: 1, dial: 50 });
+    expect(m.source).toBe('contacts');
+    bus.emit('skillTrial', trial(false)); // trials do not move it
+    expect(m.rate).toBeNaN();
+    settled('cleared');
+    settled('cleared');
+    settled('avoided'); // not a fight
+    settled('died');
+    expect(m.count).toBe(3);
+    expect(m.rate).toBeCloseTo(2 / 3);
+    bus.emit('runReady', { tick: 0, mode: 'sweep', seed: 2, dial: 50 });
+    expect(m.rate).toBeCloseTo(2 / 3); // the window rolls across runs
+    settled('disengaged');
+    expect(m.rate).toBeCloseTo(0.5);
+    bus.emit('runReady', { tick: 0, mode: 'test', seed: 1, dial: 50 });
+    expect(m.source).toBe('trials');
+    expect(m.count).toBe(0);
+  });
   it('the shaded zone is 60-80%', () => {
     expect(hud.edgeZoneLo).toBe(0.6);
     expect(hud.edgeZoneHi).toBe(0.8);
