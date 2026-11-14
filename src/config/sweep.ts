@@ -15,6 +15,8 @@ export type SweepTrialSkill = 'precision' | 'flick' | 'angles' | 'switch';
 export interface SweepTunables {
   /** HP restored by a kill (design §4.1: "a body kill restores 5 HP, a headshot kill 10"); capped at max HP. A leg kill counts as a body kill. */
   killHeal: { body: number; head: number };
+  /** The sector that is the Finale (design §4.1); sectors past it are Overtime. The Closer medal and the run records read it. */
+  finaleSector: number;
   /** Sectors in a run (v0: four take sectors; the six-sector shape with holds and the Finale is #204). */
   sectors: number;
   /**
@@ -62,6 +64,7 @@ export interface SweepTunables {
 
 export const sweep: SweepTunables = {
   killHeal: { body: 5, head: 10 },
+  finaleSector: 6,
   sectors: 4,
   dialOffset: [-8, -3, 0, 3],
   depthMultiplier: [1.0, 1.2, 1.4, 1.6],

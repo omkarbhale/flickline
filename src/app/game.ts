@@ -717,22 +717,37 @@ export class Game {
   }
 
   /**
-   * The results card's `Enter` (a new run on a new seed) and `R` (`replay`: this seed again): the same
-   * mode and dial straight back to `ready` with no scene rebuild. The new seed is the next one in the
-   * `nextSeed` chain, so a run is replayable from its seed. `pressedAt` is the key event's timestamp,
-   * so `lastRestartToFrameMs` measures key press to the first drawn `ready` frame. Takes the pointer
-   * lock back if it was lost (the key press is a user gesture). False when there is no finished run
-   * to follow up.
+   * The results card's `Enter` (design §2.3): a new run, the same mode and dial on a new seed (the next one in
+   * the `nextSeed` chain, so every run is replayable from its seed), straight back to `ready` with no scene
+   * rebuild. `pressedAt` is the key event's timestamp, so `lastRestartToFrameMs` measures key press to the
+   * first drawn `ready` frame. Takes the pointer lock back if it was lost (the key press is a user gesture).
+   * False when there is no finished run to follow up.
    */
-  playAgain(pressedAt: number = performance.now(), replay = false): boolean {
+  playAgain(pressedAt: number = performance.now()): boolean {
     const info = this.run.info;
     if (!info || this.run.state !== 'result') return false;
-    const seed = replay ? info.seed : nextSeed(info.seed, this.tunables.results);
+    const seed = nextSeed(info.seed, this.tunables.results);
     if (this.run.isSelfDriven) {
       if (!this.run.restartRun(seed)) return false;
     } else if (!this.modes.start(info.mode, { seed })) {
       return false;
     }
+    this.afterRunReset();
+    this.noteRestart(pressedAt);
+    if (!this.input.locked) this.play();
+    return true;
+  }
+
+  /**
+   * The results card's `R` (design §8.2): the same mode, dial and seed again, straight back to `ready`.
+   * False when there is no finished run to replay.
+   */
+  replaySeed(pressedAt: number = performance.now()): boolean {
+    const info = this.run.info;
+    if (!info || this.run.state !== 'result') return false;
+    if (this.run.isSelfDriven) {
+      if (!this.run.restartRun(info.seed)) return false;
+    } else if (!this.modes.start(info.mode, { seed: info.seed })) return false;
     this.afterRunReset();
     this.noteRestart(pressedAt);
     if (!this.input.locked) this.play();
