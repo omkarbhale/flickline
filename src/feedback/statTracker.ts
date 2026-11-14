@@ -9,6 +9,7 @@ import type { HitZone, SimEvents, TargetKind } from '../sim/types';
 
 /** A target kind, or 'unknown' when the log has no spawn event for it. */
 type StatKind = TargetKind | 'unknown';
+import type { FeedbackEvents } from './events';
 import type { LoggedEvent, RunLog } from './eventLog';
 
 type AllEvents = SimEvents & RunEvents;
@@ -199,7 +200,7 @@ export class StatTracker {
   constructor(
     private readonly rt: RunTunables,
     private readonly tt: Pick<TargetTunables, 'shotAtDeg' | 'reactionAimDeg'>,
-    private readonly sink: EventSink<RunEvents> | null = null,
+    private readonly sink: EventSink<RunEvents & FeedbackEvents> | null = null,
   ) {}
 
   get accuracy(): number | null {
@@ -411,7 +412,7 @@ export class StatTracker {
 
     this.streak = g.clean ? this.streak + 1 : 0;
     if (this.streak > this.maxStreak) this.maxStreak = this.streak;
-    this.sink?.emit('streakUpdated', { tick: e.tick, streak: this.streak, mult: this.multiplier(this.streak) });
+    this.sink?.emit('streakUpdated', { streak: this.streak, mult: this.multiplier(this.streak) });
 
     this.finished.push(g);
     this.open.delete(e.targetId);
@@ -427,7 +428,7 @@ export class StatTracker {
     this.finished.push(g);
     if (this.streak > 0) {
       this.streak = 0;
-      this.sink?.emit('streakUpdated', { tick: e.tick, streak: 0, mult: this.multiplier(0) });
+      this.sink?.emit('streakUpdated', { streak: 0, mult: this.multiplier(0) });
     }
   }
 

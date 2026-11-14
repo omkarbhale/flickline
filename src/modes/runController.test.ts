@@ -3,6 +3,7 @@ import { cloneTunables } from '../config/tunables';
 import { EventBus } from '../core/eventBus';
 import { Rng } from '../core/rng';
 import { secondsToTicks, TICK_RATE } from '../core/time';
+import type { FeedbackEvents } from '../feedback/events';
 import { computeStats } from '../feedback/statTracker';
 import { testRoom } from '../sim/levels';
 import type { RunAndSimEvents, TickInput } from '../sim/types';
@@ -13,7 +14,7 @@ import { RunController } from './runController';
 function setup(seed = 5) {
   const tunables = cloneTunables();
   const world = new World({ level: testRoom, tunables, seed });
-  const bus = new EventBus<RunAndSimEvents>();
+  const bus = new EventBus<RunAndSimEvents & FeedbackEvents>();
   const ctl = new RunController(world, bus, tunables.run, tunables.targets);
   const order: string[] = [];
   for (const t of ['runReady', 'runStarted', 'runEnded', 'targetSpawned'] as const) bus.on(t, () => order.push(t));
@@ -124,6 +125,19 @@ describe('run state machine', () => {
     expect(ctl.elapsedSec).toBe(0);
     run(READY + TICK_RATE);
     expect(ctl.elapsedSec).toBeCloseTo(1, 9);
+  });
+});
+
+describe('event order for presentation', () => {
+  it('streakUpdated is emitted before later subscribers see the targetKilled that caused it', () => {
+    const { ctl, bus, run } = setup();
+    const seen: string[] = [];
+    bus.on('streakUpdated', (e) => seen.push(`streak${e.streak}`));
+    bus.on('targetKilled', () => seen.push('killed')); // like the sound map, subscribed after the controller
+    ctl.startRun({ mode: 't', seed: 1, dial: 0 });
+    run(READY + 2);
+    run(1, { yaw: 0, pitch: Math.atan2(1.5 - 1.62, 20), fire: true });
+    expect(seen).toEqual(['streak1', 'killed']);
   });
 });
 

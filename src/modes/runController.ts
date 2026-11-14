@@ -2,6 +2,7 @@ import type { EventSink, Subscribable } from '../core/eventBus';
 import { secondsToTicks, TICK_DT } from '../core/time';
 import type { RunTunables } from '../config/run';
 import type { TargetTunables } from '../config/targets';
+import type { FeedbackEvents } from '../feedback/events';
 import { EventLog } from '../feedback/eventLog';
 import { StatTracker, type RunStats } from '../feedback/statTracker';
 import type { RunEndReason } from '../sim/runEvents';
@@ -31,7 +32,7 @@ export interface RunInfo {
   durationSec: number;
 }
 
-export type RunBus = EventSink<RunAndSimEvents> & Subscribable<RunAndSimEvents>;
+export type RunBus = EventSink<RunAndSimEvents & FeedbackEvents> & Subscribable<RunAndSimEvents & FeedbackEvents>;
 
 /**
  * The run lifecycle: seeded reset, `ready` (0.8 s, movement only), `live` (timer), `result`

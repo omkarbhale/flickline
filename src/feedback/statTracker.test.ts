@@ -6,6 +6,7 @@ import { DEG2RAD } from '../core/math';
 import { TICK_DT } from '../core/time';
 import { directionFromAngles, vec3 } from '../core/vec3';
 import type { RunEvents } from '../sim/runEvents';
+import type { FeedbackEvents } from './events';
 import type { HitZone, SimEvents, TargetKind } from '../sim/types';
 import type { LoggedEvent, RunLog } from './eventLog';
 import { StatTracker, computeStats } from './statTracker';
@@ -368,7 +369,7 @@ describe('computeStats: spray trace', () => {
 
 describe('StatTracker live use', () => {
   it('emits chain and streak events and matches a replay of the same events', () => {
-    const bus = new EventBus<SimEvents & RunEvents>();
+    const bus = new EventBus<SimEvents & RunEvents & FeedbackEvents>();
     const derived: string[] = [];
     bus.on('chainUpdated', (e) => derived.push(`chain${e.count}`));
     bus.on('streakUpdated', (e) => derived.push(`streak${e.streak}x${e.mult.toFixed(1)}`));

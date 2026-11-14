@@ -4,6 +4,7 @@ import { TICK_DT } from '../core/time';
 import { cloneTunables, tunables as liveTunables, type Tunables } from '../config/tunables';
 import { AudioEngine } from '../audio/audioEngine';
 import { attachSfx } from '../audio/sfx';
+import { attachUiSounds } from '../audio/uiSounds';
 import { DebugOverlay } from '../debug/overlay';
 import { PerfStats } from '../debug/perfStats';
 import { LOGGED_EVENT_TYPES } from '../feedback/eventLog';
@@ -11,7 +12,7 @@ import { SessionStats } from '../feedback/sessionStats';
 import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
-import { SettingsStore } from '../settings/settings';
+import { SettingsStore, type Settings } from '../settings/settings';
 import { RunController, type StartRunOptions } from '../modes/runController';
 import { createTickInput, type HitZone, type TargetKind, type TickInput } from '../sim/types';
 import { zoneCentre } from '../sim/hitZones';
@@ -92,11 +93,15 @@ export class Game {
     this.input.setLook(this.world.player.yaw, 0);
     this.input.onToggleDebug = () => this.overlay.toggle();
 
-    this.audio = new AudioEngine(this.tunables.audio.masterGain);
-    this.audio.setVolume(s.volume);
-    attachSfx(this.bus, this.audio);
+    this.audio = new AudioEngine(this.tunables.audio);
+    this.applyAudioSettings(s);
+    // Feedback producers (stats, later streaks) subscribe before presentation (attachSfx), so the kill chime reads the updated streak.
     this.session.attach(this.bus);
+    // The run controller's stat tracker must be subscribed before the sound map: it emits
+    // `streakUpdated` ahead of the presentation handling the kill that caused it.
     this.run = new RunController(this.world, this.bus, this.tunables.run, this.tunables.targets);
+    attachSfx(this.bus, this.audio, this.tunables.audio);
+    attachUiSounds(document, this.audio);
 
     this.hud = new Hud(hudRoot, this.bus, this.session, s.crosshair);
     this.menu = new Menu(menuRoot, this.settings, this.tunables, () => this.play());
@@ -112,7 +117,7 @@ export class Game {
 
     this.bus.on('settingsChanged', ({ settings, changed }) => {
       if (changed.includes('sensitivity')) this.input.setSensitivity(settings.sensitivity);
-      if (changed.includes('volume')) this.audio.setVolume(settings.volume);
+      if (changed.some((k) => k === 'volume' || k.endsWith('Volume'))) this.applyAudioSettings(settings);
       if (changed.includes('quality')) this.renderer.setQuality(settings.quality);
       this.menu.sync();
     });
@@ -121,6 +126,14 @@ export class Game {
     window.addEventListener('resize', this.onResize);
     this.onResize();
     this.refreshChrome();
+  }
+
+  private applyAudioSettings(s: Readonly<Settings>): void {
+    this.audio.setVolume(s.volume);
+    this.audio.setBusVolume('weapons', s.weaponsVolume);
+    this.audio.setBusVolume('hits', s.hitsVolume);
+    this.audio.setBusVolume('enemies', s.enemiesVolume);
+    this.audio.setBusVolume('ui', s.uiVolume);
   }
 
   private readonly onResize = (): void => {
@@ -178,6 +191,8 @@ export class Game {
     } else {
       this.stepper.reset();
     }
+    const pl = this.world.player;
+    this.audio.setListener(pl.pos.x, pl.pos.y + pl.eyeHeight, pl.pos.z, this.input.yaw, this.input.pitch);
     this.input.endFrame(ticks);
     this.perf.ticksLastFrame = ticks;
 

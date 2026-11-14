@@ -8,7 +8,7 @@ import type { Vec3 } from '../core/vec3';
  * Payloads are plain data, read-only, and valid only during the callback.
  *
  * Producers: the sim (aim/stop/head-height facts; the target and shot events live in `SimEvents`),
- * the run controller (run*), the stat tracker (`chainUpdated`, `streakUpdated`) and later systems
+ * the run controller (run*), the stat tracker (`chainUpdated`, and `streakUpdated` from `feedback/events.ts`) and later systems
  * (enemies, player damage, surge, medals, the skill model) for the rest; those are typed here so
  * consumers can code against them now.
  */
@@ -31,7 +31,6 @@ export interface RunEvents {
   playerDied: { tick: number };
 
   chainUpdated: { tick: number; count: number };
-  streakUpdated: { tick: number; streak: number; mult: number };
   surgeStarted: { tick: number };
   surgeEnded: { tick: number };
   medalAwarded: { tick: number; id: string };
