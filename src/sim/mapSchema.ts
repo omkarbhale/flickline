@@ -35,7 +35,7 @@ type Obj = Record<string, unknown>;
 
 const PEEK_PATTERNS: readonly PeekPattern[] = ['shoulder', 'wide', 'jiggle', 'hop'];
 const STANCES: readonly Stance[] = ['stand', 'crouch'];
-const MARK_KINDS: readonly FloorMark['kind'][] = ['tick', 'major', 'line'];
+const MARK_KINDS: readonly FloorMark['kind'][] = ['tick', 'major', 'line', 'armed'];
 const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
 
 class Reader {

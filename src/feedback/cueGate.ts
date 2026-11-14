@@ -22,7 +22,7 @@ function ruleFor(o: Readonly<FeedbackOptions>, cfg: CueTunables, kind: keyof Cue
   return cfg.rules[kind][effectivePhase(o)];
 }
 
-/** The amber tracer, `⇆` glyph and "tock" for a shot already flagged `moving` by the sim. */
+/** The moving-shot tracer, `⇆` glyph and "tock" for a shot already flagged `moving` by the sim. */
 export function movingCueShown(o: Readonly<FeedbackOptions>, cfg: CueTunables, speed: number, airborne: boolean): boolean {
   if (!o.coachingCues) return false;
   const rule = ruleFor(o, cfg, 'movingShot');

@@ -15,7 +15,7 @@ Contents: 1 Pitch and pillars · 2 Core loop · 3 Skills and stat definitions ·
 **Pillars, ranked.** When two pillars conflict, the higher one wins.
 
 1. **Mechanical truth.** The gun, the body and the camera behave like the reference game's, in numbers *and* in feel, which are tracked separately (section 14.7). A drill that teaches a habit that fails in the real game is a bug. Numbers come from `docs/mechanics-spec.md`; we never "game-ify" them (no aim assist, no bullet magnetism, no slow-motion, no hit-box inflation beyond the spec).
-2. **Feedback is the product.** The feedback that makes a shot feel good and informative (hit confirmation, headshot distinction, kill reward, moving-shot flag, reaction time, miss offset, sound, screen response) is product design, not polish. It is specified in section 7 and built in the first playable, not at the end.
+2. **Feedback is the product.** The feedback that makes a shot feel good and informative (hit confirmation, headshot distinction, kill reward, moving-shot flag, time to shot, miss offset, sound, screen response) is product design, not polish. It is specified in section 7 and built in the first playable, not at the end.
 3. **At the edge of your ability.** A new player and an expert should both be missing roughly three targets in ten within the first minute, and stay there as they improve. Difficulty is a measurement we show, not a rubber band we hide (section 9).
 4. **Zero friction.** Shooting within ten seconds of opening the link; restart in under 250 ms; nothing between you and the next run that you did not ask for.
 5. **Readable at 144+ fps.** Targets are the brightest, most saturated things on screen with strong silhouettes; effects are cheap and short; the frame budget (section 14) is a hard constraint on every visual.
@@ -29,9 +29,9 @@ Contents: 1 Pitch and pillars · 2 Core loop · 3 Skills and stat definitions ·
 
 ### Second by second (inside a run)
 
-1. A target becomes visible. Its appearance is the only timer that matters (reaction time starts here).
+1. A target becomes visible. Its appearance is the only timer that matters (time to shot starts here).
 2. You aim and fire. The crosshair ticks and the target answers within one frame: hitmarker, sound, flash. A miss answers just as clearly (impact spark and, if the option is on, a miss-offset ghost showing where the head was).
-3. A kill pays out in the same frame: shatter, pitched chime, floating points, chain/streak counters. The reaction time and time-to-kill of that kill float near the crosshair for 0.6 s.
+3. A kill pays out in the same frame: shatter, pitched chime, floating points, chain/streak counters. The time to shot and time to kill of that kill float near the crosshair for 0.6 s.
 4. The next target is already appearing. Gaps between targets are short and seeded-random (0.1–0.9 s by mode) so there is no dead air and no rhythm to memorise.
 
 ### Minute by minute
@@ -86,7 +86,7 @@ Every stat is computed from the event log (section 14), never from UI state.
 
 - **Accuracy** = shots that hit a target zone ÷ shots fired (only in `live`).
 - **Headshot rate** = head hits ÷ all hits.
-- **Reaction time (RT)** of a target = time from `targetVisible` (the first tick the target is in the view frustum and unoccluded from the eye) to the first `shotFired` that is aimed within 5° of it. RT is reported per target; run RT is the **median**, not the mean.
+- **Time to shot (TTS)** of a target = time from `targetVisible` (the first tick the target is in the view frustum and unoccluded from the eye) to the first `shotFired` that is aimed within 5° of it. It includes the aiming movement, so it is **not a reaction time** and is never called one in the UI (research #12 P1; the code identifiers still say `rtMs` until #137). Time to shot is reported per target; the run's is the **median**, not the mean. Context only, never pass/fail: about 0.25–0.35 s pre-aimed, 0.45–0.9 s for a 10–25° relocation, 0.9–1.5 s for a 60–120° flick (#12 §1.2).
 - **Time to kill (TTK)** = time from the first shot fired at the target (a shot that hits it or lands within 1° of it) to its death.
 - **Time on target** = fraction of `live` ticks where the aim ray is within the target's hit volume padded by 0.5° (Strafe Track's main number).
 - **Moving shot** = a shot fired while the player's horizontal speed is above the accuracy deadzone from the spec (`move.deadzone_fraction`: 27.5% of the equipped weapon's run speed, 15% for the sniper; spec §2.4) or while airborne. It is flagged at the shot, not inferred later.
@@ -112,23 +112,23 @@ All modes have `ready` → `live` → `result`; weapon per mode is the default b
 - **Rule**: one Post (section 5) appears at a time at a random anchor, 5–25° from the current crosshair direction (mostly small adjustments; this is a *placement and click* drill, not a flick). The first bullet fired at it decides the trial: if the target is hit in the head by that bullet it dies (shatter); a body hit makes it flash and leave; a miss makes it leave. Whatever happens, the Post leaves 0.25 s after your first bullet at it, so spraying is pointless by design. If no bullet is fired before its exposure ends it leaves and counts as a miss-by-timeout.
 - **Trial** (for the skill model): success = head hit with the first bullet.
 - **Pace**: 0.5–0.9 s between targets, about 45 trials per run.
-- **Dial axes**: distance (head size on screen), exposure, density fixed at 1.
+- **Dial axes**: distance (head size on screen, 5 → 35 m), exposure (2.5 s → 1.05 s, Cold Start's own curve, §9.4), density fixed at 1.
 - **Score**: first-bullet head kill = 100 base; the precision multiplier is the dominant term (section 8).
-- **Key metrics shown**: first-shot accuracy, pre-aim error, RT.
+- **Key metrics shown**: first-shot accuracy, pre-aim error, time to shot.
 
 ### 4.2 Orbit — trains `flick`  (first playable)
 
 - **Map/weapon**: Range, Pace (sidearm, semi-auto), movement locked, infinite magazine.
-- **Rule**: one Beacon (section 5; a head-sized orb) at a time on a shell 8–25 m from the player. Each new Beacon is placed at an angular distance from the previous one between `Amin` and `Amax` set by the dial (from 20–40° at dial 0 up to 90–180° at dial 100, i.e. including targets behind you), pitch limited to −20°…+25° of horizon and biased towards head height. A Beacon has a time-to-live (exposure); one bullet that hits it kills it; if it expires the trial is a miss.
-- **Trial**: success = killed before expiry. Extra data: flick error, RT, flick time (visible → hit).
+- **Rule**: one Beacon (section 5; a head-sized orb) at a time on a shell 8–25 m from the player. Each new Beacon is placed at an angular distance from the previous one between `Amin` and `Amax` set by the dial (from 20–40° at dial 0 up to 60–120° at dial 100; a rare 120–180° extreme, behind you, above dial 85 and at most 15% of trials is #136), pitch limited to −20°…+25° of horizon and biased towards head height. A Beacon has a time-to-live (exposure); one bullet that hits it kills it; if it expires the trial is a miss.
+- **Trial**: success = killed before expiry. Extra data: flick error, time to shot, flick time (visible → hit).
 - **Pace**: next Beacon appears 0.1 s after a kill, 0.2 s after an expiry; about 70 trials per run.
-- **Dial axes**: size (Beacon scale ×3.0 → ×1.0 of real head size), angle range, exposure.
+- **Dial axes**: size (Beacon scale ×3.0 → ×1.0 of real head size), angle range, exposure (2.5 s → 1.6 s, Orbit's own curve, §9.4).
 - **Key metrics shown**: flick time, overshoot/undershoot bias (the single most useful flick diagnostic), accuracy.
 
 ### 4.3 Strafe Track — trains `track`  (first release)
 
 - **Map/weapon**: Range, Kestrel. The player may move but does not need to. Strafers (section 5) do **not** shoot back in this mode.
-- **Rule**: 1–3 Strafers alive at once at 10–35 m, strafing left/right with realistic stop-and-shoot rhythm: a strafe leg of 0.3–1.0 s (randomised), a counter-strafe decel of 0.16 s, a stand-still of 0.2–0.4 s, then the next leg, possibly reversed (spec §5.3). Kill them; replacements spawn 0.4 s after a kill from the edge of cover.
+- **Rule**: 1–3 Strafers alive at once at 10–35 m, strafing left/right with realistic stop-and-shoot rhythm: a strafe leg of 0.35–1.0 s (randomised), a counter-strafe decel of 0.16 s, a stand-still of 0.25–0.4 s, then the next leg, possibly reversed (spec §5.3). Kill them; replacements spawn 0.4 s after a kill from the edge of cover.
 - **Trial**: one Strafer = one trial; success = killed within its time limit (8 s at dial 0 down to 3 s at dial 100). Strafer speeds run from 2.0 m/s (dial 0) to 5.4 m/s (dial 100), the spec's slow/fast values.
 - **Dial axes**: strafe speed, direction-change interval, stop window length, distance, density.
 - **Key metrics shown**: time on target, headshot rate, TTK, lead error sign (are you lagging behind or leading?).
@@ -138,7 +138,7 @@ All modes have `ready` → `live` → `result`; weapon per mode is the default b
 - **Map/weapon**: Lane, Kestrel.
 - **Rule**: the near end of the lane is a start line; targets (Posts, one at a time) appear at the far end only while you are *moving sideways* (lateral speed ≥ 80% of the equipped run speed; the floor stripe lights up to show the lane is "armed"). Each target carries a **stance ring** on its base: white = stand still, blue = crouched and still (the spec's crouch accuracy bonus). You must kill it with your first bullet fired **in that stance and below the accuracy deadzone** (spec §2.4: 27.5% of run speed, reached about 0.10 s after the stopping input, §2.5). Firing earlier is a *moving shot*: it still fires, exactly as in the reference game (inaccurate by the spec's movement error), and the coaching cue (section 7) flags it. Walking (`Shift`) is not a valid stance because it is above the deadzone in the reference game too.
 - **Trial**: success = killed with the first bullet, fired in the required stance and not a moving shot.
-- **Dial axes**: exposure (2.0 s → 0.5 s), distance, stance mix (dial < 30: stand only; 30–60: stand + crouch; > 60: adds a 20% chance of a "double" of two targets and requires the stop to come from a direction reversal, i.e. a true counter-strafe tap).
+- **Dial axes**: exposure (2.0 s → 0.7 s; 0.5 s was under the 0.55 s minimum of reaction + accuracy gate + a small aim, #12 §4.1), distance, stance mix (dial < 30: stand only; 30–60: stand + crouch; > 60: adds a 20% chance of a "double" of two targets and requires the stop to come from a direction reversal, i.e. a true counter-strafe tap).
 - **Key metrics shown**: stop latency, moving-shot count, stance correctness, accuracy while stopped versus moving.
 
 ### 4.5 Spray Wall — trains `spray`  (first release)
@@ -153,7 +153,7 @@ All modes have `ready` → `live` → `result`; weapon per mode is the default b
 
 - **Map/weapon**: Range, Kestrel, infinite magazine.
 - **Rule**: a wave of 3–6 Posts and Strafers appears at once spread across a 140° arc at mixed distances. Kill them all; a new wave appears 0.3 s after the last dies. At dial > 60, Gnats (section 5) join waves.
-- **Trial**: one wave = one trial; success = cleared within its par time (par = 1.3 s per enemy at dial 0 down to 0.55 s per enemy at dial 100).
+- **Trial**: one wave = one trial; success = cleared within its par time (par = 1.3 s per enemy at dial 0 down to 0.70 s per enemy at dial 100; 0.55 s was faster than the flick model allows for a 30° switch onto a dial-100 head, #12 P5).
 - **Dial axes**: density, distance, speed (for Strafers), exposure (waves with a lifespan at the highest dials).
 - **Key metrics shown**: switch time (kill → next first shot), overkill bullets, order efficiency (did you clear nearest-angle first).
 
@@ -161,8 +161,8 @@ All modes have `ready` → `live` → `result`; weapon per mode is the default b
 
 - **Map/weapon**: Elbow, Kestrel. Enemies shoot back; health, shield (default heavy, 50, you and the Peekers) and slow-on-hit apply (section 5).
 - **Rule**: a ten-checkpoint route through the map. Reaching a checkpoint (a floor mark) arms an **angle**: 1–3 Peekers (section 5) hold it, cycling peek patterns on a short random timer. Kill them, or after 6 s they retreat and you move on. The run ends at the route's end, at 90 s, or at 0 HP.
-- **Trial**: one angle = one trial; success = every Peeker killed and no damage taken.
-- **Dial axes**: exposure, enemy reaction and tell length, enemy accuracy, density, distance.
+- **Trial**: one angle = one trial; success = every Peeker killed and no damage taken. Shoulder, jiggle and hop peeks are **bait, not trials** (#12 P3): letting one pass is never a failure, and a Peeker that retreats having shown only bait peeks is not required for success, so the dial never penalises correct patience. For the skill model (#17) and the mode (#50).
+- **Dial axes**: exposure (wide peek 1.4 s → 0.45 s), enemy reaction and tell length, enemy accuracy, density, distance.
 - **Key metrics shown**: pre-aim error, head-height discipline, over-peek count (damage taken while you were exposed more than 0.5 s without firing), damage per angle.
 
 ### 4.8 Sweep — the flagship  (first release)
@@ -207,7 +207,7 @@ Hit detection is hitscan against these shapes in the simulation (the same shapes
 |---|---|---|---|---|
 | **Post** | Standing Echo, idle sway only. | Stationary. | None. | Cold Start, Spray Wall, Switchboard, Stop & Pop |
 | **Beacon** | Head-sized glowing orb on nothing. | Stationary. | None. | Orbit, Placement run |
-| **Strafer** | Echo that mirrors a strafing player. | Strafe legs (0.3–1.0 s) → counter-strafe decel (0.16 s) → stand-still (0.2–0.4 s) → strafe, reversing on a seeded coin; speed 2.0–5.4 m/s by dial (spec §5.3). Stops are *real stops* with the spec's braking, so the stand-still is exactly the window where a player's counter-strafed shot is accurate. | In Sweep and Corner Clear it fires in its stop windows. | Strafe Track, Switchboard, Sweep |
+| **Strafer** | Echo that mirrors a strafing player. | Strafe legs (0.35–1.0 s) → counter-strafe decel (0.16 s) → stand-still (0.25–0.4 s) → strafe, reversing on a seeded coin; speed 2.0–5.4 m/s by dial (spec §5.3). Stops are *real stops* with the spec's braking, so the stand-still is exactly the window where a player's counter-strafed shot is accurate. | In Sweep and Corner Clear it fires in its stop windows. | Strafe Track, Switchboard, Sweep |
 | **Peeker** | Echo behind low or full cover. | Peek patterns: **shoulder** (exposes 40% of body, 0.3 s), **wide** (full body, 0.8–1.2 s), **jiggle** (shoulder out-in-out), **hop** (rises above low cover for 0.35 s, head and upper body only). | Fires one or two bursts during a wide peek. | Corner Clear, Sweep |
 | **Rusher** | Echo with a forward-leaning stance. | Sprints at the player along nav nodes from ≥ 15 m, slows and fires from 8–12 m, then keeps closing. | Threatens in the open; forces you to leave cover or reposition. | Sweep |
 | **Bulwark** | Echo with a front plate across the torso. | Walks slowly towards the player. | Fires steadily; the plate absorbs body shots from the front (sparks and a muted tick, no damage), so only the head and legs are valid. | Sweep, high dials |
@@ -221,11 +221,13 @@ All Echoes use HP, damage-per-zone, shield and bullet-count rules identical to t
 
 Only in **Corner Clear** and **Sweep** (and they never shoot in drills). The rules are designed so damage is *readable and mostly your fault*, and so slow-on-hit matters:
 
-1. **Tell.** An enemy that has acquired the player begins a **tell**: its head node flares and a thin bright line flickers from its muzzle towards the player's position for `tell` seconds (0.5 s at dial 0 → 0.18 s at dial 100; **never below 0.15 s**, a fairness floor from human reaction times, see research issue). An enemy that was **prepared** for the player (holding this spot with information, #127) does not hold fire for a tell: its tell runs from the moment it sees the player until its shot (`docs/research/prepared-holders.md`). A rising synthesised tone plays from its position (section 12). These added cues **fade as the player's dial rises** (tell cue axis, sections 9.4 and 7.4): above the fade band only the true cues remain (the enemy raising the weapon, stopping, the muzzle flash), as in the reference game. The tell's duration and its 0.15 s floor are unchanged.
-2. **Fire.** At tell end it fires a burst of 1–3 shots at the spec's fire-rate for a sidearm/rifle archetype. Each shot is hitscan with a **seeded hit roll**: base probability `pHit` from the dial (0.15 → 0.6 at standstill, by distance falloff), multiplied by 0.5 if the player's speed is above the accuracy deadzone (strafing is a real defence, as in the reference) and by 0.7 if crouched at range. A near miss draws a thin tracer past the player's head and plays a whiz from the correct side.
+*Adopted from research (#130): tell and floor from #12 P5/P6 and #52 R8; aimed shots from #71 (`docs/research/player-like-enemies.md` §5.6).*
+
+1. **Tell.** An enemy that has acquired the player begins a **tell**: its head node flares and a thin bright line flickers from its muzzle towards the player's position for `tell` seconds (0.7 s at dial 0 → 0.30 s at dial 100; **never below 0.25 s**). The floor is one mean simple reaction time (0.218 s) plus the time a strafe needs to clear the accuracy deadzone; 0.30 s is the first tell at which a typical player's strafe takes effect before the shot (#12 §5). The tell is the enemy's real aiming phase: it lasts `max(aim phase, tell floor)`, so it never adds delay to an enemy that is still aiming (#71 F5). An enemy that was **prepared** for the player (holding this spot with information, #127) does not hold fire for a tell: its tell runs from the moment it sees the player until its shot (`docs/research/prepared-holders.md`). A rising synthesised tone plays from its position (section 12). These added cues **fade as the player's dial rises** (tell cue axis, sections 9.4 and 7.4): above the fade band only the true cues remain (the enemy raising the weapon, stopping, the muzzle flash), as in the reference game. The tell's duration and its floor are unchanged.
+2. **Fire.** At tell end it fires a burst of 1–3 shots at the spec's fire-rate for a sidearm/rifle archetype. Each shot is **aimed, not rolled**: a hitscan shot from the enemy's simulated crosshair through the spec's spread, recoil and movement error, with no hidden hit roll (#71). Strafing is a real defence for the same reasons as in the reference game: the player's movement takes the hit zones away from where the enemy aims, and an enemy that moves gets the spec's movement error. The dial's enemy hit chance (0.15 → 0.6 at standstill) is a **calibration target** the bot harness measures (#28, #53), not an input. A near miss draws a thin tracer past the player's head and plays a whiz from the correct side.
 3. **Damage.** Per-zone damage from the spec, through the player's shield first (66% of each hit until the shield is spent, section 5.1). A hit applies the spec's **tagging** slow (spec §4.3: speed capped to 27.5% of max, 0.10 s ramp-in, held while hits continue, 0.5 s release; all four are tunables) to the player, shows the damage arc pointing at the shooter, and plays the damage cue (section 7).
 4. **Reaction.** Enemy `reaction` (time from first seeing the player to starting the tell) scales 1.2 s → 0.3 s with the dial. A prepared enemy reacts on a human pre-aimed draw instead (floor 0.15 s, #127).
-5. **Determinism.** All rolls use the run seed, so a seeded run is replayable.
+5. **Determinism.** Every enemy draw (reaction, aim noise, decisions) comes from a per-enemy stream seeded from the run seed, so a seeded run is replayable.
 
 ### 5.4 Behaviour implementation notes
 
@@ -260,12 +262,12 @@ Rule: every event the player causes is answered **in the same frame** with at le
 | Event | See | Hear | Read |
 |---|---|---|---|
 | **Shot fired** | Muzzle flash (one frame sprite) on the viewmodel; tracer (thin bright quad, 80 ms); viewmodel recoil as the spec requires (camera recoil is the spec's; no extra camera shake). | Weapon shot, per weapon (section 12). | Ammo count ticks down. |
-| **Shot fired while moving too fast** (coaching cue, toggleable, fades: section 7.4) | Tracer is **amber**; a small `⇆` glyph flashes under the crosshair for 0.3 s. | A dull, flat "tock" layered under the shot. | "Moving shots" counter in the stat strip increments. |
+| **Shot fired while moving too fast** (coaching cue, toggleable, fades: section 7.4) | Tracer is **violet** (`warn`) and dashed; a small `⇆` glyph flashes under the crosshair for 0.3 s. | A dull, flat "tock" layered under the shot. | "Moving shots" counter in the stat strip increments. |
 | **Miss** | Impact spark + decal at the hit point; (option, default on) a faint ghost ring where the nearest target's head was, for 0.25 s, with an offset arrow. | Short "pfft" on the impact surface. | Nothing text-based; miss data goes to the run's miss map. |
 | **Body hit** | White hitmarker tick (4 short lines around the crosshair, 90 ms); target flashes white 60 ms; damage number floats up if enabled. | Low "thock". | Damage number. |
-| **Leg hit** | Dimmer tick, smaller. | Thock, a semitone lower. | — |
+| **Leg hit** | Dimmer tick, smaller. | A shorter, quieter thock 3 semitones lower, with no click (section 12). | — |
 | **Headshot (non-kill)** | **Gold** hitmarker, larger (140 ms), crosshair gap pulses once; target head node flares. | Bright "tink" over the thock. | Gold number. |
-| **Kill** | Target **shatters** into 12 shards flying from the hit point and fades (400 ms); hitmarker turns into a larger burst; `+score` floats from the kill point; subtle 3-frame screen-edge pulse in the accent colour. | A rising chime whose pitch steps up the pentatonic scale with the clean streak (caps at 8 steps). Headshot kills add a sparkle top-layer. | `+score`, plus RT and TTK for that kill floating by the crosshair for 0.6 s ("182 ms · 0.41 s"). The RT turns green if it beats the run median, white otherwise. |
+| **Kill** | Target **shatters** into 12 shards flying from the hit point and fades (400 ms); hitmarker turns into a larger burst; `+score` floats from the kill point; subtle 3-frame screen-edge pulse in the accent colour. | A rising chime whose pitch steps up the pentatonic scale with the clean streak (caps at 8 steps). Headshot kills add a sparkle top-layer. | `+score`, plus time to shot and TTK for that kill floating by the crosshair for 0.6 s ("TTS 182 ms · TTK 0.41 s", each labelled). The time to shot turns green if it beats the run median, white otherwise. |
 | **Chain** (kill within 1.5 s of previous) | Counter above the crosshair: "×2", "×3", "×4", "×5+", pulsing once. | An extra layered chime step. | Chain count. |
 | **Clean streak** | Streak number under the score, fills a ring around it; multiplier shown (×1.0 → ×3.0). | The chime pitch ladder above. | Multiplier. |
 | **Streak break** | Ring empties with a short desaturate; no shake. | A soft falling interval (never harsh). | — |
@@ -279,7 +281,7 @@ Rule: every event the player causes is answered **in the same frame** with at le
 
 Always on: crosshair, ammo, timer, score, multiplier, chain/streak counters, HP and shield (modes with enemy fire; the shield bar sits above the HP bar and is drawn only when the fight has one).
 
-Stat strip (bottom-left, small, default **on** so the feedback is learnable; each item toggleable): **Acc %**, **HS %**, **Median RT**, **Median TTK**, **Moving shots**. A single combined "pace vs PB" bar sits under the score.
+Stat strip (bottom-left, small, default **on** so the feedback is learnable; each item toggleable): **Acc %**, **HS %**, **Median TTS** (time to shot), **Median TTK**, **Moving shots**. A single combined "pace vs PB" bar sits under the score.
 
 In-world: stance rings (Stop & Pop), checkpoint marks (Corner Clear), the wall decals in Spray Wall (persist for the spray, wiped before the next).
 
@@ -294,7 +296,7 @@ In-world: stance rings (Stop & Pop), checkpoint marks (Corner Clear), the wall d
 
 ### 7.4 Fading cues: feedback that goes away as you improve
 
-The augmented cues above (amber moving-shot tracer, `⇆`, "tock", miss ghost, damage numbers, the RT/TTK readout, and the enemy tells of section 5.3) teach what happened, but none of them exists in the reference game. A player who waits for the tell's laser before strafing, or knows they moved because they heard the tock, has built a habit that fails there (vision principle 1). Feedback on every trial also trains learners to lean on it instead of their own senses; reducing its frequency costs a little practice performance and helps retention (guidance hypothesis, Winstein and Schmidt 1990). So the answer stays instant and specific (principle 3) but **stops being constant** (issue #129; `config/cues.ts`, `adaptive/cueFade.ts`, `feedback/cueGate.ts`, `feedback/cuePlanner.ts`).
+The augmented cues above (violet moving-shot tracer, `⇆`, "tock", miss ghost, damage numbers, the RT/TTK readout, and the enemy tells of section 5.3) teach what happened, but none of them exists in the reference game. A player who waits for the tell's laser before strafing, or knows they moved because they heard the tock, has built a habit that fails there (vision principle 1). Feedback on every trial also trains learners to lean on it instead of their own senses; reducing its frequency costs a little practice performance and helps retention (guidance hypothesis, Winstein and Schmidt 1990). So the answer stays instant and specific (principle 3) but **stops being constant** (issue #129; `config/cues.ts`, `adaptive/cueFade.ts`, `feedback/cueGate.ts`, `feedback/cuePlanner.ts`).
 
 **Phase per skill.** At each run start the mode's skill (the Line rating for modes that train several) is read from the posterior (section 9.1) and put in one phase. Both gates must hold, so a lucky minute that lifts the mean but leaves a wide band does not strip the cues:
 
@@ -308,7 +310,7 @@ A player already in a phase stays in it until the rating falls 3 dial points bel
 
 **Bandwidth rules.** Moving-shot tracer, `⇆` and tock: only when the shot is at or above 3.5 m/s (the deadzone is about 1.5 m/s, a walk 2.7, a run 5.4: so only near-running shots) or airborne. Miss ghost: only when the shot passed 1.5° or more from the nearest head. Time-to-shot readout: only when slower than 1.3× or faster than 0.75× the run median (a good trial is worth saying too: feedback after good trials helps learning, Chiviacowsky and Wulf 2007). Damage numbers carry no error signal, so they stop at bandwidth; the hitmarker colour already names the zone. Rewards (chime ladder, score, streak, chain) are not coaching cues and never fade.
 
-**Tells are a dial axis.** `axes(dial).tellCue` is 1 up to dial 35 and falls in a straight line to 0 at dial 60. It scales the **added** tell cues (head-node flare, laser line, rising tone). The windup itself, its duration and its 0.15 s floor are untouched, so a fight is not made unfair; what changes is that the player learns to read the real signs. Surge (first release) may bring the tells back as a reward (`FeedbackOptions.surge`).
+**Tells are a dial axis.** `axes(dial).tellCue` is 1 up to dial 35 and falls in a straight line to 0 at dial 60. It scales the **added** tell cues (head-node flare, laser line, rising tone). The windup itself, its duration and its floor are untouched, so a fight is not made unfair; what changes is that the player learns to read the real signs. Surge (first release) may bring the tells back as a reward (`FeedbackOptions.surge`).
 
 **The clean run.** The first scored run of a session, once the player has completed three scored runs ever, has **no coaching cues at all, no added tells, and a reference-like HUD**: the stat strip, edge meter and ghost-pace bar are hidden (crosshair, timer, ammo, health and the reward counters stay). It is never the Placement run. It is spent only when it ends for real; quitting it early offers it again. Its results card says so. It is the cold-open benchmark for the transfer question (#128): a score earned the way the reference game would let you earn it.
 
@@ -342,7 +344,7 @@ A single screen, readable in under 5 seconds, scannable in 15:
 
 1. **Header**: mode, run seed, score, **PB delta** (green/red), grade-free.
 2. **Rating**: the mode's skill rating before → after, the run's delta ("+14"), the tier badge, a progress bar to the next sub-tier.
-3. **Headline stats**: Accuracy, HS rate, median RT, median TTK, moving shots, and the mode's two key metrics (section 4).
+3. **Headline stats**: Accuracy, HS rate, median time to shot, median TTK, moving shots, and the mode's two key metrics (section 4).
 4. **Medals** earned this run.
 5. **One thing to fix** card (below), with the `Practice this` button.
 6. **Detail** (collapsible): per-target timeline strip (each target a bar: visible → first shot → kill, colour coded), miss map (all misses plotted relative to the nearest target head, centred, so bias is obvious), **spray trace vs ideal** with the per-bullet-index pull curve (Spray Wall, Sweep), pre-aim error distribution (Corner Clear, Sweep), flick error histogram (Orbit).
@@ -353,7 +355,7 @@ A single screen, readable in under 5 seconds, scannable in 15:
 A deterministic rules engine (no model needed) picks one weakness per run:
 
 1. Compute 12 candidate diagnostics with an *estimated points lost* for each, from the run's own events and the player's skill profile:
-   moving shots (hit rate stopped vs moving); late reaction (RT above the player's rating-baseline); flick overshoot or undershoot bias; head-height discipline (aim vertical bias); pre-aim error; spray collapse (the bullet index where per-bullet hit rate drops below 50%); tracking lag or lead; switch hesitation (kill → first shot gap); over-peek damage; overkill bullets; reload in the open; accuracy drop after a streak break (tilt).
+   moving shots (hit rate stopped vs moving); late shot (time to shot above the player's rating-baseline); flick overshoot or undershoot bias; head-height discipline (aim vertical bias); pre-aim error; spray collapse (the bullet index where per-bullet hit rate drops below 50%); tracking lag or lead; switch hesitation (kill → first shot gap); over-peek damage; overkill bullets; reload in the open; accuracy drop after a streak break (tilt).
 2. Rank by estimated points lost; take the top one, show **one sentence of evidence** and **one sentence of what to do**, and attach a 30-second focused drill (a mini-run of the relevant mode with that skill's axes forced to the player's dial).
    Example: *"22% of your shots were fired while moving; those hit 31% of the time vs 74% when stopped. Tap the opposite strafe key and fire only once your speed has dropped (about 0.1 s)."* → **Practice this (Stop & Pop, 30 s)**.
 3. Two secondary findings are collapsed under it. Rules and copy live in data so they can be improved without code.
@@ -375,7 +377,7 @@ Progress is **rating**, **tiers**, **medals** and **personal bests** for practic
 | **Metronome** | 6 kills whose intervals are within ±12% of each other. |
 | **Pendulum** | ≥ 85% time on target for 4 s (Strafe Track). |
 | **Thread** | A full spray where every bullet after the 3rd lands within the body-or-head zone (Spray Wall). |
-| **Quick Study** | Median RT lower than your 20-run median by 10% (once per run). |
+| **Quick Study** | Median time to shot lower than your 20-run median by 10% (once per run). |
 | **Clean Corner** | 5 angles cleared with no damage (Corner Clear, Sweep). |
 | **Untouched** | A Sweep contact of 3+ enemies cleared without taking damage. |
 | **Flawless** | A run with no miss and no moving shot. |
@@ -406,6 +408,8 @@ Ratings are measured inside a session, after warm-up, on an adaptive dial, so th
 
 Each skill has a latent ability `θ` on the same 0–100 **dial** scale as difficulty (rating = 30 × dial). Every target engagement in a mode is an **item** with a difficulty `d` that is a function of the dial settings in force when it spawned. The probability that a player at ability `θ` succeeds on an item of difficulty `d` is `p = σ((θ − d)/s)` with `s = 9` (tunable). We keep a **grid posterior** over θ ∈ {0, 0.5, …, 100} (201 points; a few hundred multiplies per update, irrelevant to performance), updated after every trial with the logistic likelihood. The rating shown is the posterior mean; the posterior standard deviation is the **confidence**, shown as a band.
 
+An item's **trial type** is one of its properties, next to its difficulty: *pre-aimed* (the crosshair is already within about 2° of where the target appears) or *must-flick* (the crosshair has to move). Their feasible times differ, so the model never compares a pre-aimed 0.45 s trial with a 135° flick as the same kind of item (#12 P4). How the type enters the likelihood (a difficulty offset or its own scale) is for the skill model (#17) and the mode framework (#22); bait peeks (§4.7) are not items at all (#12 P3).
+
 ### 9.2 The first minute: the probe
 
 Priors: a one-tap self-report before the first run ("New to shooters / Some / Experienced / Competitive") sets the prior mean to dial 15 / 35 / 55 / 75 (skippable → 40), standard deviation 25.
@@ -418,7 +422,7 @@ The Placement run (45 s, about 25–30 trials) uses an adaptive **staircase** on
 2. **Difficulty is a function of the posterior and a pre-planned wave curve, never of the last few shots.** A run is divided into *beats* (every 10 s in drills; every contact in Sweep). The dial changes only at beat boundaries, by at most ±3 points per beat, and the wave curve (warm-up −8, build, peak +6, breather −6) is applied around it. A streak of misses does not make the next target easier; a streak of hits does not instantly spike difficulty. The player sees structure, not a fight against their score.
 3. **Asymmetric update**: the posterior reacts faster upward than downward (likelihood scale `s` 8 for successes, 10 for failures) so a few lucky hits are not rewarded by a brutal jump, and a bad evening does not collapse the rating.
 4. **No hidden handicaps**: the score table's `difficulty` factor means an easier dial does not hand out free points; the PB is per dial band.
-5. **Fairness floors**: tell ≥ 0.15 s, exposure ≥ 0.3 s, target size never below the spec's real head size, enemy reaction ≥ 0.25 s, nothing spawns within 90° of the player's view *and* closer than 3 m (no point-blank ambush). The reaction and tell floors protect the player from an enemy they **surprised**. A **prepared** holder (one that expects the player at this spot) is bound only by a 0.15 s reaction floor and never holds fire for a tell, because flooring it would let a wide swing beat a pre-aimed angle, the opposite of the reference game (#127, `docs/research/prepared-holders.md`).
+5. **Fairness floors** (*adopted from #12 P6 and #52 R8 in #130*): tell ≥ 0.25 s; exposure ≥ 0.45 s for any timed target (the pre-aimed minimum), and per mode ≥ the minimum feasible time, reaction plus aiming movement (Orbit 1.25 s, Cold Start 0.8 s, Stop & Pop 0.55 s, #12 §4.1); exposure is measured from when the target becomes visible (`targetVisible`), never from its spawn, so an off-screen spawn does not eat the clock (the drills count from spawn today: #143); target size never below the spec's real head size; enemy reaction ≥ 0.25 s; **no target spawns (or becomes armed) closer than 4 m in any direction, and none inside the view cone (±51.5°, half the 103° FOV) closer than 5 m** (no point-blank ambush; a target behind you at 2 m is just as unreactable as one in front). The 4 m rule also binds enemies that walk closer in modes where they shoot (#32, #51). The reaction and tell floors protect the player from an enemy they **surprised**. A **prepared** holder (one that expects the player at this spot) is bound only by a 0.15 s reaction floor and never holds fire for a tell, because flooring it would let a wide swing beat a pre-aimed angle, the opposite of the reference game (#127, `docs/research/prepared-holders.md`).
 6. **Pin difficulty** (setting): fixes a mode's dial to a value you choose for fair comparison and drills; matched adaptation is the default.
 
 ### 9.4 Where each difficulty axis goes
@@ -428,17 +432,22 @@ The dial 0–100 maps to the seven axes (each mode uses a subset; linear unless 
 | Axis | Dial 0 | Dial 100 | Applies to |
 |---|---|---|---|
 | Beacon scale (×real head) | 3.0 | 1.0 | Orbit |
-| Distance (m) | 5 | 50 (g); spec Range positions are 5, 10, 20, 30, 50 | Humanoid modes |
-| Flick angle range (°) | 20–40 | 90–180 | Orbit |
+| Distance (m) | 5 | 35 (g); 50 m only as a fixed-distance option, never a dial value | Humanoid modes |
+| Flick angle range (°) | 20–40 | 60–120 (a rare 120–180° above dial 85 is #136) | Orbit |
 | Strafe speed (m/s) | 2.0 | 5.4 | Strafer |
-| Strafe leg interval (s) / stand-still window (s) | 1.0 / 0.4 | 0.3 / 0.2 (after the 0.16 s decel) | Strafer |
-| Exposure (s) | 3.0 (g) | 0.45 | All timed targets (Peeker wide peek: 1.4 → 0.3) |
-| Enemy reaction (s) / tell (s) | 1.2 / 0.5 | 0.3 / 0.18 | Sweep, Corner Clear |
+| Strafe leg interval (s) / stand-still window (s) | 1.0 / 0.4 | 0.35 / 0.25 (after the 0.16 s decel) | Strafer |
+| Exposure, pre-aimed timed targets (s) | 3.0 (g) | 0.45 | Any timed target without its own curve |
+| Exposure, Orbit (s) | 2.5 (g) | 1.6 | Orbit, Placement run (Orbit-style trials) |
+| Exposure, Cold Start (s) | 2.5 (g) | 1.05 | Cold Start, Placement run (Cold-Start-style trials) |
+| Exposure, Stop & Pop (s) | 2.0 (g) | 0.7 | Stop & Pop |
+| Exposure, Peeker wide peek (s) | 1.4 (g) | 0.45 | Corner Clear, Sweep |
+| Exposure, Gnat (s) | 1.5 | 0.6 | Switchboard, Sweep (axis added with the Gnat) |
+| Enemy reaction (s) / tell (s) | 1.2 / 0.7 | 0.3 / 0.30 | Sweep, Corner Clear |
 | Tell cue strength (head-node flare, laser, tone; the windup is not scaled) | 1 up to dial 35 | 0 from dial 60 | Sweep, Corner Clear (section 7.4) |
-| Enemy hit chance at standstill | 0.15 | 0.6 | Sweep, Corner Clear |
+| Enemy hit chance at standstill | 0.15 | 0.6 | Sweep, Corner Clear (a calibration target, §5.3) |
 | Density (simultaneous targets) | 1 | 6 (step) | Switchboard, Sweep, Strafe Track |
 
-These end points are starting values; the balance pass (backlog) tunes them against human data.
+*Adopted from research #12 (§4, P5) and #52 (R8) in #130.* Why the dial-100 values moved: a 50 m head (0.32°) sits inside the first-shot spread cone, so success there measures luck; 90–180° flicks are mostly off-screen, found by sound rather than sight, with no evidence behind them; a 0.20 s stand-still and a 0.18 s tell are shorter than mean simple reaction time (0.218 s); and one 0.45 s exposure for every target cannot cover a flick (a 135° flick onto a real-size head needs about 1.25 s). An item that no ability can pass pushes success towards zero at high dials, so the posterior saturates below the top tiers and strong players are mis-rated. Exposure therefore has one curve per mode, each about 1.3× the minimum feasible time (reaction plus aiming movement for the mode's angles and sizes, #12 §4.1). These end points are starting values; the balance pass (#53) tunes them against human data.
 
 ### 9.5 Showing the estimate to the player
 
@@ -503,9 +512,9 @@ Coordinates are metres, Y up. The mode scheduler picks anchors by tag and distan
 **Direction: "Lightline."** Dark, cool, low-detail environments drawn with thin bright **lines of light** along edges (the name), and warm, saturated, luminous Echoes that are always the highest-contrast thing on screen. It should look like a clean, glowing training facility at night, and be nearly free to render.
 
 - **Environment**: flat-shaded boxes with vertex-colour gradients (darker at the floor edge, lighter high up); emissive trim lines along box edges (a screen-space-thin bright edge via geometry, not post); a procedural, derivative-antialiased grid floor with 5 m distance ticks; distance fog to the background colour; a gradient sky with a faint horizon glow. One directional light, **no real-time shadows** (a soft blob decal under each Echo and each pillar). No normal maps, no textures: all procedural, so zero asset downloads.
-- **Palette tokens** (defined once in a shared `palette` module): `ink #0B0D14` (background), `slate #151A26`, `steel #26304A` (cover), `trim #38E8FF` (accent and UI), `ember #FF7A4D` (default Echo; was #FF5A36, which cannot reach 7:1 against any surface, even pure black gives 6.77:1; see `src/config/palette.ts`), `core #FFF1D6` (head node), `gold #FFD23F` (headshot), `ok #5BF2A5`, `warn #FFB020` (moving shot), `alert #FF3D5A` (damage). All pairs meet at least 4.5:1 contrast for text/hud use and Echoes meet at least 7:1 against every rendered environment surface (the environment is only ever darker than its palette colour, `palette.env`; thin trim and grid lines are dimmer than an Echo).
+- **Palette tokens** (defined once in a shared `palette` module): `ink #0B0D14` (background), `slate #151A26`, `steel #26304A` (cover), `trim #38E8FF` (accent and UI), `ember #FF7A4D` (default Echo; was #FF5A36, which cannot reach 7:1 against any surface, even pure black gives 6.77:1; see `src/config/palette.ts`), `core #FFF1D6` (head node), `gold #FFD23F` (headshot), `ok #5BF2A5`, `warn #B58CFF` (moving shot; violet, was amber #FFB020, which is nearly identical to gold under deuteranopia: delta E 7.9, #52 R15), `alert #FF3D5A` (damage). All pairs meet at least 4.5:1 contrast for text/hud use and Echoes meet at least 7:1 against every rendered environment surface (the environment is only ever darker than its palette colour, `palette.env`; thin trim and grid lines are dimmer than an Echo). Under all four colour-vision simulations (normal, protan, deutan, tritan) every Echo body stays at least 4.5:1 and every head node at least 7:1 against those surfaces, and `warn` and `gold` stay at least delta E 20 apart (#52 R13/R15, adopted in #130; `src/config/palette.test.ts` runs the check, so `docs/research/cvd_check.py` no longer has to be remembered). R13's brighter Ember (#FF8A5C) is not needed: #FF7A4D with the darkened environment already passes.
 - **Echo shader** (custom `ShaderMaterial`, shared by all enemy types): unlit flat colour plus fresnel rim in the Echo colour, a brighter head node, hit flash (60 ms white), a death **dissolve/shatter** (instanced shard quads), and an outline option (inverted-hull, off at Low).
-- **Enemy colour presets** (accessibility and personal visibility): Ember (default), Magenta, Lime, Amber, and "Contrast" (white with a black outline). Silhouette and brightness carry the information; colour is not the only cue (shape differs per type).
+- **Enemy colour presets** (accessibility and personal visibility): Ember (default), Magenta, Lime, Amber, and "Contrast" (white with a black outline). Amber no longer shares a colour with the moving-shot cue (#52 R14 resolved by R15). Silhouette and brightness carry the information; colour is not the only cue (shape differs per type).
 - **Effects**: tracers are camera-facing quad strips; impacts are instanced billboards; shards are instanced quads with a vertex shader doing the motion (no CPU per shard); hit pulse is a 3-frame screen-edge shader.
 - **Post** (first release, behind the quality preset): a cheap single-pass bloom on emissive (downsample ×4, threshold on a luminance pass; no mip-chain), vignette (stronger on damage), optional 3-frame chromatic aberration on kills (off by default; **Reduce flashing** setting disables it and all pulses).
 - **Quality presets**: the foundation's three presets: *Low* (post pipeline off, no outline, render-scale option), *Medium* (bloom only), *High* (bloom, vignette, outline, optional chromatic pulse, full shard count). The pipeline is off at Low so no render targets are allocated, as the architecture requires. Frame cost budget in section 14.
@@ -519,10 +528,10 @@ All audio is **synthesised with Web Audio** at load (an `OfflineAudioContext` re
 | Cue | Design | Information |
 |---|---|---|
 | Shot (per weapon) | Layered: 2 ms noise transient + a pitched body (sine/triangle sweep) + short filtered-noise tail. Pace = high and dry, Kestrel = mid and punchy, Rill = tight and fast, Longnail = deep with a long tail. Each shot has ±3% random pitch/gain so spraying is not machine-gunned. | Weapon identity; fire rate. |
-| Body hit | 60 ms low "thock" (sine drop from 220 → 110 Hz with a click). | A hit, not a kill. |
-| Leg hit | Same thock a semitone lower and 6 dB quieter. | A low-value hit. |
-| Headshot | The thock plus a bright 1.9 kHz "tink" (two detuned triangles, 120 ms). | Headshot. Learned within a minute and never confusable with body. |
-| Kill | Chime on a pentatonic ladder: 8 steps from a root; step = the clean streak, capped at step 8; headshot kills add an octave sparkle. | Kill, and streak height, without looking. |
+| Body hit | 60 ms low "thock" (sine drop from 260 → 150 Hz with its second harmonic at −6 dB, so the pitch survives laptop speakers) and a 3 ms 3 kHz click about 8 dB under it, which carries the hit above the weapon's low body. | A hit, not a kill. |
+| Leg hit | The thock 3 semitones lower, 6 dB quieter, 35 ms, no click: weaker in pitch, level, length and attack at once, so it is identified alone, not only by comparison. | A low-value hit. |
+| Headshot | The thock plus a bright 3.0 kHz "tink" (two detuned triangles, 120 ms). | Headshot. Learned within a minute and never confusable with body. |
+| Kill | Chime on a pentatonic ladder: 8 steps from a 440 Hz root (440–1109 Hz, far below the tink); step = the clean streak, capped at step 8; headshot kills add an octave sparkle. | Kill, and streak height, without looking. |
 | Miss | Surface "pfft" at the impact point, 20 ms, low gain. | A miss; the surface type. |
 | Moving shot | Flat low "tock" under the shot, no pitch ladder. | "That shot was inaccurate", instantly. |
 | Streak break | Falling minor third, 150 ms, quiet. | Gentle. |
@@ -535,6 +544,8 @@ All audio is **synthesised with Web Audio** at load (an `OfflineAudioContext` re
 | UI | Short ticks and chirps; run-start "ready" blip; results fanfare resolves to the root note. | Navigation. |
 | Medal | 4-note phrase, 400 ms. | Reward. |
 
+*Hit cues adopted from research #52 R1–R4 in #130: three families in separate bands at least 3 ERB apart (thock below 600 Hz plus the click, kill ladder 440–1109 Hz, tink at 3 kHz); measured in `docs/audio.md`.*
+
 **Mix**: buses `master`, `weapons`, `hits`, `enemies`, `ui`; hit/kill cues have priority and duck weapons by 3 dB for 80 ms; a limiter on master; hits peak around −12 dBFS, weapons −15 dBFS. A very low-key generative bed (a sparse pulse that tightens with the streak) is **out of first release** to keep the mix free for information; a menu ambience is allowed.
 
 ## 13. Interface
@@ -546,7 +557,7 @@ All audio is **synthesised with Web Audio** at load (an `OfflineAudioContext` re
                        chain  streak ring
  [stat strip:                          +  (crosshair)
   Acc 74% · HS 38% ·
-  RT 182ms · TTK 0.41s ·                       
+  TTS 182ms · TTK 0.41s ·                       
   Moving 3]                                    [SH ▮▮▮▮▯▯▯▯ / HP ▮▮▮▮▮▮▯▯]  (modes with damage)
  [edge meter]                                  [ammo 18 / 90]
 ```
@@ -568,7 +579,7 @@ Rendered in a dedicated lightweight overlay (CSS or one 2D canvas drawn on chang
 | **Keys** | Fully rebindable; defaults: `WASD` move, `Shift` walk, `Ctrl` crouch, `Space` jump, `1`–`3` weapons, `R` reload, `Backspace` restart run, `Enter` next run / confirm, `Esc` menu, `Tab` hold for the stat sheet, `F11` fullscreen. |
 | **Audio** | Master, weapons, hits, enemies, UI volumes; "hit sound style" (Standard, Soft); mono option; enemy tell volume. |
 | **Graphics** | Preset (Low/Medium/High), render scale, FPS cap (60 / 144 / 240 / uncapped), show FPS and 1% lows, post effects, enemy outline, enemy colour preset, **Reduce flashing**, viewmodel (on/off, left/right). |
-| **Gameplay** | **Coaching cues** (amber moving-shot tracer, `⇆` glyph, miss ghost; on by default for learning, off for a pure reference-like view), **Fade cues as I improve** (default on), **One clean run per session** (default on; section 7.4), show damage numbers, stat strip items, HUD scale, difficulty pin (per mode). |
+| **Gameplay** | **Coaching cues** (violet moving-shot tracer, `⇆` glyph, miss ghost; on by default for learning, off for a pure reference-like view), **Fade cues as I improve** (default on), **One clean run per session** (default on; section 7.4), show damage numbers, stat strip items, HUD scale, difficulty pin (per mode). |
 | **Data** | Export/import save (JSON), reset progress (confirm), reference check-in prompt (on by default; section 8.5). |
 
 Settings persist immediately and apply live.
@@ -673,7 +684,7 @@ Rules that keep the four honest:
 ## 15. Scope
 
 ### First playable (the earliest build that proves the thing)
-A build someone can play from a link that demonstrates the loop: Range map; weapons Pace and Kestrel using the spec's numbers; Posts and Beacons; Cold Start and Orbit; the Placement run and the skill model v1 with persistence; the full per-shot feedback of section 7.1 (excluding medals and surge); live stat strip; basic results card with the one-thing-to-fix stub (moving shots, RT); crosshair editor; sensitivity in the reference scale; first-run flow; synthesised sounds for shots, hits, headshots, kills; instant restart; a perf harness and an automated bot playtest; the conformance suite and the feel and fun checklists; a looked-at playtest pass reporting numbers, feel and fun separately.
+A build someone can play from a link that demonstrates the loop: Range map; weapons Pace and Kestrel using the spec's numbers; Posts and Beacons; Cold Start and Orbit; the Placement run and the skill model v1 with persistence; the full per-shot feedback of section 7.1 (excluding medals and surge); live stat strip; basic results card with the one-thing-to-fix stub (moving shots, time to shot); crosshair editor; sensitivity in the reference scale; first-run flow; synthesised sounds for shots, hits, headshots, kills; instant restart; a perf harness and an automated bot playtest; the conformance suite and the feel and fun checklists; a looked-at playtest pass reporting numbers, feel and fun separately.
 
 ### First release
 Everything in sections 4–13: all eight modes, four maps, four weapons (Pace, Kestrel, Vane, Rill), seven enemy types, damage and slow-on-hit, the full feedback set including callouts and medals, results breakdown with the fix engine and spray trace, skill profile, ranks and PBs, the Daily Baseline and reference check-in, Mix runs, settings, post effects, viewmodels, UI kit, accessibility options, balance, performance and legal passes, a full playtest, and the transfer pilot.

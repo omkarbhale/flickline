@@ -294,9 +294,9 @@ describe('hit classification', () => {
     expect(hitmarkerKind('leg', true)).toBe('kill');
     expect(hitmarkerKind('head', true)).toBe('headKill');
   });
-  it('formats RT and TTK for the kill float', () => {
-    expect(formatRtTtk(182.4, 410)).toBe('182 ms · 0.41 s');
-    expect(formatRtTtk(undefined, 410)).toBe('0.41 s');
+  it('formats time to shot and TTK for the kill float, each labelled', () => {
+    expect(formatRtTtk(182.4, 410)).toBe('TTS 182 ms · TTK 0.41 s');
+    expect(formatRtTtk(undefined, 410)).toBe('TTK 0.41 s');
     expect(formatRtTtk(undefined, undefined)).toBeNull();
   });
   it('provisional score favours headshots', () => {

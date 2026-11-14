@@ -16,7 +16,7 @@ function make(anchors: AnchorLike[], seed = 1, bounds?: { min: ReturnType<typeof
 }
 
 describe('pickAnchor', () => {
-  it('never returns an anchor within 3 m of the eye, even when the query allows it', () => {
+  it('never returns an anchor within 4 m of the eye, even when the query allows it', () => {
     const s = make(ringAnchors());
     const q = createSpawnQuery('post');
     q.minDist = 0;
@@ -24,8 +24,38 @@ describe('pickAnchor', () => {
     const out = vec3();
     for (let i = 0; i < 200; i++) {
       const a = s.pickAnchor(q, out);
-      if (a) expect(distance(s.eyePosition(), out)).toBeGreaterThanOrEqual(3);
+      if (a) expect(distance(s.eyePosition(), out)).toBeGreaterThanOrEqual(4);
     }
+  });
+
+  it('never returns an anchor inside the view cone closer than 5 m (design §9.3.5)', () => {
+    // A ring at 4.5 m (eye-level aim points): only the part behind the ±51.5° view cone is fair.
+    const ring: AnchorLike[] = [];
+    for (let a = 0; a < 360; a += 10) {
+      const rad = a * DEG2RAD;
+      ring.push({ id: `r${a}`, kind: 'post', pos: vec3(Math.sin(rad) * 4.5, 1.62, -Math.cos(rad) * 4.5) });
+    }
+    const s = make(ring);
+    const q = createSpawnQuery('post');
+    q.minDist = 0;
+    q.maxDist = 10;
+    q.minAngleDeg = 0;
+    q.maxAngleDeg = 180;
+    const view = directionFromAngles(vec3(), player.yaw, player.pitch);
+    const out = vec3();
+    const dir = vec3();
+    let picked = 0;
+    for (let i = 0; i < 200; i++) {
+      if (!s.pickAnchor(q, out)) continue;
+      picked++;
+      const e = s.eyePosition();
+      const d = distance(e, out);
+      dir.x = (out.x - e.x) / d;
+      dir.y = (out.y - e.y) / d;
+      dir.z = (out.z - e.z) / d;
+      expect(angleBetweenDeg(dir, view)).toBeGreaterThanOrEqual(tun.dial.floors.spawnViewAngleDeg);
+    }
+    expect(picked).toBe(200);
   });
 
   it('respects the distance band when anchors exist inside it', () => {
@@ -131,7 +161,7 @@ describe('pickAnchor', () => {
 describe('pickShellPoint (Orbit-style shell)', () => {
   const shell: AnchorLike = { id: 's', kind: 'beacon-shell', centre: vec3(0, 1.6, 0), rMin: 8, rMax: 25 };
 
-  it('honours radius, angle band, pitch limits and the 3 m floor', () => {
+  it('honours radius, angle band, pitch limits and the spawn floors', () => {
     const s = make([shell], 3);
     const q = createSpawnQuery('beacon-shell');
     const prev = directionFromAngles(vec3(), 0.7, 0.1);

@@ -2,7 +2,7 @@ import type { EventSink, Subscribable } from '../core/eventBus';
 import { clamp } from '../core/math';
 import { Rng } from '../core/rng';
 import { secondsToTicks, TICK_DT } from '../core/time';
-import { distance, type Vec3 } from '../core/vec3';
+import type { Vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
 import type { EnemyKind } from '../config/scoring';
 import { createScoreBreakdown, scoreKill, type ScoreBreakdown } from '../feedback/scoring';
@@ -225,8 +225,8 @@ export class ModeRunner implements ModeContext<unknown> {
 
   spawn(kind: EnemyKind, pos: Vec3, opts?: SpawnOptions): number {
     const fl = this.tunables.dial.floors;
-    const eye = this.scheduler.eyePosition();
-    if (distance(eye, pos) < fl.spawnMinDistance || this.recordsUsed >= MAX_TARGETS) {
+    // Spawn fairness (design §9.3.5): the floor distance in any direction and the view-cone rule.
+    if (!this.scheduler.fairAt(pos) || this.recordsUsed >= MAX_TARGETS) {
       this.refusedSpawns++;
       return -1;
     }
