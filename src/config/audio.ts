@@ -445,6 +445,13 @@ export interface AudioTunables {
   limiter: { thresholdDb: number };
   /** Shot sounds get this much random pitch and gain variation (fraction, +/-). */
   shotJitter: { pitch: number; gain: number };
+  /**
+   * "Hit sound style" (design §13.3): a tone filter and a level trim on the `hits` bus. `standard` is
+   * the cues as designed (the filter is left open); `soft` rounds the thock, tink and chime off with a
+   * low-pass and lowers them, for players who find them sharp. Every hit is still audible and still
+   * distinct (the filter keeps the fundamentals), only brighter detail goes.
+   */
+  hitStyles: Record<'standard' | 'soft', { hz: number; gainDb: number }>;
   /** Maximum simultaneous voices; extra low-priority cues are dropped. */
   voiceLimit: number;
   /** HRTF panner settings for positional voices. */
@@ -481,6 +488,7 @@ export const audio: AudioTunables = {
   damageDip: { hz: 900, q: 0.7, attackMs: 8, durationMs: 300 },
   limiter: { thresholdDb: -3 },
   shotJitter: { pitch: 0.03, gain: 0.03 },
+  hitStyles: { standard: { hz: 20000, gainDb: 0 }, soft: { hz: 2600, gainDb: -4 } },
   voiceLimit: 24,
   panner: { refDistance: 1, maxDistance: 120, rolloff: 1.2 },
   weaponCues: { pace: 'shotPace', kestrel: 'shotKestrel', rill: 'shotRill', longnail: 'shotLongnail' },

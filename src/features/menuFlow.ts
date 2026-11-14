@@ -1,5 +1,6 @@
 import { defineFeature } from '../app/feature';
 import type { Screen } from '../ui/navigation';
+import type { SettingsTab } from '../ui/settingsPanel';
 
 declare module '../debug/hook' {
   interface FlicklineDebug {
@@ -9,6 +10,8 @@ declare module '../debug/hook' {
       state(): unknown;
       /** Show a screen without a pointer-lock change (`settings` returns to where it came from). */
       show(screen: Screen): void;
+      /** Switch the settings screen to a group: mouse, keys, audio, graphics, gameplay or data. */
+      tab(id: SettingsTab): void;
       /** The plan Today's session would have right now. */
       plan(): unknown;
       /** Press Play (today's session), or skip the current step. */
@@ -31,6 +34,7 @@ export const feature = defineFeature({
           const root = document.getElementById('menu')!;
           return {
             screen: game.menu.current,
+            settingsTab: game.menu.settingsTab,
             open: game.menu.isOpen,
             cards: Array.from(root.querySelectorAll<HTMLElement>('.fl-card')).map((c) => ({
               id: c.dataset.mode,
@@ -47,6 +51,11 @@ export const feature = defineFeature({
             return;
           }
           game.menu.setMode(screen);
+        },
+        tab(id) {
+          game.menu.setVisible(true);
+          game.menu.openSettings();
+          game.menu.selectSettingsTab(id);
         },
         plan: () => game.todaysSession.plan(),
         play: () => game.playSession(),

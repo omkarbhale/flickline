@@ -1,6 +1,8 @@
 import { defineFeature } from '../app/feature';
 import { MODES } from '../app/modeHost';
+import '../feedback/cuePlanner'; // declares the cueScheduleSet event
 import { ResultsRecorder, type CardModel, type RatedSkill } from '../feedback/results';
+import { keyLabel } from '../settings/keys';
 import { ResultsCard } from '../ui/resultsCard';
 
 declare module '../debug/hook' {
@@ -39,11 +41,25 @@ export const feature = defineFeature({
       onPlayAgain: (pressedAt) => void game.playAgain(pressedAt),
       onMenu: () => game.openMenu(),
       blocked: () => game.menu.isOpen,
+      isConfirm: (code) => game.settings.get().keys.confirm.includes(code),
+    });
+    const showConfirmKey = (): void => {
+      const c = game.settings.get().keys.confirm[0];
+      card.setConfirmLabel(c === undefined ? '' : keyLabel(c));
+    };
+    showConfirmKey();
+    game.bus.on('settingsChanged', ({ changed }) => {
+      if (changed.includes('keys')) showConfirmKey();
     });
 
     let endedAt = 0;
     game.bus.on('runEnded', () => {
       endedAt = performance.now(); // before the recorder below builds the card
+    });
+    // Whether the run now playing is the session's clean run (design §7.4), told by the cue planner's event.
+    let clean = false;
+    game.bus.on('cueScheduleSet', (e) => {
+      clean = e.clean;
     });
     let pb: number | null = null;
     const recorder = new ResultsRecorder({
@@ -57,6 +73,7 @@ export const feature = defineFeature({
         card.show(model, endedAt);
       },
       onNewRun: () => card.hide(),
+      isClean: () => clean,
     });
     game.onReset(() => {
       if (game.run.state !== 'result') card.hide();

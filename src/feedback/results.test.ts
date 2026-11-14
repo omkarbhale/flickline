@@ -168,6 +168,11 @@ describe('buildCard', () => {
     stats: stats(), split: null, score: 12345, rating: null, pb: null, medals: [] as string[], ...p,
   });
 
+  it('marks a clean run so the card can say the cues were off (design §7.4)', () => {
+    expect(buildCard(input()).clean).toBe(false);
+    expect(buildCard(input({ clean: true })).clean).toBe(true);
+  });
+
   it('shows a dash for the PB delta without a PB, and tones the delta with one', () => {
     expect(buildCard(input()).pbText).toBe(DASH);
     expect(buildCard(input()).pbTone).toBe('none');
@@ -226,7 +231,7 @@ describe('buildCard', () => {
 });
 
 describe('ResultsRecorder', () => {
-  function setup(skill: 'precision' | 'line' | null) {
+  function setup(skill: 'precision' | 'line' | null, isClean?: () => boolean) {
     const bus = new EventBus<ResultsEvents>();
     let rating = 40;
     const cards: unknown[] = [];
@@ -240,6 +245,7 @@ describe('ResultsRecorder', () => {
       pb: { best: () => 10000 },
       onCard: (c) => cards.push(c),
       onNewRun: () => newRuns++,
+      isClean,
     });
     return { bus, rec, cards, setRating: (r: number) => (rating = r), newRuns: () => newRuns };
   }
@@ -260,6 +266,18 @@ describe('ResultsRecorder', () => {
     expect(c.pbText).toBe('−9,750');
     expect(c.medals.map((m) => m.id)).toEqual(['needle']);
     expect(c.rating).toMatchObject({ before: displayRating(40), after: displayRating(41), skill: 'Precision' });
+  });
+
+  it('flags the card as a clean run when the cue planner says the run was clean', () => {
+    let clean = true;
+    const { bus, rec } = setup('precision', () => clean);
+    bus.emit('runReady', { tick: 0, mode: 'coldStart', seed: 7, dial: 50 });
+    bus.emit('runEnded', { tick: 9, t: 60, reason: 'timer' });
+    expect(rec.last!.clean).toBe(true);
+    clean = false;
+    bus.emit('runReady', { tick: 0, mode: 'coldStart', seed: 8, dial: 50 });
+    bus.emit('runEnded', { tick: 9, t: 60, reason: 'timer' });
+    expect(rec.last!.clean).toBe(false);
   });
 
   it('resets between runs and reports no score or rating for a plain run', () => {

@@ -72,6 +72,33 @@ describe('ModeHost on the real sim', () => {
     expect(host.status().mode).toBeNull();
   });
 
+  it("a mode's weapon is put in hand even when the loadout lacks it, and swapping belongs to modes with a loadout", () => {
+    const tunables = cloneTunables();
+    const world = new World({ level: rangeMap, tunables, seed: 3 });
+    const bus = new EventBus<GameEvents>();
+    const host = new ModeHost(world, bus, rangeMap, tunables);
+    const modes = MODES as Record<string, ModeDef<never>>;
+    modes['__rill'] = { ...(testMode as ModeDef<never>), weapon: 'rill' };
+    modes['__loadout'] = { ...(testMode as ModeDef<never>), weapon: 'rill', player: { allowSwap: true } };
+    try {
+      expect(host.start('test')).toBe(true); // Kestrel, no loadout: swap keys ignored
+      expect(world.swapLocked).toBe(true);
+      expect(world.weapon.slots.map((x) => x.id)).toEqual(['kestrel', 'pace']);
+
+      expect(host.start('__rill')).toBe(true); // Rill is not in the loadout: it takes the primary slot
+      expect([...world.loadout]).toEqual(['rill', 'pace']);
+      expect(world.weapon.slots[world.weapon.active]!.id).toBe('rill');
+
+      expect(host.start('__loadout')).toBe(true);
+      expect(world.swapLocked).toBe(false);
+      host.stop();
+      expect(world.swapLocked).toBe(false); // free play can always swap
+    } finally {
+      delete modes['__rill'];
+      delete modes['__loadout'];
+    }
+  });
+
   it("a mode's economy equips the player and the Echoes with the shield tier; drills and stop() clear it (design §5.1)", () => {
     const tunables = cloneTunables();
     const world = new World({ level: rangeMap, tunables, seed: 3 });

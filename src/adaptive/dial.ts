@@ -26,6 +26,8 @@ export interface DialAxes {
   peekWideSec: number;
   enemyReactionSec: number;
   tellSec: number;
+  /** Loudness of the added tell cues, 1 (full) .. 0 (gone); see `TellCueAxis`. */
+  tellCue: number;
   enemyHitChance: number;
   density: number;
   sprayHitFraction: number;
@@ -47,6 +49,7 @@ export function createAxes(): DialAxes {
     peekWideSec: 0,
     enemyReactionSec: 0,
     tellSec: 0,
+    tellCue: 0,
     enemyHitChance: 0,
     density: 0,
     sprayHitFraction: 0,
@@ -72,6 +75,15 @@ export function axisValue(def: AxisDef, dial: number): number {
   }
 }
 
+/** Tell-cue loudness at `dial`: 1 up to `fullBelow`, a straight ramp to 0 at `goneAbove`. */
+export function tellCueAt(dial: number, cfg: DialTunables = tunables.dial): number {
+  const { fullBelow, goneAbove } = cfg.tellCue;
+  const d = clamp(dial, DIAL_MIN, DIAL_MAX);
+  if (d <= fullBelow) return 1;
+  if (d >= goneAbove) return 0;
+  return (goneAbove - d) / (goneAbove - fullBelow);
+}
+
 /**
  * Axis values for `dial`, with the fairness floors applied last so no tuning of the end points can
  * break them. Writes into `out` (allocation-free when one is passed).
@@ -93,6 +105,7 @@ export function axes(dial: number, out: DialAxes = createAxes(), cfg: DialTunabl
   out.peekWideSec = Math.max(f.exposureSec, axisValue(a.peekWideSec, dial));
   out.enemyReactionSec = Math.max(f.enemyReactionSec, axisValue(a.enemyReactionSec, dial));
   out.tellSec = Math.max(f.tellSec, axisValue(a.tellSec, dial));
+  out.tellCue = tellCueAt(dial, cfg);
   out.enemyHitChance = clamp(axisValue(a.enemyHitChance, dial), 0, 1);
   out.density = Math.max(1, axisValue(a.density, dial));
   out.sprayHitFraction = clamp(axisValue(a.sprayHitFraction, dial), 0, 1);

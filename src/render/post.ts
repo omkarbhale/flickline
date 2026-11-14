@@ -28,6 +28,17 @@ export interface PostEffect {
   name: string;
   enabled: boolean;
   material: ShaderMaterial;
+  /**
+   * The effect is a flash or pulse (the 3-frame chromatic kill pulse, the Surge frame glow): the
+   * pipeline skips it while **Reduce flashing** is on (design §11, §13.3). Steady effects (vignette,
+   * bloom) leave this unset.
+   */
+  flashing?: boolean;
+}
+
+/** Whether the pipeline runs `fx` this frame. */
+function runs(fx: PostEffect, reduceFlashing: boolean): boolean {
+  return fx.enabled && !(reduceFlashing && fx.flashing === true);
 }
 
 const FULLSCREEN_VERT = /* glsl */ `
@@ -78,6 +89,8 @@ export class PostPipeline {
   readonly effects: PostEffect[] = [];
   /** Master switch (driven by the quality preset). */
   enabled = false;
+  /** Reduce flashing (a setting): effects marked `flashing` do not run. */
+  reduceFlashing = false;
 
   private rtA: WebGLRenderTarget | null = null;
   private rtB: WebGLRenderTarget | null = null;
@@ -100,7 +113,7 @@ export class PostPipeline {
   /** Whether render() will use the offscreen path this frame. */
   get active(): boolean {
     if (!this.enabled) return false;
-    for (let i = 0; i < this.effects.length; i++) if (this.effects[i]!.enabled) return true;
+    for (let i = 0; i < this.effects.length; i++) if (runs(this.effects[i]!, this.reduceFlashing)) return true;
     return false;
   }
 
@@ -138,10 +151,10 @@ export class PostPipeline {
     drawOverlay(renderer, overlay);
 
     let remaining = 0;
-    for (let i = 0; i < this.effects.length; i++) if (this.effects[i]!.enabled) remaining++;
+    for (let i = 0; i < this.effects.length; i++) if (runs(this.effects[i]!, this.reduceFlashing)) remaining++;
     for (let i = 0; i < this.effects.length; i++) {
       const fx = this.effects[i]!;
-      if (!fx.enabled) continue;
+      if (!runs(fx, this.reduceFlashing)) continue;
       remaining--;
       fx.material.uniforms.tDiffuse!.value = read.texture;
       this.quad.material = fx.material;

@@ -18,7 +18,7 @@ const impact = (onTarget: boolean): E['shotImpact'] => ({
   damage: onTarget ? 39 : 0, killed: false, point: v, normal: v, onTarget, distance: 5,
 });
 const shot = (tick: number, moving: boolean, weapon: WeaponId = 'kestrel'): E['shotFired'] => ({
-  tick, t: 0, shotId: tick, weapon, origin: v, dir: v, moving, speed: 0, airborne: false, crouching: false,
+  tick, t: 0, shotId: tick, weapon, origin: v, dir: v, aimDir: v, moving, speed: 0, airborne: false, crouching: false,
   spreadDeg: 0.2, recoilIndex: 0, recoilPitchDeg: 0, recoilYawDeg: 0, ammo: 29,
   yaw: 0, pitch: 0, aimTargetId: -1, aimErr: 0, aimDYaw: 0, aimDPitch: 0,
 });
@@ -169,6 +169,15 @@ describe('attachSfx', () => {
     bus.emit('runReady', { tick: 1, mode: 'coldStart', seed: 1, dial: 50 }); // a restart clears it silently
     bus.emit('streakUpdated', { streak: 0, mult: 1 });
     expect(cues()).toEqual(['uiReady']);
+  });
+
+  it('the moving-shot tock follows the cue gate (fading coaching cues)', () => {
+    const bus = new EventBus<E>();
+    const calls: CueId[] = [];
+    attachSfx(bus, { play: (c) => { calls.push(c); }, setLoop: () => undefined }, audio, (e) => e.speed > 3);
+    bus.emit('shotFired', { ...shot(1, true), speed: 2 });
+    bus.emit('shotFired', { ...shot(2, true), speed: 5 });
+    expect(calls.filter((c) => c === 'movingShot')).toHaveLength(1);
   });
 
   it('detaches', () => {

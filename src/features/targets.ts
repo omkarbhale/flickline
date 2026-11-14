@@ -1,5 +1,6 @@
 import { defineFeature } from '../app/feature';
 import { zoneCentre } from '../sim/hitZones';
+import type { SpawnOptions } from '../sim/targets';
 import type { HitZone, TargetKind } from '../sim/types';
 
 export type Vec3Like = { x: number; y: number; z: number } | readonly [number, number, number];
@@ -10,9 +11,13 @@ declare module '../debug/hook' {
      * Add a target and return its id (-1 if the registry is full). `pos` is `{x,y,z}` or `[x,y,z]`
      * in metres: a Post's feet centre, a Beacon's centre. `opts.crouched` poses a Post crouched;
      * `opts.lifetimeSec` makes it expire (`targetExpired`); `opts.shield` gives a Post that many shield
-     * points (default: the run's economy, see `shields`).
+     * points (default: the run's economy, see `shields`). Strafer: `opts.strafe` ({speed, legSec, standStillSec, laneA?, laneB?});
+     * Peeker: `opts.peek` ({pattern, hold, out, wideSec?, crouchedHold?}); either: `opts.fire` ({tellSec, reactionSec, hitChance, ...})
+     * arms it, and `enemyFire(true)` lets armed enemies shoot.
      */
-    spawn(kind: TargetKind, pos: Vec3Like, opts?: { crouched?: boolean; lifetimeSec?: number; shield?: number }): number;
+    spawn(kind: TargetKind, pos: Vec3Like, opts?: SpawnOptions): number;
+    /** Let armed Strafers and Peekers shoot at the player (modes with an economy do it themselves); returns the flag. Omit `on` to read it. */
+    enemyFire(on?: boolean): boolean;
     /** Remove a target without a kill (emits `targetExpired`). */
     despawn(id: number): boolean;
     /** Point the view at the centre of a zone of a live target. Returns false for an unknown id. */
@@ -33,6 +38,10 @@ export const feature = defineFeature({
         const id = game.world.spawnTarget(kind, x!, y!, z!, game.bus, opts);
         game.renderNow();
         return id;
+      },
+      enemyFire(on) {
+        if (on !== undefined) game.world.enemiesFire = on;
+        return game.world.enemiesFire;
       },
       despawn(id) {
         const ok = game.world.despawnTarget(id, game.bus);

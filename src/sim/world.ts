@@ -2,8 +2,11 @@ import type { EventSink } from '../core/eventBus';
 import { Rng } from '../core/rng';
 import { TICK_DT } from '../core/time';
 import { copy, vec3 } from '../core/vec3';
+import type { EnemySoundKind } from '../config/attribution';
 import type { Tunables } from '../config/tunables';
-import type { BehaviourContext } from './fsm';
+import type { BehaviourContext, EnemyWorld } from './fsm';
+import { AttributionFacts } from './attribution';
+import { seesPlayer } from './enemyFire';
 import { TargetField, type SpawnOptions } from './targets';
 import { levelTargetsReset } from './targetsInit';
 import { zoneDamage } from './damage';
@@ -19,10 +22,11 @@ import {
   type WeaponScratch,
   type WeaponWorld,
 } from './weapon';
+import { validateLoadout, type LoadoutRequest, type LoadoutResult } from './loadout';
 import { stepPlayer } from './movement';
 import {
   createTickInput,
-  type HitZone, type LevelDef, type PlayerHealth, type PlayerState, type SimEvents, type TargetKind, type TargetState, type TickInput, type WeaponState,
+  type BoxDef, type HitZone, type LevelDef, type PlayerHealth, type PlayerState, type SimEvents, type TargetKind, type TargetState, type TickInput, type WeaponState,
 } from './types';
 
 const NULL_SINK: EventSink<SimEvents> = { emit() {} };
@@ -58,7 +62,7 @@ export interface WorldOptions {
  * Math.random. Same (level, tunables, seed, input sequence) => identical state, always.
  * Everything advances only through step(). Emits SimEvents; presentation subscribes.
  */
-export class World {
+export class World implements EnemyWorld {
   readonly level: LevelDef;
   readonly tunables: Tunables;
   readonly rng: Rng;
@@ -70,15 +74,41 @@ export class World {
    * (it belongs to the run); the mode host sets and clears it.
    */
   movementLocked = false;
+  /**
+   * Whether Strafers and Peekers that were spawned armed (`SpawnOptions.fire`) shoot at the player
+   * (design §5.3: only in Corner Clear and Sweep; drills never). Like `movementLocked` it belongs to
+   * the run, not the world state: `reset()` leaves it, the mode host sets and clears it.
+   */
+  enemiesFire = false;
+  /** The weapon armed Echoes carry (the run's economy picks it; `config/economy.ts`). Not reset by `reset()`. */
+  enemyWeapon: WeaponId = 'kestrel';
+  /**
+   * A mode that has no loadout ignores the swap keys (design §4: `1`/`2` swap only where a loadout
+   * makes sense, i.e. Sweep). Like `movementLocked` it belongs to the run: the mode host sets and
+   * clears it, `reset()` leaves it. Free play (no mode) can always swap.
+   */
+  get swapLocked(): boolean {
+    return this.weaponWorld.swapLocked;
+  }
+  set swapLocked(v: boolean) {
+    this.weaponWorld.swapLocked = v;
+  }
   readonly player: PlayerState;
   /** The target registry (see `sim/targets.ts`). */
   readonly targetField: TargetField;
   /** Registry slots: fixed capacity, a slot holds a target when `alive`. Same array as the field's. */
   readonly targets: TargetState[];
+  /** Weapons by slot (primary, sidearm); changed only through `setLoadout`. */
   readonly loadout: readonly WeaponId[];
+  private readonly loadoutSlots: WeaponId[];
   readonly weapon: WeaponState;
   /** The player's HP and the tag / flinch timers (spec §4); damage goes through `damagePlayer`. */
   readonly health: PlayerHealth;
+  /**
+   * Attribution facts (#119): enemy sounds with `audibleToPlayer`, the exposure count on
+   * `playerDamaged`, and the enemy's first-sight event. Holds no gameplay state.
+   */
+  readonly attribution: AttributionFacts;
   private readonly healthSys: PlayerHealthSystem;
   private readonly relay: KillHealRelay;
   /**
@@ -100,8 +130,9 @@ export class World {
     this.rng = new Rng(this.seed);
     this.targetField = new TargetField(opts.tunables);
     this.targets = this.targetField.slots;
-    this.behaviourCtx = { tick: 0, rng: this.rng, tunables: opts.tunables, events: NULL_SINK };
-    this.loadout = [...(opts.loadout ?? opts.tunables.weaponRules.defaultLoadout)];
+    this.behaviourCtx = { tick: 0, rng: this.rng, tunables: opts.tunables, events: NULL_SINK, world: this };
+    this.loadoutSlots = [...(opts.loadout ?? opts.tunables.weaponRules.defaultLoadout)];
+    this.loadout = this.loadoutSlots;
     this.weapon = createWeaponState(this.loadout, opts.tunables.weapon);
     this.healthSys = new PlayerHealthSystem(opts.tunables.player, opts.tunables.sweep);
     this.health = this.healthSys.state;
@@ -112,6 +143,7 @@ export class World {
       table: opts.tunables.weapon,
       rules: opts.tunables.weaponRules,
       rng: this.rng,
+      swapLocked: false,
     };
     const m = opts.tunables.movement;
     this.player = {
@@ -129,6 +161,9 @@ export class World {
       tagScale: 1,
       aimPunch: 0,
     };
+    this.attribution = new AttributionFacts(opts.tunables, this.level.boxes, this.targetField, this.player);
+    // Until the enemy minds (#89) answer, a firing enemy "sees" the player by the one sight rule its fire model already uses.
+    this.attribution.perception = { seesPlayer: (t) => t.ai.fireOn && this.firing && seesPlayer(t, this.behaviourCtx) };
     this.reset(this.seed);
   }
 
@@ -156,6 +191,7 @@ export class World {
     this.behaviourCtx.tick = 0;
     this.behaviourCtx.events = NULL_SINK;
     levelTargetsReset(this.targetField, this.level, this.behaviourCtx);
+    this.attribution.reset();
   }
 
   /**
@@ -185,8 +221,37 @@ export class World {
     this.targetField.updateVisibility(this.player, this.level.boxes, this.tick, events);
     stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, relay, this.weaponScratch);
     this.stepTargets(relay);
+    this.attribution.step(this.tick, events);
     relay.target = NULL_SINK;
     stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events, this.level);
+  }
+
+  /** Enemies shoot only while the run is live, the player is alive and the mode lets them (`EnemyWorld`). */
+  get firing(): boolean {
+    return this.enemiesFire && this.live && this.health.alive;
+  }
+
+  /** The level's collision boxes (`EnemyWorld`: what blocks an enemy's sight). */
+  get boxes(): readonly BoxDef[] {
+    return this.level.boxes;
+  }
+
+  /**
+   * The player is above the equipped weapon's accuracy deadzone, or airborne (`EnemyWorld`): the
+   * condition under which an enemy's shot is halved (design §5.3). A tagged player is capped at
+   * exactly the deadzone speed (spec §4.3) and counts as accurate, so the margin is `movingEpsilon`.
+   */
+  playerMoving(): boolean {
+    const p = this.player;
+    const w = this.weapon;
+    const def = this.tunables.weapon[w.slots[w.active]!.id];
+    const speed = Math.hypot(p.vel.x, p.vel.z);
+    return !p.grounded || speed > def.deadzoneFraction * def.runSpeedMps + this.tunables.enemies.fire.movingEpsilon;
+  }
+
+  /** Whether an enemy sound of this kind at (`x`, `z`) reaches the player (`EnemyWorld`; `AttributionFacts.audible`). */
+  soundAudible(kind: EnemySoundKind, x: number, z: number): boolean {
+    return this.attribution.audible(kind, x, z);
   }
 
   /**
@@ -210,7 +275,9 @@ export class World {
     amount: number, zone: HitZone, sx: number, sy: number, sz: number, sourceId: number,
     events: EventSink<SimEvents>,
   ): boolean {
-    return this.healthSys.damage(this.player, amount, zone, sx, sy, sz, sourceId, this.tick, events);
+    return this.healthSys.damage(
+      this.player, amount, zone, sx, sy, sz, sourceId, this.tick, events, this.attribution.countExposed(),
+    );
   }
 
   /**
@@ -236,6 +303,7 @@ export class World {
   beginLive(events: EventSink<SimEvents>): void {
     this.live = true;
     resetProbe(this.probe);
+    this.attribution.reset();
     this.targetField.announceAll(this.tick, events);
   }
 
@@ -277,6 +345,22 @@ export class World {
     p.yaw = yaw;
     p.pitch = 0;
     p.grounded = false;
+  }
+
+  /**
+   * Choose the loadout (design §4.8): `primary` goes in slot 0 and `sidearm` in slot 1. An invalid
+   * request (unknown id, or a weapon in the wrong slot class) changes nothing and says why. On
+   * success the weapon state is rebuilt: full magazines and reserves, the primary in hand,
+   * a fresh spray. It survives `reset()`, so a restarted run keeps the player's pick. Call it
+   * between runs (the mode host and the menu do), not mid-fight.
+   */
+  setLoadout(req: LoadoutRequest): LoadoutResult {
+    const r = validateLoadout(this.tunables.weapon, req);
+    if (!r.ok) return r;
+    this.loadoutSlots.length = 0;
+    this.loadoutSlots.push(r.slots[0], r.slots[1]);
+    resetWeaponState(this.weapon, this.loadoutSlots, this.tunables.weapon);
+    return r;
   }
 
   /** Put a loadout weapon in hand at once (see `selectWeapon`). */

@@ -97,10 +97,10 @@ export function busiestSweepMoment(o: ScenarioOptions): Scenario {
     at(ts, 'enemyTell', { tick, id: e.id, durationMs: e.ms });
     const fire = ts + e.ms / 1000;
     const toHead = unit(eye.x - p.x, eye.y - p.y, eye.z - p.z);
-    at(fire, 'enemyFired', { tick, id: e.id, hit: true, dir: toHead });
-    at(fire, 'playerDamaged', { tick, t: fire, amount: 26, hp: 74, maxHp: 100, zone: 'body', dir: v(0, 0, -1), yaw: 0, sourceId: e.id, killed: false });
+    at(fire, 'enemyFired', { tick, id: e.id, hit: true, dir: toHead, audibleToPlayer: true });
+    at(fire, 'playerDamaged', { tick, t: fire, amount: 26, hp: 74, maxHp: 100, zone: 'body', dir: v(0, 0, -1), yaw: 0, sourceId: e.id, killed: false, exposedTo: 1 });
     const miss = unit(eye.x - p.x + e.side * 0.5, eye.y - p.y, eye.z - p.z);
-    at(fire + 0.09, 'enemyFired', { tick, id: e.id, hit: false, dir: miss });
+    at(fire + 0.09, 'enemyFired', { tick, id: e.id, hit: false, dir: miss, audibleToPlayer: true });
   }
 
   // Footsteps: own at a 2.2 m stride at ~6 m/s; enemies at their own stride.

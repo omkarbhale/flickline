@@ -80,6 +80,11 @@ export interface CardModel {
   endLabel: string;
   /** No shots were fired: the card says so instead of showing a wall of dashes as if it were a result. */
   empty: boolean;
+  /**
+   * A clean run (design §7.4): played with no coaching cues and a reference-like HUD, so this result
+   * is the closest thing to a reference-game score. The card says so.
+   */
+  clean: boolean;
   score: string;
   scoreValue: number | null;
   /** `—` without a personal best. */
@@ -110,6 +115,8 @@ export interface ResultsInput {
   /** Personal best score for this mode and dial band before this run, or null. */
   pb: number | null;
   medals: readonly string[];
+  /** The run was a clean run (default false). */
+  clean?: boolean;
 }
 
 /** Where the card gets a personal best from (#38 provides the real one). */
@@ -354,6 +361,7 @@ export function buildCard(input: ResultsInput, cfg: ResultsTunables = defaultRes
     endReason: s.endReason,
     endLabel: s.endReason ? cfg.endLabels[s.endReason] : '',
     empty: s.shots === 0,
+    clean: input.clean === true,
     score: input.score === null ? DASH : formatThousands(input.score),
     scoreValue: input.score,
     pbText,
@@ -393,6 +401,8 @@ export interface ResultsRecorderDeps {
   onCard(card: CardModel): void;
   /** Called on `runReady`: the previous card is stale. */
   onNewRun?(): void;
+  /** Whether the run that just started is a clean run (read at `runEnded`). */
+  isClean?(): boolean;
 }
 
 /**
@@ -439,6 +449,7 @@ export class ResultsRecorder {
         rating,
         pb: this.pbSource.best(stats.mode, stats.dial),
         medals: this.medals,
+        clean: this.deps.isClean?.() === true,
       },
       this.cfg,
     );

@@ -23,6 +23,8 @@ export interface PlayerSetup {
   infiniteMagazine?: boolean;
   /** Reloads always find a full magazine's worth of spare ammo (real magazines, no running out: Spray Wall). */
   infiniteReserve?: boolean;
+  /** The run has a loadout: `1` / `2` swap primary and sidearm (default false; Sweep only, design §4). */
+  allowSwap?: boolean;
 }
 
 /**

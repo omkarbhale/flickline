@@ -1,7 +1,9 @@
 import type { EventSink } from '../core/eventBus';
 import type { Rng } from '../core/rng';
 import { secondsToTicks } from '../core/time';
-import type { FsmState, SimEvents, TargetState } from './types';
+import type { EnemySoundKind } from '../config/attribution';
+import type { WeaponId } from '../config/weapon';
+import type { BoxDef, FsmState, HitZone, PlayerState, SimEvents, TargetState } from './types';
 import type { Tunables } from '../config/tunables';
 
 /**
@@ -18,6 +20,29 @@ import type { Tunables } from '../config/tunables';
 
 export const STAY = -1;
 
+/**
+ * What the moving, shooting Echoes need from the world (design §5.3): where the player is, what
+ * blocks sight, whether enemies may fire at all, and the one entry point that hurts the player.
+ * `World` implements it; tests pass a stub.
+ */
+export interface EnemyWorld {
+  /** Enemies may shoot (a mode that fires back sets it; drills never do). */
+  readonly firing: boolean;
+  readonly player: PlayerState;
+  readonly boxes: readonly BoxDef[];
+  /** The weapon the Echoes carry in this fight (the economy decides). */
+  readonly enemyWeapon: WeaponId;
+  /** The player is above the accuracy deadzone of the equipped weapon, or airborne (design §5.3: x0.5). */
+  playerMoving(): boolean;
+  /** Whether a sound of this kind made at (`x`, `z`) reaches the player: the `audibleToPlayer` an enemy sound event carries (fight-attribution F1). */
+  soundAudible(kind: EnemySoundKind, x: number, z: number): boolean;
+  /** A bullet of `weapon` hits the player in `zone` from (`sx`, `sy`, `sz`). */
+  hitPlayer(
+    weapon: WeaponId, zone: HitZone, sx: number, sy: number, sz: number, sourceId: number,
+    events: EventSink<SimEvents>,
+  ): boolean;
+}
+
 /** Everything a behaviour may touch. Built once by the world and reused. */
 export interface BehaviourContext {
   /** The tick being simulated (already incremented for this step). */
@@ -25,6 +50,7 @@ export interface BehaviourContext {
   rng: Rng;
   tunables: Tunables;
   events: EventSink<SimEvents>;
+  world: EnemyWorld;
 }
 
 export interface BehaviourState {
