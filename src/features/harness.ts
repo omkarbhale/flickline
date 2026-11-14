@@ -7,19 +7,18 @@ import { PerfHarness, type PerfOptions, type PerfStatus } from '../debug/perfHar
 
 declare module '../debug/hook' {
   interface FlicklineDebug {
-    /** The synthetic player (src/debug/bot/README.md): plays a mode through the page's real sim, or follows it live. */
-    readonly bot: {
-      /**
-       * Play one whole run of `mode` (a registered id, or `freeplay`) at `skill` 0..100 on THIS page's
-       * game, as fast as the CPU allows, then draw the final frame. Deterministic for a seed.
-       * Throws for an unknown mode. Replaces any run in progress.
-       */
-      play(opts: BotRunOptions): BotReport;
-      /** The parameters a skill expands to (aim sigma, reaction, overshoot bias, spray control, ...). */
-      params(skill: number): BotParams;
-      /** Ids the bot can play. */
-      modes(): string[];
-    };
+    /**
+     * The synthetic player of the harness (src/debug/bot/README.md): play one whole run of `mode` (a
+     * registered id, `cold-start` and `coldStart` alike, or `freeplay`) at `skill` 0..100 on THIS
+     * page's game, as fast as the CPU allows, then draw the final frame. Deterministic for a seed
+     * (`pinDial` too, since the skill model learns from every run). Throws for an unknown mode.
+     * Replaces any run in progress. (`bot(modeId, opts)` is the older, simpler scripted aimer.)
+     */
+    botPlay(opts: BotRunOptions): BotReport;
+    /** The parameters a bot skill expands to (aim sigma, reaction, overshoot bias, spray control, ...). */
+    botParams(skill: number): BotParams;
+    /** Ids `botPlay` can play. */
+    botModes(): string[];
     /** Start the scripted 20 s perf scene in the real frame loop (`perfStatus()` reports progress and the result). */
     perfRun(opts?: PerfOptions): void;
     /** `idle`, `running` (elapsed seconds) or `done` with the full report: average, 1 % lows, worst frame, heap growth, smoke verdict. */
@@ -40,7 +39,7 @@ function pageGame(game: Game): BotGame {
 }
 
 /**
- * Playtest tools on `window.__flickline`: the bot player (`bot`) and the frame-time perf harness
+ * Playtest tools on `window.__flickline`: the bot player (`botPlay`, `botParams`, `botModes`) and the frame-time perf harness
  * (`perfRun`, `perfStatus`, or load the page with `?perf=1` to run it on its own).
  */
 export const feature = defineFeature({
@@ -50,15 +49,13 @@ export const feature = defineFeature({
     const perf = new PerfHarness(game);
 
     game.addDebug({
-      bot: {
-        play(opts) {
-          const report = playMode(pageGame(game), opts);
-          game.renderNow();
-          return report;
-        },
-        params: paramsForSkill,
-        modes: listModes,
+      botPlay(opts) {
+        const report = playMode(pageGame(game), opts);
+        game.renderNow();
+        return report;
       },
+      botParams: paramsForSkill,
+      botModes: listModes,
       perfRun: (opts) => perf.start(opts),
       perfStatus: () => perf.status(),
     });

@@ -9,7 +9,7 @@ Two tools for playtests and regression checks, both on the debug side of the lay
 | **Bot suite**: regression checks over every mode | Node (and `npm test`, so CI) | `npm run bot -- --suite` |
 | **Allocation audit** of the sim tick | Node | `npm run bot -- --alloc` |
 | **Perf harness**: 20 s scripted scene, frame times and heap | Real browser, through chrome-devtools-axi | `npm run perf` |
-| Both, by hand | The running page | `__flickline.bot.play(...)`, `__flickline.perfRun()` / `?perf=1` |
+| Both, by hand | The running page | `__flickline.botPlay(...)`, `__flickline.perfRun()` / `?perf=1` |
 
 ## The bot
 
@@ -18,10 +18,9 @@ npm run bot -- --mode <id> --skill <0..100> [--seed N] [--runs N] [--dial D] [--
 npm run bot -- --list
 ```
 
-`--mode` is any registered mode (`__flickline.mode.list()`, today `test`) or `freeplay` (a 30 s
+`--mode` is any registered mode (`__flickline.mode.list()`: `test`, `coldStart`, `orbit`, `placement`) or `freeplay` (a 30 s
 timed run on the map's own targets). Ids ignore case and dashes: `cold-start`, `coldStart` and
-`COLDSTART` are one mode, so the issue's `--mode cold-start` works as soon as that mode is
-registered (#23). The run is synchronous and headless: a 60 s drill takes well under a second.
+`COLDSTART` are one mode, so `--mode cold-start` works. The run is synchronous and headless: a 60 s drill takes well under a second.
 
 It prints the run (simulated time, wall time, a state hash) and the numbers a person would care
 about: shots, accuracy, headshot rate, kills, median time to shot and to kill, pre-aim error, time
@@ -161,6 +160,10 @@ const report = playMode(new HeadlessGame({ seed: 1 }), { mode: 'test', skill: 60
 
 `HeadlessGame` wires the world, bus, mode host and run controller exactly as `app/game.ts` does,
 minus rendering, audio, HUD and input. `BotGame` (`headless.ts`) is the small interface the bot
-needs, which the page also provides, so `__flickline.bot.play({ mode, skill, seed })` plays the
+needs, which the page also provides, so `__flickline.botPlay({ mode, skill, seed })` plays the
 same code on the page's real game and draws the final frame. Later suites (#93 humanness, #122
 attribution fault injection) build on `HeadlessGame` and `Bot`.
+
+`__flickline.bot(modeId, opts)` (`features/modeBot.ts`, `debug/modeBot.ts`, from #23) is an older, simpler
+scripted aimer with a single noise parameter that the drill tests use; it is left as it is. Moving it
+onto `Bot` is a follow-up.
