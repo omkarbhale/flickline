@@ -214,6 +214,7 @@ export class Game {
       weapon: this.world.weapon,
       weapons: this.tunables.weapon,
       health: this.world.health,
+      hpFlashMs: this.tunables.damageFx.hpFlashMs,
     }, {
       options: this.feedbackOptions,
       cfg: this.tunables.feedback,
@@ -222,7 +223,7 @@ export class Game {
       medianRtMs: () => this.hudStats.medianRtMs,
     });
     this.damage = new DamageView(
-      hudRoot, this.bus, this.tunables.damageFx, this.world.health, s.reduceFlashing,
+      hudRoot, this.bus, this.tunables.damageFx, s.reduceFlashing,
       () => performance.now(), () => this.viewYaw(),
     );
     this.tunables.player.flinch.strength = s.flinchStrength;
