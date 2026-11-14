@@ -110,8 +110,8 @@ describe('run summary', () => {
   it('keeps the numbers of a finished run and no duration, XP or time played', () => {
     const log: RunLog = { mode: 'orbit', seed: 9, dial: 61.5, events: [], truncated: false };
     const stats = computeStats(log);
-    const s = summariseRun({ ...stats, endReason: 'timer' }, 1234.6, '2026-01-01T00:00:00.000Z', ['needle']);
-    expect(s).toMatchObject({ mode: 'orbit', seed: 9, dial: 61.5, reason: 'timer', score: 1235, medals: ['needle'], date: '2026-01-01T00:00:00.000Z' });
+    const s = summariseRun({ ...stats, endReason: 'timer' }, 1234.6, '2026-01-01T00:00:00.000Z', ['needle', 'needle', 'flawless']);
+    expect(s).toMatchObject({ mode: 'orbit', seed: 9, dial: 61.5, reason: 'timer', score: 1235, medals: ['needle', 'flawless'], date: '2026-01-01T00:00:00.000Z' });
     expect(Object.keys(s).join(' ')).not.toMatch(/xp|time|duration|minutes|seconds/i);
   });
 });

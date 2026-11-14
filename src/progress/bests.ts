@@ -32,7 +32,7 @@ export function summariseStats(s: RunStats): RunStatsSummary {
   };
 }
 
-/** The history entry for a finished run. `date` is an ISO date-time the caller read from its clock. */
+/** The history entry for a finished run (the medals as the distinct ids earned). `date` is an ISO date-time the caller read from its clock. */
 export function summariseRun(s: RunStats, score: number, date: string, medals: readonly string[]): RunSummary {
   return {
     ...summariseStats(s),
@@ -42,7 +42,7 @@ export function summariseRun(s: RunStats, score: number, date: string, medals: r
     date,
     reason: s.endReason ?? 'timer',
     score: Math.max(0, Math.round(score)),
-    medals: medals.slice(),
+    medals: Array.from(new Set(medals)),
   };
 }
 

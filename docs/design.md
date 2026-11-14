@@ -322,7 +322,7 @@ A player already in a phase stays in it until the rating falls 3 dial points bel
 
 **Settling experiment (open, tracked in its own issue).** Two groups practise Stop & Pop for a week, one with fading off and one on, then play a cues-off retention test (a clean run). If faded cues retain as well or better, fading stays the default; if not, the thresholds in `config/cues.ts` move or the default flips.
 
-Known limits: the posterior is not persisted yet (#38), so cues start every session at full until it is; the enemy tell visuals and tone (#32, #41) read `tellStrength()` when they land.
+Known limits: the posterior is saved in the progress save (§14.5) after every run, so cues resume where they were; a new player starts at full cues; the enemy tell visuals and tone (#32, #41) read `tellStrength()` when they land.
 
 ---
 
@@ -657,7 +657,7 @@ All numbers in this document that are marked tunable live in the typed `config/`
 
 ### 14.5 Persistence
 
-One versioned `save` object (`version`, `profile` (self-report, sensitivity), `ratings` (posterior grids per skill, compact), `bests`, `medals`, `history` (last 200 runs, summary stats only), `baselines` (every Baseline record, compact) and `baselineLevels` (section 8.5), `checkins` (reference check-ins, never sent anywhere), `settings`), stored in `localStorage` under `flickline.save.v1` (separate from the foundation's `flickline.settings.v1`) with a migration function per version and JSON export/import.
+One versioned `save` object (`version`, `profile` (self-report, sensitivity), `ratings` (posterior grids per skill, compact), `bests`, `medals`, `history` (last 200 runs, summary stats only), `baselines` (every Baseline record, compact) and `baselineLevels` (section 8.5), `checkins` (reference check-ins, never sent anywhere), `settings`), stored in `localStorage` under `flickline.save.v1` (separate from the foundation's `flickline.settings.v1`) with a migration function per version and JSON export/import. As built (#38): `progress/` holds the save (`ratings`, `ranks`, `bests` per mode and dial band with a 1 s score curve for the ghost, `medals`, `history`, `plays`, `flaggedSkill`, plus empty slots for `baselines`, `baselineLevels`, `checkins`); the settings and profile keep their own keys and the export file wraps them around the save (version 2; version 1 was the first export file). Rank-ups are immediate and demotion needs two runs (`config/progress.ts`); Ascent is a new peak sub-tier.
 
 ### 14.6 Where the code lives
 
