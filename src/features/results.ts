@@ -1,6 +1,7 @@
 import { defineFeature } from '../app/feature';
 import { MODES } from '../app/modeHost';
 import { ResultsRecorder, type CardModel, type RatedSkill } from '../feedback/results';
+import { keyLabel } from '../settings/keys';
 import { ResultsCard } from '../ui/resultsCard';
 
 declare module '../debug/hook' {
@@ -39,6 +40,15 @@ export const feature = defineFeature({
       onPlayAgain: (pressedAt) => void game.playAgain(pressedAt),
       onMenu: () => game.openMenu(),
       blocked: () => game.menu.isOpen,
+      isConfirm: (code) => game.settings.get().keys.confirm.includes(code),
+    });
+    const showConfirmKey = (): void => {
+      const c = game.settings.get().keys.confirm[0];
+      card.setConfirmLabel(c === undefined ? '' : keyLabel(c));
+    };
+    showConfirmKey();
+    game.bus.on('settingsChanged', ({ changed }) => {
+      if (changed.includes('keys')) showConfirmKey();
     });
 
     let endedAt = 0;

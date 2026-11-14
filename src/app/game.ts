@@ -1,5 +1,6 @@
 import { EventBus } from '../core/eventBus';
 import { FixedStepper } from '../core/fixedStep';
+import { FrameLimiter } from '../core/frameLimiter';
 import type { GameEvents } from '../core/gameEvents';
 import { TICK_DT } from '../core/time';
 import { cloneTunables, tunables as liveTunables, type Tunables } from '../config/tunables';
@@ -17,11 +18,13 @@ import type { RunEndReason } from '../modes/contracts';
 import { RunController, type StartRunOptions } from '../modes/runController';
 import { DamageView } from '../hud/damageView';
 import { Hud } from '../hud/hud';
+import { FpsReadout } from '../hud/fpsReadout';
 import type { HudClock } from '../hud/liveHud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
-import { ProfileStore } from '../settings/profile';
-import { PlayLog } from '../settings/playLog';
+import { DEFAULT_PROFILE, ProfileStore } from '../settings/profile';
+import { PlayLog, sanitizePlayLog } from '../settings/playLog';
+import { buildSave, type SaveParts } from '../settings/saveData';
 import { SettingsStore, SETTINGS_KEY, type Settings } from '../settings/settings';
 import { createTickInput, type TickInput } from '../sim/types';
 import type { MapDef } from '../sim/mapTypes';
@@ -82,6 +85,10 @@ export class Game {
   readonly damage: DamageView;
   readonly menu: Menu;
   readonly overlay: DebugOverlay;
+  /** The FPS and 1% lows readout in the corner (setting `showFps`). */
+  readonly fps: FpsReadout;
+  /** The frame-rate cap (setting `fpsCap`): decides which display frames do work. */
+  readonly limiter = new FrameLimiter();
   readonly perf = new PerfStats();
   readonly session = new SessionStats();
   /** Run lifecycle, event log and stats (follows the mode runner's runs too). */
@@ -160,10 +167,12 @@ export class Game {
 
     this.cues = new ShotCues(this.bus, this.tunables.feedback, this.feedbackOptions, this.world.targets, this.tunables.targets);
     this.renderer = new GameRenderer(canvas, this.tunables, s.quality);
+    this.applyGraphicsSettings(s);
 
     this.input = new InputManager(canvas, this.bus);
     this.input.maxPitch = (this.tunables.movement.maxPitchDeg * Math.PI) / 180;
     this.input.setSensitivity(s.sensitivity);
+    this.applyInputSettings(s);
     this.input.setLook(this.world.player.yaw, 0);
     this.input.onToggleDebug = () => this.overlay.toggle();
 
@@ -221,6 +230,11 @@ export class Game {
       runPhase: () => (this.modes.phase !== 'idle' ? this.modes.phase : this.run.state),
       cards: () => this.modeCards(),
       session: () => this.todaysSession.view(),
+      pinnableModes: () => this.modeCards().filter((c) => this.tunables.dial.modes[c.id] !== undefined).map((c) => ({ id: c.id, name: c.name })),
+      tierLabel: (dialValue) => tier(dialValue).label,
+      exportSave: () => this.exportSave(),
+      importSave: (parts) => this.importSave(parts),
+      resetProgress: () => this.resetProgress(),
       runLabel: () => {
         const id = this.modes.modeId ?? this.run.info?.mode ?? null;
         return id === null ? null : (this.tunables.menu.modeCards[id]?.name ?? id);
@@ -228,6 +242,10 @@ export class Game {
     });
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
+    this.fps = new FpsReadout(hudRoot, this.perf);
+    this.fps.setVisible(s.showFps);
+    this.limiter.setCap(s.fpsCap);
+    this.modes.pinFor = (id) => this.settings.get().difficultyPin[id];
 
     // Features, in stage order: producers subscribe before presentation (see app/feature.ts). Then
     // the level loads, so the render layers they added get their shaders compiled with it.
@@ -242,8 +260,13 @@ export class Game {
 
     this.bus.on('settingsChanged', ({ settings, changed }) => {
       if (changed.includes('sensitivity')) this.input.setSensitivity(settings.sensitivity);
-      if (changed.some((k) => k === 'volume' || k.endsWith('Volume'))) this.applyAudioSettings(settings);
-      if (changed.includes('quality')) this.renderer.setQuality(settings.quality);
+      if (changed.some((k) => k === 'keys' || k === 'invertY' || k === 'rawInput')) this.applyInputSettings(settings);
+      if (changed.some((k) => k === 'volume' || k.endsWith('Volume') || k === 'monoAudio' || k === 'hitSoundStyle')) this.applyAudioSettings(settings);
+      if (changed.some((k) => k === 'quality' || k === 'postEffects' || k === 'enemyOutline' || k === 'renderScale' || k === 'echoPreset' || k === 'reduceFlashing')) {
+        this.applyGraphicsSettings(settings);
+      }
+      if (changed.includes('fpsCap')) this.limiter.setCap(settings.fpsCap);
+      if (changed.includes('showFps')) this.fps.setVisible(settings.showFps);
       if (changed.includes('reduceFlashing')) this.damage.setReduceFlashing(settings.reduceFlashing);
       if (changed.includes('flinchStrength')) this.tunables.player.flinch.strength = settings.flinchStrength;
       applySettingsToOptions(this.feedbackOptions, settings);
@@ -253,7 +276,7 @@ export class Game {
       if (locked) this.onLockAcquired();
       this.refreshChrome();
     });
-    this.bus.on('rawInputChanged', ({ on }) => this.menu.setRawInput(on));
+    this.bus.on('rawInputChanged', ({ on, requested }) => this.menu.setRawInput(on, requested));
     this.bus.on('playLogChanged', () => this.menu.refresh());
     this.bus.on('shotFired', () => this.timeline.mark('firstShot'));
     this.bus.on('targetHit', () => this.dismissHint());
@@ -315,6 +338,24 @@ export class Game {
     this.audio.setBusVolume('hits', s.hitsVolume);
     this.audio.setBusVolume('enemies', s.enemiesVolume);
     this.audio.setBusVolume('ui', s.uiVolume);
+    this.audio.setTellVolume(s.tellVolume);
+    this.audio.setHitStyle(s.hitSoundStyle);
+    this.audio.setMono(s.monoAudio);
+  }
+
+  private applyInputSettings(s: Readonly<Settings>): void {
+    this.input.setKeys(s.keys);
+    this.input.setInvertY(s.invertY);
+    this.input.setRawWanted(s.rawInput);
+  }
+
+  /** Preset, post/outline switches, render scale, enemy colours and Reduce flashing: everything the renderer takes from settings. */
+  private applyGraphicsSettings(s: Readonly<Settings>): void {
+    this.renderer.setGraphics(s);
+    this.renderer.setEchoPreset(s.echoPreset);
+    this.renderer.setReduceFlashing(s.reduceFlashing);
+    // Anything drawn in the DOM that pulses or glows is hidden by one CSS rule keyed on this (styles.css).
+    document.documentElement.dataset.reduceFlashing = String(s.reduceFlashing);
   }
 
   private readonly onResize = (): void => {
@@ -327,6 +368,29 @@ export class Game {
     this.timeline.mark('playClicked');
     this.audio.resume();
     this.input.requestLock();
+  }
+
+  // --- Data: the save file of the settings menu (design §13.3) ----------------------------------
+
+  /** The save as JSON text: settings, profile and play log. */
+  exportSave(): string {
+    return buildSave(
+      { settings: { ...this.settings.get() }, profile: { ...this.profile.get() }, playLog: this.playLog.snapshot() },
+      new Date().toISOString(),
+    );
+  }
+
+  /** Apply the parts of an imported save through the stores (which persist them). The caller reloads. */
+  importSave(parts: SaveParts): void {
+    if (parts.settings) this.settings.set(parts.settings);
+    if (parts.profile) this.profile.set(parts.profile);
+    if (parts.playLog) this.playLog.replace(parts.playLog);
+  }
+
+  /** Reset progress: the profile (so the first-run flow starts again) and the play log. Settings stay. The caller reloads. */
+  resetProgress(): void {
+    this.profile.set(DEFAULT_PROFILE);
+    this.playLog.replace(sanitizePlayLog(null));
   }
 
   // --- Menu flow: what the menu's buttons and keys do (design section 2) -------------------------
@@ -455,6 +519,7 @@ export class Game {
 
   private readonly frame = (ts: number): void => {
     requestAnimationFrame(this.frame);
+    if (!this.limiter.shouldRun(ts)) return; // capped: this display frame does nothing (design §13.3 FPS cap)
     this.perf.beginFrame(ts);
     this.cues.beginFrame();
     const dt = this.lastTs === 0 ? 0 : Math.min((ts - this.lastTs) / 1000, 0.25);
@@ -493,6 +558,7 @@ export class Game {
         // One-shot inputs apply to the first tick of the frame only.
         inp.jump = false;
         inp.reload = false;
+        inp.switchTo = -1;
         inp.fire = this.input.fireHeld || (o?.fire ?? false);
       }
     } else {
@@ -513,6 +579,7 @@ export class Game {
     }
     this.perf.endFrame();
     this.overlay.update(ts);
+    this.fps.update(ts);
   };
 
   /** After every sim tick a run takes: the mode runner, then the features' tick hooks. */
@@ -706,7 +773,7 @@ export class Game {
       `pos ${f(p.pos.x)} ${f(p.pos.y)} ${f(p.pos.z)}  speed ${f(speed)} m/s\n` +
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
-      `tick ${this.world.tick}  quality ${this.settings.get().quality}  crosshair draws ${this.hud.crosshair.draws}` +
+      `tick ${this.world.tick}  quality ${this.settings.get().quality}  scale ${this.renderer.pixelRatio.toFixed(2)}  cap ${this.limiter.fps || 'off'}  crosshair draws ${this.hud.crosshair.draws}` +
       this.featureLines()
     );
   }

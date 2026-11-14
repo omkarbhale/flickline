@@ -92,3 +92,19 @@ describe('gridMove', () => {
     expect(gridMove(0, 'ArrowDown', 9, 2)).toBe(0);
   });
 });
+
+describe('rebound keys', () => {
+  const keys = { restart: ['KeyG'], confirm: ['KeyH'] };
+  const bound = (code: string, over: Partial<NavState> = {}): string | undefined => resolveKey(code, st(over), keys)?.type;
+  it('restart and confirm follow the bindings in a run, the pause menu and the main menu', () => {
+    expect(bound('KeyG', { menuOpen: false, runPhase: 'live' })).toBe('restart');
+    expect(bound('Backspace', { menuOpen: false, runPhase: 'live' })).toBeUndefined();
+    expect(bound('KeyG', { screen: 'pause' })).toBe('restart');
+    expect(bound('KeyH', { screen: 'pause' })).toBe('resume');
+    expect(bound('Enter', { screen: 'pause' })).toBeUndefined();
+    expect(bound('KeyH', { screen: 'main' })).toBe('playSession');
+  });
+  it('a focused button still keeps the confirm key', () => {
+    expect(bound('KeyH', { screen: 'main', onButton: true })).toBeUndefined();
+  });
+});
