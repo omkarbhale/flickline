@@ -91,11 +91,16 @@ export class AttributionFacts {
 
   constructor(
     private readonly tunables: Tunables,
-    private readonly boxes: readonly BoxDef[],
+    private boxes: readonly BoxDef[],
     private readonly field: TargetField,
     private readonly player: PlayerState,
   ) {
     this.sighted = new Int32Array(field.slots.length).fill(-1);
+  }
+
+  /** The level changed: line-of-sight checks use the new level's boxes from now on. */
+  setBoxes(boxes: readonly BoxDef[]): void {
+    this.boxes = boxes;
   }
 
   /** Forget which enemies have seen the player (a world reset or a run going live). */
