@@ -151,12 +151,9 @@ export function stepRunProbe(
   const wz = rz * input.moveX + -Math.cos(p.yaw) * input.moveZ;
   const wishDot = mag > 0 ? wx * p.vel.x + wz * p.vel.z : 0;
   if (s.stopTick < 0) {
-    if (speed > thr) {
-      const counter = mag > 0 && wishDot < 0 && s.prevWishDot >= 0;
-      if (counter || (mag === 0 && s.prevInputMag > 0)) {
-        s.stopTick = tick;
-        s.stopCounter = counter;
-      }
+    if (speed > thr && ((mag === 0 && s.prevInputMag > 0) || (mag > 0 && wishDot < 0 && s.prevWishDot >= 0))) {
+      s.stopTick = tick;
+      s.stopCounter = mag > 0; // the opposite key was pressed (a release has no input magnitude)
     }
   } else if (speed <= thr) {
     stopPayload.tick = tick;
