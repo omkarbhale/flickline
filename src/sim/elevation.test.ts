@@ -290,7 +290,7 @@ describe('shared movement code', () => {
     const bus = new EventBus<SimEvents>();
     const input = createTickInput();
     input.moveZ = 1;
-    for (let i = 0; i < TICK_RATE * 4; i++) stepPlayer(body, input, lv.boxes, t.movement, t.weapon.kestrel.runSpeedMps, 1 / TICK_RATE, i + 1, bus);
+    for (let i = 0; i < TICK_RATE * 4; i++) stepPlayer(body, input, lv.boxes, t.movement, t.weapon.kestrel, 1 / TICK_RATE, i + 1, bus);
     expect(body.pos.y).toBeCloseTo(2, 6);
     expect(body.grounded).toBe(true);
   });

@@ -87,7 +87,8 @@ export class ColdStartTrial implements TrialEngine {
     this.targetId = id;
     this.tracker.begin(ctx.player, this.head, ctx.liveTick);
     const eye = ctx.scheduler.eyePosition();
-    this.distance = Math.hypot(this.head.x - eye.x, this.head.y - eye.y, this.head.z - eye.z);
+    const dx = this.head.x - eye.x, dy = this.head.y - eye.y, dz = this.head.z - eye.z;
+    this.distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
     const exposure = Math.max(axes.coldStartExposureSec ?? 1, ctx.tunables.dial.floors.exposureSec);
     this.expireAt = ctx.liveTick + secondsToTicks(exposure);
     this.leaveAt = -1;

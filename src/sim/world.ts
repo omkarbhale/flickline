@@ -226,7 +226,7 @@ export class World implements EnemyWorld {
       l.pitch = input.pitch;
       moveInput = l;
     }
-    stepPlayer(this.player, moveInput, this.level.boxes, t.movement, this.maxSpeed(), TICK_DT, this.tick, events);
+    stepPlayer(this.player, moveInput, this.level.boxes, t.movement, t.weapon[this.weapon.slots[this.weapon.active]!.id], TICK_DT, this.tick, events);
     if (!this.live) {
       relay.target = NULL_SINK;
       return;
@@ -264,7 +264,7 @@ export class World implements EnemyWorld {
     const p = this.player;
     const w = this.weapon;
     const def = this.tunables.weapon[w.slots[w.active]!.id];
-    const speed = Math.hypot(p.vel.x, p.vel.z);
+    const speed = Math.sqrt(p.vel.x * p.vel.x + p.vel.z * p.vel.z);
     return !p.grounded || speed > def.deadzoneFraction * def.runSpeedMps + this.tunables.enemies.fire.movingEpsilon;
   }
 
@@ -309,7 +309,8 @@ export class World implements EnemyWorld {
     events: EventSink<SimEvents>,
   ): boolean {
     const p = this.player;
-    const distance = Math.hypot(sx - p.pos.x, sy - (p.pos.y + p.eyeHeight), sz - p.pos.z);
+    const ex = sx - p.pos.x, ey = sy - (p.pos.y + p.eyeHeight), ez = sz - p.pos.z;
+    const distance = Math.sqrt(ex * ex + ey * ey + ez * ez);
     const amount = zoneDamage(this.tunables.weapon[weapon].damageBands, zone, distance);
     return this.damagePlayer(amount, zone, sx, sy, sz, sourceId, events);
   }
