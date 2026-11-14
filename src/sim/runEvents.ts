@@ -16,7 +16,47 @@ import type { Vec3 } from '../core/vec3';
 
 export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit';
 
-export interface RunEvents {
+/**
+ * Spray Wall's facts (design §4.5): one spray = one trial. They are logged (`feedback/eventLog.ts`)
+ * so the spray trace is, like every stat, a pure function of the event log: the stat tracker cuts
+ * the run's shots into sprays between `sprayStarted` and `sprayEnded`.
+ */
+export interface SprayEvents {
+  /** The player stands at an alcove with a Post up: bullets from now on belong to this spray. */
+  sprayStarted: {
+    tick: number;
+    t: number;
+    /** 0-based spray number in the run. */
+    index: number;
+    /** The alcove's anchor id (`spray-12`), its distance in metres and the id of its wall panel box. */
+    station: string;
+    distanceM: number;
+    panel: string;
+    /** Bullets the spray asks for (3, 7 or the full magazine) and the share of them that must hit head or body. */
+    burst: number;
+    requiredFraction: number;
+    postId: number;
+  };
+  /** The spray is over (the burst was fired, or the player reloaded early) and was judged. */
+  sprayEnded: {
+    tick: number;
+    t: number;
+    index: number;
+    burst: number;
+    /** Bullets fired in the spray, and how many of them hit the Post's head or body. */
+    bullets: number;
+    hits: number;
+    headHits: number;
+    bodyHits: number;
+    requiredFraction: number;
+    /** `hits / burst`: bullets never fired count as misses. */
+    fraction: number;
+    success: boolean;
+    reason: 'burst' | 'reload';
+  };
+}
+
+export interface RunEvents extends SprayEvents {
   runReady: { tick: number; mode: string; seed: number; dial: number };
   runStarted: { tick: number };
   runEnded: { tick: number; t: number; reason: RunEndReason };

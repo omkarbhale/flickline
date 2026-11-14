@@ -31,6 +31,7 @@ export interface DialAxes {
   tellCue: number;
   enemyHitChance: number;
   density: number;
+  sprayHitFraction: number;
 }
 
 export function createAxes(): DialAxes {
@@ -53,6 +54,7 @@ export function createAxes(): DialAxes {
     tellCue: 0,
     enemyHitChance: 0,
     density: 0,
+    sprayHitFraction: 0,
   };
 }
 
@@ -109,6 +111,7 @@ export function axes(dial: number, out: DialAxes = createAxes(), cfg: DialTunabl
   out.tellCue = tellCueAt(dial, cfg);
   out.enemyHitChance = clamp(axisValue(a.enemyHitChance, dial), 0, 1);
   out.density = Math.max(1, axisValue(a.density, dial));
+  out.sprayHitFraction = clamp(axisValue(a.sprayHitFraction, dial), 0, 1);
   return out;
 }
 

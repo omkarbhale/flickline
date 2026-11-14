@@ -122,6 +122,11 @@ export class SpawnScheduler {
   }
 
   /** The first anchor of a kind (a mode's `beacon-shell`), or null. */
+  /** Every anchor of a kind, in the map's order (stations of a mode that stands the player at several places). */
+  anchorsOfKind(kind: string): readonly AnchorLike[] {
+    return this.index.ofKind(kind);
+  }
+
   firstOfKind(kind: string): AnchorLike | null {
     return this.index.ofKind(kind)[0] ?? null;
   }
