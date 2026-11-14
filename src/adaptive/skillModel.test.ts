@@ -78,9 +78,10 @@ describe('beat scheduling (design §9.3.2)', () => {
     expect(s.dialFor('orbit', 0, [0])).toBeCloseTo(target, 9);
     const s2 = new SkillState({ mean: 60, sd: 5 });
     expect(s2.dialFor('orbit', 0, cfg.waves.drill)).toBeCloseTo(target - 8, 9);
-    // Cold Start aims at 55 %
+    // Cold Start aims at its own configured target (inside the 60-80 % flow band, #170)
+    const p = cfg.modes.coldStart!.targetSuccess;
     const s3 = new SkillState({ mean: 60, sd: 5 });
-    expect(s3.dialFor('coldStart', 0, [0])).toBeCloseTo(s3.rating('precision') - 9 * Math.log(0.55 / 0.45), 9);
+    expect(s3.dialFor('coldStart', 0, [0])).toBeCloseTo(s3.rating('precision') - 9 * Math.log(p / (1 - p)), 9);
   });
 
   it('moves the matched dial at most 3 per beat and only at beat boundaries', () => {
