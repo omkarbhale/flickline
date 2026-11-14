@@ -2,6 +2,7 @@ import { vec3, type Vec3 } from '../core/vec3';
 import {
   ANCHOR_KINDS,
   MAP_SCHEMA_VERSION,
+  SECTOR_ROLES,
   type Anchor,
   type AnchorKind,
   type CheckpointDef,
@@ -12,6 +13,8 @@ import {
   type MapLook,
   type NavGraph,
   type PeekPattern,
+  type SectorDef,
+  type SectorRole,
   type Stance,
 } from './mapTypes';
 import { enemyFeetOf } from './mapQuery';
@@ -134,7 +137,7 @@ class IdSet {
 
 const TOP_KEYS = [
   'schema', 'id', 'name', 'bounds', 'spawn', 'boxes', 'targets', 'anchors', 'nav', 'lanes',
-  'checkpoints', 'marks', 'look', 'lint',
+  'checkpoints', 'sectors', 'marks', 'look', 'lint',
 ];
 
 export function parseMap(raw: unknown): ParseResult {
@@ -280,6 +283,46 @@ export function parseMap(raw: unknown): ParseResult {
     checkpoints.push({ id: cid, pos: r.vec(o.pos, `${p}.pos`), angleAnchors: refs });
   });
 
+  // sectors (design 4.2, 10.2): optional; a map without them (Range) loads with an empty list
+  const sectors: SectorDef[] = [];
+  const sectorIds = new IdSet(r, 'sector');
+  r.arr(root.sectors, '$.sectors', false)?.forEach((raw, i) => {
+    const p = `$.sectors[${i}]`;
+    const o = r.obj(raw, p);
+    if (!o) return;
+    r.keys(o, ['id', 'role', 'region', 'entry', 'exit', 'holdAnchors', 'approaches'], p);
+    const sid = r.str(o.id, `${p}.id`);
+    sectorIds.add(sid, `${p}.id`);
+    const role: SectorRole[] = [];
+    r.arr(o.role, `${p}.role`)?.forEach((x, j) => {
+      const v = r.oneOf(x, SECTOR_ROLES, `${p}.role[${j}]`, 'take');
+      if (role.includes(v)) r.err(`${p}.role[${j}]`, `duplicate role "${v}"`);
+      else role.push(v);
+    });
+    if (Array.isArray(o.role) && o.role.length === 0) r.err(`${p}.role`, 'a sector needs at least one role');
+    let region = { min: vec3(), max: vec3() };
+    const rg = r.obj(o.region, `${p}.region`);
+    if (rg) {
+      r.keys(rg, ['min', 'max'], `${p}.region`);
+      region = { min: r.vec(rg.min, `${p}.region.min`), max: r.vec(rg.max, `${p}.region.max`) };
+      requireOrdered(r, region.min, region.max, `${p}.region`);
+    }
+    const holdRefs = (r.arr(o.holdAnchors, `${p}.holdAnchors`) ?? []).map((x, j) => {
+      const ref = r.str(x, `${p}.holdAnchors[${j}]`);
+      const target = anchors.find((a) => a.id === ref);
+      if (ref !== '' && !target) r.err(`${p}.holdAnchors[${j}]`, `unknown anchor "${ref}"`);
+      else if (target && target.kind !== 'hold' && target.kind !== 'peek') r.err(`${p}.holdAnchors[${j}]`, `anchor "${ref}" is a ${target.kind}, expected a hold or a peek`);
+      return ref;
+    });
+    if (new Set(holdRefs).size !== holdRefs.length) r.err(`${p}.holdAnchors`, 'lists an anchor more than once');
+    const approachRefs = (r.arr(o.approaches, `${p}.approaches`, false) ?? []).map((x, j) => {
+      const ref = r.str(x, `${p}.approaches[${j}]`);
+      if (ref !== '' && !laneIds.has(ref)) r.err(`${p}.approaches[${j}]`, `unknown lane "${ref}"`);
+      return ref;
+    });
+    sectors.push({ id: sid, role, region, entry: r.vec(o.entry, `${p}.entry`), exit: r.vec(o.exit, `${p}.exit`), holdAnchors: holdRefs, approaches: approachRefs });
+  });
+
   // anchor references into boxes
   anchorList?.forEach((raw, i) => {
     const a = anchors.find((x) => x.id === (raw as Obj | null)?.id);
@@ -334,7 +377,7 @@ export function parseMap(raw: unknown): ParseResult {
   return {
     ok: true,
     map: {
-      schema: MAP_SCHEMA_VERSION, id, name, bounds, spawn, boxes, targets, anchors, nav, lanes, checkpoints, marks, look, lint,
+      schema: MAP_SCHEMA_VERSION, id, name, bounds, spawn, boxes, targets, anchors, nav, lanes, checkpoints, sectors, marks, look, lint,
       enemyFeet: enemyFeetOf(anchors),
     },
   };
@@ -401,6 +444,12 @@ function parseAnchor(r: Reader, raw: unknown, p: string, ids: IdSet): Anchor | n
       const max = r.vec(o.max, `${p}.max`);
       requireOrdered(r, min, max, p);
       return { kind, id, tags, min, max };
+    }
+    case 'hold': {
+      r.keys(o, [...base, 'pos', 'yaw', 'stance'], p);
+      const a: Anchor = { kind, id, tags, pos: r.vec(o.pos, `${p}.pos`), yaw: r.num(o.yaw, `${p}.yaw`) };
+      if (o.stance !== undefined) a.stance = r.oneOf(o.stance, STANCES, `${p}.stance`, 'stand');
+      return a;
     }
     case 'spray-alcove':
       r.keys(o, [...base, 'stand', 'yaw', 'post', 'panel', 'distance'], p);

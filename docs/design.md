@@ -555,7 +555,7 @@ interface MapDef extends LevelDef {           // LevelDef already has boxes (AAB
   lanes?: { id: string; start: Vec3; end: Vec3; width: number }[];
   checkpoints?: { id: string; pos: Vec3; angleAnchors: string[] }[];
   sectors?: { id: string; role: ('take'|'hold'|'meet')[]; region: { min: Vec3; max: Vec3 };
-              entry: Vec3; exit: Vec3; holdAnchors: string[]; approaches?: string[] }[];  // section 4.2
+              entry: Vec3; exit: Vec3; holdAnchors: string[]; approaches?: string[] }[];  // section 4.2; holdAnchors name 'hold' or 'peek' anchors, approaches name `lanes`
   look: { sky: string; fog: [number, number]; palette: string };
 }
 // BoxDef.tag: 'floor'|'wall'|'cover'|'trim'|'glass'
@@ -565,10 +565,11 @@ type Anchor =
   | { id: string; kind: 'strafe-lane'; a: Vec3; b: Vec3 }
   | { id: string; kind: 'peek'; cover: string; hold: Vec3; out: Vec3; pattern: 'shoulder'|'wide'|'jiggle'|'hop' }
   | { id: string; kind: 'gate'; pos: Vec3; yaw: number }      // enemy spawn
-  | { id: string; kind: 'drone-volume'; min: Vec3; max: Vec3 };
+  | { id: string; kind: 'drone-volume'; min: Vec3; max: Vec3 }
+  | { id: string; kind: 'hold'; pos: Vec3; yaw: number; stance?: 'stand'|'crouch' };  // where a sector places an Echo; separate from 'post' so the drills never pick it up
 ```
 
-Coordinates are metres, Y up. The run director picks sectors by role and anchors by tag and distance band; nothing else in the code knows a map's contents. The map lint also checks every sector: entry and exit reachable from each other on foot, every hold anchor inside the region and out of sight of the entry (so a take sector never opens with an enemy already in view), and every approach lane reaching the region.
+Coordinates are metres, Y up. The run director picks sectors by role and anchors by tag and distance band; nothing else in the code knows a map's contents. The map lint also checks every sector: entry and exit reachable from each other on foot without leaving the region, every hold anchor inside the region, in a take sector every hold anchor out of sight of the entry at standing eye height (so a take sector never opens with an enemy already in view; the Echo's head, torso and legs are all tested, for its stance), every approach lane reaching the region on foot, and sector regions that do not overlap. `npm run map-lint` reports each sector's longest sightline; `__flickline.mapPlan()` draws a top-down plan of a map's sectors (`docs/screenshots/maps/*-sectors.png`).
 
 ---
 
