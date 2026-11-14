@@ -22,9 +22,9 @@ function setup() {
 describe('attachSfx', () => {
   it('plays the weapon shot for the weapon id, defaulting to Kestrel', () => {
     const { bus, cues } = setup();
-    bus.emit('shotFired', { tick: 1, origin: v, dir: v, weapon: 'pace' });
-    bus.emit('shotFired', { tick: 2, origin: v, dir: v, weapon: 'kestrel' });
-    bus.emit('shotFired', { tick: 3, origin: v, dir: v });
+    bus.emit('shotFired', { tick: 1, origin: v, dir: v, moving: false, weapon: 'pace' });
+    bus.emit('shotFired', { tick: 2, origin: v, dir: v, moving: false, weapon: 'kestrel' });
+    bus.emit('shotFired', { tick: 3, origin: v, dir: v, moving: false });
     expect(cues()).toEqual(['shotPace', 'shotKestrel', 'shotKestrel']);
   });
 
@@ -87,7 +87,7 @@ describe('attachSfx', () => {
     const calls: CueId[] = [];
     const off = attachSfx(bus, { play: (c) => { calls.push(c); } }, audio);
     off();
-    bus.emit('shotFired', { tick: 1, origin: v, dir: v });
+    bus.emit('shotFired', { tick: 1, origin: v, dir: v, moving: false });
     expect(calls).toEqual([]);
   });
 });

@@ -62,12 +62,15 @@ export interface WeaponState {
 }
 
 /** What a static collision box represents (renderer picks materials from this). */
-export type BoxTag = 'floor' | 'wall' | 'crate' | 'platform';
+export const BOX_TAGS = ['floor', 'wall', 'crate', 'platform', 'cover', 'pillar', 'panel', 'ceiling'] as const;
+export type BoxTag = (typeof BOX_TAGS)[number];
 
 export interface BoxDef {
   min: Vec3;
   max: Vec3;
   tag: BoxTag;
+  /** Optional stable name; map anchors (peek cover, spray panel) refer to boxes by id. */
+  id?: string;
 }
 
 export interface TargetSpawn {
@@ -88,10 +91,10 @@ export type HitZone = 'head' | 'body' | 'leg';
 /** Events the simulation emits. Payloads are read-only and valid only during the callback. */
 export interface SimEvents {
   /**
-   * `weapon` (weapon id) and `moving` (fired above the accuracy speed threshold) are optional until
-   * the weapon simulation (#14) sets them; audio and feedback treat absent as the default weapon / not moving.
+   * `moving`: horizontal speed was above the accuracy deadzone when the shot left. `weapon` (weapon id)
+   * is optional until the weapon simulation sets it; audio treats absent as the default weapon.
    */
-  shotFired: { tick: number; origin: Vec3; dir: Vec3; weapon?: string; moving?: boolean };
+  shotFired: { tick: number; origin: Vec3; dir: Vec3; moving: boolean; weapon?: string };
   /** Where a shot ended (world surface, target, or max range). */
   shotImpact: { tick: number; point: Vec3; normal: Vec3; onTarget: boolean; distance: number };
   targetHit: { tick: number; targetId: number; point: Vec3; damage: number; hpLeft: number; distance: number; zone?: HitZone };
