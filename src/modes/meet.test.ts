@@ -161,7 +161,7 @@ function leave(g: HeadlessGame, input: TickInput, state: () => SweepState, seed:
 /** Run a seeded Sweep run headless to the start of sector `index` (leaving every earlier sector by its exit). */
 function toSector(seed: number, index: number) {
   const g = new HeadlessGame({ seed });
-  expect(g.modes.start('sweep', { seed })).toBe(true);
+  expect(g.modes.start('sweep', { seed, pick: g.modes.primary })).toBe(true);
   const input = createTickInput();
   const state = (): SweepState => g.modes.runner.state as SweepState;
   for (let k = 0; k < Math.ceil(tunables.run.readySec * 128) + 1; k++) g.advance(input);
@@ -176,7 +176,7 @@ describe('a meet in the sim (#212)', () => {
     const g = new HeadlessGame({ seed });
     const entered: { role: string; echoes: number }[] = [];
     g.bus.on('sectorEntered', (e) => entered.push({ role: e.role, echoes: e.echoes }));
-    g.modes.start('sweep', { seed });
+    g.modes.start('sweep', { seed, pick: g.modes.primary });
     const input = createTickInput();
     for (let k = 0; k < Math.ceil(tunables.run.readySec * 128) + 1; k++) g.advance(input);
     const state = (): SweepState => g.modes.runner.state as SweepState;

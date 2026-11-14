@@ -1,4 +1,5 @@
 import { Rng } from '../core/rng';
+import type { Economy } from '../config/economy';
 import type { Vec3 } from '../core/vec3';
 import type { GateStake, HeardBucket, SectorRole, SweepCard, SweepTunables } from '../config/sweep';
 import type { PeekPattern } from '../sim/mapTypes';
@@ -104,6 +105,8 @@ export interface SectorPlan {
   readonly arms?: string;
   /** Longest sightline from the entry, metres (the sector source's). */
   readonly sightlineM: number;
+  /** The sector's economy (design §4.6): `full` unless the run dealt it a light or an eco condition. */
+  readonly condition: Economy;
   readonly contacts: readonly ContactPlan[];
 }
 
@@ -114,6 +117,8 @@ export interface DoorFacts {
   readonly heard: HeardBucket;
   readonly stake: GateStake;
   readonly arms?: string;
+  /** The sector's economy (design §4.6): a light or eco sector is announced on its door. */
+  readonly condition: Economy;
 }
 
 export interface DoorPlan {
@@ -267,6 +272,28 @@ export function drawCard(rng: Rng, cfg: SweepTunables, sectorIndex: number, spot
 }
 
 const CARD_ORDER: readonly SweepCard[] = ['take-unaware', 'take-expected', 'clear', 'crossfire'];
+
+/**
+ * The condition of each of `count` sectors (design §4.6, #207): at most one eco and one light, never the
+ * Opener (`conditions.firstSector`) and never the Finale (`finaleSector`, 1-based). Drawn from a stream of
+ * its own, so dealing conditions never moves a placement. An eco and a light never share a sector.
+ */
+export function drawConditions(seed: number, count: number, cfg: SweepTunables): Economy[] {
+  const rng = new Rng((planSeed(seed) ^ 0xec0ec0) >>> 0);
+  const out: Economy[] = [];
+  const open: number[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push('full');
+    if (i >= cfg.conditions.firstSector && i !== cfg.finaleSector - 1) open.push(i);
+  }
+  // Two draws each, always, so a run's eco does not depend on whether its light came up.
+  for (const [cond, chance] of [['eco', cfg.conditions.ecoChance], ['light', cfg.conditions.lightChance]] as const) {
+    const roll = rng.next();
+    const pick = rng.next();
+    if (roll < chance && open.length > 0) out[open.splice(Math.floor(pick * open.length), 1)[0]!] = cond;
+  }
+  return out;
+}
 
 /** A point `t` metres from `a` towards `dir` (a unit horizontal direction). */
 function along(a: Vec3, dx: number, dz: number, t: number): Vec3 {
@@ -479,7 +506,7 @@ export interface DoorStake {
  * contact, the Echo group crossing the corridor. `firstContact` is the run-wide index of its first contact.
  */
 export function buildSector(
-  rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody, index: number, role: SectorRole, drawn: SectorRole, recent: SweepCard[], want: number, door: DoorStake, firstContact: number,
+  rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody, index: number, role: SectorRole, drawn: SectorRole, condition: Economy, recent: SweepCard[], want: number, door: DoorStake, firstContact: number,
 ): SectorPlan {
   const contacts: ContactPlan[] = [];
   let contactIndex = firstContact;
@@ -508,7 +535,7 @@ export function buildSector(
     }
   }
   return {
-    index, mapId: s.mapId, sectorId: s.id, entry: { ...s.entry }, entryYaw: s.entryYaw, exit: { ...s.exit }, role, drawn,
+    index, mapId: s.mapId, sectorId: s.id, entry: { ...s.entry }, entryYaw: s.entryYaw, exit: { ...s.exit }, role, drawn, condition,
     stake: door.stake, arms: door.arms, sightlineM: s.sightlineM, contacts,
   };
 }
@@ -527,6 +554,6 @@ export function planRun(seed: number, catalog: readonly SectorSource[], cfg: Swe
   const rng = sectorStream(seed, 0);
   const s = takes[rng.int(takes.length)]!;
   const base = baseContacts(rng, cfg, 0, hiddenSpots(s, body).length);
-  const opener = buildSector(rng, cfg, s, body, 0, 'take', 'take', [], base, { stake: 'plain' }, 0);
+  const opener = buildSector(rng, cfg, s, body, 0, 'take', 'take', drawConditions(seed, cfg.sectors, cfg)[0]!, [], base, { stake: 'plain' }, 0);
   return { seed, sectors: [opener], gates: [], doors: [] };
 }

@@ -2,7 +2,7 @@ import type { Rng } from '../core/rng';
 import type { GateStake, HeardBucket, SectorRole, SweepCard, SweepTunables } from '../config/sweep';
 import { GATE_STAKES } from '../config/sweep';
 import {
-  baseContacts, buildSector, drawableSectors, drawRole, hiddenSpots, planRun, playedRole, routeCards, sectorKey, sectorStream,
+  baseContacts, buildSector, drawableSectors, drawConditions, drawRole, hiddenSpots, planRun, playedRole, routeCards, sectorKey, sectorStream,
   type DoorFacts, type DoorPlan, type DoorStake, type GatePlan, type PlanBody, type RunPlan, type SectorPlan, type SectorSource,
 } from './sweepDirector';
 
@@ -65,6 +65,7 @@ export function doorFacts(sp: SectorPlan, cfg: SweepTunables, hearM: number): Do
     heard: heardBucket(heardCount(sp, hearM), cfg),
     stake: sp.stake,
     arms: sp.arms,
+    condition: sp.condition,
   };
 }
 
@@ -171,6 +172,8 @@ export function planGate(plan: RunPlan, env: GateEnv): GatePlan {
     sources.push(pickSector(rng, pool, sources, cur, cfg));
   }
 
+  // The sector's economy (design §4.6, #207) belongs to its depth in the run, so both doors of a gate share it, and the door announces it.
+  const condition = drawConditions(plan.seed, cfg.sectors, cfg)[index] ?? 'full';
   const shieldOk = index - view.lastShieldAt >= g.shieldEverySectors;
   const armsPool = g.armsPool.filter((w) => w !== view.primary);
   const drawn: DoorStake[] = [];
@@ -181,7 +184,10 @@ export function planGate(plan: RunPlan, env: GateEnv): GatePlan {
     frees.push(free);
     bases.push(roles[d] === 'take' ? baseContacts(rng, cfg, index, free) : 1);
   }
+  // Stakes are drawn as if every sector were a full one, with the same draws whatever the sector's condition, so dealing a
+  // condition never moves a placement (#207); a stake the condition cannot honour is then swapped for Hot, else Plain.
   let taken: GateStake | null = null;
+  const stakes: GateStake[] = [];
   for (let d = 0; d < 2; d++) {
     const allowed: GateStake[] = [];
     for (const k of GATE_STAKES) {
@@ -194,14 +200,23 @@ export function planGate(plan: RunPlan, env: GateEnv): GatePlan {
     }
     const stake = drawStake(rng, cfg, allowed);
     taken = stake;
-    drawn.push(stake === 'arms' ? { stake, arms: armsPool[rng.int(armsPool.length)]! } : { stake });
+    stakes.push(stake);
   }
+  const weapons = [0, 1].map(() => (armsPool.length > 0 ? armsPool[rng.int(armsPool.length)]! : ''));
+  for (let d = 0; d < 2; d++) {
+    // A Shield door promises a refill to 50 on entry and an Arms door a new primary in hand: a light or eco sector would cap or holster them.
+    const bad = (stakes[d] === 'shield' && condition !== 'full') || (stakes[d] === 'arms' && condition === 'eco');
+    if (!bad) continue;
+    const hotFits = roles[d] === 'take' && bases[d]! + g.hotExtraContacts <= frees[d]! && stakes[1 - d] !== 'hot';
+    stakes[d] = hotFits ? 'hot' : 'plain';
+  }
+  for (let d = 0; d < 2; d++) drawn.push(stakes[d] === 'arms' ? { stake: 'arms', arms: weapons[d]! } : { stake: stakes[d]! });
 
   const doors: DoorPlan[] = [];
   for (let d = 0; d < 2; d++) {
     const stake = drawn[d]!;
     const want = bases[d]! + (stake.stake === 'hot' ? g.hotExtraContacts : 0);
-    const sector = buildSector(rng, cfg, sources[d]!, body, index, roles[d]!, wanted[d]!, view.recent.slice(), want, stake, view.contacts);
+    const sector = buildSector(rng, cfg, sources[d]!, body, index, roles[d]!, wanted[d]!, condition, view.recent.slice(), want, stake, view.contacts);
     doors.push({ door: d as 0 | 1, facts: doorFacts(sector, cfg, env.hearM), sector });
   }
   return { index, doors: [doors[0]!, doors[1]!] };

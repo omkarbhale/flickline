@@ -25,6 +25,12 @@ export interface PlayerSetup {
   infiniteReserve?: boolean;
   /** The run has a loadout: `1` / `2` swap primary and sidearm (default false; Sweep only, design §4). */
   allowSwap?: boolean;
+  /**
+   * The player's primary is the one picked on the `ready` screen (design §4.1: `1`..`3`, last pick by
+   * default, sidearm always Pace) instead of `ModeDef.weapon`; movement is held and the Echoes do not
+   * fire until the run goes live, so the screen can wait for the pick (Sweep).
+   */
+  pickPrimary?: boolean;
 }
 
 /**
@@ -48,6 +54,8 @@ export interface ModeDef<S = unknown> extends ModeRef {
    * A scenario card's own `economy` overrides it.
    */
   readonly economy?: Economy;
+  /** Length of the `ready` phase in seconds (default `tunables.modes.readySec`). */
+  readonly readySec?: number;
   /** Live-phase length in seconds; `Infinity` = the mode ends the run itself (`ctx.end`). */
   readonly durationSec: number;
   /** Difficulty axes (design §9.4 ids) this mode uses; they define each item's difficulty. */
@@ -243,6 +251,14 @@ export interface ModeContext<S = unknown> {
   refillShield(to: number): number;
   /** Put another primary weapon in the player's primary slot and in hand (Sweep's Arms door); false when it is not a primary. */
   setPrimary(weaponId: string): boolean;
+  /**
+   * Equip both sides as `economy` does (design §4.6, `config/economy.ts`) from now on: the Echoes spawned
+   * after this carry its shield and weapon, the player wears its shield (never more than the shield he
+   * carried in) and, with no shield tier at all, holsters the primary for the Pace. Calling it again
+   * first undoes the last call: what the player carried in comes back minus what the sector took off
+   * it, the primary comes back in hand. A no-op without a host.
+   */
+  setEconomy(economy: Economy): void;
   /** End the run (`death`, `complete`, `quit`, `left`; the timer ends it by itself). */
   end(reason: RunEndReason): void;
 }

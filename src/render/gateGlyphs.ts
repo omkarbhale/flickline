@@ -18,12 +18,14 @@ export interface DoorFacts {
   readonly heard: 'quiet' | 'few' | 'several';
   readonly stake: 'shield' | 'arms' | 'hot' | 'plain';
   readonly arms?: string;
+  /** The sector's economy (design 4.6): a light or eco sector is announced on its door. */
+  readonly condition?: 'full' | 'light' | 'eco';
 }
 
 export const FACE_W = 512;
 export const FACE_H = 640;
-const ROW_H = 150;
-const TOP = 26;
+const ROW_H = 140;
+const TOP = 74;
 const ICON_X = 100;
 const TEXT_X = 188;
 const FONT = "'Barlow', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
@@ -198,7 +200,7 @@ function stakeGlyph(g: CanvasRenderingContext2D, stake: DoorFacts['stake'], cx: 
  * words on the door are the numbers the sector applies.
  */
 export function drawDoorFace(
-  g: CanvasRenderingContext2D, facts: DoorFacts, opts: { shieldTo: number; hotMult: number; hotExtra: number },
+  g: CanvasRenderingContext2D, facts: DoorFacts, opts: { shieldTo: number; hotMult: number; hotExtra: number; conditionTitles?: Readonly<Record<'light' | 'eco', string>> },
 ): void {
   g.clearRect(0, 0, FACE_W, FACE_H);
   // The panel: dark glass with a thin trim line round it.
@@ -211,6 +213,21 @@ export function drawDoorFace(
   g.stroke();
   g.globalAlpha = 1;
 
+  // The header band: a light or eco sector is announced here (a full sector says nothing, design 4.6).
+  if (facts.condition === 'light' || facts.condition === 'eco') {
+    const title = (opts.conditionTitles?.[facts.condition] ?? facts.condition).toUpperCase();
+    const colour = facts.condition === 'eco' ? css.alert : css.warn;
+    stroke(g, colour, 4);
+    g.beginPath();
+    g.roundRect(30, 26, FACE_W - 60, 44, 12);
+    g.stroke();
+    g.fillStyle = colour;
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    g.font = `700 32px ${FONT}`;
+    g.fillText(title, FACE_W / 2, 58);
+    g.textAlign = 'left';
+  }
   const stake = stakeLabel(facts, opts.shieldTo, opts.hotMult, opts.hotExtra);
   const rows: { colour: string; word: string; sub: string; glyph: (cx: number, cy: number) => void }[] = [
     { colour: css.trim, word: ROLE_WORD[facts.role], sub: ROLE_SUB[facts.role], glyph: (x, y) => roleGlyph(g, facts.role, x, y) },

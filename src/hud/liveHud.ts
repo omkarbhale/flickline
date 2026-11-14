@@ -5,6 +5,7 @@ import type { EdgeMeter } from '../feedback/edgeMeter';
 import { NO_PACE, paceFraction, type RunPaceSource } from '../feedback/ghostPace';
 import type { HudStatsSource } from '../feedback/hudStats';
 import type { ModeEvents } from '../modes/contracts';
+import type { EconomyEvents } from '../sim/economyEvents';
 import { HUD_ELEMENTS, HUD_LABELS, type HudElementId, type HudSettings } from '../settings/hud';
 import type { SettingsEvents } from '../settings/settings';
 import type { PlayerHealth, SimEvents, WeaponState } from '../sim/types';
@@ -28,6 +29,7 @@ type LiveHudEvents = Pick<
   'shotFired' | 'targetHit' | 'targetKilled' | 'reloadStarted' | 'reloadCompleted' | 'reloadCancelled' | 'weaponSwitched' | 'playerDamaged' | 'playerHealed' | 'playerShielded'
 > &
   Pick<ModeEvents, 'runReady' | 'runStarted' | 'runEnded' | 'scoreAwarded' | 'chainUpdated' | 'streakUpdated'> &
+  Pick<EconomyEvents, 'economyApplied' | 'primaryPicked'> &
   SettingsEvents;
 
 export interface LiveHudDeps {
@@ -205,6 +207,13 @@ export class LiveHud {
     });
     bus.on('playerHealed', (e) => this.setHp(e.hp, e.maxHp, this.shNow, this.shMax));
     bus.on('playerShielded', (e) => this.setHp(e.hp, e.maxHp, e.shield, e.maxShield));
+    // A sector's economy changed what the shield can hold (design §4.6): the bar follows it (health stays on screen mid-run).
+    bus.on('economyApplied', (e) => {
+      const h = this.d.health;
+      if (h) this.setHp(h.hp, h.maxHp, e.shield, e.maxShield);
+      this.refreshAmmo(); // the primary may have been holstered or taken back
+    });
+    bus.on('primaryPicked', () => this.refreshAmmo());
     bus.on('runReady', () => this.onRunReady());
     bus.on('runStarted', () => { this.paceDirty = true; });
     bus.on('runEnded', () => { this.paceDirty = true; });

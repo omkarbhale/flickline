@@ -16,6 +16,9 @@ export interface GateViewConfig {
   hotExtraContacts: number;
 }
 
+/** Titles a light or eco sector's door announces (`sweep.conditionCopy`). */
+export type ConditionTitles = Readonly<Record<'light' | 'eco', string>>;
+
 /** Door opening height in the gate map (the lintel's underside, `levels/gate.json`). */
 const DOOR_HEIGHT_M = 2.6;
 /** How far in front of the door plane the faces hang, so they never z-fight the lintel's face. */
@@ -47,7 +50,7 @@ export class GateView implements RenderLayer {
   private chosen = -1;
   private time = 0;
 
-  constructor(private readonly scene: Scene, private readonly cfg: GateViewConfig) {
+  constructor(private readonly scene: Scene, private readonly cfg: GateViewConfig, private readonly titles?: ConditionTitles) {
     const w = cfg.doorHalfWidthM * 2;
     const faceGeo = new PlaneGeometry(w - 0.12, DOOR_HEIGHT_M - 0.1);
     const shutterGeo = new PlaneGeometry(w, DOOR_HEIGHT_M);
@@ -88,7 +91,7 @@ export class GateView implements RenderLayer {
 
   /** The gate is entered: draw each door's face from its facts and show both doors open. */
   show(facts: readonly [DoorFacts, DoorFacts]): void {
-    const opts = { shieldTo: this.cfg.shieldRefillTo, hotMult: this.cfg.hotMultiplier, hotExtra: this.cfg.hotExtraContacts };
+    const opts = { shieldTo: this.cfg.shieldRefillTo, hotMult: this.cfg.hotMultiplier, hotExtra: this.cfg.hotExtraContacts, conditionTitles: this.titles };
     for (let d = 0; d < 2; d++) {
       const v = this.doors[d]!;
       drawDoorFace(v.canvas.getContext('2d')!, facts[d]!, opts);

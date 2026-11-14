@@ -163,6 +163,8 @@ function enterSector(ctx: ModeContext<SweepState>, sp: SectorPlan): void {
   // The stake (design §4.5): what the door promised, applied on entry.
   if (sp.stake === 'shield') ctx.refillShield(cfg.gate.shieldRefillTo);
   else if (sp.stake === 'arms' && sp.arms) ctx.setPrimary(sp.arms);
+  // The sector's economy (design §4.6) before anyone is placed: the Echoes spawn with its shield and weapon.
+  ctx.setEconomy(sp.condition);
   const depth = perSector(cfg.depthMultiplier, i);
   st.mult = depth * (sp.stake === 'hot' ? cfg.gate.hotMultiplier : 1);
   ctx.setPointsMultiplier(st.mult);
@@ -196,6 +198,7 @@ function enterSector(ctx: ModeContext<SweepState>, sp: SectorPlan): void {
   ev.t = ctx.timeSec;
   ev.sectorId = sp.sectorId;
   ev.mapId = sp.mapId;
+  ev.condition = sp.condition;
   ev.role = sp.role;
   ev.index = i;
   ev.of = cfg.sectors;
@@ -418,9 +421,11 @@ export const sweep: ModeDef<SweepState> = {
   weapon: 'kestrel',
   // Real magazines and reloads, but the reserve never runs dry: the reference game refills it every
   // round, and a run is many rounds' worth of fights with no ammo to pick up (#201 decision).
-  player: { allowSwap: true, infiniteReserve: true },
+  player: { allowSwap: true, infiniteReserve: true, pickPrimary: true },
   // Echoes shoot back with heavy shields on both sides (design §4.1, §4.6: `full` is the default).
   economy: 'full',
+  // The ready screen is the primary pick (design §4.1): `1`..`3` choose and start the run at once, else it times out on the last pick.
+  readySec: sweepDefaults.pick.readySec,
   durationSec: Infinity,
   axes: ['tellSec', 'enemyReactionSec', 'enemyHitChance', 'strafeSpeed'],
   beatSec: null,

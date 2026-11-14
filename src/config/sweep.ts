@@ -5,6 +5,8 @@
  * Seconds, metres; names ending `Deg` are degrees.
  */
 
+import type { WeaponId } from './weapon';
+
 /**
  * The scenario cards a sector can deal (design §4.4; the rest arrive with #97, #204). A take sector
  * deals the first four, a meet sector (#212) always deals `meet`.
@@ -129,6 +131,32 @@ export interface SweepTunables {
     /** Share of `take-unaware` Echoes that walk a lane rather than stand (`unaware` and moving: it is busy elsewhere). */
     unawareMoverShare: number;
   };
+  /**
+   * Sector conditions (design §4.6, #207): which sectors of a run are light or eco. Rare: at most one
+   * of each per run, never the Opener and never the Finale (a run shorter than the Finale simply has none there).
+   */
+  conditions: {
+    /** Chance that a run deals an eco sector, and a light one (drawn independently; HYPOTHESIS until the balance pass #53). */
+    ecoChance: number;
+    lightChance: number;
+    /** First sector index (0-based) that may carry one: 1 = never the Opener. */
+    firstSector: number;
+  };
+  /**
+   * The primary pick on the run's `ready` screen (design §4.1): `1`..`3` choose these in order, the
+   * sidearm is always Pace. Choosing starts the run at once; otherwise the screen times out on the
+   * last pick after `readySec`.
+   */
+  pick: {
+    primaries: readonly WeaponId[];
+    /** The pick of a player who has not chosen yet. */
+    defaultPrimary: WeaponId;
+    readySec: number;
+  };
+  /** What a sector's condition says when the player enters it (and what its door shows, #205): a title and one plain line. `full` says nothing. */
+  conditionCopy: Readonly<Record<'full' | 'light' | 'eco', { title: string; line: string }>>;
+  /** Seconds the entry announcement of a light or eco sector stays up. */
+  conditionBannerSec: number;
   /** A sector's exit: the player's feet within this horizontal radius of the exit point, and this height of it, leave the sector. */
   exitRadiusM: number;
   exitHeightM: number;
@@ -174,6 +202,14 @@ export const sweep: SweepTunables = {
     clearPeekerShare: 0.6,
     unawareMoverShare: 0.7,
   },
+  conditions: { ecoChance: 0.4, lightChance: 0.4, firstSector: 1 },
+  pick: { primaries: ['kestrel', 'vane', 'rill'], defaultPrimary: 'kestrel', readySec: 3 },
+  conditionCopy: {
+    full: { title: '', line: '' },
+    light: { title: 'Light buy', line: 'Light shields (25) for you and the Echoes' },
+    eco: { title: 'Eco round', line: 'No shields, sidearms only: your primary is holstered' },
+  },
+  conditionBannerSec: 4,
   exitRadiusM: 1.2,
   exitHeightM: 1.5,
   clearKills: 3,

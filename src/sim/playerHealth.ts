@@ -131,6 +131,17 @@ export class PlayerHealthSystem {
     this.state.shield = this.state.maxShield = this.shieldLevel;
   }
 
+  /**
+   * Put the shield on for the rest of this life: `max` capacity with `current` points in it (a Sweep
+   * sector condition, design §4.6, wears a lighter shield than the run's and takes it off again).
+   * Unlike `setShield` it does not touch the shield a later `reset()` starts a life with.
+   */
+  wearShield(max: number, current: number): void {
+    const h = this.state;
+    h.maxShield = Math.max(0, max);
+    h.shield = Math.min(h.maxShield, Math.max(0, current));
+  }
+
   reset(p: PlayerState): void {
     resetPlayerHealth(this.state, this.cfg.health.max, this.shieldLevel);
     p.tagScale = 1;

@@ -61,7 +61,7 @@ describe('gate doors (#205)', () => {
       const chosen: { index: number; door: number; stake: string; role: string; heard: string }[] = [];
       g.bus.on('sectorEntered', (e) => entered.push({ index: e.index, role: e.role, stake: e.stake, arms: e.arms, echoes: e.echoes }));
       g.bus.on('gateChosen', (e) => chosen.push({ index: e.index, door: e.door, stake: e.stake, role: e.role, heard: e.heard }));
-      expect(g.modes.start('sweep', { seed })).toBe(true);
+      expect(g.modes.start('sweep', { seed, pick: g.modes.primary })).toBe(true);
       const input = createTickInput();
       const st = (): SweepState => g.modes.runner.state as SweepState;
       for (let k = 0; k < 140; k++) g.advance(input);
@@ -115,7 +115,18 @@ describe('gate doors (#205)', () => {
       let lastShield = -Infinity;
       for (const gate of plan.gates) {
         const [x, y] = gate.doors;
-        expect(x.facts.stake).not.toBe(y.facts.stake);
+        // The doors differ in stake, except where a light or eco sector leaves a door nothing to carry (no Shield, no Hot, no Arms in eco).
+        if (x.facts.stake === y.facts.stake) {
+          expect(x.facts.stake).toBe('plain');
+          expect(x.facts.condition).not.toBe('full');
+        }
+        // The sector's economy is announced on both doors, and it is the one the sector plays with.
+        expect(x.facts.condition).toBe(y.facts.condition);
+        for (const d of gate.doors) {
+          expect(d.facts.condition).toBe(d.sector.condition);
+          if (d.facts.condition !== 'full') expect(d.facts.stake).not.toBe('shield');
+          if (d.facts.condition === 'eco') expect(d.facts.stake).not.toBe('arms');
+        }
         for (const d of gate.doors) {
           seen[d.facts.stake]!++;
           if (d.facts.stake === 'shield') expect(gate.index - lastShield, `seed ${seed}`).toBeGreaterThanOrEqual(cfg.gate.shieldEverySectors);
@@ -204,7 +215,7 @@ describe('gate stakes in the sim (#205)', () => {
 
   function through(seed: number, door: 0 | 1, before?: (g: HeadlessGame) => void) {
     const g = new HeadlessGame({ seed });
-    expect(g.modes.start('sweep', { seed })).toBe(true);
+    expect(g.modes.start('sweep', { seed, pick: g.modes.primary })).toBe(true);
     const input = createTickInput();
     const st = (): SweepState => g.modes.runner.state as SweepState;
     for (let k = 0; k < 140; k++) g.advance(input);
