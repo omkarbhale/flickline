@@ -1,4 +1,5 @@
 import type { Vec3 } from '../core/vec3';
+import type { HitZone, RunEvents, TargetKind } from './runEvents';
 
 /** Per-tick player command. The only way input reaches the simulation. Angles in radians. */
 export interface TickInput {
@@ -53,12 +54,20 @@ export interface TargetState {
   respawnTick: number;
   /** Tick of the last hit (for presentation flashes). -1 = never. */
   lastHitTick: number;
+  /** Enemy/target kind id (design §5.2). Scaffold targets are 'post'. */
+  kind: TargetKind;
+  /** Set on the first tick the target is in view and unoccluded; cleared on kill/respawn. */
+  visible: boolean;
 }
 
 export interface WeaponState {
   /** Ticks until the weapon can fire again. */
   cooldown: number;
+  /** Shots fired since the last reset; the `shotId` of the latest shot. */
   shots: number;
+  /** Tick of the last shot (-1 = none) and the position of that shot in its burst (recoil index). */
+  lastShotTick: number;
+  burstIndex: number;
 }
 
 /** What a static collision box represents (renderer picks materials from this). */
@@ -82,15 +91,62 @@ export interface LevelDef {
   targets: TargetSpawn[];
 }
 
-/** Events the simulation emits. Payloads are read-only and valid only during the callback. */
+/**
+ * Events the simulation emits. Payloads are read-only and valid only during the callback.
+ * Angles in radians. Shot/target payloads extend the foundation's (nothing renamed); the run
+ * vocabulary lives in `runEvents.ts`.
+ */
 export interface SimEvents {
-  shotFired: { tick: number; origin: Vec3; dir: Vec3 };
+  shotFired: {
+    tick: number;
+    /** Unique within the run (the weapon's shot counter). */
+    shotId: number;
+    weapon: string;
+    origin: Vec3;
+    dir: Vec3;
+    /** View angles at the tick (the crosshair); `dir` may differ later by spread/recoil. */
+    yaw: number;
+    pitch: number;
+    /** Flagged at fire time: airborne, or horizontal speed above the accuracy deadzone (spec §2.4). */
+    moving: boolean;
+    /** Horizontal speed at fire time, m/s. */
+    speed: number;
+    airborne: boolean;
+    spreadDeg: number;
+    /** Position in the burst, 0 = first bullet after a pause. */
+    recoilIndex: number;
+    /** Rounds left in the magazine; -1 = infinite. */
+    ammo: number;
+    /** Nearest visible live target to the view ray (-1 none) and the angle to it, radians. */
+    aimTargetId: number;
+    aimErr: number;
+    /** Aim point angles minus view angles for that target, radians. */
+    aimDYaw: number;
+    aimDPitch: number;
+  };
   /** Where a shot ended (world surface, target, or max range). */
-  shotImpact: { tick: number; point: Vec3; normal: Vec3; onTarget: boolean; distance: number };
-  targetHit: { tick: number; targetId: number; point: Vec3; damage: number; hpLeft: number; distance: number };
-  targetKilled: { tick: number; targetId: number; point: Vec3; distance: number };
+  shotImpact: {
+    tick: number;
+    shotId: number;
+    result: 'hit' | 'miss';
+    /** True when `result === 'hit'` (kept for the foundation's effects). */
+    onTarget: boolean;
+    /** -1 when the shot did not hit a target. */
+    targetId: number;
+    zone: HitZone | 'none';
+    damage: number;
+    killed: boolean;
+    point: Vec3;
+    normal: Vec3;
+    distance: number;
+  };
+  targetHit: { tick: number; targetId: number; zone: HitZone; point: Vec3; damage: number; hpLeft: number; distance: number; killed: boolean };
+  targetKilled: { tick: number; targetId: number; kind: TargetKind; zone: HitZone; point: Vec3; distance: number };
   targetRespawned: { tick: number; targetId: number };
   playerJumped: { tick: number };
   playerLanded: { tick: number; impactSpeed: number };
   footstep: { tick: number; crouching: boolean; walking: boolean };
 }
+
+/** Everything the simulation and the run machinery put on the bus. */
+export type RunAndSimEvents = SimEvents & RunEvents;

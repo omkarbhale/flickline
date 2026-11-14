@@ -2,7 +2,10 @@ import type { EventSink } from '../core/eventBus';
 import { directionFromAngles, vec3, type Vec3 } from '../core/vec3';
 import { secondsToTicks } from '../core/time';
 import type { TargetTunables } from '../config/targets';
+import type { MovementTunables } from '../config/movement';
 import type { WeaponTunables } from '../config/weapon';
+import { createAimInfo, nearestAimTarget, type AimInfo } from './aim';
+import { isMovingShot } from './runProbe';
 import { rayBox, raySphere } from './collision';
 import type { BoxDef, PlayerState, SimEvents, TargetState, WeaponState } from './types';
 
@@ -76,6 +79,7 @@ export function trace(
 
 const scratchOrigin = vec3();
 const scratchDir = vec3();
+const scratchAim: AimInfo = createAimInfo();
 
 /** Tick the weapon: cooldown, and fire a hitscan shot from the eye along the view. */
 export function stepWeapon(
@@ -86,6 +90,7 @@ export function stepWeapon(
   targets: TargetState[],
   wt: WeaponTunables,
   tt: TargetTunables,
+  mt: MovementTunables,
   tick: number,
   events: EventSink<SimEvents>,
   result: TraceResult,
@@ -95,41 +100,77 @@ export function stepWeapon(
 
   w.cooldown = secondsToTicks(wt.fireIntervalSec);
   w.shots++;
+  w.burstIndex = w.lastShotTick >= 0 && tick - w.lastShotTick <= secondsToTicks(wt.recoilResetSec) ? w.burstIndex + 1 : 0;
+  w.lastShotTick = tick;
 
   const o = scratchOrigin;
   o.x = p.pos.x;
   o.y = p.pos.y + p.eyeHeight;
   o.z = p.pos.z;
   const d = directionFromAngles(scratchDir, p.yaw, p.pitch);
+  const aim = nearestAimTarget(o.x, o.y, o.z, p.yaw, p.pitch, d.x, d.y, d.z, targets, scratchAim);
 
-  events.emit('shotFired', { tick, origin: o, dir: d });
+  events.emit('shotFired', {
+    tick,
+    shotId: w.shots,
+    weapon: wt.id,
+    origin: o,
+    dir: d,
+    yaw: p.yaw,
+    pitch: p.pitch,
+    moving: isMovingShot(p, wt, mt),
+    speed: Math.hypot(p.vel.x, p.vel.z),
+    airborne: !p.grounded,
+    spreadDeg: 0,
+    recoilIndex: w.burstIndex,
+    ammo: -1,
+    aimTargetId: aim.targetId,
+    aimErr: aim.err,
+    aimDYaw: aim.dYaw,
+    aimDPitch: aim.dPitch,
+  });
   trace(boxes, targets, o.x, o.y, o.z, d.x, d.y, d.z, wt.range, result);
 
+  // Placeholder single-zone targets: every hit is a body hit until the enemy framework lands.
+  const hit = result.kind === 2;
+  const tg = hit ? targets[result.targetIndex]! : null;
+  let killed = false;
+  if (tg) {
+    tg.hp -= wt.damage;
+    tg.lastHitTick = tick;
+    killed = tg.hp <= 0;
+  }
   if (result.kind !== 0) {
     events.emit('shotImpact', {
       tick,
+      shotId: w.shots,
+      result: hit ? 'hit' : 'miss',
+      onTarget: hit,
+      targetId: tg ? tg.id : -1,
+      zone: hit ? 'body' : 'none',
+      damage: hit ? wt.damage : 0,
+      killed,
       point: result.point,
       normal: result.normal,
-      onTarget: result.kind === 2,
       distance: result.distance,
     });
   }
-  if (result.kind === 2) {
-    const tg = targets[result.targetIndex]!;
-    tg.hp -= wt.damage;
-    tg.lastHitTick = tick;
+  if (tg) {
     events.emit('targetHit', {
       tick,
       targetId: tg.id,
+      zone: 'body',
       point: result.point,
       damage: wt.damage,
       hpLeft: Math.max(0, tg.hp),
       distance: result.distance,
+      killed,
     });
-    if (tg.hp <= 0) {
+    if (killed) {
       tg.alive = false;
+      tg.visible = false;
       tg.respawnTick = tick + secondsToTicks(tt.respawnSec);
-      events.emit('targetKilled', { tick, targetId: tg.id, point: result.point, distance: result.distance });
+      events.emit('targetKilled', { tick, targetId: tg.id, kind: tg.kind, zone: 'body', point: result.point, distance: result.distance });
     }
   }
 }

@@ -6,24 +6,21 @@ import { AudioEngine } from '../audio/audioEngine';
 import { attachSfx } from '../audio/sfx';
 import { DebugOverlay } from '../debug/overlay';
 import { PerfStats } from '../debug/perfStats';
+import { LOGGED_EVENT_TYPES } from '../feedback/eventLog';
 import { SessionStats } from '../feedback/sessionStats';
 import { Hud } from '../hud/hud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
 import { SettingsStore } from '../settings/settings';
-import { createTickInput, type SimEvents, type TickInput } from '../sim/types';
+import { RunController, type StartRunOptions } from '../modes/runController';
+import { createTickInput, type TickInput } from '../sim/types';
 import { testRoom } from '../sim/levels';
 import { World } from '../sim/world';
 import { Menu } from '../ui/menu';
 import type { GameEvents } from './events';
 
-const SIM_EVENT_TYPES: (keyof SimEvents)[] = [
-  'shotFired', 'shotImpact', 'targetHit', 'targetKilled', 'targetRespawned',
-  'playerJumped', 'playerLanded', 'footstep',
-];
-
 export interface LoggedEvent {
-  type: keyof SimEvents;
+  type: keyof GameEvents;
   data: unknown;
 }
 
@@ -45,6 +42,7 @@ export class Game {
   readonly overlay: DebugOverlay;
   readonly perf = new PerfStats();
   readonly session = new SessionStats();
+  readonly run: RunController;
   readonly stepper = new FixedStepper(TICK_DT, 8);
 
   /** Debug: never auto-tick (deterministic stepping only via step()). */
@@ -55,6 +53,10 @@ export class Game {
   override: Partial<Pick<TickInput, 'moveX' | 'moveZ' | 'jump' | 'crouch' | 'walk' | 'fire'>> | null = null;
   menuHidden = false;
   readonly eventLog: LoggedEvent[] = [];
+  /** Debug timing of the last instant restart: synchronous reset cost, and press-to-next-frame. */
+  lastRestartMs = -1;
+  lastRestartToFrameMs = -1;
+  private restartStartedAt = -1;
 
   private readonly tickInput = createTickInput();
   private readonly scriptInput = createTickInput();
@@ -88,13 +90,14 @@ export class Game {
     this.audio.setVolume(s.volume);
     attachSfx(this.bus, this.audio);
     this.session.attach(this.bus);
+    this.run = new RunController(this.world, this.bus, this.tunables.run);
 
     this.hud = new Hud(hudRoot, this.bus, this.session);
     this.menu = new Menu(menuRoot, this.settings, this.tunables, () => this.play());
     this.overlay = new DebugOverlay(debugRoot, this.perf, this.renderer.stats, this.tunables);
     this.overlay.extra = () => this.debugLines();
 
-    for (const type of SIM_EVENT_TYPES) {
+    for (const type of LOGGED_EVENT_TYPES) {
       this.bus.on(type, (e) => {
         this.eventLog.push({ type, data: JSON.parse(JSON.stringify(e)) });
         if (this.eventLog.length > 256) this.eventLog.shift();
@@ -160,7 +163,7 @@ export class Game {
       ticks = this.stepper.advance(dt);
       for (let i = 0; i < ticks; i++) {
         const t0 = performance.now();
-        this.world.step(inp, this.bus);
+        this.run.step(inp);
         this.perf.recordTick(performance.now() - t0);
         // One-shot inputs apply to the first tick of the frame only.
         inp.jump = false;
@@ -173,6 +176,10 @@ export class Game {
     this.perf.ticksLastFrame = ticks;
 
     this.drawFrame(this.stepper.alpha, dt);
+    if (this.restartStartedAt >= 0) {
+      this.lastRestartToFrameMs = performance.now() - this.restartStartedAt;
+      this.restartStartedAt = -1;
+    }
     this.perf.endFrame();
     this.overlay.update(ts);
   };
@@ -204,18 +211,46 @@ export class Game {
     for (let i = 0; i < n; i++) {
       s.yaw = this.input.yaw;
       s.pitch = this.input.pitch;
-      this.world.step(s, this.bus);
+      this.run.step(s);
       s.jump = false;
     }
     this.renderNow();
   }
 
+  /** Abandon any run and reset the world (free play). */
   resetWorld(seed?: number): void {
-    this.world.reset(seed);
+    this.run.cancel(seed);
+    this.afterRunReset();
+  }
+
+  /** Begin a run (seeded reset -> ready). */
+  startRun(opts: StartRunOptions): void {
+    const t0 = performance.now();
+    this.run.startRun(opts);
+    this.afterRunReset();
+    this.noteRestart(t0);
+  }
+
+  /** Instant restart of the current run from its seed (or a new one). Returns false if no run. */
+  restartRun(seed?: number): boolean {
+    const t0 = performance.now();
+    if (!this.run.restartRun(seed)) return false;
+    this.afterRunReset();
+    this.noteRestart(t0);
+    return true;
+  }
+
+  private afterRunReset(): void {
     this.session.reset();
     this.hud.refresh();
     this.input.setLook(this.world.player.yaw, 0);
     this.stepper.reset();
+  }
+
+  private noteRestart(t0: number): void {
+    this.lastRestartMs = performance.now() - t0;
+    this.lastRestartToFrameMs = -1;
+    this.restartStartedAt = t0;
   }
 
   private debugLines(): string {
@@ -226,8 +261,18 @@ export class Game {
       `pos ${f(p.pos.x)} ${f(p.pos.y)} ${f(p.pos.z)}  speed ${f(speed)} m/s\n` +
       `yaw ${((p.yaw * 180) / Math.PI).toFixed(1)}  pitch ${((p.pitch * 180) / Math.PI).toFixed(1)}  ` +
       `${p.grounded ? 'ground' : 'air'}${p.crouching ? ' crouch' : ''}\n` +
-      `tick ${this.world.tick}  quality ${this.settings.get().quality}`
+      `tick ${this.world.tick}  quality ${this.settings.get().quality}\n` +
+      this.runLine()
     );
+  }
+
+  private runLine(): string {
+    const r = this.run;
+    const tr = r.tracker;
+    const acc = tr.accuracy === null ? '--' : `${(tr.accuracy * 100).toFixed(0)}%`;
+    const t = r.info ? `${r.elapsedSec.toFixed(1)}/${r.info.durationSec}s` : '';
+    const rs = this.lastRestartMs >= 0 ? `  restart ${this.lastRestartMs.toFixed(1)} ms` : '';
+    return `run ${r.state} ${t}  acc ${acc} (${tr.hits}/${tr.shots})  kills ${tr.kills}  chain ${tr.chain}  streak ${tr.streak}${rs}`;
   }
 
   /** Test hook: a plain-data snapshot of gameplay state. */
@@ -248,6 +293,15 @@ export class Game {
       weapon: { ...w.weapon },
       targets: w.targets.map((t) => ({ id: t.id, pos: { ...t.pos }, hp: t.hp, alive: t.alive, radius: t.radius })),
       session: { shots: this.session.shots, hits: this.session.hits, kills: this.session.kills },
+      run: {
+        state: this.run.state,
+        info: this.run.info ? { ...this.run.info } : null,
+        elapsedSec: this.run.elapsedSec,
+        shots: this.run.tracker.shots,
+        hits: this.run.tracker.hits,
+        accuracy: this.run.tracker.accuracy,
+        kills: this.run.tracker.kills,
+      },
       settings: { ...this.settings.get() },
       locked: this.input.locked,
     };

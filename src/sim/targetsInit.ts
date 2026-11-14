@@ -17,6 +17,8 @@ export function levelTargetsReset(out: TargetState[], level: LevelDef, tt: Targe
       alive: true,
       respawnTick: 0,
       lastHitTick: -1,
+      kind: 'post',
+      visible: false,
     });
   }
 }

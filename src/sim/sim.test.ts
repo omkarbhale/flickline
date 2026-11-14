@@ -5,12 +5,12 @@ import { TICK_RATE } from '../core/time';
 import { vec3 } from '../core/vec3';
 import { rayBox, raySphere } from './collision';
 import { testRoom } from './levels';
-import { createTickInput, type LevelDef, type SimEvents, type TickInput } from './types';
+import { createTickInput, type LevelDef, type RunAndSimEvents, type SimEvents, type TickInput } from './types';
 import { World } from './world';
 
 function setup(level: LevelDef = testRoom, seed = 1) {
   const world = new World({ level, tunables: cloneTunables(), seed });
-  const bus = new EventBus<SimEvents>();
+  const bus = new EventBus<RunAndSimEvents>();
   const log: { type: keyof SimEvents; data: unknown }[] = [];
   for (const t of ['shotFired', 'shotImpact', 'targetHit', 'targetKilled', 'targetRespawned', 'playerJumped', 'playerLanded', 'footstep'] as const) {
     bus.on(t, (e) => log.push({ type: t, data: JSON.parse(JSON.stringify(e)) }));

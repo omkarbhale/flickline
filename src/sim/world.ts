@@ -1,12 +1,16 @@
 import type { EventSink } from '../core/eventBus';
 import { Rng } from '../core/rng';
-import { TICK_DT } from '../core/time';
+import { secondsToTicks, TICK_DT } from '../core/time';
 import { copy, vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
 import { levelTargetsReset } from './targetsInit';
+import { createProbeState, resetProbe, stepRunProbe, type ProbeState } from './runProbe';
+import type { RunEvents } from './runEvents';
 import { createTraceResult, stepWeapon, type TraceResult } from './weapon';
 import { stepPlayer } from './movement';
 import type { LevelDef, PlayerState, SimEvents, TargetState, TickInput, WeaponState } from './types';
+
+const NO_TAGS: readonly string[] = [];
 
 export interface WorldOptions {
   level: LevelDef;
@@ -27,7 +31,13 @@ export class World {
   tick = 0;
   readonly player: PlayerState;
   readonly targets: TargetState[] = [];
-  readonly weapon: WeaponState = { cooldown: 0, shots: 0 };
+  readonly weapon: WeaponState = { cooldown: 0, shots: 0, lastShotTick: -1, burstIndex: 0 };
+  /**
+   * Whether targets and the weapon are live. The run controller clears it during `ready` (movement
+   * only) and sets it when the run goes `live`; free-play (no run) keeps it true.
+   */
+  live = true;
+  readonly probe: ProbeState = createProbeState();
   private readonly trace: TraceResult = createTraceResult();
 
   constructor(opts: WorldOptions) {
@@ -71,22 +81,59 @@ export class World {
     p.stepAccum = 0;
     this.weapon.cooldown = 0;
     this.weapon.shots = 0;
+    this.weapon.lastShotTick = -1;
+    this.weapon.burstIndex = 0;
+    this.live = true;
+    resetProbe(this.probe);
     levelTargetsReset(this.targets, this.level, this.tunables.targets);
   }
 
   /** Advance exactly one tick (1/TICK_RATE s). */
-  step(input: TickInput, events: EventSink<SimEvents>): void {
+  step(input: TickInput, events: EventSink<SimEvents & RunEvents>): void {
     this.tick++;
     const t = this.tunables;
     stepPlayer(this.player, input, this.level.boxes, t.movement, TICK_DT, this.tick, events);
     stepWeapon(
-      this.weapon, input.fire, this.player, this.level.boxes, this.targets,
-      t.weapon, t.targets, this.tick, events, this.trace,
+      this.weapon, input.fire && this.live, this.player, this.level.boxes, this.targets,
+      t.weapon, t.targets, t.movement, this.tick, events, this.trace,
     );
+    if (!this.live) return;
     this.stepTargets(events);
+    stepRunProbe(
+      this.probe, this.player, this.targets, this.level.boxes, input,
+      t.movement, t.weapon, t.view, t.run, this.tick, events,
+    );
   }
 
-  private stepTargets(events: EventSink<SimEvents>): void {
+  /**
+   * Make targets and the weapon live (the run went `live`): announce every living target so the
+   * stat tracker opens its engagement, and start measuring from a clean probe state.
+   */
+  beginLive(events: EventSink<RunEvents>): void {
+    this.live = true;
+    resetProbe(this.probe);
+    for (let i = 0; i < this.targets.length; i++) {
+      const tg = this.targets[i]!;
+      tg.visible = false;
+      if (tg.alive) this.announceSpawn(tg, events);
+    }
+  }
+
+  /** A target left without being killed (exposure ran out): it goes down and `targetExpired` fires. */
+  expireTarget(id: number, events: EventSink<RunEvents>): void {
+    const tg = this.targets[id];
+    if (!tg || !tg.alive) return;
+    tg.alive = false;
+    tg.visible = false;
+    tg.respawnTick = this.tick + secondsToTicks(this.tunables.targets.respawnSec);
+    events.emit('targetExpired', { tick: this.tick, id });
+  }
+
+  private announceSpawn(tg: TargetState, events: EventSink<RunEvents>): void {
+    events.emit('targetSpawned', { tick: this.tick, id: tg.id, kind: tg.kind, pos: tg.pos, tags: NO_TAGS });
+  }
+
+  private stepTargets(events: EventSink<SimEvents & RunEvents>): void {
     const tt = this.tunables.targets;
     for (let i = 0; i < this.targets.length; i++) {
       const tg = this.targets[i]!;
@@ -96,7 +143,9 @@ export class World {
         tg.pos.x = tg.home.x + this.rng.range(-tt.respawnJitter, tt.respawnJitter);
         tg.pos.y = tg.home.y + this.rng.range(-tt.respawnJitter, tt.respawnJitter) * 0.5;
         tg.pos.z = tg.home.z;
+        tg.visible = false;
         events.emit('targetRespawned', { tick: this.tick, targetId: tg.id });
+        this.announceSpawn(tg, events);
       }
     }
   }
