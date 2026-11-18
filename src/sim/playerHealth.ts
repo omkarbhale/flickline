@@ -40,6 +40,10 @@ export interface HealthEvents {
      * (#89): 0 while none is installed. More than one means he was exposed to several angles.
      */
     exposedTo: number;
+    /** Where the player stood (feet centre, metres) and how far away the shooter was (3-D, metres); `x`/`z` let the fight ledger tell a same-spot re-peek and a stay after a kill apart (F12). */
+    x: number;
+    z: number;
+    distance: number;
   };
   /** The tagging slow was started or refreshed by a hit (spec §4.3). */
   playerSlowed: { tick: number; t: number; factor: number; durationMs: number };
@@ -109,7 +113,7 @@ export class PlayerHealthSystem {
   readonly state: PlayerHealth;
   private readonly dmgEv: SimEvents['playerDamaged'] = {
     tick: 0, t: 0, amount: 0, absorbed: 0, hp: 0, maxHp: 0, shield: 0, maxShield: 0, zone: 'body', dir: vec3(0, 0, -1),
-    yaw: 0, sourceId: -1, killed: false, exposedTo: 0,
+    yaw: 0, sourceId: -1, killed: false, exposedTo: 0, x: 0, z: 0, distance: 0,
   };
   /** The shield a life starts with (`setShield`); survives `reset()`. */
   private shieldLevel = 0;
@@ -211,6 +215,8 @@ export class PlayerHealthSystem {
     e.tick = tick; e.t = t; e.amount = lost; e.absorbed = absorbed; e.hp = h.hp; e.maxHp = h.maxHp;
     e.shield = h.shield; e.maxShield = h.maxShield; e.zone = zone;
     e.yaw = p.yaw; e.sourceId = sourceId; e.killed = killed; e.exposedTo = exposedTo;
+    e.x = p.pos.x; e.z = p.pos.z;
+    e.distance = Math.sqrt((sx - p.pos.x) ** 2 + (sy - p.pos.y) ** 2 + (sz - p.pos.z) ** 2);
     yawFrameDirection(e.dir, p, sx, sy, sz);
     events.emit('playerDamaged', e);
 

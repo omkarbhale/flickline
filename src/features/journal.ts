@@ -1,6 +1,7 @@
 import { defineFeature } from '../app/feature';
 import { journalLine, journalMeasures, summariseJournal, type JournalMeasures } from '../progress/journalMeasures';
 import type { PlayJournal } from '../progress/journal';
+import { createFightPaceStats, FightPace } from '../feedback/fightPace';
 
 declare module '../debug/hook' {
   interface FlicklineDebug {
@@ -20,7 +21,9 @@ declare module '../debug/hook' {
 
 /**
  * Feeds the run's events to the play journal (`progress/journal.ts`, #251): `runReady`, `runStarted`, `sectorEntered` (the
- * run's depth) and `runEnded`, for run modes only (Sweep and its Daily Route; a fixture mode is not play the player chose).
+ * run's depth) and `runEnded` with the run's fight pace (#248: its own `FightPace`, subscribed before the journal's `runEnded`
+ * so it has closed the run when the journal reads it; the overlay's tracker is a tools feature and the two never share state),
+ * for run modes only (Sweep and its Daily Route; a fixture mode is not play the player chose).
  * Nothing is sent anywhere and nothing reads the journal to change play: it is a record the player owns and exports.
  *
  * The writes are deferred (no storage write mid-fight). A finished run is written by the progress feature's batch in the same
@@ -34,6 +37,12 @@ export const feature = defineFeature({
     const cfg = game.tunables.progress;
     const now = (): number => game.now();
     let counting = false;
+    const pace = new FightPace(game.bus, game.world, game.tunables);
+    const paceStats = createFightPaceStats();
+    const runPace = { fights: 0, deadAirSec: 0 };
+    game.onTick(() => {
+      if (counting) pace.tick();
+    });
 
     game.bus.on('runReady', (e) => {
       counting = cfg.runModes.includes(e.mode);
@@ -47,7 +56,10 @@ export const feature = defineFeature({
     });
     game.bus.on('runEnded', (e) => {
       if (!counting) return;
-      store.journalEnded(now(), e.t, e.reason);
+      pace.read(paceStats);
+      runPace.fights = paceStats.fights;
+      runPace.deadAirSec = paceStats.deadAirMaxSec;
+      store.journalEnded(now(), e.t, e.reason, runPace);
       if (e.reason === 'quit') store.commit();
     });
 

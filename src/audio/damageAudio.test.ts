@@ -5,7 +5,7 @@ import type { SimEvents } from '../sim/types';
 import { attachDamageAudio } from './damageAudio';
 
 const dmg = (): SimEvents['playerDamaged'] => ({
-  tick: 1, t: 0, amount: 10, absorbed: 0, hp: 90, maxHp: 100, shield: 0, maxShield: 0, zone: 'body', dir: vec3(0, 0, -1), yaw: 0, sourceId: 1, killed: false, exposedTo: 1,
+  tick: 1, t: 0, amount: 10, absorbed: 0, hp: 90, maxHp: 100, shield: 0, maxShield: 0, zone: 'body', dir: vec3(0, 0, -1), yaw: 0, sourceId: 1, killed: false, exposedTo: 1, x: 0, z: 0, distance: 10,
 });
 
 describe('attachDamageAudio', () => {
