@@ -51,6 +51,19 @@ The same at the scripted human pace of #248 (`--walker human --players 1`, 150 r
 | 50 | 28 / 68 / 118 (3–172) | 118 s | 52 % | 14 % | 14 % | 7.0 | 80 % |
 | 70 | 28 / 66 / 116 (3–178) | 160 s | 54 % | 16 % | 14 % | 7.4 | 84 % |
 
+**After the Echoes' human aim model (#90, `1a7a5f1`)**, which landed as this PR opened: one player per skill, 50 chained runs each.
+
+| Walker | Bot skill | Run length, live s: p10 / median / p90 | Median length of runs that cleared the Finale | Reached the Finale | Cleared the Finale | Fights / run |
+|---|---|---|---|---|---|---|
+| bot | 30 | 15 / 29 / 73 | 95 s | 30 % | 8 % | 4.9 |
+| bot | 50 | 18 / 29 / 70 | 98 s | 36 % | 8 % | 5.2 |
+| bot | 70 | 15 / 32 / 73 | 89 s | 42 % | 10 % | 5.4 |
+| human pace | 30 | 19 / 33 / 78 | 115 s | 30 % | 4 % | 4.7 |
+| human pace | 50 | 18 / 34 / 73 | 113 s | 30 % | 2 % | 4.7 |
+| human pace | 70 | 22 / 46 / 86 | 102 s | 44 % | 10 % | 5.5 |
+
+Echoes that aim like people roughly halve the median run, and only 2–10% of runs clear the Finale (design target: about a quarter). Variety is unchanged (5 sectors, 17–18 pairs per chain). This makes #274 sharper, and it is now a lethality question first (#165, #53).
+
 A "pair" is one contact the player met: the sector it was in (`map/sector`) and its scenario card. The pass first ran on `d88de61`. The scenario sampler (#97) and the spaced hold arrivals (#248) landed while it ran, and the tables above are re-run on the merged build. The variety numbers did not move, and runs got shorter (Finale clears took 135–143 s at bot pace before).
 
 What the tables say:
