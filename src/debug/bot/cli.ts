@@ -8,6 +8,7 @@ import {
 } from './sweepReport';
 import { aimReport } from './aimCalibration';
 import { auditAllocations, formatAudit } from './allocAudit';
+import { formatRepeatReport, REPEAT_DEFAULTS, repeatReport } from './repeatReport';
 import { cloneTunables } from '../../config/tunables';
 import { formatHarness, harnessRow, selfReportFor, type HarnessRow } from '../skillHarness';
 
@@ -35,6 +36,10 @@ const HELP = `npm run bot -- [options]
                      --walkers bot,human (default both; the balance table is the first walker's)
   --trial-report     Sweep trials from contacts (#203): per-skill trial counts per run and contacts without a trial,
                      skills 30/50/70 (or --skills) over --runs runs (default 50), --profile-runs runs per profile (default 5)
+  --repeat-report    Repeat report (#214): --players (default 3) per skill at skills 30/50/70 (or --skills) each play --runs (default 50)
+                     consecutive runs on one profile (the results card's seed chain, the lean on); how often sectors, sector-and-card
+                     pairs and routes repeat, run length, Finale reach and clear; --policy (gate, default facts), --overtime (default bank),
+                     --walker bot|human (human: the scripted human pace of #248, for run length)
   --skill-harness    the run-level simulated-player harness of design §9.6 (#203): abilities 10..90 (or --skills),
                      each with its likely self-report and with none, over --seeds profiles (default 100)
   --list             list the modes
@@ -46,7 +51,7 @@ function parseArgs(argv: string[]): Record<string, string | boolean | string[]> 
     const a = argv[i]!;
     if (!a.startsWith('--')) throw new Error(`unexpected argument '${a}'`);
     const key = a.slice(2);
-    if (['json', 'suite', 'alloc', 'list', 'help', 'sweep-report', 'aim-report', 'meet-report', 'gate-report', 'overtime-report', 'lean-report', 'trial-report', 'skill-harness'].includes(key)) {
+    if (['json', 'suite', 'alloc', 'list', 'help', 'sweep-report', 'aim-report', 'meet-report', 'gate-report', 'overtime-report', 'lean-report', 'trial-report', 'skill-harness', 'repeat-report'].includes(key)) {
       out[key] = true;
       continue;
     }
@@ -210,6 +215,25 @@ export function main(argv: string[], log: (s: string) => void = console.log): nu
       log('');
       for (const line of formatPaceReport(pace, target)) log(line);
       log(`${total} runs, ${(performance.now() - t0).toFixed(0)} ms`);
+    }
+    return 0;
+  }
+
+  if (args['repeat-report']) {
+    const t0 = performance.now();
+    const r = repeatReport({
+      skills: typeof args.skills === 'string' ? args.skills.split(',').map(Number) : REPEAT_DEFAULTS.skills,
+      runs: args.runs !== undefined ? Math.max(2, Math.floor(Number(args.runs))) : REPEAT_DEFAULTS.runs,
+      players: args.players !== undefined ? Math.max(1, Math.floor(Number(args.players))) : REPEAT_DEFAULTS.players,
+      firstSeed: args.seed !== undefined ? Number(args.seed) : REPEAT_DEFAULTS.firstSeed,
+      gatePolicy: typeof args.policy === 'string' ? args.policy : REPEAT_DEFAULTS.gatePolicy,
+      overtimePolicy: typeof args.overtime === 'string' ? args.overtime : REPEAT_DEFAULTS.overtimePolicy,
+      humanPace: args.walker === 'human',
+    });
+    if (args.json) log(JSON.stringify(r, null, 2));
+    else {
+      for (const line of formatRepeatReport(r.rows)) log(line);
+      log(`${r.chains.reduce((a, c) => a + c.runs.length, 0)} runs, ${(performance.now() - t0).toFixed(0)} ms`);
     }
     return 0;
   }
