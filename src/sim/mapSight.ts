@@ -189,6 +189,27 @@ export function firstSight(
   return null;
 }
 
+/** Where an Echo walking a route is first seen by a player standing still at `eye` (a hold sector's arrival, #249). */
+export interface FirstSeen {
+  /** Horizontal distance from the eye to the Echo at the first point of its walk that shows, metres. */
+  distM: number;
+  /** The Echo's feet minus the eye's floor, metres: positive = the Echo is above the player. */
+  dy: number;
+}
+
+/**
+ * The first point of `walk` (an Echo's route, as `routePoints` gives it) at which any part of a standing Echo shows from `eye`
+ * (a player's standing eye, feet at `eye.y - eyeHeight`), or null when the whole walk stays out of sight.
+ */
+export function firstSeenFrom(boxes: readonly BoxDef[], hit: HitTunables, eyeHeight: number, eye: Vec3, walk: readonly Vec3[]): FirstSeen | null {
+  const top = bodyTop(hit, false);
+  const half = hit.torsoWidth / 2;
+  for (const p of walk) {
+    if (bodyShows(boxes, half, top, eye, p)) return { distM: Math.hypot(p.x - eye.x, p.z - eye.z), dy: p.y - (eye.y - eyeHeight) };
+  }
+  return null;
+}
+
 /** Distance bands of a first sight (design §10: close, mid, long). */
 export type SightBand = 'close' | 'mid' | 'long';
 export const SIGHT_BANDS: readonly SightBand[] = ['close', 'mid', 'long'];

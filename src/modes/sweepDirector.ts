@@ -5,7 +5,7 @@ import type { Economy } from '../config/economy';
 import type { Vec3 } from '../core/vec3';
 import type { GateStake, HeardBucket, HoldCard, SectorRole, SweepCard, SweepTunables, TakeCard } from '../config/sweep';
 import { MAX_ROUTE } from '../sim/enemyAi';
-import type { FirstSight } from '../sim/mapSight';
+import type { FirstSeen, FirstSight } from '../sim/mapSight';
 import type { PeekPattern } from '../sim/mapTypes';
 import type { Expectation } from '../sim/enemyTiming';
 import type { ColdOpenerPlan } from './coldOpener';
@@ -86,6 +86,11 @@ export interface ApproachLane {
   readonly start: Vec3;
   readonly end: Vec3;
   readonly width: number;
+  /**
+   * Where an Echo walking the lane is first seen by a player standing at the sector's entry (#249): the distance a hold
+   * fight starts at. `null`: the lane is never in sight of the entry; absent: not known (a hand-made source).
+   */
+  readonly sight?: FirstSeen | null;
 }
 
 export type EchoKind = 'strafer' | 'peeker';
@@ -450,10 +455,15 @@ export function entryEye(s: SectorSource, body: PlanBody): Vec3 {
  * `offRouteWeight`; a spot with no first-sight data weighs 1.
  */
 export function spotWeight(cfg: SweepTunables, spot: SectorSpot): number {
+  return sightWeight(cfg, spot.sight);
+}
+
+/** The weight of a first sight (a spot's or a lane's) for the distance the plan asks for: see `spotWeight`. */
+function sightWeight(cfg: SweepTunables, sight: { readonly distM: number } | null | undefined): number {
   const p = cfg.place;
-  if (spot.sight === undefined) return 1;
-  if (spot.sight === null) return Math.max(p.weightFloor, p.offRouteWeight);
-  const z = Math.log(Math.max(1, spot.sight.distM) / p.targetM) / p.distanceSigma;
+  if (sight === undefined) return 1;
+  if (sight === null) return Math.max(p.weightFloor, p.offRouteWeight);
+  const z = Math.log(Math.max(1, sight.distM) / p.targetM) / p.distanceSigma;
   return Math.max(p.weightFloor, Math.exp(-0.5 * z * z));
 }
 
@@ -468,6 +478,19 @@ export function pickSpot(rng: Rng, cfg: SweepTunables, free: readonly SectorSpot
     if (x < 0) return i;
   }
   return free.length - 1;
+}
+
+/** Index of the approach lane drawn from `pool`, weighted by how far from the entry its arrivals are first seen (one draw, always; #249). */
+export function pickLane(rng: Rng, cfg: SweepTunables, pool: readonly ApproachLane[]): number {
+  const u = rng.next();
+  let total = 0;
+  for (const l of pool) total += sightWeight(cfg, l.sight);
+  let x = u * total;
+  for (let i = 0; i < pool.length; i++) {
+    x -= sightWeight(cfg, pool[i]!.sight);
+    if (x < 0) return i;
+  }
+  return pool.length - 1;
 }
 
 /**
@@ -748,7 +771,7 @@ function planHold(rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody,
       const others = lanes.filter((l) => l.id !== prevLane);
       if (others.length > 0) pool = others;
     }
-    const laneIdx = rng.int(pool.length);
+    const laneIdx = pickLane(rng, cfg, pool);
     const count = card === 'trade' ? 2 : 1;
     const echoes: EchoPlan[] = [];
     const spots: string[] = [];
@@ -787,7 +810,7 @@ export function planFollowers(seed: number, cfg: SweepTunables, s: SectorSource,
   const rng = new Rng(planSeed(seed ^ Math.imul(sectorIndex + 1, 0x9e3779b1)));
   const h = cfg.hold;
   const card: HoldCard = wonBefore ? 'flank' : 'trade';
-  const lane = s.approaches[rng.int(s.approaches.length)]!;
+  const lane = s.approaches[pickLane(rng, cfg, s.approaches)]!;
   const n = Math.min(count, cfg.follow.max);
   const base = cfg.follow.delaySec[0] + rng.next() * (cfg.follow.delaySec[1] - cfg.follow.delaySec[0]);
   const echoes: EchoPlan[] = [];

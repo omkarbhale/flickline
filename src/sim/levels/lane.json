@@ -63,6 +63,7 @@
     {"kind":"hold","id":"hold-lane-stop4-up","tags":["sector-take","half-cover"],"pos":[2.1,0,-6.9],"yaw":2.9},
     {"kind":"hold","id":"hold-lane-mid","tags":["sector-take","open"],"pos":[0.6,0,-4.2],"yaw":3.1416},
     {"kind":"hold","id":"hold-lane-near-w","tags":["sector-take","open","close"],"pos":[-1.9,0,5.3],"yaw":3.1416},
+    {"kind":"hold","id":"hold-lane-far-n","tags":["sector-take","open","long"],"pos":[-0.2,0,-14.3],"yaw":3.1416},
     {"kind":"hold","id":"hold-lane-far-w","tags":["sector-take","open","long"],"pos":[-1.2,0,-13.8],"yaw":3.1416},
     {"kind":"hold","id":"hold-lane-far-e","tags":["sector-take","open","long"],"pos":[1.7,0,-12.4],"yaw":3.1416},
     {"kind":"hold","id":"hold-lane-far","tags":["sector-take","open","long"],"pos":[1.2,0,-13.6],"yaw":3.1416}
@@ -97,7 +98,7 @@
     {"id":"lane-meet-near","role":["meet"],"region":{"min":[-3,0,-2.2],"max":[3,4,15]},"entry":[0,0,14],"exit":[0,0,-1.8],
       "holdAnchors":["hold-meet-stop1","hold-meet-stop2","hold-meet-stop3"]},
     {"id":"lane-take-far","role":["take"],"region":{"min":[-3,0,-15],"max":[3,4,15]},"entry":[-2,0,13.4],"exit":[0,0,-14],
-      "holdAnchors":["hold-lane-near-w","hold-lane-stop1-up","hold-lane-stop2-up","hold-lane-stop3-up","hold-lane-stop4-up","hold-lane-stop5-up","hold-lane-low","hold-lane-ledge","hold-lane-mid","hold-lane-far","hold-lane-far-w","hold-lane-far-e"]}
+      "holdAnchors":["hold-lane-near-w","hold-lane-stop1-up","hold-lane-stop2-up","hold-lane-stop3-up","hold-lane-stop4-up","hold-lane-stop5-up","hold-lane-low","hold-lane-ledge","hold-lane-mid","hold-lane-far","hold-lane-far-w","hold-lane-far-e","hold-lane-far-n"]}
   ],
   "marks": [
     {"kind":"line","a":[-3,0,12],"b":[3,0,12],"width":0.25},

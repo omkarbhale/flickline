@@ -5,7 +5,7 @@ import { sweep as defaultSweep, type SweepTunables } from '../config/sweep';
 import { targets as defaultTargets, type HitTunables } from '../config/targets';
 import { holdStance, holdStandPos } from './mapQuery';
 import { walkReach } from './mapReach';
-import { bandOf, firstSight, routePoints, type SightBand } from './mapSight';
+import { bandOf, firstSeenFrom, firstSight, routePoints, type SightBand } from './mapSight';
 import type { Anchor, MapDef, SectorDef, SectorRole, Stance } from './mapTypes';
 import type { BoxDef } from './types';
 
@@ -70,6 +70,16 @@ export interface AnchorSight {
   crouched: boolean;
 }
 
+/** One approach lane of a hold sector as the player standing at the entry first sees an arrival walking it (#249). */
+export interface LaneSight {
+  id: string;
+  /** Horizontal distance to the Echo at the first sight, metres; null when the lane is never in sight of the entry. */
+  distM: number | null;
+  band: SightBand | null;
+  /** The Echo's feet minus the player's at the first sight, metres. */
+  dy: number | null;
+}
+
 export interface SectorReport {
   id: string;
   role: SectorRole[];
@@ -78,6 +88,8 @@ export interface SectorReport {
   longest: { length: number; from: string; bearingDeg: number };
   /** Take sectors: each hold anchor's first sight along the walk from the entry to the exit (empty for other sectors). */
   sights: AnchorSight[];
+  /** Hold sectors: each approach lane's first sight from the entry (empty for other sectors). */
+  arrivals: LaneSight[];
 }
 
 export interface LintReport {
@@ -567,7 +579,10 @@ function lintSectors(
     const sights = isTake && gatesOk ? sectorSights(map, sector, eye, hit, place) : [];
     const longest = sectorSightline(map, sector, eye);
     if (isTake && gatesOk) lintBands(sector, sights, longest.length, place, add);
-    reports.push({ id: sector.id, role: sector.role, holdAnchors: holds, longest, sights });
+    const isHold = sector.role.includes('hold');
+    const arrivals = isHold && gatesOk ? sectorArrivals(map, sector, eye, hit, place) : [];
+    if (isHold && gatesOk && arrivals.length > 0) lintArrivalBands(sector, arrivals, longest.length, place, add);
+    reports.push({ id: sector.id, role: sector.role, holdAnchors: holds, longest, sights, arrivals });
   }
   return reports;
 }
@@ -592,6 +607,39 @@ function sectorSights(map: MapDef, sector: SectorDef, eye: number, hit: HitTunab
     });
   }
   return out;
+}
+
+/** Each approach lane of a hold sector, as a player standing at its entry first sees an Echo walking it (#249). */
+function sectorArrivals(map: MapDef, sector: SectorDef, eye: number, hit: HitTunables, place: SweepTunables['place']): LaneSight[] {
+  const eyeAt = { x: sector.entry.x, y: sector.entry.y + eye, z: sector.entry.z };
+  const out: LaneSight[] = [];
+  for (const id of sector.approaches) {
+    const lane = map.lanes.find((l) => l.id === id);
+    if (lane === undefined) continue;
+    const f = firstSeenFrom(map.boxes, hit, eye, eyeAt, routePoints(map, lane.start, lane.end, place.walkStepM));
+    out.push({ id, distM: f ? f.distM : null, band: f ? bandOf(f.distM, place.closeToM, place.longFromM) : null, dy: f ? f.dy : null });
+  }
+  return out;
+}
+
+/** What a hold sector's arrivals have to offer (#249): the distance bands its ground reaches and a lane off the floor plane. */
+function lintArrivalBands(
+  sector: SectorDef, arrivals: readonly LaneSight[], longest: number, place: SweepTunables['place'],
+  add: (severity: LintSeverity, check: string, where: string, message: string) => void,
+): void {
+  const where = `sector ${sector.id}`;
+  const seen = arrivals.filter((x) => x.distM !== null);
+  for (const band of ['close', 'mid', 'long'] as const) {
+    const reach = band === 'close' ? 0 : band === 'mid' ? place.closeToM : place.longFromM;
+    if (longest >= reach && !seen.some((x) => x.band === band)) {
+      add('error', 'sector-bands', where, `no approach lane shows an arrival first ${band === 'close' ? `under ${place.closeToM} m` : band === 'mid' ? `${place.closeToM} to ${place.longFromM} m` : `${place.longFromM} m or more`} from the entry (the ${band} band); a hold sector has to offer arrivals at close, mid and long range`);
+    }
+  }
+  if (!seen.some((x) => Math.abs(x.dy!) >= place.levelM)) {
+    add('error', 'sector-bands', where, `no approach lane brings an arrival ${place.levelM} m or more above or below the player where it first shows; a hold sector needs one fight off the floor plane`);
+  }
+  const unseen = arrivals.filter((x) => x.distM === null).map((x) => x.id);
+  if (unseen.length > 0) add('warning', 'sector-bands', where, `no arrival on ${unseen.join(', ')} is ever in sight of the entry: that fight starts only when the player goes to meet it`);
 }
 
 /**
@@ -669,6 +717,9 @@ export function formatLintReport(report: LintReport): string[] {
   out.push(`  longest per node: ${top.map((n) => `${n.id} ${round(n.longest)} m`).join(', ')}`);
   for (const sec of report.sectors) {
     out.push(`  sector ${sec.id} [${sec.role.join('+')}]: ${sec.holdAnchors} hold anchors, longest sightline ${round(sec.longest.length)} m from ${sec.longest.from} at bearing ${sec.longest.bearingDeg} deg`);
+    if (sec.arrivals.length > 0) {
+      out.push(`    arrivals first seen: ${sec.arrivals.map((x) => (x.distM === null ? `${x.id} never` : `${x.id} ${round(x.distM)} m ${x.band}${Math.abs(x.dy!) >= 1 ? (x.dy! > 0 ? ' above' : ' below') : ''}`)).join(', ')}`);
+    }
     if (sec.sights.length > 0) {
       out.push(`    first sights: ${sec.sights.map((x) => (x.distM === null ? `${x.id} never` : `${x.id} ${round(x.distM)} m ${x.band}${Math.abs(x.dy!) >= 1 ? (x.dy! > 0 ? ' above' : ' below') : ''}${x.crouched ? ' crouched' : ''} ${Math.round(x.exposure! * 100)}%`)).join(', ')}`);
     }

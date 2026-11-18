@@ -3,7 +3,7 @@ import type { Tunables } from '../config/tunables';
 import { bodyTop, lineClear } from '../sim/exposure';
 import { rayBox } from '../sim/collision';
 import { holdAnchorsOf, holdStance, holdStandPos } from '../sim/mapQuery';
-import { bodyShows, firstSight, navRoute, routePoints, type FirstSight } from '../sim/mapSight';
+import { bodyShows, firstSeenFrom, firstSight, navRoute, routePoints, type FirstSeen, type FirstSight } from '../sim/mapSight';
 import type { MapDef, SectorDef } from '../sim/mapTypes';
 import type { ApproachLane, SectorSource, SectorSpot } from './sweepDirector';
 
@@ -89,6 +89,8 @@ function geometryMemo(map: MapDef, tunables: Tunables): { vis: Map<string, boole
  * the numbers it depends on), the first time a placement asks for it.
  */
 const sightCache = new WeakMap<MapDef, Map<string, FirstSight | null>>();
+/** The same for where a hold sector's arrivals are first seen from its entry, by sector and lane. */
+const laneSightCache = new WeakMap<MapDef, Map<string, FirstSeen | null>>();
 
 /** One map's sectors as the director's `SectorSource`s. Visibility answers are memoised per sector. */
 export function sectorSources(map: MapDef, tunables: Tunables): SectorSource[] {
@@ -101,6 +103,23 @@ export function sectorSources(map: MapDef, tunables: Tunables): SectorSource[] {
     // Where each anchor first shows to a player walking the sector from its entry to its exit (#249), worked out on first use.
     let walk: Vec3[] | null = null;
     const memos = new Map<string, FirstSight | null>();
+    // Where an arrival on a lane is first seen by a player standing at the sector's entry (#249), worked out on first use.
+    const laneSights = new Map<string, FirstSeen | null>();
+    const laneSightOf = (lane: MapDef['lanes'][number]): FirstSeen | null => {
+      let v = laneSights.get(lane.id);
+      if (v !== undefined) return v;
+      let cache = laneSightCache.get(map);
+      if (!cache) laneSightCache.set(map, (cache = new Map()));
+      const key = `${sector.id}|${lane.id}|${tunables.movement.standEyeHeight}|${step}|${hit.torsoWidth}|${hit.headCentreStand}|${hit.headRadius}`;
+      v = cache.get(key);
+      if (v === undefined) {
+        const eye = { x: sector.entry.x, y: sector.entry.y + tunables.movement.standEyeHeight, z: sector.entry.z };
+        v = firstSeenFrom(boxes, hit, tunables.movement.standEyeHeight, eye, routePoints(map, lane.start, lane.end, step));
+        cache.set(key, v);
+      }
+      laneSights.set(lane.id, v);
+      return v;
+    };
     let line = -1;
     const lineOf = (): number => (line >= 0 ? line : (line = routeSightline(map, sector, tunables.movement.standEyeHeight)));
     const sightOf = (a: ReturnType<typeof holdAnchorsOf>[number], feet: Vec3, crouched: boolean): FirstSight | null => {
@@ -131,7 +150,7 @@ export function sectorSources(map: MapDef, tunables: Tunables): SectorSource[] {
     const approaches: ApproachLane[] = [];
     for (const id of sector.approaches) {
       const lane = map.lanes.find((l) => l.id === id);
-      if (lane) approaches.push({ id: lane.id, start: { ...lane.start }, end: { ...lane.end }, width: lane.width });
+      if (lane) approaches.push({ id: lane.id, start: { ...lane.start }, end: { ...lane.end }, width: lane.width, get sight() { return laneSightOf(lane); } });
     }
     const source: SectorSource = {
       mapId: map.id,
