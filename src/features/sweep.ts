@@ -1,6 +1,7 @@
 import { defineFeature } from '../app/feature';
 import { findMap } from '../sim/mapLoader';
-import { currentSector, SWEEP_MODE, sweepPlan, type SweepState } from '../modes/sweep';
+import { atRisk, currentSector, SWEEP_MODE, sweepPlan, type SweepState } from '../modes/sweep';
+import { isOvertime, sectorDepth } from '../modes/sweepDirector';
 import { navRoute } from '../modes/sweepCatalog';
 import { ExitMarker } from '../render/exitMarker';
 import { GateView } from '../render/gateView';
@@ -104,7 +105,9 @@ export const feature = defineFeature({
     const gateState = (st: SweepState): unknown => ({
       index: st.gate!.plan.index,
       chosen: st.gate!.door,
-      doors: st.gate!.plan.doors.map((d) => ({ ...d.facts, map: d.sector.mapId, sector: d.sector.sectorId, contacts: d.sector.contacts.length, echoes: d.sector.contacts.reduce((n, c) => n + c.echoes.length, 0) })),
+      /** An Overtime gate (#206): the door that leaves (the run ends, everything banked); undefined in an ordinary gate. */
+      leave: st.gate!.plan.leave,
+      doors: st.gate!.plan.doors.map((d) => (d.door === st.gate!.plan.leave ? { leave: true } : { ...d.facts, map: d.sector.mapId, sector: d.sector.sectorId, contacts: d.sector.contacts.length, echoes: d.sector.contacts.reduce((n, c) => n + c.echoes.length, 0) })),
     });
     const state = (): SweepState | null => (game.modes.modeId === SWEEP_MODE ? (game.modes.runner.state as SweepState) : null);
 
@@ -121,10 +124,24 @@ export const feature = defineFeature({
       startSwitch(e.sectorId);
     });
     game.bus.on('gateEntered', (e) => {
-      const gate = state()?.gate;
-      if (gate) {
-        gateView.show([gate.plan.doors[0].facts, gate.plan.doors[1].facts]);
-        label.textContent = `Gate · next: sector ${e.index + 1} / ${cfg.sectors}`;
+      const st = state();
+      const gate = st?.gate;
+      if (st && gate) {
+        const leave = gate.plan.leave;
+        if (leave === undefined) {
+          gateView.show([gate.plan.doors[0].facts, gate.plan.doors[1].facts]);
+          label.textContent = `Gate \u00b7 next: sector ${e.index + 1} / ${cfg.sectors}`;
+        } else {
+          // The gate after the Finale and after each Overtime sector (design 4.7, #206): Leave banks the score, the other door is the next Overtime sector.
+          const score = game.modes.runner.stats.score;
+          const risk = atRisk(st, score);
+          const k = e.index - cfg.sectors + 1;
+          const on = gate.plan.doors[leave === 0 ? 1 : 0].facts;
+          const ahead = { ...on, overtime: { k, mult: sectorDepth(cfg, e.index) } };
+          gateView.show([ahead, ahead], { door: leave, facts: { score, overtimePoints: risk } });
+          label.textContent = k === 1 ? 'Finale cleared \u00b7 leave, or push on into Overtime' : `Overtime ${k - 1} cleared \u00b7 leave and bank, or push on`;
+          game.hud.live.setOvertime(st.banked, st.overtime);
+        }
         label.style.opacity = '0.9';
       }
       if (pending) {
@@ -152,7 +169,8 @@ export const feature = defineFeature({
     /** The label's words: the sector's place in the run, its role and condition (a hold's exit is shut until its Echoes are dead). */
     const sectorLabel = (index: number, of: number, role: string, condition: string, open: boolean): string => {
       const word = game.tunables.results.conditionLabels[condition as 'full' | 'light' | 'eco'] ?? '';
-      return `Sector ${index + 1} / ${of}` + (index === of - 1 ? ' \u00b7 Finale' : '') + ` \u00b7 ${role}` + (word ? ` \u00b7 ${word}` : '') + (open ? ' \u00b7 exit open' : '');
+      const head = index >= of ? `Overtime ${index - of + 1}` : `Sector ${index + 1} / ${of}` + (index === of - 1 ? ' \u00b7 Finale' : '');
+      return head + ` \u00b7 ${role}` + (word ? ` \u00b7 ${word}` : '') + (open ? ' \u00b7 exit open' : '');
     };
     game.bus.on('sectorEntered', (e) => {
       const st = state();
@@ -162,6 +180,7 @@ export const feature = defineFeature({
       if (sp && e.role !== 'hold') marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
       label.textContent = sectorLabel(e.index, e.of, e.role, e.condition, false);
       label.style.opacity = '0.9';
+      if (st && isOvertime(cfg, e.index)) game.hud.live.setOvertime(st.banked, st.overtime);
       hideBanner();
       const copy = cfg.conditionCopy[e.condition as 'full' | 'light' | 'eco'];
       if (copy && copy.title) {
@@ -187,6 +206,9 @@ export const feature = defineFeature({
       marker.place(sp.exit.x, sp.exit.y, sp.exit.z);
       label.textContent = sectorLabel(e.index, game.tunables.sweep.sectors, 'hold', sp.condition, true);
     });
+    // The run is over: a Leave door banked the Overtime points (the score shows whole), or the end forfeited them (the score is what is left).
+    game.bus.on('runBanked', (e) => game.hud.live.setOvertime(-1, 0, e.score));
+    game.bus.on('overtimeLost', (e) => game.hud.live.setOvertime(-1, 0, e.score));
     // A cold-opener leg (design §8.5) is a move inside the Opener: the same cut to black, and the marker on the leg's exit.
     game.bus.on('coldLegEntered', (e) => {
       const st = state();
@@ -241,7 +263,8 @@ export const feature = defineFeature({
       if (!st) return '';
       const last = switches[switches.length - 1];
       const opener = !st.gate && st.openerStage >= 0 ? ' opener' : '';
-      return `sweep ${st.gate ? 'gate before ' : ''}sector ${st.gate ? st.gate.plan.index + 1 : st.sector + 1}/${cfg.sectors}${opener} ${lastSector} dial ${st.dial.dial.toFixed(1)}` + (last ? ` | switch ${last.setupMs.toFixed(1)} ms, frame ${last.firstFrameMs.toFixed(1)} ms` : '');
+      const ot = st.overtime > 0 || st.banked >= 0 ? ` OT ${st.overtime} banked ${st.banked} risk ${atRisk(st, game.modes.runner.stats.score)}` : '';
+      return `sweep ${st.gate ? 'gate before ' : ''}sector ${st.gate ? st.gate.plan.index + 1 : st.sector + 1}/${cfg.sectors}${opener}${ot} ${lastSector} dial ${st.dial.dial.toFixed(1)}` + (last ? ` | switch ${last.setupMs.toFixed(1)} ms, frame ${last.firstFrameMs.toFixed(1)} ms` : '');
     });
 
     game.addDebug({
@@ -255,6 +278,8 @@ export const feature = defineFeature({
             nextLean: game.lean.next.slice(),
             sector: st.sector,
             of: cfg.sectors,
+            /** Overtime (#206): the score banked for good (-1 before the Finale's exit gate), the points at risk and the Overtime sectors entered. */
+            overtime: { banked: st.banked, atRisk: atRisk(st, game.modes.runner.stats.score), sectors: st.overtime },
             gate: st.gate ? gateState(st) : null,
             doors: st.plan.doors.slice(),
             stakes: st.plan.sectors.map((x) => x.stake),

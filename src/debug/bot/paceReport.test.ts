@@ -24,8 +24,8 @@ describe('fight pace in the Sweep report (#248)', () => {
   // The fun criteria's automated check (design §2.2, §14.7): the scripted human pace meets the fight-pace targets on a
   // handful of seeds. The full table (`npm run bot -- --sweep-report`) is what a balance change is judged by.
   it('the human-pace walker is slower than the bot and still meets the targets; fights are the contacts fought', () => {
-    const bot = SEEDS.map((s) => sweepRun(50, s, undefined, undefined, 'bot'));
-    const human = SEEDS.map((s) => sweepRun(50, s, undefined, undefined, 'human'));
+    const bot = SEEDS.map((s) => sweepRun(50, s, undefined, undefined, undefined, 'bot'));
+    const human = SEEDS.map((s) => sweepRun(50, s, undefined, undefined, undefined, 'human'));
     for (const f of [...bot, ...human]) {
       expect(f.pace.fights).toBe(f.contacts.cleared + f.contacts.died + f.contacts.disengaged);
       expect(f.pace.liveSec).toBeCloseTo(f.liveSec, 1);

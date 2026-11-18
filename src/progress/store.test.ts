@@ -333,3 +333,81 @@ describe('progress store: cold openers (#209)', () => {
     expect(new ProgressStore(null, memoryStorage()).setColdOpenerWarm(true)).toBe(false);
   });
 });
+
+describe('the play journal in the store (#251)', () => {
+  const T = new Date('2026-03-02T12:00:00').getTime();
+  const key = cfg.storageKey;
+
+  function playRun(s: ProgressStore, t: number, reason: 'death' | 'timer' | 'quit' = 'timer'): void {
+    s.journalReady(t);
+    s.journalStarted(t + 3000);
+    s.journalSector(0);
+    s.journalSector(1);
+    s.journalEnded(t + 63_000, 60, reason);
+  }
+
+  it('records runs and is written only by commit, never in the middle of a run', () => {
+    const storage = memoryStorage();
+    const s = new ProgressStore(null, storage);
+    s.journalReady(T);
+    s.journalStarted(T + 3000);
+    expect(storage.data[key]).toBeUndefined(); // a run's events do not write storage mid-fight
+    s.journalSector(1);
+    s.journalEnded(T + 63_000, 60, 'death');
+    expect(storage.data[key]).toBeUndefined();
+    s.commit();
+    const stored = JSON.parse(storage.data[key]!);
+    expect(stored.version).toBe(SAVE_VERSION);
+    expect(stored.journal.runs).toEqual([{ at: Math.floor((T + 3000) / 1000), sec: 60, depth: 2, end: 'death', pulled: false }]);
+    expect(stored.journal.sessions[0]).toMatchObject({ started: 1, finished: 1, end: 'death' });
+  });
+
+  it('survives a reload and carries on in the same session', () => {
+    const storage = memoryStorage();
+    const a = new ProgressStore(null, storage);
+    playRun(a, T);
+    a.commit();
+    const b = new ProgressStore(null, storage);
+    expect(b.journal.runs).toHaveLength(1);
+    playRun(b, T + 120_000);
+    expect(b.journal.sessions).toHaveLength(1);
+    expect(b.journal.sessions[0]!.started).toBe(2);
+  });
+
+  it('is part of the export and an import replaces it, with the writer following the imported data', () => {
+    const a = new ProgressStore(null, null);
+    playRun(a, T);
+    const exported = a.exportData();
+    expect(exported.journal.runs).toHaveLength(1);
+    const b = new ProgressStore(null, null);
+    b.replace(exported);
+    expect(b.journal.runs).toHaveLength(1);
+    playRun(b, T + 120_000);
+    expect(b.journal.runs).toHaveLength(2);
+    expect(a.journal.runs).toHaveLength(1); // no sharing between the two
+    b.reset();
+    expect(b.journal.runs).toHaveLength(0);
+    playRun(b, T);
+    expect(b.journal.sessions).toHaveLength(1);
+  });
+
+  it('a progress write for another reason keeps the journal, and a blocked storage loses nothing in memory', () => {
+    const s = new ProgressStore(null, blocked);
+    playRun(s, T);
+    s.setFlaggedSkill('track');
+    expect(s.journal.runs).toHaveLength(1);
+    expect(s.persistence).toBe('failed');
+  });
+
+  it('a save of version 3 loads with an empty journal, then fills it', () => {
+    const v3 = { ...toSave(defaultProgress()), version: 3 } as Record<string, unknown>;
+    delete v3.journal;
+    const storage = memoryStorage({ [key]: JSON.stringify(v3) });
+    const s = new ProgressStore(null, storage);
+    expect(s.journal).toEqual({ firstDay: null, sessions: [], runs: [], days: [] });
+    playRun(s, T);
+    s.commit();
+    expect(JSON.parse(storage.data[key]!).version).toBe(SAVE_VERSION);
+    expect(JSON.parse(storage.data[key]!).journal.runs).toHaveLength(1);
+  });
+});

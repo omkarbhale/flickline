@@ -57,3 +57,36 @@ describe('pure layers stay pure', () => {
     }
   });
 });
+
+/**
+ * No telemetry, no accounts (design §8.4, #251): nothing in the game talks to a network. The play journal, like every
+ * other record, stays on the device and goes only where the player takes it (the export file, a copy). The one fetch the
+ * bundle may hold is for its own static files; nothing else may open a connection.
+ */
+describe('nothing is sent anywhere', () => {
+  const NETWORK: [RegExp, string][] = [
+    [/\bfetch\s*\(/, 'fetch()'],
+    [/\bXMLHttpRequest\b/, 'XMLHttpRequest'],
+    [/\bWebSocket\b/, 'WebSocket'],
+    [/\bEventSource\b/, 'EventSource'],
+    [/\bsendBeacon\b/, 'navigator.sendBeacon'],
+    [/\bRTCPeerConnection\b/, 'WebRTC'],
+    [/\bnew\s+Worker\s*\(\s*['"`]https?:/, 'a worker loaded from a URL'],
+    [/\bimport\s*\(\s*['"`]https?:/, 'a script imported from a URL'],
+    [/<script[^>]+src=["']https?:/, 'a remote script tag'],
+    [/\bnavigator\.serviceWorker\b/, 'a service worker'],
+  ];
+
+  it('no source file under src/ uses a network API', () => {
+    for (const f of files(root)) {
+      const src = code(f);
+      for (const [re, what] of NETWORK) expect(re.test(src), `${f}: ${what}`).toBe(false);
+    }
+  });
+
+  it('the page and its config load nothing from another origin', () => {
+    const html = readFileSync(join(root, '..', 'index.html'), 'utf8');
+    expect(/(?:src|href)=["']https?:\/\//.test(html), 'index.html').toBe(false);
+    for (const f of ['vite.config.ts']) expect(/https?:\/\/(?!localhost)/.test(code(join(root, '..', f))), f).toBe(false);
+  });
+});

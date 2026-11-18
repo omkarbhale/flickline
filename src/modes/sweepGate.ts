@@ -225,7 +225,18 @@ export function planGate(plan: RunPlan, env: GateEnv): GatePlan {
   return { index, doors: [doors[0]!, doors[1]!] };
 }
 
-/** The player walked through `door` of `gate`: the run's route takes its sector. */
+/**
+ * The gate after the Finale and after each Overtime sector (design §4.7, #206): **Leave** (the left door: the run ends, every point
+ * banked) or **Overtime** (the right door: the next sector, drawn like any gate's door with the three honest facts and a stake).
+ * Drawn from the same stream as an ordinary gate, so the sector behind the Overtime door is the one the seed would have dealt there.
+ */
+export function planOvertimeGate(plan: RunPlan, env: GateEnv): GatePlan {
+  const g = planGate(plan, env);
+  const on = g.doors[1];
+  return { index: g.index, doors: [{ door: 0, facts: on.facts, sector: on.sector }, on], leave: 0 };
+}
+
+/** The player walked through `door` of `gate`: the run's route takes its sector (never the Leave door of an Overtime gate). */
 export function commitGate(plan: RunPlan, gate: GatePlan, door: 0 | 1): SectorPlan {
   const sector = gate.doors[door].sector;
   plan.gates.push(gate);

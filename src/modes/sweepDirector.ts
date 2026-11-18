@@ -175,10 +175,15 @@ export interface DoorPlan {
   readonly sector: SectorPlan;
 }
 
-/** The gate before sector `index`: two doors. */
+/**
+ * The gate before sector `index`: two doors. An **Overtime gate** (design §4.7, #206: the gate after the Finale and after every
+ * Overtime sector) has `leave` set: that door ends the run (every point banked) and the other leads on to the Overtime sector.
+ * The Leave door's `facts` and `sector` are the other door's, only there to keep the shape; they are never shown or played.
+ */
 export interface GatePlan {
   readonly index: number;
   readonly doors: readonly [DoorPlan, DoorPlan];
+  readonly leave?: 0 | 1;
 }
 
 /**
@@ -214,6 +219,21 @@ export interface PlanBody {
 /** The entry of a per-sector list for sector `index` (the last entry repeats). */
 export function perSector(list: readonly number[], index: number): number {
   return list[Math.min(index, list.length - 1)] ?? 0;
+}
+
+/** Whether sector `index` (0-based) is an Overtime sector: one beyond the route's own `cfg.sectors` (design §4.7, #206). */
+export function isOvertime(cfg: SweepTunables, index: number): boolean {
+  return index >= cfg.sectors;
+}
+
+/** Dial offset of sector `index` from the matched dial (design §4.1): the per-sector list, then Overtime's `+6, then +2 per sector`. */
+export function sectorDialOffset(cfg: SweepTunables, index: number): number {
+  return isOvertime(cfg, index) ? cfg.overtime.dialOffset + (index - cfg.sectors) * cfg.overtime.dialStep : perSector(cfg.dialOffset, index);
+}
+
+/** Depth multiplier of sector `index` (design §4.1, §8.1): the per-sector list, then Overtime's `x2.2, then +0.2 per sector`. */
+export function sectorDepth(cfg: SweepTunables, index: number): number {
+  return isOvertime(cfg, index) ? cfg.overtime.depthMultiplier + (index - cfg.sectors) * cfg.overtime.depthStep : perSector(cfg.depthMultiplier, index);
 }
 
 /** A seed of its own for the plan, so the plan never shares a stream with the sim or the runner. */
@@ -659,8 +679,9 @@ function peekSpotsFor(s: SectorSource, cfg: SweepTunables, body: PlanBody): Sect
 /** The contacts of a hold sector: arrivals on seeded times along its approach lanes (design §4.2). */
 function planHold(rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody, index: number, recent: SweepCard[], firstIndex: number): ContactPlan[] {
   const h = cfg.hold;
-  const lo = perSector(h.contactsMin, index);
-  const hi = Math.max(lo, perSector(h.contactsMax, index));
+  const ot = isOvertime(cfg, index);
+  const lo = ot ? cfg.overtime.holdContacts[0] : perSector(h.contactsMin, index);
+  const hi = Math.max(lo, ot ? cfg.overtime.holdContacts[1] : perSector(h.contactsMax, index));
   const n = lo + rng.int(hi - lo + 1);
   const t0 = h.firstArrivalSec[0] + rng.next() * (h.firstArrivalSec[1] - h.firstArrivalSec[0]);
   // One gap per sector, drawn where the window was (the plan's random stream is unchanged), times the arrivals after the first.
@@ -767,8 +788,9 @@ export function sectorStream(seed: number, index: number): Rng {
 
 /** Contacts a take sector at `index` would hold with no Hot stake: drawn from the per-sector range, capped by its hidden anchors (one draw). */
 export function baseContacts(rng: Rng, cfg: SweepTunables, index: number, spotCount: number): number {
-  const lo = perSector(cfg.contactsMin, index);
-  const hi = Math.max(lo, perSector(cfg.contactsMax, index));
+  const ot = isOvertime(cfg, index);
+  const lo = ot ? cfg.overtime.takeContacts[0] : perSector(cfg.contactsMin, index);
+  const hi = Math.max(lo, ot ? cfg.overtime.takeContacts[1] : perSector(cfg.contactsMax, index));
   return Math.min(spotCount, lo + rng.int(hi - lo + 1));
 }
 

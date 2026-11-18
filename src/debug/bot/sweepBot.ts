@@ -4,13 +4,13 @@ import { vec3, type Vec3 } from '../../core/vec3';
 import { lineClear } from '../../sim/exposure';
 import { targetAimPoint, wrapPi, yawOf } from '../../sim/aim';
 import { Rng } from '../../core/rng';
-import { currentSector, sectorKey, sweepCatalog, type GateRt, type SweepState } from '../../modes/sweep';
+import { atRisk, currentSector, sectorKey, sweepCatalog, type GateRt, type SweepState } from '../../modes/sweep';
 import { navRoute } from '../../modes/sweepCatalog';
 import type { TickInput } from '../../sim/types';
 import type { World } from '../../sim/world';
 import type { Bot, BotStats } from './bot';
 import type { BotGame } from './headless';
-import { leftDoor, type GatePolicy } from './gatePolicy';
+import { alwaysLeave, leftDoor, type GatePolicy, type OvertimePolicy } from './gatePolicy';
 
 /** A waypoint counts as reached within this horizontal distance, metres. */
 const REACH_M = 0.6;
@@ -106,6 +106,8 @@ export class SweepBot {
      * every fight, as every report before the lean assumed. No random draw is made at 0, so those reports do not change.
      */
     private readonly movingFireShare = 0,
+    /** At an Overtime gate (design §4.7, #206): leave or push on. Default: leave, so a run ends at the Finale as it did before Overtime. */
+    private readonly overtimePolicy: OvertimePolicy = alwaysLeave,
     /** Walk at a person's pace (`HUMAN_PACE`) instead of the bot's; null (the default): the bot's pace, as every report before #248 assumed. */
     private readonly human: HumanPace | null = null,
   ) {
@@ -281,7 +283,16 @@ export class SweepBot {
   private throughGate(gate: GateRt, world: World, out: TickInput): TickInput {
     if (this.gate !== gate) {
       this.gate = gate;
-      this.door = this.policy(gate.plan, { hp: world.health.hp, shield: world.health.shield });
+      const leave = gate.plan.leave;
+      if (leave === undefined) this.door = this.policy(gate.plan, { hp: world.health.hp, shield: world.health.shield });
+      else {
+        const st = this.game.modes.runner.state as SweepState;
+        const score = this.game.modes.runner.stats.score;
+        const pick = this.overtimePolicy({
+          hp: world.health.hp, shield: world.health.shield, overtimeSectors: st.overtime, atRisk: atRisk(st, score), banked: st.banked,
+        });
+        this.door = pick === 'leave' ? leave : leave === 0 ? 1 : 0;
+      }
       this.gateReadUntil = this.human ? world.tick + secondsToTicks(this.human.gateReadSec) : -1;
       this.lookUntil = -1;
     }

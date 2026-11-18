@@ -3,8 +3,8 @@ import { listModes, mapForMode, playMode, type BotReport, type BotRunOptions } f
 import { BOT_PARAM_KEYS, type BotParams } from './skill';
 import { runSuite } from './suite';
 import {
-  formatGatePolicyReport, formatLeanAb, formatMeetReport, formatPaceReport, formatSweepReport, formatTrialReport, gatePolicyReport, leanAb, meetReport, paceRow,
-  sweepReport, trialReport, type PaceRow, type Walker,
+  formatGatePolicyReport, formatLeanAb, formatMeetReport, formatOvertimeReport, formatPaceReport, formatSweepReport, formatTrialReport, gatePolicyReport, leanAb,
+  meetReport, overtimeReport, paceRow, sweepReport, trialReport, type PaceRow, type Walker,
 } from './sweepReport';
 import { auditAllocations, formatAudit } from './allocAudit';
 import { cloneTunables } from '../../config/tunables';
@@ -26,6 +26,7 @@ const HELP = `npm run bot -- [options]
   --alloc            audit the sim tick for allocations (see README, "Allocation audit")
   --lean-report      The lean's A/B (#210): a bot with a planted moving-shot weakness, lean off vs on, --runs per arm (default 20), --skill (default 50), --players n (default 5), --weakness share (default 0.7), --practice per fight (default 0.04), --engine planted|stub (default planted)
   --gate-report      Gate policy table (#205): policies --policies hot,read,facts,left (default) at skills 30/50/70 over --runs seeds (default 200)
+  --overtime-report  Overtime depth (#206): --policies push,bank (default) at skills 30/50/70 (or --skills) over --runs seeds (default 200); push = always push on, bank = leave below 90 health+shield, leave = always leave
   --meet-report      Meet sectors (#212): win rate by who stopped first, skills 30/50/70 (or --skills) over --runs forced meet runs (default 100), --stop-delay S (default 2.5)
   --sweep-report     Sweep balance table (#201) and fight-pace table (#248: fights per live minute, dead air, gates, for the
                      bot and a human-pace walker): skills 30/50/70 (or --skills a,b,c) over --runs seeds (default 50);
@@ -43,7 +44,7 @@ function parseArgs(argv: string[]): Record<string, string | boolean | string[]> 
     const a = argv[i]!;
     if (!a.startsWith('--')) throw new Error(`unexpected argument '${a}'`);
     const key = a.slice(2);
-    if (['json', 'suite', 'alloc', 'list', 'help', 'sweep-report', 'meet-report', 'gate-report', 'lean-report', 'trial-report', 'skill-harness'].includes(key)) {
+    if (['json', 'suite', 'alloc', 'list', 'help', 'sweep-report', 'meet-report', 'gate-report', 'overtime-report', 'lean-report', 'trial-report', 'skill-harness'].includes(key)) {
       out[key] = true;
       continue;
     }
@@ -137,6 +138,21 @@ export function main(argv: string[], log: (s: string) => void = console.log): nu
     else {
       for (const line of formatGatePolicyReport(rows)) log(line);
       log(`${rows.length * runs} runs, ${(performance.now() - t0).toFixed(0)} ms`);
+    }
+    return 0;
+  }
+
+  if (args['overtime-report']) {
+    const skills = typeof args.skills === 'string' ? args.skills.split(',').map(Number) : [30, 50, 70];
+    const runs = args.runs !== undefined ? Math.max(1, Math.floor(Number(args.runs))) : 200;
+    const seed = args.seed !== undefined ? Number(args.seed) : 1;
+    const policies = typeof args.policies === 'string' ? args.policies.split(',') : undefined;
+    const t0 = performance.now();
+    const r = overtimeReport(skills, runs, seed, policies, args.dial !== undefined ? Number(args.dial) : undefined);
+    if (args.json) log(JSON.stringify(r.rows, null, 2));
+    else {
+      for (const line of formatOvertimeReport(r.rows)) log(line);
+      log(`${r.runs.length} runs, ${(performance.now() - t0).toFixed(0)} ms`);
     }
     return 0;
   }
