@@ -12,10 +12,12 @@ import type { TargetField } from './targets';
 import type { BoxDef, HitZone, PlayerState, SimEvents, TickInput, WeaponState } from './types';
 import {
   applyRecoilKick,
+  coneDirection,
   damageFor,
   isMovingShot,
   movementErrorDeg,
   sprayAccumDeg,
+  returnRecoil,
   sprayIncrement,
   stepYawSign,
 } from './weaponModel';
@@ -393,23 +395,9 @@ export function stepWeapon(
   // Recoil: yaw direction swing (switch time) and return towards the crosshair (spec §3.5): held
   // for `recoilReturnDelaySec`, then a smoothstep glide (no velocity jump at either end) along the
   // offset's own direction that lands on the crosshair exactly at the gun recovery time, so the
-  // offset never outlives the reset (#191). Stateless: each tick scales the offset by
-  // ease(u) / ease(u one tick ago). Inline maths, so no double is boxed per tick.
+  // offset never outlives the reset (#191). `weaponModel.returnRecoil`, shared with the Echoes' guns.
   stepYawSign(def, w, dt);
-  if (w.recoilPitch !== 0 || w.recoilYaw !== 0) {
-    const sinceShot = time - w.lastShotTime;
-    if (sinceShot >= def.recoilReturnDelaySec - EPS) {
-      const span = def.recoverySec - def.recoilReturnDelaySec;
-      let k = 0;
-      if (def.recoverySec - sinceShot > EPS && span > EPS) {
-        const u = (sinceShot - def.recoilReturnDelaySec) / span;
-        const v = u - dt / span < 0 ? 0 : u - dt / span;
-        k = (1 - u * u * (3 - 2 * u)) / (1 - v * v * (3 - 2 * v));
-      }
-      w.recoilPitch *= k;
-      w.recoilYaw *= k;
-    }
-  }
+  returnRecoil(def, w, tick);
 
   if (input.reload && canReload(w, def)) startReload(w, def, tick, events, s);
 
@@ -481,16 +469,8 @@ function fire(
   const phi = world.rng.next() * Math.PI * 2;
   const power = moving ? rules.centreBiasPowerMoving : rules.centreBiasPowerStill;
   const r = spreadDeg * Math.pow(u, power) * DEG2RAD;
-  const d = directionFromAngles(s.dir, yaw, pitch);
-  const ad = s.aimDir;
-  ad.x = d.x; ad.y = d.y; ad.z = d.z; // the cone axis, kept for `shotFired.aimDir` before the spread rotates `d`
-  const sy = Math.sin(yaw), cy = Math.cos(yaw), sp = Math.sin(pitch), cp = Math.cos(pitch);
-  // right = (cos y, 0, -sin y); up = (sin y sin p, cos p, cos y sin p): orthonormal with d.
-  const cr = Math.cos(r), sr = Math.sin(r);
-  const a = sr * Math.cos(phi), b = sr * Math.sin(phi);
-  d.x = d.x * cr + a * cy + b * sy * sp;
-  d.y = d.y * cr + b * cp;
-  d.z = d.z * cr - a * sy + b * cy * sp;
+  directionFromAngles(s.aimDir, yaw, pitch); // the cone axis, kept for `shotFired.aimDir`
+  const d = coneDirection(s.dir, yaw, pitch, r, phi);
 
   // Kick for this bullet (moves the next ones), spec §3.5.
   const recoilIndex = w.recoilIndex;

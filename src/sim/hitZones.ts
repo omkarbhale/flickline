@@ -154,11 +154,17 @@ export function zoneCentre(out: Vec3, t: TargetState, h: HitTunables, kind: Targ
 }
 
 /**
+ * What a zone trace reads of a body: an Echo's `TargetState`, or the player's pose when an Echo
+ * shoots at the player (#90: the player wears the same three zones, spec §5.1).
+ */
+export type ZoneBody = Pick<TargetState, 'pos' | 'crouched' | 'scale'>;
+
+/**
  * Trace one unit-direction ray against a target. Returns true and fills `out` when a zone is
  * struck no further than `ray.maxDist`.
  */
 export function traceTargetRay(
-  t: TargetState,
+  t: ZoneBody,
   h: HitTunables,
   kind: TargetKindDef,
   ray: Ray,

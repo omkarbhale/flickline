@@ -160,7 +160,18 @@ export class EnemyFxLayer implements RenderLayer {
       const o = nLines * 3;
       this.lA[o] = x; this.lA[o + 1] = my; this.lA[o + 2] = z;
       const r = cfg.tellLineReach;
-      this.lB[o] = x + (px - x) * r; this.lB[o + 1] = my + (py - my) * r; this.lB[o + 2] = z + (pz - z) * r;
+      if (a.mind) {
+        // A mind's tell is its real aim phase (#90): the line runs along where it is aiming, so the flick
+        // and its correction are seen sweeping onto the player, as long as the line to the player would be.
+        const ex = px - x, ey = py - my, ez = pz - z;
+        const len = Math.sqrt(ex * ex + ey * ey + ez * ez) * r;
+        const cp = Math.cos(a.aim.pitch);
+        this.lB[o] = x - Math.sin(a.aim.yaw) * cp * len;
+        this.lB[o + 1] = my + Math.sin(a.aim.pitch) * len;
+        this.lB[o + 2] = z - Math.cos(a.aim.yaw) * cp * len;
+      } else {
+        this.lB[o] = x + (px - x) * r; this.lB[o + 1] = my + (py - my) * r; this.lB[o + 2] = z + (pz - z) * r;
+      }
       this.lColor[o] = lc.r; this.lColor[o + 1] = lc.g; this.lColor[o + 2] = lc.b;
       const q = nLines * 4;
       this.lParams[q] = cfg.tellLineAlpha * flicker * (0.5 + 0.5 * progress);

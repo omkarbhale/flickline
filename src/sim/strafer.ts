@@ -3,6 +3,7 @@ import { moveTowards } from '../core/math';
 import { TICK_DT } from '../core/time';
 import { FIRE_WAIT, type EnemyAi, type StrafeParams } from './enemyAi';
 import { fireBusy, fireStep } from './enemyFire';
+import { mindWantsStop } from './mind/duel';
 import {
   fsmSetTimerRange, fsmSetTimerTicks, STAY, type Behaviour, type BehaviourContext, type BehaviourState,
 } from './fsm';
@@ -116,9 +117,12 @@ const leg: BehaviourState = {
     const cfg = ctx.tunables.enemies.strafer;
     a.vel = moveTowards(a.vel, a.dir * a.speed, (a.speed / cfg.accelSec) * TICK_DT);
     advance(t);
-    fireStep(t, ctx, false);
+    // A leg commits to the fight (a mind may shoot from it by its moving-shot habit) but is no stop.
+    fireStep(t, ctx, false, true);
     // On its route it keeps moving through its reaction to the player (first sight to the tell), then brakes so the tell starts in the stop.
-    if (a.travel && a.phase === FIRE_WAIT && ctx.tick >= a.readyTick) return STRAFER_DECEL;
+    if (!a.mind && a.travel && a.phase === FIRE_WAIT && ctx.tick >= a.readyTick) return STRAFER_DECEL;
+    // A mind counter-strafes as its aim arrives, so its shot leaves from the stop (#90).
+    if (mindWantsStop(t, ctx.tick)) return STRAFER_DECEL;
     // Brake early enough to stop inside the lane.
     if (room(a, a.vel !== 0 ? Math.sign(a.vel) : a.dir) <= brakeDistance(a.vel, cfg) + 0.02) return STRAFER_DECEL;
     return STAY;

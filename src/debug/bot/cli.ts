@@ -3,6 +3,7 @@ import { listModes, mapForMode, playMode, type BotReport, type BotRunOptions } f
 import { BOT_PARAM_KEYS, type BotParams } from './skill';
 import { runSuite } from './suite';
 import { formatGatePolicyReport, formatLeanAb, formatMeetReport, formatSweepReport, formatTrialReport, gatePolicyReport, leanAb, meetReport, sweepReport, trialReport } from './sweepReport';
+import { aimReport } from './aimCalibration';
 import { auditAllocations, formatAudit } from './allocAudit';
 import { cloneTunables } from '../../config/tunables';
 import { formatHarness, harnessRow, selfReportFor, type HarnessRow } from '../skillHarness';
@@ -24,6 +25,7 @@ const HELP = `npm run bot -- [options]
   --lean-report      The lean's A/B (#210): a bot with a planted moving-shot weakness, lean off vs on, --runs per arm (default 20), --skill (default 50), --players n (default 5), --weakness share (default 0.7), --practice per fight (default 0.04), --engine planted|stub (default planted)
   --gate-report      Gate policy table (#205): policies --policies hot,read,facts,left (default) at skills 30/50/70 over --runs seeds (default 200)
   --meet-report      Meet sectors (#212): win rate by who stopped first, skills 30/50/70 (or --skills) over --runs forced meet runs (default 100), --stop-delay S (default 2.5)
+  --aim-report       enemy mind calibration (#90): S7 headshot share per anchor, damage per minute aimed vs rolled (--runs seeds, default 6)
   --sweep-report     Sweep balance table (#201): skills 30/50/70 (or --skills a,b,c) over --runs seeds (default 50)
   --trial-report     Sweep trials from contacts (#203): per-skill trial counts per run and contacts without a trial,
                      skills 30/50/70 (or --skills) over --runs runs (default 50), --profile-runs runs per profile (default 5)
@@ -38,7 +40,7 @@ function parseArgs(argv: string[]): Record<string, string | boolean | string[]> 
     const a = argv[i]!;
     if (!a.startsWith('--')) throw new Error(`unexpected argument '${a}'`);
     const key = a.slice(2);
-    if (['json', 'suite', 'alloc', 'list', 'help', 'sweep-report', 'meet-report', 'gate-report', 'lean-report', 'trial-report', 'skill-harness'].includes(key)) {
+    if (['json', 'suite', 'alloc', 'list', 'help', 'sweep-report', 'aim-report', 'meet-report', 'gate-report', 'lean-report', 'trial-report', 'skill-harness'].includes(key)) {
       out[key] = true;
       continue;
     }
@@ -99,6 +101,14 @@ export function main(argv: string[], log: (s: string) => void = console.log): nu
       log(`${r.reports.length} bot runs, ${r.wallMs.toFixed(0)} ms: ${r.ok ? 'all checks pass' : 'FAILED'}`);
     }
     return r.ok ? 0 : 1;
+  }
+
+  if (args['aim-report']) {
+    const t0 = performance.now();
+    const seeds = args.runs !== undefined ? Math.max(1, Math.floor(Number(args.runs))) : 6;
+    for (const line of aimReport(seeds)) log(line);
+    log(`(${((performance.now() - t0) / 1000).toFixed(1)} s)`);
+    return 0;
   }
 
   if (args['lean-report']) {

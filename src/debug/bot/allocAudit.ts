@@ -100,6 +100,17 @@ export function auditAllocations(opts: AuditOptions = {}): AllocAudit {
     }
   };
 
+  return profileTicks(run, warmupTicks, ticks, ceiling);
+}
+
+/**
+ * Warm `run` up for `warmupTicks`, then record every allocation V8's sampling heap profiler sees
+ * while it runs `ticks` more, and compare the bytes per tick with `ceiling`. `run(n)` advances the
+ * scenario `n` ticks; `sites` keeps the `topSites` biggest allocation sites. Shared by the free-play audit above and the enemy mind's (`mindAudit.ts`, #90).
+ */
+export function profileTicks(
+  run: (n: number) => void, warmupTicks: number, ticks: number, ceiling: number, topSites = 12,
+): AllocAudit {
   run(warmupTicks);
   const session = new Session();
   session.connect();
@@ -137,7 +148,7 @@ export function auditAllocations(opts: AuditOptions = {}): AllocAudit {
     for (const c of n.children) walk(c);
   };
   walk(profile.head);
-  const sites = [...byKey.values()].sort((a, b) => b.bytes - a.bytes).slice(0, 12);
+  const sites = [...byKey.values()].sort((a, b) => b.bytes - a.bytes).slice(0, topSites);
   const perTick = total / ticks;
   return { warmupTicks, ticks, totalBytes: total, bytesPerTick: perTick, ceilingBytesPerTick: ceiling, sites, ok: perTick <= ceiling };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cloneTunables } from '../config/tunables';
+import { cloneTunables, type Tunables } from '../config/tunables';
 import { Rng } from '../core/rng';
 import type { SectorRole } from '../config/sweep';
 import { HeadlessGame } from '../debug/bot/headless';
@@ -159,8 +159,8 @@ function leave(g: HeadlessGame, input: TickInput, state: () => SweepState, seed:
 }
 
 /** Run a seeded Sweep run headless to the start of sector `index` (leaving every earlier sector by its exit). */
-function toSector(seed: number, index: number) {
-  const g = new HeadlessGame({ seed });
+function toSector(seed: number, index: number, tun?: Tunables) {
+  const g = new HeadlessGame({ seed, tunables: tun });
   expect(g.modes.start('sweep', { seed, pick: g.modes.primary })).toBe(true);
   const input = createTickInput();
   const state = (): SweepState => g.modes.runner.state as SweepState;
@@ -204,20 +204,29 @@ describe('a meet in the sim (#212)', () => {
     }
   });
 
-  it('every shot of a meet Echo leaves from a stop: speed 0 at the shot, and it was running before it reacted', () => {
+  it('every shot of a meet Echo leaves from a stop (under its weapon\'s accuracy gate) when its moving-shot habit is off', () => {
+    // Meet Echoes are mind-driven (#90): they stop to shoot unless the profile's moving-shot habit fires,
+    // so with the habit off every shot leaves from the stop.
+    const tun = cloneTunables();
+    tun.mind.anchors.movingShotShare = [0, 0, 0, 0];
     const { seed, index } = meetSeed();
-    const { g, input } = toSector(seed, index);
+    const { g, input } = toSector(seed, index, tun);
     const speeds: number[] = [];
+    let gate = 0;
     const ids = new Set(g.world.targets.filter((t) => t.alive).map((t) => t.id));
     g.bus.on('enemyFired', (e) => {
-      if (ids.has(e.id)) speeds.push(Math.abs(g.world.targetField.byId(e.id)!.ai.vel));
+      if (!ids.has(e.id)) return;
+      const t = g.world.targetField.byId(e.id)!;
+      const def = tun.weapon[t.ai.weapon];
+      gate = def.deadzoneFraction * def.runSpeedMps;
+      speeds.push(Math.hypot(t.pos.x - t.prevPos.x, t.pos.z - t.prevPos.z) * 128);
     });
     for (let k = 0; k < 128 * 8; k++) {
       g.world.health.hp = g.world.health.maxHp; // the player is a spectator here
       g.advance(input);
     }
     expect(speeds.length).toBeGreaterThan(0);
-    for (const v of speeds) expect(v).toBe(0);
+    for (const v of speeds) expect(v).toBeLessThanOrEqual(gate);
   });
 });
 

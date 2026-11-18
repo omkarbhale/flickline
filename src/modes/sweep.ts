@@ -187,7 +187,10 @@ function ehp(ctx: ModeContext<SweepState>): number {
 function spawnEcho(ctx: ModeContext<SweepState>, c: ContactRt, e: EchoPlan): number {
   const a = ctx.axes;
   const cfg = ctx.tunables.sweep;
-  const fire = { tellSec: a.tellSec!, reactionSec: a.enemyReactionSec!, hitChance: a.enemyHitChance!, expectation: e.expectation };
+  // Mind-driven (#90): every Echo aims and shoots like a player at the run's mind skill; the dial's hit chance is a calibration target.
+  const fire = {
+    tellSec: a.tellSec!, reactionSec: a.enemyReactionSec!, hitChance: a.enemyHitChance!, expectation: e.expectation, mindSkill: ctx.mindSkill,
+  };
   // No trial per Echo: the contact's facts are classified into trials (`contactTrials.ts`).
   const common = { fire, crouched: e.crouched, card: c.plan.card, placed: true, trial: false };
   if (e.gait) {

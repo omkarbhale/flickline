@@ -2,6 +2,9 @@ import type { WeaponId } from '../config/weapon';
 import { vec3, type Vec3 } from '../core/vec3';
 import type { Expectation } from './enemyTiming';
 import type { PeekPattern } from './mapTypes';
+import { createAimState, type AimState } from './mind/aim';
+import { createMindGun, type MindGun } from './mind/gun';
+import { createMindProfile, type MindProfile } from './mind/profile';
 
 /**
  * The per-enemy state of the moving, shooting Echoes (Strafer, Peeker; design §5.2, §5.3): plain
@@ -20,7 +23,10 @@ export const FIRE_TELL = 2;
 export const FIRE_BURST = 3;
 /** Resting between bursts. */
 export const FIRE_COOL = 4;
-export type FirePhase = typeof FIRE_IDLE | typeof FIRE_WAIT | typeof FIRE_TELL | typeof FIRE_BURST | typeof FIRE_COOL;
+/** A mind-driven Echo after its first burst: aiming, and shooting again whenever its rules allow (no new tell). */
+export const FIRE_AIM = 5;
+export type FirePhase =
+  | typeof FIRE_IDLE | typeof FIRE_WAIT | typeof FIRE_TELL | typeof FIRE_BURST | typeof FIRE_COOL | typeof FIRE_AIM;
 
 /** The dial's numbers for one Strafer (`DialAxes.strafeSpeed`, `strafeLegSec`, `standStillSec`). */
 export interface StrafeParams {
@@ -67,6 +73,13 @@ export interface FireParams {
   expectation?: Expectation;
   /** Override the weapon (default: the world's enemy weapon). */
   weapon?: WeaponId;
+  /**
+   * Mind skill 0-100 (#88): present = the enemy mind aims and shoots like a player of that level
+   * (`sim/mind/duel.ts`, #90): its reaction, aim and shots come from the profile, and `reactionSec`
+   * and `hitChance` are unused (the hit chance is a calibration target, design §5.3). Absent = the
+   * dial's rolled shots.
+   */
+  mindSkill?: number;
 }
 
 export interface EnemyAi {
@@ -135,9 +148,37 @@ export interface EnemyAi {
   lastShotTick: number;
   /** The tell gate: the movement says a tell may start now. */
   gate: boolean;
+
+  // ---- the enemy mind's aim and shots (#90; `sim/mind/duel.ts`) ---------------------------------
+  /** Driven by the mind: aimed shots from a simulated crosshair instead of the dial's hit roll. */
+  mind: boolean;
+  /** The movement commits to a fight here (last `fireStep`): a Strafer always, a Peeker on a wide peek. */
+  committed: boolean;
+  /** This enemy's profile (mind skill and personality), its view and its gun. Preallocated per slot. */
+  profile: MindProfile;
+  aim: AimState;
+  gun: MindGun;
+  /** The expectation this contact was classified as (the spawn's, downgraded when the player appears off-attention). */
+  contactExpectation: Expectation;
+  /** The reaction drawn for this contact, seconds (before rounding to ticks; F8's "reaction drawn"). */
+  reactionDrawSec: number;
+  /** Earliest tick of the first shot of this contact: the tell floor for a surprised enemy, the aim start for a prepared one. */
+  fireFloorTick: number;
+  /** First tick of the current stop under the weapon's accuracy gate, -1 while moving. */
+  gateTick: number;
+  /** The drawn shot-after-gate delay (ticks) and moving-shot habit of the current shooting opportunity. */
+  shotDelayTicks: number;
+  movingHabit: boolean;
+  /** This contact's primary may fire during its final approach (the profile's swipe habit). */
+  swipe: boolean;
+  /** No new burst before this tick (rest after a burst or a tap). */
+  restEndTick: number;
+  /** Sim time (s) the next bullet of the burst may leave (fractional, so the fire rate is exact). */
+  nextShotTime: number;
 }
 
-export function createEnemyAi(): EnemyAi {
+/** `historyTicks`: how many observations the mind's aim keeps (`mind.aim.historyTicks`). */
+export function createEnemyAi(historyTicks = 64): EnemyAi {
   return {
     axis: vec3(1, 0, 0), laneOrigin: vec3(), laneLen: 0, s: 0, vel: 0, dir: 1, speed: 0, legSec: 0, standSec: 0, brakeFrom: 0, travel: false,
     pattern: 'shoulder', hold: vec3(), out: vec3(), u: 0, uTarget: 0, step: 0, stepHoldTicks: 0, wideSec: 0, wideDrawSec: 0,
@@ -145,6 +186,9 @@ export function createEnemyAi(): EnemyAi {
     fireOn: false, initiator: false, expectation: 'attending', weapon: 'kestrel', tellSec: 0, reactionSec: 0, hitChance: 0,
     phase: FIRE_IDLE, contactTick: -1, readyTick: 0, tellTicks: 0, tellStartTick: -1, tellEndTick: -1, burstLeft: 0,
     burstsLeft: 0, nextShotTick: 0, coolEndTick: 0, lastShotTick: -1, gate: false,
+    mind: false, committed: false, profile: createMindProfile(), aim: createAimState(historyTicks), gun: createMindGun(),
+    contactExpectation: 'attending', reactionDrawSec: 0, fireFloorTick: 0, gateTick: -1, shotDelayTicks: 0, movingHabit: false, swipe: false,
+    restEndTick: 0, nextShotTime: 0,
   };
 }
 
@@ -162,4 +206,7 @@ export function resetEnemyAi(a: EnemyAi): void {
   a.tellSec = 0; a.reactionSec = 0; a.hitChance = 0;
   a.phase = FIRE_IDLE; a.contactTick = -1; a.readyTick = 0; a.tellTicks = 0; a.tellStartTick = -1; a.tellEndTick = -1;
   a.burstLeft = 0; a.burstsLeft = 0; a.nextShotTick = 0; a.coolEndTick = 0; a.lastShotTick = -1; a.gate = false;
+  // The profile, view and gun are rebuilt by `mindInit` when the spawn asks for a mind.
+  a.mind = false; a.committed = false; a.contactExpectation = 'attending'; a.reactionDrawSec = 0; a.fireFloorTick = 0; a.gateTick = -1; a.shotDelayTicks = 0;
+  a.movingHabit = false; a.swipe = false; a.restEndTick = 0; a.nextShotTime = 0;
 }

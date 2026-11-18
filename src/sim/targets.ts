@@ -9,6 +9,7 @@ import { createAimInfo, measureAim, yawOf, type AimInfo } from './aim';
 import { lineBlockedRay } from './collision';
 import { createEnemyAi, resetEnemyAi, type FireParams, type PeekParams, type StrafeParams } from './enemyAi';
 import { fireInit } from './enemyFire';
+import { mindFireStep } from './mind/duel';
 import { BEHAVIOURS } from './enemies';
 import { peekInit } from './peeker';
 import { strafeInit } from './strafer';
@@ -124,7 +125,7 @@ export interface SpawnOptions {
   fire?: FireParams;
 }
 
-function createSlot(): TargetState {
+function createSlot(historyTicks: number): TargetState {
   return {
     id: -1,
     kind: 'beacon',
@@ -149,7 +150,7 @@ function createSlot(): TargetState {
     swayTarget: 0,
     fsm: createFsm(),
     streams: new EnemyStreams(),
-    ai: createEnemyAi(),
+    ai: createEnemyAi(historyTicks),
     visibleTick: -1,
     firstShotTick: -1,
     reactionShotTick: -1,
@@ -200,7 +201,7 @@ export class TargetField {
   private readonly losRay: Ray = createRay();
 
   constructor(readonly tunables: Tunables) {
-    for (let i = 0; i < tunables.targets.maxTargets; i++) this.slots.push(createSlot());
+    for (let i = 0; i < tunables.targets.maxTargets; i++) this.slots.push(createSlot(tunables.mind.aim.historyTicks));
   }
 
   /** Remove every target and forget the level's spawn points. */
@@ -347,6 +348,8 @@ export class TargetField {
         continue;
       }
       fsmStep(BEHAVIOURS[tt.kinds[t.kind].behaviour], t, ctx);
+      // The mind aims and shoots every tick, after its body moved (a state change skips the FSM's update).
+      if (t.alive && t.ai.mind) mindFireStep(t, ctx);
     }
     for (let i = 0; i < this.spawners.length; i++) {
       const sp = this.spawners[i]!;
@@ -639,6 +642,7 @@ export class TargetField {
       if (t.kind === 'strafer' || t.kind === 'peeker') {
         const a = t.ai;
         mix(a.s); mix(a.vel); mix(a.u); mix(a.phase); mix(a.burstLeft); mix(t.crouched ? 1 : 0);
+        if (a.mind) { mix(a.aim.yaw); mix(a.aim.pitch); mix(a.aim.phase); mix(a.gun.sprayCount); }
       }
     }
     for (let i = 0; i < this.spawners.length; i++) mix(this.spawners[i]!.respawnTick);
