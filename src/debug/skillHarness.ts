@@ -244,7 +244,10 @@ export interface HarnessRow {
   maxSectorStep: number;
 }
 
-/** Runs before the session (placement and settling), and runs in a 30-minute session (six sectors with holds and the Finale, ~14 contacts, five to nine minutes a run, design §4.1). */
+/**
+ * Runs before the session (placement and settling), and the runs of a 30-minute session: about 110 fights at the fight pace of
+ * design §2.2, here as eight full runs (six sectors with holds and the Finale, ~14 contacts, two to four minutes each, design §4.1).
+ */
 export const SETTLE_RUNS = 3;
 export const SESSION_RUNS = 8;
 

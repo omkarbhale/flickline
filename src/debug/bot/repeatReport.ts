@@ -1,3 +1,4 @@
+import { fightPace } from '../../config/fightPace';
 import { cloneTunables } from '../../config/tunables';
 import { nextSeed, pickFix, shotSplit } from '../../feedback/results';
 import { LeanKeeper, leanView, weakestCards, type CardRecord } from '../../modes/lean';
@@ -11,7 +12,8 @@ import { playMode } from './play';
  * card plays them: the next seed is `nextSeed` of the last (`app/game.ts` `playAgain`), the skill model carries over,
  * and every run takes the lean the last results card set plus the player's weakest cards, as `app/game.ts` `leanFor`
  * does. What comes back is how often the route repeats (a sector, a sector-and-card pair, a whole route), how long
- * runs last, and how many reach and clear the Finale.
+ * runs last, how many reach and clear the Finale, and how long a full run takes to the Finale's exit and how many fights
+ * it holds (design §4.1, #274: the bot's time is a floor for a person's).
  *
  * A bot does not get bored and does not learn, so these numbers say what the game *deals*, not what a person feels.
  * The day's first run is not a cold opener here (no clock): it changes only the Opener's dial, not its sector or card.
@@ -49,6 +51,9 @@ export interface RepeatRunFacts {
   sectors: number;
   reached: number;
   finaleCleared: boolean;
+  /** Live seconds when the player walked out of the Finale, and fights fought by then; 0 when the Finale was not cleared. */
+  finaleSec: number;
+  finaleFights: number;
   overtimeSectors: number;
   fights: number;
   score: number;
@@ -84,7 +89,10 @@ export function repeatChain(
     if (e.index >= e.of) f.overtimeSectors = e.index - e.of + 1;
   });
   g.bus.on('sectorEnded', (e) => {
-    if (f && e.reason === 'exit' && e.index === f.sectors - 1) f.finaleCleared = true;
+    if (!f || e.reason !== 'exit' || e.index !== f.sectors - 1) return;
+    f.finaleCleared = true;
+    f.finaleSec = e.t;
+    f.finaleFights = f.fights;
   });
   g.bus.on('contactSettled', (e) => {
     if (!f || !e.card) return;
@@ -100,7 +108,7 @@ export function repeatChain(
   let seed = firstSeed;
   for (let i = 0; i < runs; i++) {
     const lean = keeper.fresh(weakestCards(recordOf, t.lean, t.sweep));
-    f = { seed, route: [], pairs: [], lean: lean.slice(), endReason: null, liveSec: 0, sectors: 0, reached: 0, finaleCleared: false, overtimeSectors: 0, fights: 0, score: 0 };
+    f = { seed, route: [], pairs: [], lean: lean.slice(), endReason: null, liveSec: 0, sectors: 0, reached: 0, finaleCleared: false, finaleSec: 0, finaleFights: 0, overtimeSectors: 0, fights: 0, score: 0 };
     const r = playMode(g, { mode: 'sweep', skill, seed, gatePolicy: gate, overtimePolicy: overtime, lean, sweepHumanPace: humanPace });
     f.endReason = r.stats.endReason;
     f.liveSec = r.stats.liveSec;
@@ -138,8 +146,12 @@ export interface RepeatRow {
   lengthP90: number;
   lengthMin: number;
   lengthMax: number;
-  /** Median live seconds of the runs that cleared the Finale (design §4.1: a full run takes five to nine minutes); 0 when none did. */
+  /**
+   * Of the runs that cleared the Finale: the median live seconds to its exit (Overtime not counted; design §4.1, #274: a full run
+   * takes two to four minutes, `fightPace.finaleClearSec`) and the median fights fought by then. 0 when none cleared it.
+   */
   clearedLengthP50: number;
+  clearedFightsP50: number;
   /** Share of runs that entered, and that cleared, the Finale; runs that went into Overtime. */
   finaleReached: number;
   finaleCleared: number;
@@ -167,6 +179,7 @@ export function repeatRow(skill: number, chains: readonly RepeatRunFacts[][]): R
   let distinctPairs = 0, distinctSectors = 0;
   const lengths: number[] = [];
   const clearedLengths: number[] = [];
+  const clearedFights: number[] = [];
   let reached = 0, cleared = 0, overtime = 0, leaned = 0, fights = 0;
   for (const chain of chains) {
     const seenPairs = new Set<string>();
@@ -180,7 +193,8 @@ export function repeatRow(skill: number, chains: readonly RepeatRunFacts[][]): R
       if (r.reached >= r.sectors && r.sectors > 0) reached++;
       if (r.finaleCleared) {
         cleared++;
-        clearedLengths.push(r.liveSec);
+        clearedLengths.push(r.finaleSec);
+        clearedFights.push(r.finaleFights);
       }
       if (r.overtimeSectors > 0) overtime++;
       if (r.lean.length > 0) leaned++;
@@ -212,6 +226,7 @@ export function repeatRow(skill: number, chains: readonly RepeatRunFacts[][]): R
   }
   lengths.sort((a, b) => a - b);
   clearedLengths.sort((a, b) => a - b);
+  clearedFights.sort((a, b) => a - b);
   const n = runsN || 1, nc = chains.length || 1, nl = laterN || 1;
   return {
     skill, players: chains.length, runsPerPlayer: chains[0]?.length ?? 0,
@@ -227,6 +242,7 @@ export function repeatRow(skill: number, chains: readonly RepeatRunFacts[][]): R
     lengthP10: quantile(lengths, 0.1), lengthP50: quantile(lengths, 0.5), lengthP90: quantile(lengths, 0.9),
     lengthMin: lengths[0] ?? 0, lengthMax: lengths[lengths.length - 1] ?? 0,
     clearedLengthP50: quantile(clearedLengths, 0.5),
+    clearedFightsP50: quantile(clearedFights, 0.5),
     finaleReached: reached / n,
     finaleCleared: cleared / n,
     overtimeShare: overtime / n,
@@ -251,8 +267,8 @@ export function repeatReport(o: RepeatOptions = REPEAT_DEFAULTS): { rows: Repeat
   return { rows, chains };
 }
 
-/** The report as two Markdown tables (variety, then length and depth). */
-export function formatRepeatReport(rows: readonly RepeatRow[]): string[] {
+/** The report as two Markdown tables (variety, then length and depth; `target` is the full run's live-seconds band, design §4.1). */
+export function formatRepeatReport(rows: readonly RepeatRow[], target: readonly [number, number] = fightPace.finaleClearSec): string[] {
   const pct = (v: number): string => `${(v * 100).toFixed(0)} %`;
   const out = [
     '| Bot skill | Players × runs | Pairs met / run | Pair also in the run before | Pair met earlier in the chain | New pairs, runs 20+ | Distinct pairs / chain | Distinct sectors / chain | Sector also in the run before | Route repeats an earlier run | First 3 sectors repeat |',
@@ -265,12 +281,12 @@ export function formatRepeatReport(rows: readonly RepeatRow[]): string[] {
   }
   out.push(
     '',
-    '| Bot skill | Run length, live s: p10 / median / p90 (min–max) | Median length of runs that cleared the Finale | Reached the Finale | Cleared the Finale | Went into Overtime | Fights / run | Runs that leaned |',
-    '|---|---|---|---|---|---|---|---|',
+    `| Bot skill | Run length, live s: p10 / median / p90 (min–max) | Runs that cleared the Finale: live s to its exit, median (target ${target[0]}–${target[1]}) | … and fights by then | Reached the Finale | Cleared the Finale | Went into Overtime | Fights / run | Runs that leaned |`,
+    '|---|---|---|---|---|---|---|---|---|',
   );
   for (const r of rows) {
     out.push(
-      `| ${r.skill} | ${r.lengthP10.toFixed(0)} / ${r.lengthP50.toFixed(0)} / ${r.lengthP90.toFixed(0)} (${r.lengthMin.toFixed(0)}–${r.lengthMax.toFixed(0)}) | ${r.clearedLengthP50.toFixed(0)} s | ${pct(r.finaleReached)} | ${pct(r.finaleCleared)} | ${pct(r.overtimeShare)} | ${r.fightsPerRun.toFixed(1)} | ${pct(r.leanedShare)} |`,
+      `| ${r.skill} | ${r.lengthP10.toFixed(0)} / ${r.lengthP50.toFixed(0)} / ${r.lengthP90.toFixed(0)} (${r.lengthMin.toFixed(0)}–${r.lengthMax.toFixed(0)}) | ${r.clearedLengthP50.toFixed(0)} s | ${r.clearedFightsP50.toFixed(0)} | ${pct(r.finaleReached)} | ${pct(r.finaleCleared)} | ${pct(r.overtimeShare)} | ${r.fightsPerRun.toFixed(1)} | ${pct(r.leanedShare)} |`,
     );
   }
   return out;

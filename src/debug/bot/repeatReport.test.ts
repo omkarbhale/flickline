@@ -5,7 +5,7 @@ import { formatRepeatReport, repeatChain, repeatRow, type RepeatRunFacts } from 
 /** A run of the given route and pairs (the rest is filler). */
 function run(route: string[], pairs: string[], over: Partial<RepeatRunFacts> = {}): RepeatRunFacts {
   return {
-    seed: 1, route, pairs, lean: [], endReason: 'death', liveSec: 60, sectors: 6, reached: route.length, finaleCleared: false, overtimeSectors: 0,
+    seed: 1, route, pairs, lean: [], endReason: 'death', liveSec: 60, sectors: 6, reached: route.length, finaleCleared: false, finaleSec: 0, finaleFights: 0, overtimeSectors: 0,
     fights: pairs.length, score: 0, ...over,
   };
 }
@@ -15,7 +15,7 @@ describe('the repeat report (bot harness, #214)', () => {
     const chain = [
       run(['a', 'b', 'c'], ['a x', 'b y']),
       run(['a', 'd', 'e'], ['a x', 'd z']),
-      run(['a', 'b', 'c'], ['b y', 'e w'], { reached: 6, finaleCleared: true, liveSec: 150 }),
+      run(['a', 'b', 'c'], ['b y', 'e w'], { reached: 7, finaleCleared: true, finaleSec: 130, finaleFights: 13, liveSec: 170, overtimeSectors: 1 }),
     ];
     const r = repeatRow(50, [chain]);
     expect(r.pairsPerRun).toBe(2);
@@ -29,7 +29,8 @@ describe('the repeat report (bot harness, #214)', () => {
     expect(r.distinctSectors).toBe(5);
     expect(r.finaleReached).toBeCloseTo(1 / 3);
     expect(r.finaleCleared).toBeCloseTo(1 / 3);
-    expect(r.clearedLengthP50).toBe(150);
+    expect(r.clearedLengthP50).toBe(130); // to the Finale's exit: the Overtime sector after it is not the full run (#274)
+    expect(r.clearedFightsP50).toBe(13);
     expect(r.pairNewFrom20).toBe(0); // no run 20 in a chain of three
   });
 
@@ -45,6 +46,7 @@ describe('the repeat report (bot harness, #214)', () => {
     const t = formatRepeatReport([repeatRow(50, [a])]);
     expect(t).toHaveLength(7);
     expect(t[2]).toMatch(/^\| 50 \| 1 × 3 \|/);
+    expect(t[4]).toContain('(target 120–240)');
   });
 
   it('walks at the scripted human pace when asked (the closer estimate of a person\'s run length)', () => {

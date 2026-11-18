@@ -276,6 +276,11 @@ export class ProgressStore {
     this.journalWriter.sector(index);
   }
 
+  /** The player walked out of the Finale `liveSec` seconds after the run went live: how long a full run took (#274). */
+  journalFinale(liveSec: number): void {
+    this.journalWriter.finale(liveSec);
+  }
+
   /** The run ended after `liveSec` seconds live, with its fight pace (#248). */
   journalEnded(nowMs: number, liveSec: number, reason: RunEndReason, pace?: RunPace): void {
     this.journalWriter.ended(nowMs, liveSec, reason, pace);
