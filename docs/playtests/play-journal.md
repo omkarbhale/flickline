@@ -28,9 +28,10 @@ It prints a markdown table, one row per tester and a pooled row, for the playtes
 | restarted straight after | R1 | Finished runs whose next run was readied within 10 s of the results card ("pulled back in"). |
 | restarted after a death, left after a death | R6 | Deaths followed by another run within 10 s, and sessions that ended with the player leaving after a death. |
 | median run s | R1 | Median seconds a run was live. |
+| fights / live min, longest dead air | fight pace (#248) | The median run's fights per live minute and the pooled rate (all fights over all live minutes), and the median run's longest stretch inside a sector with no Echo seen, heard or shooting, with the runs over 15 s. Targets (design §2.2): at least 4 a minute at the median run, no dead air over 15 s. Runs saved before #248 carry neither and are left out. |
 | days played, day 3, day 7 | R7 | Return without being asked. `yes`: played exactly 3 (or 7) days after the first day; `later`: only after it; `no`: not by the export; `n/a`: that day had not come yet when the export was made, so it is not yet testable. |
 
-R2 to R5 need other evidence (door choices against state, "did this run feel different?", the bot harness); the journal does not cover them.
+R2 to R5 need other evidence (door choices against state, "did this run feel different?", the bot harness); the journal does not cover them. Ask each tester after each run, beside the journal: "Did this run have enough fighting?" (1–5, and "where was it slow?"); the journal's fight rate is what that answer is read against (design §14.7).
 
 ## What it can and cannot say
 
