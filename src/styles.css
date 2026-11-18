@@ -283,3 +283,6 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .hint-line.hint-show-b { animation: hint-b var(--hint-ms) ease-out forwards; }
 @keyframes hint { 0% { opacity: 0; } 8% { opacity: 1; } 78% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes hint-b { 0% { opacity: 0; } 8% { opacity: 1; } 78% { opacity: 1; } 100% { opacity: 0; } }
+
+/* Callout stand-in (engagement-information 4.2): a soft glow on the screen edge towards the called direction. Drawn only while it shows; see hud/calloutGlow.ts. */
+.callout-glow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; display: block; }

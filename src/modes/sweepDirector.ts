@@ -47,6 +47,8 @@ export interface SectorSpot {
 /** One sector of a map, with what the director needs to place Echoes in it. */
 export interface SectorSource {
   readonly mapId: string;
+  /** How far running steps carry on this sector's map, metres (`MapDef.hearing` over the shared table); absent: the table's. */
+  readonly footstepM?: number;
   readonly id: string;
   readonly roles: readonly string[];
   /** The sector's approach lanes (arrivals walk them in; followers come by them), each with its width. */

@@ -147,6 +147,7 @@ export class SettingsPanel {
       f.toggleRow('cleanRun', 'One clean run per session', 'A run with no coaching cues, like the reference game, as a benchmark.'),
       f.toggleRow('missGhost', 'Miss ghost', 'After a miss, a faint ring where the nearest target’s head was.'),
       f.toggleRow('damageNumbers', 'Damage numbers'),
+      f.toggleRow('calloutStandIn', 'Callouts', 'A rare chirp and a soft glow on the screen edge, a second after you enter a sector, pointing roughly (within 45°) towards where its enemies wait. It stands in for a teammate\'s call and never marks a spot. Turn off to find them by sight and sound alone.'),
       f.selectRow('flinchStrength', 'Hit flinch', [
         { value: '0', label: 'Off' },
         { value: '0.5', label: 'Half' },

@@ -71,6 +71,8 @@ export interface Settings {
   missGhost: boolean;
   /** Floating damage numbers on hits. */
   damageNumbers: boolean;
+  /** The callout stand-in: a rare, coarse chirp and edge glow towards a take sector's Echoes (design §4.4, #99). Off removes it entirely. */
+  calloutStandIn: boolean;
   /** Disables screen pulses and chromatic effects (design §13.3). */
   reduceFlashing: boolean;
   /** A 50 ms red/blue split on kills (design section 11 "optional chromatic"). Needs the High preset; Reduce flashing overrides it. */
@@ -115,6 +117,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cleanRun: true,
   missGhost: true,
   damageNumbers: true,
+  calloutStandIn: true,
   reduceFlashing: false,
   chromaticPulse: false,
   flinchStrength: 1,
@@ -200,6 +203,7 @@ export function sanitizeSettings(raw: unknown): Settings {
   out.cleanRun = bool(r.cleanRun, out.cleanRun);
   out.missGhost = bool(r.missGhost, out.missGhost);
   out.damageNumbers = bool(r.damageNumbers, out.damageNumbers);
+  out.calloutStandIn = bool(r.calloutStandIn, out.calloutStandIn);
   out.reduceFlashing = bool(r.reduceFlashing, out.reduceFlashing);
   out.chromaticPulse = bool(r.chromaticPulse, out.chromaticPulse);
   out.flinchStrength = num(r.flinchStrength, 0, 2, out.flinchStrength);

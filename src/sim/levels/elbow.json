@@ -154,5 +154,6 @@
     {"kind":"line","a":[3.5,0,-4.1],"b":[5.5,0,-4.1],"width":0.12}
   ],
   "look": {"sky":"#161c28","fog":[30,80],"palette":"elbow"},
-  "lint": {"maxSightline":32}
+  "lint": {"maxSightline":32},
+  "hearing": {"footstep":16,"landing":16}
 }
