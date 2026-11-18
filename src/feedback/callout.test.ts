@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { callout as cfg } from '../config/callout';
+import { SCENARIO_CARDS_DATA } from '../config/scenario';
 import { Rng } from '../core/rng';
 import { RAD2DEG } from '../core/math';
 import { CalloutTimer, planCallout, type CalloutInput } from './callout';
@@ -75,6 +76,19 @@ describe('the callout stand-in (engagement-information §4.2, #99)', () => {
     const p = planCallout(new Rng(1), { ...cfg, chance: 2, maxErrorDeg: 0 }, base({ echoes: [{ x: -10, z: -10 }, { x: 10, z: -10 }] }))!;
     expect(p.dirX).toBeCloseTo(0, 9);
     expect(p.dirZ).toBeCloseTo(-1, 9);
+  });
+});
+
+describe('which cards (engagement-information §3: playerInfo area)', () => {
+  it('every card that gets a callout is one the player knows only by area, and the player takes it', () => {
+    for (const id of cfg.cards) {
+      const card = SCENARIO_CARDS_DATA.find((c) => c.id === id)!;
+      expect(card.playerInfo, id).toBe('area');
+      expect(card.role, id).toBe('take');
+    }
+    // The area take cards are all covered: nothing that qualifies is left out by accident.
+    const areaTakes = SCENARIO_CARDS_DATA.filter((c) => c.playerInfo === 'area' && c.role === 'take').map((c) => c.id).sort();
+    expect([...cfg.cards].sort()).toEqual(areaTakes);
   });
 });
 
