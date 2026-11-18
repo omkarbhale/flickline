@@ -26,7 +26,7 @@ export type ContactOutcome = 'cleared' | 'disengaged' | 'avoided' | 'died';
 /** The payloads the story reads: the subset of design §14.3 it needs, typed structurally. */
 export interface StoryEvents {
   runReady: { mode: string; seed: number; dial: number };
-  sectorEntered: { sectorId: string; index: number; of?: number; role: string; condition?: string; stake?: string; dial?: number };
+  sectorEntered: { sectorId: string; index: number; opener?: boolean; of?: number; role: string; condition?: string; stake?: string; dial?: number };
   sectorEnded: { sectorId: string; cleared: boolean; keptSector?: number; tempo?: boolean; points?: number; reason?: string };
   contactSettled: { contactId: number; outcome: ContactOutcome; kept: number; points: number; card?: string };
   playerDamaged: { hp: number; shield: number };
@@ -116,6 +116,10 @@ export function storyConfigFrom(player: PlayerTunables, routeSectors: number, ma
 }
 
 interface MutableTile extends SectorTile {
+  /** The tile is the placing Opener's: its contact sectors are folded into it (`enter`). */
+  opener: boolean;
+  /** Sector ends seen so far (an Opener tile ends once per contact sector). */
+  stages: number;
   shots: number;
   misses: number;
   movingShots: number;
@@ -200,6 +204,15 @@ export class RunStoryTracker {
 
   private enter(e: StoryEvents['sectorEntered']): void {
     if (e.of !== undefined && e.of > 0) this.total = e.of;
+    // A placing Opener's contact sectors (design §9.2) are all index 0: to the route, the depth and the Overtime
+    // count they are one sector, the Opener (design §8.5; the HUD and `SweepState` count it once).
+    const open = this.current;
+    if (e.opener === true && open !== null && open.opener) {
+      open.sectorId = e.sectorId; // `exit` matches the stage that ends
+      open.ended = false;
+      open.fell = false;
+      return;
+    }
     // The previous sector's exit may not have been reported (the run director can chain entries):
     // close it at the HP the player walked out with.
     if (this.current && !this.current.ended) this.current.hpOut = this.hp;
@@ -226,6 +239,8 @@ export class RunStoryTracker {
       flawless: false,
       overtime: n > this.cfg.routeSectors,
       points: 0,
+      opener: e.opener === true,
+      stages: 0,
       shots: 0,
       misses: 0,
       movingShots: 0,
@@ -237,11 +252,13 @@ export class RunStoryTracker {
   private exit(e: StoryEvents['sectorEnded']): void {
     const t = this.current;
     if (!t || t.sectorId !== e.sectorId) return;
+    // A folded Opener's stages end one after the other: it is cleared when every stage was, and its points add up.
     t.ended = true;
     t.fell = e.reason === 'death';
-    t.cleared = e.cleared;
+    t.cleared = e.cleared && (t.stages === 0 || t.cleared);
     t.hpOut = this.hp;
-    t.points = e.points ?? 0;
+    t.points += e.points ?? 0;
+    t.stages++;
   }
 
   private settle(e: StoryEvents['contactSettled']): void {

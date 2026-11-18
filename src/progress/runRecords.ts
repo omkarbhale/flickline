@@ -26,6 +26,8 @@ import type { BandRecords, ContactRecord, ProgressData, RouteTile, RunBest } fro
 export interface SectorEnteredFact {
   /** 0-based position in the run, as `sectorEntered` carries it; the strip prints it 1-based. */
   index: number;
+  /** One of a new profile's placing Opener's contact sectors (all index 0): to the records they are one sector. */
+  opener?: boolean;
   role: string;
   condition: string;
   stake: string;
@@ -73,6 +75,9 @@ export class RunRecorder {
   /** The tile of the sector being played (or just ended: it stays open for a late medal until the next sector or the end). */
   private open: RouteTile | null = null;
   private openEnded = false;
+  /** The open tile is the placing Opener's and has been ended `openStages` times so far (its contact sectors are folded into it). */
+  private openOpener = false;
+  private openStages = 0;
 
   /**
    * `health` reads the player's health plus shield now (the strip prints it at each sector's entry and exit);
@@ -90,6 +95,8 @@ export class RunRecorder {
     this.contacts = [];
     this.open = null;
     this.openEnded = false;
+    this.openOpener = false;
+    this.openStages = 0;
   }
 
   /** The run's score is `total` (every `scoreAwarded` carries the running total). */
@@ -107,7 +114,16 @@ export class RunRecorder {
   }
 
   sectorEntered(e: SectorEnteredFact): void {
+    // The placing Opener's contact sectors are one sector of the run (design §8.5, §9.2): the tile and the pace
+    // entry of the stage before are taken back and the next stage carries on in them.
+    if (e.opener === true && this.open !== null && this.openOpener) {
+      if (this.openEnded) this.pace.pop();
+      this.openEnded = false;
+      return;
+    }
     this.closeOpen();
+    this.openOpener = e.opener === true;
+    this.openStages = 0;
     this.open = {
       index: e.index + 1, role: e.role, condition: e.condition, stake: e.stake,
       won: 0, lost: 0, hpIn: Math.round(this.health()), hpOut: 0, cleared: false, flawless: false,
@@ -118,7 +134,8 @@ export class RunRecorder {
   sectorEnded(e: SectorEndedFact): void {
     const t = this.open;
     if (t === null || this.openEnded) return;
-    t.cleared = e.cleared;
+    t.cleared = e.cleared && (this.openStages === 0 || t.cleared);
+    this.openStages++;
     t.hpOut = Math.round(this.health());
     this.openEnded = true;
     this.pace.push(Math.round(this.total));
