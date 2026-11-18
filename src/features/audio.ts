@@ -1,8 +1,9 @@
 import { defineFeature } from '../app/feature';
 import type { PlayLogEntry, PlayOptions, SoundSetStats } from '../audio/audioEngine';
+import { attachCalloutSfx } from '../audio/calloutSfx';
 import { attachDamageAudio } from '../audio/damageAudio';
 import { attachEnemySfx } from '../audio/enemySfx';
-import { EnemyFootsteps } from '../audio/enemyFootsteps';
+import { attachEnemyHearing } from '../audio/enemyHearing';
 import { attachSfx } from '../audio/sfx';
 import { movingCueShown, tellStrength } from '../feedback/cueGate';
 import { attachUiSounds } from '../audio/uiSounds';
@@ -49,6 +50,14 @@ export const feature = defineFeature({
     attachDamageAudio(game.bus, game.audio);
     const world = game.world;
     const enemy = game.tunables.audio.enemy;
+    attachCalloutSfx(game.bus, game.audio, {
+      playerEye(out) {
+        const p = world.player;
+        out.x = p.pos.x;
+        out.y = p.pos.y + p.eyeHeight;
+        out.z = p.pos.z;
+      },
+    }, game.tunables.callout);
     attachEnemySfx(game.bus, game.audio, {
       enemyVoice(id, out) {
         const t = world.targetField.byId(id);
@@ -68,9 +77,8 @@ export const feature = defineFeature({
       // The added tell tone fades as the dial rises (design 7.4); the true cues (footsteps, the shot) are separate.
       tellStrength(game.feedbackOptions, game.tunables.cues, game.tunables.dial, game.modes.runner.dial),
     );
-    const steps = new EnemyFootsteps(game.audio, enemy, world.targets.length);
-    game.onTick(() => steps.tick(world.targets, world.player.pos.x, world.player.pos.z));
-    game.onReset(() => steps.reset());
+    // Steps, landings and reloads come from the sim with their radius already applied (`audibleToPlayer`).
+    attachEnemyHearing(game.bus, game.audio, enemy);
     game.addDebug({
       playCue(cue, opts) {
         game.audio.play(cue, opts);

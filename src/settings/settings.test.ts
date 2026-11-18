@@ -109,6 +109,14 @@ describe('hud settings', () => {
   });
 });
 
+describe('callout stand-in switch (#99)', () => {
+  it('is on by default, can be turned off, and ignores junk', () => {
+    expect(DEFAULT_SETTINGS.calloutStandIn).toBe(true);
+    expect(sanitizeSettings({ calloutStandIn: false }).calloutStandIn).toBe(false);
+    expect(sanitizeSettings({ calloutStandIn: 'no' }).calloutStandIn).toBe(true);
+  });
+});
+
 describe('settings menu fields (design §13.3)', () => {
   it('defaults', () => {
     expect(DEFAULT_SETTINGS).toMatchObject({

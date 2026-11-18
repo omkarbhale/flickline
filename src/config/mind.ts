@@ -11,8 +11,8 @@
  *
  * Where a number already has one home it is not copied here: the reaction and tell floors are
  * `dial.floors` (#17, #127), the shift for an expecting enemy and the orientation cost are
- * `expectation` (#127), and how far a sound carries is `attribution.soundRadiusM` (#99), scaled by
- * `hearing.radiusScale` (1 = the enemy hears the player exactly as far as the player hears it).
+ * `expectation` (#127), and how far a sound carries is `attribution.soundRadiusM` (#99): the one table, with no
+ * enemy-side scale, so the enemy hears the player exactly as far as the player hears it.
  */
 
 /** The four anchor positions of the mind skill (§5.4 column heads). Ascending, first 0, last 100. */
@@ -119,11 +119,6 @@ export interface MindTunables {
     /** Decision points are drawn per enemy from a lognormal with this median and CV (§5.2), so groups never decide on one tick. */
     decisionIntervalMedianSec: number;
     decisionIntervalCv: number;
-  };
-
-  hearing: {
-    /** Multiplies `attribution.soundRadiusM` per sound kind; 1 = symmetric with the player's hearing. */
-    radiusScale: { footstep: number; landing: number; reload: number; shot: number };
   };
 
   /** Not looking robotic (§5.7). */
@@ -238,7 +233,6 @@ export const mind: MindTunables = {
     decisionIntervalCv: 0.3,
   },
 
-  hearing: { radiusScale: { footstep: 1, landing: 1, reload: 1, shot: 1 } },
 
   variety: { peekPatternMaxRun: 2, repeekDelayMinDifference: 0.1 },
 };

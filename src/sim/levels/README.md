@@ -22,6 +22,7 @@ Vectors are `[x, y, z]` metres, +Y up, yaw 0 looks down -Z. Unknown properties a
 | `marks` | optional floor markings (`tick`, `major`, `line`) drawn flat on the floor; never collide |
 | `look` | `{sky: "#rrggbb", fog: [near, far], palette}`; the renderer picks the box palette by name |
 | `lint` | optional per-map `{overlapTolerance, maxSightline}` |
+| `hearing` | optional per-map sound radii `{footstep, landing, reload, shot}` in metres, each laid over the shared table `attribution.soundRadiusM` (#99). One value per kind, read by the player's hearing and by every enemy's alike. Chosen so a runner is heard 1-2 s before it can be seen on the main approach (the `approach` lines of the lint report) |
 
 ## Elevation (stairs, ledges, ramps)
 
@@ -33,7 +34,7 @@ Stairs are plain boxes: **stack** one box per step (each from the top of the pre
 
 ## Lint checks (errors fail CI, warnings are printed)
 
-`bounds` (everything inside), `buried` (spawn, anchors, nav nodes, checkpoints not inside geometry), `nav-connected` and `nav-edge` (one connected graph, every edge walkable by the player hull over stairs and ramps, no ledge or drop taller than a step), `ramp-slope` and `ramp-ends` (a ramp is walkable and both its ends meet a floor; the top end is a warning), `raised-reach` (every raised or sunken post, gate, peek, lane end, nav node and checkpoint can be reached on foot from the spawn: a flood fill with the player's step rules), `checkpoint-reach`, `peek-los` (a peek's `out` position sees the checkpoint it serves), `overlap` (boxes overlap by at most 5 cm), `spray` (stated distance is real and the post is visible from the stand), `sightline` (per-map maximum), and the warning `visible-from-spawn` for posts and strafe lanes. It also prints the sightline report (longest line of sight, per-node maxima, histogram).
+`bounds` (everything inside), `buried` (spawn, anchors, nav nodes, checkpoints not inside geometry), `nav-connected` and `nav-edge` (one connected graph, every edge walkable by the player hull over stairs and ramps, no ledge or drop taller than a step), `ramp-slope` and `ramp-ends` (a ramp is walkable and both its ends meet a floor; the top end is a warning), `raised-reach` (every raised or sunken post, gate, peek, lane end, nav node and checkpoint can be reached on foot from the spawn: a flood fill with the player's step rules), `checkpoint-reach`, `peek-los` (a peek's `out` position sees the checkpoint it serves), `overlap` (boxes overlap by at most 5 cm), `spray` (stated distance is real and the post is visible from the stand), `sightline` (per-map maximum), and the warning `visible-from-spawn` for posts and strafe lanes. It also prints the sightline report (longest line of sight, per-node maxima, histogram) and the **approach report** (#99): for each sector's approach lane, a runner coming along the nav graph and the lane is walked at run speed; the report gives where it is first seen from the sector entry, how long before that its steps are first heard at the map's footstep radius, and a radius that would put it inside `attribution.warning` (1-2 s). The main approach (a hold-capable sector's lane with the longest unseen run-in, preferring one a radius can tune) warns (`heard-before-seen`) outside the window.
 
 ## Range
 
