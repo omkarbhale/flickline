@@ -231,7 +231,10 @@ export function mindFireStep(t: TargetState, ctx: BehaviourContext, bodyStep: bo
   if (Math.sqrt(vx * vx + vz * vz) > def.deadzoneFraction * def.runSpeedMps) a.gateTick = -1;
   else if (a.gateTick < 0) a.gateTick = tick;
 
-  const sees = seesPlayer(t, ctx);
+  // An arrival (hold sectors, `arrival.ts`) never opens a contact before the player has seen or heard
+  // it (design §9.3): until then it looks, but it has not "seen" him for the fight.
+  const hidden = a.honest && t.visibleTick < 0 && a.audibleTick < 0;
+  const sees = !hidden && seesPlayer(t, ctx);
   if (!sees && a.phase !== FIRE_IDLE) mindFireReset(t);
   fillAimInput(t, ctx, sees);
   aimStep(a.aim, aimIn, a.profile, t.streams.aim, tun.mind);
