@@ -10,8 +10,9 @@ import { elbowMap } from '../mapLoader';
 import { createTickInput, type BoxDef, type LevelDef, type SimEvents, type TargetState } from '../types';
 import { World } from '../world';
 import {
-  chooseRepeekWay, decisionProfile, drawLeg, drawRepeekDelay, MIND_DISENGAGE, MIND_STATE_NAMES, mindBehaviour, planTo,
+  chooseRepeekWay, decisionProfile, drawLeg, drawRepeekDelay, MIND_DISENGAGE, MIND_STATE_NAMES, mindBehaviour,
 } from './decision';
+import { planTo } from './move';
 import { createMindProfile, profileFor } from './profile';
 import { REPEEK_SAME, type MindParams } from './state';
 
@@ -74,6 +75,22 @@ describe('the mind decision FSM (#91): states and transitions of research §5.2'
     const onWatch = yaws.filter((y) => Math.abs(y) * RAD2DEG < 12).length / yaws.length;
     expect(onWatch).toBeGreaterThan(0.6);
     expect(s.t.mind.perceiver!.sector.active).toBe(true);
+  });
+
+  it('off-angle holds (§2.2): about the profile\'s share of holders stand off the common spot at m = 100, none at m = 0', () => {
+    const share = (skill: number): { moved: number; want: number } => {
+      let moved = 0, want = 0;
+      const n = 60;
+      for (let seed = 1; seed <= n; seed++) {
+        const s = setup({ skill, seed, player: [0, 40], echo: [0, 0], mind: { watch: vec3(0, 0, -12) } });
+        want += s.t.mind.profile.offAngleHold / n;
+        if (Math.hypot(s.t.mind.hold.x, s.t.mind.hold.z) > 1) moved++;
+      }
+      return { moved: moved / n, want };
+    };
+    const top = share(100);
+    expect(Math.abs(top.moved - top.want)).toBeLessThan(0.15);
+    expect(share(0).moved).toBe(0);
   });
 
   it('spawn emits enemyStateChanged hold (from null)', () => {
