@@ -99,7 +99,7 @@ export class CalloutGlow {
     edgePoint(this.pt, arcScreenAngle(this.dirX, this.dirZ, 0, liveYaw), this.w, this.h, 0.04);
     const r = Math.min(this.w, this.h) * 0.5 * (this.widthRad / (Math.PI / 2));
     const g = ctx.createRadialGradient(this.pt[0], this.pt[1], 0, this.pt[0], this.pt[1], r);
-    g.addColorStop(0, this.styles[Math.round(Math.max(0, Math.min(1, a * 0.55)) * 32)]!);
+    g.addColorStop(0, this.styles[Math.round(Math.max(0, Math.min(1, a * 0.4)) * 32)]!);
     g.addColorStop(1, this.styles[0]!);
     ctx.clearRect(0, 0, this.w, this.h);
     ctx.fillStyle = g;

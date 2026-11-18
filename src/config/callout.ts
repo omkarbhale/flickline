@@ -34,7 +34,7 @@ export const callout: CalloutTunables = {
   delaySec: [0.6, 1.2],
   maxErrorDeg: 45,
   glowSec: 1.8,
-  glowWidthDeg: 90,
+  glowWidthDeg: 70,
   chirpDistanceM: 2.5,
 };
 
