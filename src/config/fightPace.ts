@@ -14,6 +14,14 @@ export interface FightPaceTunables {
   maxDeadAirSec: number;
   /** Target: the longest gate, from entering it to entering the sector behind the chosen door, seconds (HYPOTHESIS). */
   maxGateSec: number;
+  /**
+   * Target: live seconds from `live` to the Finale's exit for a run that clears it, as [low, high] (design §4.1, #274). A full
+   * run is its contacts at the fight pace above: the Opener, four drawn sectors and the Finale's five hold about 13 fights,
+   * which at 4–7 a live minute, with gates and the walk between fights, is two to four minutes. HYPOTHESIS until testers'
+   * journals measure it (`npm run journal`); the bot's time (`npm run bot -- --repeat-report`) is a floor for a person's.
+   * Fewer fights a minute is never how a run gets longer (`targetFightsPerMin`).
+   */
+  finaleClearSec: readonly [number, number];
   /** How often the measurement looks for an Echo in sight or a running Echo within earshot, seconds. */
   sampleSec: number;
 }
@@ -22,6 +30,7 @@ export const fightPace: FightPaceTunables = {
   targetFightsPerMin: 4,
   maxDeadAirSec: 15,
   maxGateSec: 5,
+  finaleClearSec: [120, 240],
   sampleSec: 0.125,
 };
 

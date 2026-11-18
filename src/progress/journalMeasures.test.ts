@@ -179,6 +179,31 @@ describe('fight pace in the journal (#248)', () => {
     expect(reportMarkdown([{ name: 'a', journal: j, asOfDay: '2026-03-02' }])).toContain('| 4 / 4.7 | 13 (1/2 (50%)) |');
   });
 
+  it('a run that cleared the Finale keeps the seconds live at its exit (#274); the measures read the median of those runs', () => {
+    const j = emptyJournal();
+    const w = new JournalWriter(j, cfg);
+    const t0 = at('2026-03-02');
+    w.ready(t0);
+    w.started(t0 + 3000);
+    w.finale(150.4);
+    w.ended(t0 + 203_000, 200, 'left'); // pushed into Overtime after the Finale, then left: the full run is still 150 s
+    play(w, t0 + 210_000, 40, 'death'); // died before the Finale: nothing carried over from the run before
+    w.ready(t0 + 260_000);
+    w.started(t0 + 263_000);
+    w.finale(130);
+    w.ended(t0 + 400_000, 137, 'death');
+    w.finale(90); // after the run: ignored
+    expect(j.runs.map((r) => r.finale)).toEqual([150, undefined, 130]);
+    const m = journalMeasures(j);
+    expect(m.finaleClear).toEqual({ median: 140, runs: 2 });
+    expect(journalMeasures(tester()).finaleClear).toEqual({ median: null, runs: 0 });
+    const md = reportMarkdown([{ name: 'a', journal: j, asOfDay: '2026-03-02' }]);
+    expect(md).toContain('| 140 (2) |');
+    expect(md).toContain('the target is 120–240 s');
+    const back = readJournalExport(buildJournalExport(j, at('2026-03-02')));
+    expect(back.ok && back.journal.runs.map((r) => r.finale)).toEqual([150, undefined, 130]);
+  });
+
   it('a journal without paced runs measures none, and the saved fields survive the sanitiser', () => {
     expect(journalMeasures(tester()).fightsPerMin).toEqual({ median: null, pooled: null, runs: 0 });
     const j = emptyJournal();

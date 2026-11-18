@@ -18,7 +18,8 @@ import type { RunEndReason } from '../sim/runEvents';
  * - A **run** keeps its start, seconds live, depth (the deepest sector entered), how it ended and `pulled`: whether the
  *   next run was readied within `pulledWithinSec` of its results card ("pulled back in", the voluntary restart). It also
  *   keeps its fight pace (#248, design §2.2): the fights it had and its longest dead air, so the playtest records the fight
- *   rate of real runs (runs saved before #248 have neither).
+ *   rate of real runs (runs saved before #248 have neither), and, when the run cleared the Finale, the seconds live at the
+ *   Finale's exit (#274, design §4.1: how long a full run takes; runs saved before #274 have none).
  * - A **day** is a local calendar date with play on it, and `since`: the days since the previous played day (null on
  *   the first), which is "the player came back". `firstDay` is kept apart so day-3 and day-7 return stay measurable after
  *   the window (`keepDays`) has moved on.
@@ -54,6 +55,8 @@ export interface JournalRun {
   /** Contacts fought (cleared, died, disengaged) and the longest dead air inside a sector, whole seconds (#248); absent on runs saved before them. */
   fights?: number;
   deadAir?: number;
+  /** Whole seconds live when the player walked out of the Finale (#274); absent when the run did not clear it, and on runs saved before #274. */
+  finale?: number;
 }
 
 /** A finished run's fight pace, as the journal keeps it (`feedback/fightPace.ts` measures it). */
@@ -137,6 +140,7 @@ export function sanitizeJournal(raw: unknown, cfg: JournalTunables): PlayJournal
       };
       if (typeof r.fights === 'number' && Number.isFinite(r.fights)) run.fights = int(r.fights, 0, MAX_FIGHTS, 0);
       if (typeof r.deadAir === 'number' && Number.isFinite(r.deadAir)) run.deadAir = int(r.deadAir, 0, MAX_SEC, 0);
+      if (typeof r.finale === 'number' && Number.isFinite(r.finale)) run.finale = int(r.finale, 0, run.sec, 0);
       out.runs.push(run);
     }
   }
@@ -188,6 +192,8 @@ export class JournalWriter {
   private live = false;
   private liveAtMs = 0;
   private depth = 0;
+  /** Seconds live at the Finale's exit, or -1 while the run has not cleared it. */
+  private finaleSec = -1;
   /** The run whose results card is up, and when it came up (ms): the next run readied within the window pulls it. */
   private card: JournalRun | null = null;
   private cardMs = 0;
@@ -203,6 +209,7 @@ export class JournalWriter {
     this.card = null;
     this.live = false;
     this.depth = 0; // the first sector may be entered while the run is still `ready`: count from here, not from `started`
+    this.finaleSec = -1;
   }
 
   /** The run went live. */
@@ -217,6 +224,11 @@ export class JournalWriter {
   /** A sector was entered (`index` is 0-based). */
   sector(index: number): void {
     this.depth = Math.max(this.depth, Math.min(this.cfg.maxDepth, index + 1));
+  }
+
+  /** The player walked out of the Finale `liveSec` seconds after the run went live (#274). */
+  finale(liveSec: number): void {
+    if (this.live) this.finaleSec = liveSec;
   }
 
   /**
@@ -235,6 +247,7 @@ export class JournalWriter {
       run.fights = int(pace.fights, 0, MAX_FIGHTS, 0);
       run.deadAir = int(Math.round(pace.deadAirSec), 0, MAX_SEC, 0);
     }
+    if (this.finaleSec >= 0) run.finale = int(Math.round(this.finaleSec), 0, run.sec, 0);
     this.journal.runs.push(run);
     if (this.journal.runs.length > this.cfg.maxRuns) this.journal.runs.splice(0, this.journal.runs.length - this.cfg.maxRuns);
     if (reason === 'quit') {

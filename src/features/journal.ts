@@ -21,7 +21,7 @@ declare module '../debug/hook' {
 
 /**
  * Feeds the run's events to the play journal (`progress/journal.ts`, #251): `runReady`, `runStarted`, `sectorEntered` (the
- * run's depth) and `runEnded` with the run's fight pace (#248: its own `FightPace`, subscribed before the journal's `runEnded`
+ * run's depth), `sectorEnded` (the Finale's exit: how long a full run took, #274) and `runEnded` with the run's fight pace (#248: its own `FightPace`, subscribed before the journal's `runEnded`
  * so it has closed the run when the journal reads it; the overlay's tracker is a tools feature and the two never share state),
  * for run modes only (Sweep and its Daily Route; a fixture mode is not play the player chose).
  * Nothing is sent anywhere and nothing reads the journal to change play: it is a record the player owns and exports.
@@ -35,6 +35,7 @@ export const feature = defineFeature({
   setup(game) {
     const store = game.progress;
     const cfg = game.tunables.progress;
+    const finale = game.tunables.sweep.finaleSector - 1;
     const now = (): number => game.now();
     let counting = false;
     const pace = new FightPace(game.bus, game.world, game.tunables);
@@ -53,6 +54,9 @@ export const feature = defineFeature({
     });
     game.bus.on('sectorEntered', (e) => {
       if (counting) store.journalSector(e.index);
+    });
+    game.bus.on('sectorEnded', (e) => {
+      if (counting && e.reason === 'exit' && e.index === finale) store.journalFinale(e.t);
     });
     game.bus.on('runEnded', (e) => {
       if (!counting) return;

@@ -49,6 +49,8 @@ export interface JournalMeasures {
    */
   fightsPerMin: { median: number | null; pooled: number | null; runs: number };
   deadAir: { median: number | null; over: Share };
+  /** How long a full run takes (#274, design §4.1): the median seconds live to the Finale's exit over the runs that cleared it (since #274), and how many did. */
+  finaleClear: { median: number | null; runs: number };
   /** R7: first and latest played day, days played, and the return on day 3 and day 7. */
   firstDay: string | null;
   lastDay: string | null;
@@ -87,6 +89,7 @@ export function journalMeasures(j: PlayJournal, asOfDay?: string, overSec = 15):
   const paced = j.runs.filter((r) => r.fights !== undefined && r.sec >= 1);
   const paceSec = paced.reduce((a, r) => a + r.sec, 0);
   const aired = paced.filter((r) => r.deadAir !== undefined);
+  const finales = j.runs.filter((r) => r.finale !== undefined).map((r) => r.finale!);
   return {
     sessions: played.length,
     runs: j.runs.length,
@@ -104,6 +107,7 @@ export function journalMeasures(j: PlayJournal, asOfDay?: string, overSec = 15):
       runs: paced.length,
     },
     deadAir: { median: median(aired.map((r) => r.deadAir!)), over: { n: aired.filter((r) => r.deadAir! > overSec).length, of: aired.length } },
+    finaleClear: { median: median(finales), runs: finales.length },
     firstDay: j.firstDay,
     lastDay,
     daysPlayed: j.days.length,
