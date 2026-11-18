@@ -5,13 +5,13 @@ The first pass that judges Flickline against vision principle 10: **do people re
 | Track | Verdict | In one line |
 |---|---|---|
 | Numbers | **PASS** (implemented rows) | The conformance suite has no unexplained deviation. This pass added no new mechanic to measure. |
-| Feel | **Not scored in this pass** | The pass was agent-only and judged the replay loop. Nothing it touched changes recoil, movement, sounds or hit response. The standing verdict on #62 stands. |
+| Feel | **Not scored in this pass** | The pass was agent-only and judged the replay loop. Nothing it touched changes recoil, movement, sounds or hit response. The open feel findings on #62 (rolled Echo shots, rare slow-on-hit) stand. |
 | Fun | **Repeat enjoyment: NOT YET TESTABLE.** Agent baseline: **3 defects** that would hurt replay | No person has played Sweep yet. The bot and the browser show thin run-to-run variety, runs far shorter than designed, a first results card that reports a false Overtime loss, and Shield doors offered at full shield. |
-| Transfer | **R5 not supported** (known, #257); no new harmful habit found in the replay loop | The cold opener's error is ±10.7 dial points against R5's ±6. |
+| Transfer | **R5 not supported** (known, #257); the replay loop adds no new harmful habit | The cold opener's error is ±10.7 dial points against R5's ±6. |
 
 | Hypothesis | Status | One line |
 |---|---|---|
-| R1 run length brings players back | **Not yet testable** | The journal pipeline works end to end. The bot finds runs a third to a half of the designed length (#269). |
+| R1 run length brings players back | **Not yet testable** | The journal pipeline works end to end. The bot finds runs a third to a half of the designed length (#274). |
 | R2 route choice is a real decision | **Not yet testable** (bot side: supported, with a defect) | Reading the door facts now pays +1,678 ± 789 points over always-Hot. But 76% of Shield doors are offered at full shield. |
 | R3 systemic variety keeps run 20 fresh | **Not yet testable** (baseline recorded) | From run 20 on, 99% of the sector-and-card pairs a run deals were already dealt in that chain. Per the scope note, not judged until #247 and #36 land. |
 | R4 the lean practises without feeling like a drill | **Not yet testable** (bot side: exposure supported) | +16% fights in the leaned situations (#210). Whether people notice it is a human question. |
@@ -50,7 +50,7 @@ What the tables say:
 - **The catalog is five sectors.** Over 450 runs the director dealt Elbow's door, hub and west take sectors, Elbow's hold corner and Lane's meet corridor. Lane's take sector (`lane-take-far`) is in the catalog but was never dealt, because it cannot hide an Echo from its entry (#230). Every chain met all five sectors.
 - **Run 20 is not fresh in what it deals.** A chain meets about 18 distinct sector-and-card pairs over 50 runs. From run 20 on, 99% of the pairs in a run were already met earlier in the same chain, and 37–40% were in the run just before. Nearly three quarters of a run's sectors were also in the previous run, and one route in ten replays an earlier route exactly. What differs from run to run is the order, the doors and the Echo placements, not the situations. With Echoes that differ only in timers (#247), that is thin.
 - **Cards met, over all runs:** hold 1,249, trade 603, take-expected 334, meet 280, take-unaware 237, flank 206, clear 175, crossfire 60. Hold sectors now deal most of the contacts.
-- **Runs are short.** The median run lasts a minute. A run that clears the Finale lasts about 2 min 20 s at bot pace, against design §4.1's "five to nine minutes". The bot walks straight and does not clear angles, so people will be slower, but probably not two to four times slower (#269).
+- **Runs are short.** The median run lasts a minute. A run that clears the Finale lasts about 2 min 20 s at bot pace, against design §4.1's "five to nine minutes". The bot walks straight and does not clear angles, so people will be slower, but probably not two to four times slower (#274).
 - **Depth is near the design's target for reaching the Finale, below it for clearing it.** 40–44% of runs reach the Finale (target: about half) and 11–15% clear it (target: about a quarter). The bot uses no cover and never backs off, so these are floors (#53).
 - **Death ends 96% of runs** (430 of 450). The rest left through an Overtime gate.
 - **Fights per live minute: 5.3–5.7**, the number #248 asks to measure.
@@ -76,7 +76,7 @@ On the four-sector run of #205, always-Hot out-scored reading the gate by 1,200�
 | Play from a new profile starts a run with the placing Opener | **Pass** | Run readied at once on seed 2067543410; the Opener played four contact legs on Elbow before the first gate. |
 | Gate doors show role, sightline, heard and stake, true to the plan | **Pass** | `sweep.gate()` facts match the doors drawn (`gate-shield-at-full.png`). |
 | Arms door swaps the primary | **Pass** | Through the HOLD · ARMS RILL door the player held the Rill. |
-| Results card after the first run | **Fail** | It counts the placing Opener's legs as seven sectors, so a death in sector 2 of 6 reads "ELIMINATED · OVERTIME 2" and "Overtime 2 · −1,808 lost" in red, though nothing was at risk (`sweep.state().overtime.banked === -1`). This is the first card a new player sees. **#268** (`results-first-run-overtime.png`). |
+| Results card after the first run | **Fail** | It counts the placing Opener's legs as seven sectors, so a death in sector 2 of 6 reads "ELIMINATED · OVERTIME 2" and "Overtime 2 · −1,808 lost" in red, though nothing was at risk (`sweep.state().overtime.banked === -1`). This is the first card a new player sees. **#273** (`results-first-run-overtime.png`). |
 | Results card's one thing to fix | **Note** | After a run cleared with the debug `killAll` the card says "No shots were fired this run" and "Play again". That is correct for the input, and an artefact of the debug kill, not a defect. |
 | **Enter** within 10 s of the results card | **Pass** | The journal marks the run `pulled: true`; the measures count 1 of 2 finished runs restarted and 1 of 2 deaths restarted. |
 | Quit mid-run (New run, pressed twice while live) | **Pass** | Recorded as `end: quit`. One press only asks, by design (§2.3). |
@@ -95,7 +95,7 @@ The agent session's journal, as `npm run journal` prints it. It is the pipeline'
 
 | # | Hypothesis | Status | Evidence | Design change the result implies |
 |---|---|---|---|---|
-| R1 | A run of six sectors (five to nine minutes) brings players back for another | **Not yet testable** | No person has played. The pipeline that will measure it (journal, export, `npm run journal`) works end to end. Bot: the median run lasts one minute, and a run that clears the Finale lasts about 2 min 20 s, so the build does not yet play the run R1 names. | Before testers report: decide whether the target is five to nine minutes or the build's length (#269). If journals then show one-run sessions, **do not shorten to four sectors** as R1's fallback says, because the run is already short. Look at fights per minute (#248) and lethality (#165) first. |
+| R1 | A run of six sectors (five to nine minutes) brings players back for another | **Not yet testable** | No person has played. The pipeline that will measure it (journal, export, `npm run journal`) works end to end. Bot: the median run lasts one minute, and a run that clears the Finale lasts about 2 min 20 s, so the build does not yet play the run R1 names. | Before testers report: decide whether the target is five to nine minutes or the build's length (#274). If journals then show one-run sessions, **do not shorten to four sectors** as R1's fallback says, because the run is already short. Look at fights per minute (#248) and lethality (#165) first. |
 | R2 | Route choice at gates is a real decision, not noise | **Not yet testable** (bot side supported, with a defect) | Reading all three door facts pays +1,678 ± 789 points and +0.5 sectors over always-Hot at skill 50, which reverses #239's four-sector result. But 76% of Shield doors appear at full shield (47% of first gates), where the choice is a stake against nothing. Testers' reasons ("why that door?") are needed. | Offer Shield only when the shield is below full (or make the Shield stake something that is worth having at full), so every door pair carries two real stakes. Comment on #239. If testers then still say "I just picked left", make the stakes larger (R2's own rule). |
 | R3 | Systemic variety is enough to keep run 20 fresh | **Not yet testable** (baseline recorded; per the scope note, not judged until #247 and #36 land) | Five sectors dealt; 18 distinct sector-and-card pairs per 50 runs; 99% of pairs from run 20 on already met; 72% of a run's sectors were in the run before. | Baseline only. It already points at the order R3 names: more sector maps first (#36, #230, #236), then Echo minds that differ in more than timers (#247). Re-run `--repeat-report` when each lands. A cheap help meanwhile: avoid dealing the last run's sectors first in a new run (the deck forgets across runs). |
 | R4 | The lean practises the one thing to fix without feeling like a drill | **Not yet testable** (bot side: exposure supported) | #210's A/B: +16% fights in the leaned cards, the same fights per run. Here, 53–65% of chained runs leaned. Whether a person notices or minds is a human question. | None yet. If testers say the next run felt "set up", lower `lean.boost` or stop naming the lean on the card (R4's rule). |
@@ -107,19 +107,19 @@ The agent session's journal, as `npm run journal` prints it. It is the pipeline'
 
 Testers play from the live link, as they like, over at least eight days, and are **not asked to come back**. The test needs a day-3 and a day-7 return that nobody prompted. At the end, each tester pastes **Settings > Data > Copy play journal** on #214. The report author saves each paste as `<name>.json` and runs `npm run journal -- *.json` (`docs/playtests/play-journal.md`).
 
-After the first session and after the last, each tester answers in a comment on #214 (`Q<n>: answer`). A word plus one sentence is enough:
+After the first session and after the last, each tester answers in a comment on #214 (`RQ<n>: answer`; RQ so the numbers clash neither with #180's Q1–Q14 nor with the hypotheses). A word plus one sentence is enough:
 
-1. **Another run?** After a run ended, did you want another? After a **death** in particular? What made you stop? (R1, R6)
-2. **Different from the last?** Did this run feel different from the one before? What was the same? (R3; "same fights again" is the signal)
-3. **Doors.** Pick one gate you remember: which door did you take, and why? Did any gate feel like it didn't matter? (R2)
-4. **Enough fighting?** Did the run have enough fighting, or too much walking? (#248)
-5. **Why did you lose?** Think of a fight you lost: did you understand why? Mechanics (your aim, your stop) or the situation (two at once, a flank)? (#110)
-6. **Set up?** Did the next run ever feel set up around your weakness? Did that feel good or like homework? (R4)
-7. **Drill?** Did anything feel like a drill or a chore? (principle 10)
-8. **Length.** Was a run too short, about right, or too long? (R1)
-9. **Coming back.** (Last session only) Did you come back on another day without being reminded? Why, or why not? (R7)
+- **RQ1. Another run?** After a run ended, did you want another? After a **death** in particular? What made you stop? (R1, R6)
+- **RQ2. Different from the last?** Did this run feel different from the one before? What was the same? (R3; "same fights again" is the signal)
+- **RQ3. Doors.** Pick one gate you remember: which door did you take, and why? Did any gate feel like it didn't matter? (R2)
+- **RQ4. Enough fighting?** Did the run have enough fighting, or too much walking? (#248)
+- **RQ5. Why did you lose?** Think of a fight you lost: did you understand why? Mechanics (your aim, your stop) or the situation (two at once, a flank)? (#110)
+- **RQ6. Set up?** Did the next run ever feel set up around your weakness? Did that feel good or like homework? (R4)
+- **RQ7. Drill?** Did anything feel like a drill or a chore? (principle 10)
+- **RQ8. Length.** Was a run too short, about right, or too long? (R1)
+- **RQ9. Coming back.** (Last session only) Did you come back on another day without being reminded? Why, or why not? (R7)
 
-Fights per minute come from the journal and the run's own numbers; the testers do not need to count anything.
+The journal does not record fights, so a person's fights per minute cannot be read from it yet: RQ4 stands in for it, and measuring it in play is #248's job.
 
 ## Four verdicts
 
@@ -129,7 +129,7 @@ Fights per minute come from the journal and the run's own numbers; the testers d
 
 ### Feel
 
-**Not scored in this pass.** The feel checklist needs a person with headphones for its `H` items, and this pass judged the replay loop, not recoil, movement or sound. Nothing it found changes a feel item. The standing verdict on #62 stands. Posted on #62.
+**Not scored in this pass.** The feel checklist needs a person with headphones for its `H` items, and this pass judged the replay loop, not recoil, movement or sound. Nothing it found changes a feel item. The open findings on #62 stand: Echo shots are rolled, not aimed (#247), and the player is hit so rarely that slow-on-hit is seldom felt (#165). Posted on #62.
 
 ### Fun
 
@@ -137,8 +137,8 @@ Fights per minute come from the journal and the run's own numbers; the testers d
 
 **Agent baseline: three defects that would hurt replay, and one thin area.**
 
-1. The first results card a new player sees reports a false Overtime loss (#268).
-2. Runs are a third to a half of the designed length, so R1 is being tested on a different run than the one it names (#269).
+1. The first results card a new player sees reports a false Overtime loss (#273).
+2. Runs are a third to a half of the designed length, so R1 is being tested on a different run than the one it names (#274).
 3. Three quarters of Shield doors are offered at full shield, so many gates are a stake against nothing (comment on #239).
 4. Thin area (not a new defect, already tracked): five sectors and about 18 situations per 50 runs. From run 20 on, nearly everything a run deals has been dealt before in the same chain (#36, #230, #236, #247).
 
@@ -146,14 +146,14 @@ What works: Play reaches a run at once; doors show true facts and now decide out
 
 ### Transfer
 
-**R5 not supported** (±10.7 against ±6; tracked by #257). The replay loop itself (Enter, doors, Overtime, the journal) adds no habit that would fail in the reference game, and no new harmful habit was found. The habit review of the run is #160's job and was not repeated here. Posted on #149.
+**R5 not supported** (±10.7 against ±6; tracked by #257). The replay loop itself (Enter, doors, Overtime, the journal) adds no new habit that would fail in the reference game. The four situations #160's preliminary review marked as likely harmful stay open. One of them, always-Hot (#239), is weaker on today's six-sector run: reading the door facts now out-scores it (R2 above). The full habit review of the run is #160's job and was not repeated here. Posted on #149.
 
 ## Defects and follow-ups
 
 | Issue | Quality | What |
 |---|---|---|
-| #268 | fun | Results card on a placing run counts the Opener's legs as sectors: "Overtime 2 · −1,808 lost" after a death in sector 2 |
-| #269 | fun | Run length: a Finale clear takes about 2 min 20 s at bot pace against design §4.1's five to nine minutes |
+| #273 | fun | Results card on a placing run counts the Opener's legs as sectors: "Overtime 2 · −1,808 lost" after a death in sector 2 |
+| #274 | fun | Run length: a Finale clear takes about 2 min 20 s at bot pace against design §4.1's five to nine minutes |
 | #239 (comment) | fun | Today's gate report (reading the facts now pays) and Shield doors at full shield |
 | #248 (comment) | fun, transfer | Fights per live minute measured: 5.3–5.7 |
 | #188 (comment) | fun | The R3 baseline, to re-run when #36 and #247 land |
