@@ -16,7 +16,9 @@ import type { RunEndReason } from '../sim/runEvents';
  *   a results card (`results`), after a death (`death`), or with a run unfinished (`midrun`). The end is the state at
  *   the last run event, so the record is right even if the tab is closed without a goodbye.
  * - A **run** keeps its start, seconds live, depth (the deepest sector entered), how it ended and `pulled`: whether the
- *   next run was readied within `pulledWithinSec` of its results card ("pulled back in", the voluntary restart).
+ *   next run was readied within `pulledWithinSec` of its results card ("pulled back in", the voluntary restart). It also
+ *   keeps its fight pace (#248, design §2.2): the fights it had and its longest dead air, so the playtest records the fight
+ *   rate of real runs (runs saved before #248 have neither).
  * - A **day** is a local calendar date with play on it, and `since`: the days since the previous played day (null on
  *   the first), which is "the player came back". `firstDay` is kept apart so day-3 and day-7 return stay measurable after
  *   the window (`keepDays`) has moved on.
@@ -49,6 +51,15 @@ export interface JournalRun {
   end: RunEndReason;
   /** The next run was readied within `pulledWithinSec` of this run's results card. */
   pulled: boolean;
+  /** Contacts fought (cleared, died, disengaged) and the longest dead air inside a sector, whole seconds (#248); absent on runs saved before them. */
+  fights?: number;
+  deadAir?: number;
+}
+
+/** A finished run's fight pace, as the journal keeps it (`feedback/fightPace.ts` measures it). */
+export interface RunPace {
+  fights: number;
+  deadAirSec: number;
 }
 
 export interface JournalDay {
@@ -90,6 +101,7 @@ function epoch(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(Math.min(MAX_EPOCH, v)) : -1;
 }
 const MAX_SEC = 86_400;
+const MAX_FIGHTS = 10_000;
 
 /**
  * Validate and clamp a journal (an older save has none: the empty one). A part with the wrong shape is dropped, not
@@ -119,10 +131,13 @@ export function sanitizeJournal(raw: unknown, cfg: JournalTunables): PlayJournal
       if (!isRec(r)) continue;
       const at = epoch(r.at);
       if (at < 0) continue;
-      out.runs.push({
+      const run: JournalRun = {
         at, sec: int(r.sec, 0, MAX_SEC, 0), depth: int(r.depth, 0, cfg.maxDepth, 0),
         end: RUN_ENDS.find((e) => e === r.end) ?? 'quit', pulled: r.pulled === true,
-      });
+      };
+      if (typeof r.fights === 'number' && Number.isFinite(r.fights)) run.fights = int(r.fights, 0, MAX_FIGHTS, 0);
+      if (typeof r.deadAir === 'number' && Number.isFinite(r.deadAir)) run.deadAir = int(r.deadAir, 0, MAX_SEC, 0);
+      out.runs.push(run);
     }
   }
 
@@ -205,10 +220,10 @@ export class JournalWriter {
   }
 
   /**
-   * The run ended after `liveSec` seconds live. A run that ended before it went live (a quit in `ready`) was never a run
-   * and is not recorded.
+   * The run ended after `liveSec` seconds live, with this fight pace (when measured). A run that ended before it went live
+   * (a quit in `ready`) was never a run and is not recorded.
    */
-  ended(nowMs: number, liveSec: number, reason: RunEndReason): void {
+  ended(nowMs: number, liveSec: number, reason: RunEndReason, pace?: RunPace): void {
     const s = this.touch(nowMs);
     this.card = null;
     if (!this.live) return;
@@ -216,6 +231,10 @@ export class JournalWriter {
     const run: JournalRun = {
       at: Math.floor(this.liveAtMs / 1000), sec: int(Math.round(liveSec), 0, MAX_SEC, 0), depth: this.depth, end: reason, pulled: false,
     };
+    if (pace) {
+      run.fights = int(pace.fights, 0, MAX_FIGHTS, 0);
+      run.deadAir = int(Math.round(pace.deadAirSec), 0, MAX_SEC, 0);
+    }
     this.journal.runs.push(run);
     if (this.journal.runs.length > this.cfg.maxRuns) this.journal.runs.splice(0, this.journal.runs.length - this.cfg.maxRuns);
     if (reason === 'quit') {
