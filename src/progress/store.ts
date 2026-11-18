@@ -4,7 +4,7 @@ import { progress as progressCfg, type ProgressTunables } from '../config/progre
 import type { SkillSnapshot } from '../adaptive/skillModel';
 import type { StorageLike } from '../settings/settings';
 import { bandOf } from './bests';
-import { JournalWriter, type PlayJournal } from './journal';
+import { JournalWriter, type PlayJournal, type RunPace } from './journal';
 import type { ColdLevelState, ColdOpenerRecord } from './coldOpeners';
 import { stepRank } from './ranks';
 import { applyRunRecord, recordContacts, situationStats, type ApplyResult, type RunRecord, type SituationStats } from './runRecords';
@@ -276,9 +276,9 @@ export class ProgressStore {
     this.journalWriter.sector(index);
   }
 
-  /** The run ended after `liveSec` seconds live. */
-  journalEnded(nowMs: number, liveSec: number, reason: RunEndReason): void {
-    this.journalWriter.ended(nowMs, liveSec, reason);
+  /** The run ended after `liveSec` seconds live, with its fight pace (#248). */
+  journalEnded(nowMs: number, liveSec: number, reason: RunEndReason, pace?: RunPace): void {
+    this.journalWriter.ended(nowMs, liveSec, reason, pace);
     this.dirty = true;
   }
 

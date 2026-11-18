@@ -2,7 +2,9 @@ import { TICK_DT } from '../core/time';
 import { arriveStep, walkReach } from './arrival';
 import { FIRE_WAIT, type EnemyAi, type StrafeParams } from './enemyAi';
 import { commandLookAt, commandMoveToward } from './enemyBody';
-import { fireBusy, fireStep, seesPlayer } from './enemyFire';
+import { fireBusy, fireStep } from './enemyFire';
+import { seesPlayer } from './enemySight';
+import { mindWantsStop } from './mind/duel';
 import {
   fsmSetTimerRange, fsmSetTimerTicks, STAY, type Behaviour, type BehaviourContext, type BehaviourState,
 } from './fsm';
@@ -84,13 +86,14 @@ function measure(t: TargetState): void {
 }
 
 /**
- * This tick's command: face the player's head (a stand-in for the aim model of #90) and hold the
+ * This tick's command: face the player's head (a mind's view is its aim model's, #90) and hold the
  * key that runs along the lane in direction `dir` (+1 / -1), or no key at all (`dir` 0).
  */
 function steer(t: TargetState, ctx: BehaviourContext, dir: number): void {
   const p = ctx.world.player;
   const b = t.body;
-  commandLookAt(b, p.pos.x, p.pos.y + p.eyeHeight, p.pos.z);
+  // A mind looks where its aim model has it (#90, `mind/duel.ts`); the dial's Echo faces the player.
+  if (!t.ai.mind) commandLookAt(b, p.pos.x, p.pos.y + p.eyeHeight, p.pos.z);
   commandMoveToward(b, t.ai.axis.x * dir, t.ai.axis.z * dir);
 }
 
@@ -194,9 +197,12 @@ const leg: BehaviourState = {
   update(t, ctx) {
     const a = t.ai;
     legGait(t, ctx);
-    fireStep(t, ctx, false);
+    // A leg commits to the fight (a mind may shoot from it by its moving-shot habit) but is no stop.
+    fireStep(t, ctx, false, true);
     // On its route it keeps moving through its reaction to the player (first sight to the tell), then brakes so the tell starts in the stop.
-    if (a.travel && a.phase === FIRE_WAIT && ctx.tick >= a.readyTick) return STRAFER_DECEL;
+    if (!a.mind && a.travel && a.phase === FIRE_WAIT && ctx.tick >= a.readyTick) return STRAFER_DECEL;
+    // A mind lets go of its key as its aim arrives, so its shot leaves from the stop (#90).
+    if (mindWantsStop(t, ctx.tick)) return STRAFER_DECEL;
     // Let go early enough to stop inside the lane.
     if (mustRelease(t, ctx)) return STRAFER_DECEL;
     steer(t, ctx, a.dir);

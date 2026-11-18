@@ -206,7 +206,7 @@ describe('an Echo\'s shots go through the player\'s weapon code (#87)', () => {
   it('a moving Echo\'s shot has exactly the moving player\'s error (same state, same draws, same command)', () => {
     /**
      * Both sides run right for `runTicks`, then fire one shot looking down -Z; returns the bullet
-     * direction. An Echo's gun draws from its own aim stream (#86): the player's shot is given the
+     * direction. An Echo's gun draws from its own decision stream (#86): the player's shot is given the
      * same numbers by starting the world's stream where that Echo's stream is.
      */
     const echoAimState = new Map<number, number>();
@@ -222,7 +222,7 @@ describe('an Echo\'s shots go through the player\'s weapon code (#87)', () => {
       cmd.pitch = 0;
       cmd.moveX = 1;
       for (let i = 0; i < runTicks; i++) s.world.step(s.input, s.bus);
-      if (side === 'echo') echoAimState.set(runTicks, s.t.streams.aim.getState());
+      if (side === 'echo') echoAimState.set(runTicks, s.t.streams.decisions.getState());
       else s.world.rng.setState(echoAimState.get(runTicks)!);
       cmd.fire = true;
       s.world.step(s.input, s.bus);

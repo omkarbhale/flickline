@@ -203,10 +203,15 @@ function sourceOf(tunables: Tunables, mapId: string, sectorId: string): SectorSo
   return sweepCatalog(tunables).find((x) => x.mapId === mapId && x.id === sectorId);
 }
 
-/** What the gate planner reads: the catalog, the tunables, how far Echoes are heard (the fights' radius) and the starting primary. */
+/** How far an Echo's running steps carry on `mapId`, metres: the shared table with that map's own radius over it. */
+function footstepRadius(tunables: Tunables, mapId: string): number {
+  return (sweepCatalog(tunables).find((x) => x.mapId === mapId)?.footstepM) ?? tunables.attribution.soundRadiusM.footstep;
+}
+
+/** What the gate planner reads: the catalog, the tunables, how far Echoes are heard (the fights' radius, per map) and the starting primary. */
 export function sweepEnv(tunables: Tunables, lean: Lean = NO_LEAN): GateEnv {
   return {
-    catalog: sweepCatalog(tunables), cfg: leanedCfg(tunables, lean), body: tunables.movement, hearM: tunables.audio.enemy.maxAudibleM, startPrimary: sweep.weapon,
+    catalog: sweepCatalog(tunables), cfg: leanedCfg(tunables, lean), body: tunables.movement, hearM: (mapId) => footstepRadius(tunables, mapId), startPrimary: sweep.weapon,
   };
 }
 
@@ -228,9 +233,12 @@ export function currentSector(st: SweepState): SectorPlan {
   return st.leg >= 0 && st.plan.cold ? st.plan.cold.sectors[st.leg]! : st.plan.sectors[st.sector]!;
 }
 
-/** A key that changes whenever the player is moved to a new sector or cold-opener leg (bots re-plan their route on it). */
+/**
+ * A key that changes whenever the player is moved to a new sector, cold-opener leg or placing-Opener stage (bots re-plan
+ * their route on it; a placing Opener's stages are all sector 0, #248).
+ */
 export function sectorKey(st: SweepState): number {
-  return st.sector * 64 + st.leg + 1;
+  return (st.sector * 64 + st.leg + 1) * 64 + st.openerStage + 1;
 }
 
 /** The sweep tunables with the run's lean applied to the card and role weights (design §4.4, #210); the same object when there is no lean. */
@@ -282,7 +290,10 @@ function spawnEcho(ctx: ModeContext<SweepState>, c: ContactRt, e: EchoPlan, cold
     ? { tellSec: p.tellSec, enemyReactionSec: p.reactionSec, enemyHitChance: p.hitChance, strafeSpeed: p.strafeSpeed, strafeLegSec: p.strafeLegSec, standStillSec: p.standStillSec, peekWideSec: p.peekWideSec }
     : ctx.axes;
   const cfg = ctx.tunables.sweep;
-  const fire = { tellSec: a.tellSec!, reactionSec: a.enemyReactionSec!, hitChance: a.enemyHitChance!, expectation: e.expectation };
+  // Mind-driven (#90): every Echo aims and shoots like a player at the run's mind skill; the dial's hit chance is a calibration target.
+  const fire = {
+    tellSec: a.tellSec!, reactionSec: a.enemyReactionSec!, hitChance: a.enemyHitChance!, expectation: e.expectation, mindSkill: ctx.mindSkill,
+  };
   const arrive = e.arrive ? { route: e.arrive.route, speed: e.arrive.speed, engageM: e.arrive.engageM } : undefined;
   // No trial per Echo: the contact's facts are classified into trials (`contactTrials.ts`). An arrival is out of the sector when
   // it spawns; the fairness floors bind it as it walks in (`sim/arrival.ts`).

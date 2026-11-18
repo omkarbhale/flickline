@@ -2,7 +2,7 @@ import { TICK_DT } from '../core/time';
 import { DEG2RAD } from '../core/math';
 import type { ArriveParams } from './enemyAi';
 import { MAX_ROUTE } from './enemyAi';
-import { seesPlayer } from './enemyFire';
+import { seesPlayer } from './enemySight';
 import { lineClear } from './exposure';
 import type { BehaviourContext } from './fsm';
 import type { BoxDef, TargetState } from './types';
@@ -40,7 +40,7 @@ export function arriveInit(t: TargetState, p: ArriveParams | undefined): boolean
   a.arriving = true;
   a.honest = true;
   a.audibleTick = -1;
-  a.audibleAccum = 0;
+  a.strideAccum = 0;
   t.pos.x = a.routeX[0]!; t.pos.y = a.routeY[0]!; t.pos.z = a.routeZ[0]!;
   t.prevPos.x = t.pos.x; t.prevPos.y = t.pos.y; t.prevPos.z = t.pos.z;
   const dx = a.routeX[1]! - a.routeX[0]!, dz = a.routeZ[1]! - a.routeZ[0]!;

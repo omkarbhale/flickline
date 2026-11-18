@@ -3,19 +3,24 @@
  * Rng owned by the World; never call Math.random() in sim code.
  */
 export class Rng {
-  private s: number;
+  /**
+   * The 32-bit state, in a typed array: a uint32 above 2^30 is not a small integer, so kept in a plain
+   * field every update would allocate a heap number (architecture §7 rule 1); a typed-array store does not.
+   */
+  private readonly st = new Uint32Array(1);
   /** Second Box–Muller output waiting to be used by the next `normal()`; valid when `hasSpare`. */
   private spare = 0;
   private hasSpare = false;
 
   constructor(seed = 1) {
-    this.s = seed >>> 0;
+    this.st[0] = seed >>> 0;
   }
 
   /** Uniform float in [0, 1). */
   next(): number {
-    this.s = (this.s + 0x6d2b79f5) >>> 0;
-    let t = this.s;
+    const s = (this.st[0]! + 0x6d2b79f5) >>> 0;
+    this.st[0] = s;
+    let t = s;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
@@ -49,12 +54,29 @@ export class Rng {
     return r * Math.cos(a);
   }
 
+  /**
+   * Write the next `n` uniforms in [0, 1) into `out[0..n)`: exactly the values `n` calls of `next()`
+   * would return. For per-tick callers: a number returned from a method V8 does not inline is a heap
+   * allocation, a store into a typed array is not (architecture §7 rule 1).
+   */
+  uniformsInto(out: Float64Array, n: number): void {
+    let s = this.st[0]!;
+    for (let i = 0; i < n; i++) {
+      s = (s + 0x6d2b79f5) >>> 0;
+      let t = s;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      out[i] = ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    }
+    this.st[0] = s;
+  }
+
   getState(): number {
-    return this.s;
+    return this.st[0]!;
   }
 
   setState(s: number): void {
-    this.s = s >>> 0;
+    this.st[0] = s >>> 0;
     this.hasSpare = false;
   }
 }

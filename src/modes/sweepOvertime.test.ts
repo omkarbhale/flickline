@@ -46,7 +46,7 @@ describe('the Overtime gate plan', () => {
       expect(ahead.index).toBe(cfg.sectors);
       expect(ahead.finale).toBe(false);
       // Honest by construction: the door's facts are the sector's own.
-      expect(gate.doors[1].facts).toEqual(doorFacts(ahead, cfg, env.hearM));
+      expect(gate.doors[1].facts).toEqual(doorFacts(ahead, cfg, env.hearM(ahead.mapId)));
       // The same seed and route give the same gate; the gate is the one an ordinary gate would draw.
       expect(planOvertimeGate(routeToFinale(seed), env)).toEqual(gate);
       expect(planGate(routeToFinale(seed), env).doors[1]).toEqual(gate.doors[1]);

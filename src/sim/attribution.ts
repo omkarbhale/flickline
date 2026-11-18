@@ -6,6 +6,7 @@ import type { EnemySoundKind } from '../config/attribution';
 import type { Tunables } from '../config/tunables';
 import { targetAimPoint, wrapPi, yawOf } from './aim';
 import { lineBlocked } from './collision';
+import { isAudible, type SoundRadii } from './hearing';
 import { initiatorOf, type FirstSightInitiator, type TargetField } from './targets';
 import type { BoxDef, PlayerState, SimEvents, TargetState } from './types';
 
@@ -90,10 +91,11 @@ export class AttributionFacts {
   private readonly sawEv: SimEvents['enemySawPlayer'] = { tick: 0, t: 0, targetId: 0, initiator: 'enemy' };
 
   constructor(
-    private readonly tunables: Tunables,
     private boxes: readonly BoxDef[],
     private readonly field: TargetField,
     private readonly player: PlayerState,
+    /** The sound radii in effect (`World.soundRadii`, filled in place): the one table both sides read. */
+    private readonly radii: Readonly<SoundRadii>,
   ) {
     this.sighted = new Int32Array(field.slots.length).fill(-1);
   }
@@ -116,10 +118,37 @@ export class AttributionFacts {
 
   /** Whether a sound of this kind at (`x`, `z`) reaches the player: within its radius, the edge included. */
   audible(kind: EnemySoundKind, x: number, z: number): boolean {
-    return this.distanceTo(x, z) <= this.tunables.attribution.soundRadiusM[kind];
+    return isAudible(this.radii, kind, this.distanceTo(x, z));
   }
 
-  /** Emit `enemyFootstep` for enemy `id` stepping at feet position (`x`, `y`, `z`). */
+  /**
+   * Enemy `t` made a sound of `kind` (a running step, a landing, a reload start) where it stands: emit the matching event stamped
+   * with `audibleToPlayer`, and return that flag. (A shot is `enemyFired`, which carries the same flag.) Takes the target, not its
+   * numbers, so the call passes no boxed double: the sim's per-tick allocation audit counts it.
+   */
+  announce(kind: EnemySoundKind, events: EventSink<SimEvents>, tick: number, t: TargetState): boolean {
+    let e: EnemySoundEvent;
+    let name: 'enemyFootstep' | 'enemyLanded' | 'enemyReloadStarted';
+    switch (kind) {
+      case 'footstep': e = this.sound.enemyFootstep; name = 'enemyFootstep'; break;
+      case 'landing': e = this.sound.enemyLanded; name = 'enemyLanded'; break;
+      case 'reload': e = this.sound.enemyReloadStarted; name = 'enemyReloadStarted'; break;
+      default: return this.audible('shot', t.pos.x, t.pos.z);
+    }
+    const p = this.player.pos;
+    const dx = t.pos.x - p.x, dz = t.pos.z - p.z;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    e.tick = tick;
+    e.t = tick * TICK_DT;
+    e.id = t.id;
+    e.pos.x = t.pos.x; e.pos.y = t.pos.y; e.pos.z = t.pos.z;
+    e.distance = d;
+    e.audibleToPlayer = d <= this.radii[kind];
+    events.emit(name, e);
+    return e.audibleToPlayer;
+  }
+
+  /** Emit `enemyFootstep` for enemy `id` stepping at feet position (`x`, `y`, `z`) (tests; the sim announces through `announce`). */
   footstep(events: EventSink<SimEvents>, tick: number, id: number, x: number, y: number, z: number): void {
     events.emit('enemyFootstep', this.fill(this.sound.enemyFootstep, 'footstep', tick, id, x, y, z));
   }
@@ -140,7 +169,7 @@ export class AttributionFacts {
     e.id = id;
     e.pos.x = x; e.pos.y = y; e.pos.z = z;
     e.distance = this.distanceTo(x, z);
-    e.audibleToPlayer = e.distance <= this.tunables.attribution.soundRadiusM[kind];
+    e.audibleToPlayer = isAudible(this.radii, kind, e.distance);
     return e;
   }
 

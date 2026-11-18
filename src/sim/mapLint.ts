@@ -1,8 +1,10 @@
 import { movement as defaultMovement, type MovementTunables } from '../config/movement';
 import { vec3, type Vec3 } from '../core/vec3';
 import { hullBlocked, hullOverlaps, restHeight, rayBox, supportBelow } from './collision';
+import { attribution as defaultAttribution, type AttributionTunables } from '../config/attribution';
 import { targets as defaultTargets, type HitTunables } from '../config/targets';
 import { holdStance, holdStandPos } from './mapQuery';
+import { approachWarnings, type ApproachWarning } from './mapHearing';
 import { walkReach } from './mapReach';
 import type { Anchor, MapDef, SectorDef, SectorRole, Stance } from './mapTypes';
 import type { BoxDef } from './types';
@@ -65,6 +67,8 @@ export interface LintReport {
   issues: LintIssue[];
   sightlines: SightlineReport;
   sectors: SectorReport[];
+  /** The warning a runner gives on each sector's approach lanes (`sim/mapHearing.ts`, #99). */
+  approaches: ApproachWarning[];
   stats: { boxes: number; anchors: number; navNodes: number; navEdges: number; checkpoints: number };
 }
 
@@ -72,6 +76,8 @@ export interface LintOptions {
   movement?: MovementTunables;
   /** Humanoid hit zones: the body points of a placed Echo that must stay hidden from a take sector's entry. */
   hit?: HitTunables;
+  /** The sound radii and the warning window the heard-before-seen report reads (default: `config/attribution.ts`). */
+  attribution?: AttributionTunables;
 }
 
 const EPS = 1e-6;
@@ -384,6 +390,17 @@ export function lintMap(map: MapDef, opts: LintOptions = {}): LintReport {
   // --- sectors ------------------------------------------------------------------------------------
   const sectorReports = lintSectors(map, mv, opts.hit ?? defaultTargets.hit, add, buried);
 
+  // --- the warning a runner gives (#99) -----------------------------------------------------------
+  const approaches = approachWarnings(map, { movement: mv, ...(opts.attribution ? { attribution: opts.attribution } : {}) });
+  const win = (opts.attribution ?? defaultAttribution).warning;
+  for (const a of approaches) {
+    if (!a.main) continue;
+    if (a.heardAtM < 0 || a.warningSec < win.minSec || a.warningSec > win.maxSec) {
+      const hint = a.suggestedFootstepM !== null ? `; a footstep radius of about ${round(a.suggestedFootstepM)} m (map \`hearing.footstep\`) would put it inside the window` : '; no radius can: the approach is seen too soon after it comes within earshot';
+      add('warning', 'heard-before-seen', `sector ${a.sectorId} lane ${a.laneId}`, `a runner on the main approach is heard ${round(a.warningSec)} s before it can be seen at the entry, outside ${win.minSec}-${win.maxSec} s (footstep radius ${round(a.footstepM)} m)${hint}`);
+    }
+  }
+
   // --- sightlines -------------------------------------------------------------------------------
   const sources = map.nav.nodes.length > 0 ? map.nav.nodes : [{ id: 'spawn', pos: map.spawn.pos }];
   const counts = new Array<number>(BIN_EDGES.length + 1).fill(0);
@@ -417,6 +434,7 @@ export function lintMap(map: MapDef, opts: LintOptions = {}): LintReport {
     mapId: map.id,
     issues,
     sectors: sectorReports,
+    approaches,
     sightlines: {
       eyeHeight: eye,
       rays: sources.length * SIGHTLINE_RAYS,
@@ -606,6 +624,10 @@ export function formatLintReport(report: LintReport): string[] {
   out.push(`  histogram: ${sl.histogram.map((b) => `${b.label}: ${b.count}`).join(' | ')}`);
   const top = [...sl.perNode].sort((a, b) => b.longest - a.longest).slice(0, 5);
   out.push(`  longest per node: ${top.map((n) => `${n.id} ${round(n.longest)} m`).join(', ')}`);
+  for (const a of report.approaches) {
+    const heard = a.seenAtM < 0 ? 'never in sight' : a.heardAtM < 0 ? 'not heard before it is seen' : `heard ${a.warningSec.toFixed(1)} s before it is seen`;
+    out.push(`  approach ${a.sectorId} / ${a.laneId}${a.main ? ' (main)' : ''}: lane ${round(a.laneM)} m, seen from the entry at ${a.seenAtM < 0 ? '-' : `${round(a.seenAtM)} m`}, ${heard} (footstep radius ${round(a.footstepM)} m${a.suggestedFootstepM !== null ? `, ${round(a.suggestedFootstepM)} m would fit the window` : ''})`);
+  }
   for (const sec of report.sectors) {
     out.push(`  sector ${sec.id} [${sec.role.join('+')}]: ${sec.holdAnchors} hold anchors, longest sightline ${round(sec.longest.length)} m from ${sec.longest.from} at bearing ${sec.longest.bearingDeg} deg`);
   }

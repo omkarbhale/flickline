@@ -1,4 +1,4 @@
-import { DIAGNOSTIC_IDS, SCENARIO_CARDS, type DiagnosticId, type LeanTunables, type ScenarioCard } from '../config/lean';
+import { DIAGNOSTIC_IDS, SCENARIO_CARDS, type DiagnosticId, type LeanTunables, type ScenarioCardId } from '../config/lean';
 import type { SweepTunables } from '../config/sweep';
 
 /**
@@ -69,7 +69,7 @@ export function leanedSweep(cfg: SweepTunables, spec: LeanSpec | null, playable:
 }
 
 /** The cards a Sweep run can deal today: a take card with weight, and the role cards (`meet`) of the roles it plays. */
-export function dealableCards(cfg: SweepTunables): ScenarioCard[] {
+export function dealableCards(cfg: SweepTunables): ScenarioCardId[] {
   return SCENARIO_CARDS.filter((c) => {
     if (cfg.cardWeight[c as keyof SweepTunables['cardWeight']] > 0) return true;
     const role = c as keyof SweepTunables['roleMix'];
@@ -81,7 +81,7 @@ export function dealableCards(cfg: SweepTunables): ScenarioCard[] {
 export interface LeanView {
   diagnostic: DiagnosticId;
   /** The cards the next run leans toward: the diagnostic's cards that the run can deal. Never empty. */
-  cards: ScenarioCard[];
+  cards: ScenarioCardId[];
   /** "Next run leans: meets in a corridor and takes against enemies who expect you, where the stop decides the fight." */
   line: string;
 }
@@ -114,9 +114,9 @@ export interface CardRecord {
  * last `window` and a win rate under `belowRate`, lowest first (ties by card order), at most `count`. `record(card,
  * window)` is the player's record: null when the card was never fought.
  */
-export function weakestCards(record: (card: string, window: number) => CardRecord | null, lean: LeanTunables, sweep: SweepTunables): ScenarioCard[] {
+export function weakestCards(record: (card: string, window: number) => CardRecord | null, lean: LeanTunables, sweep: SweepTunables): ScenarioCardId[] {
   const w = lean.weakest;
-  const rows: { card: ScenarioCard; rate: number; order: number }[] = [];
+  const rows: { card: ScenarioCardId; rate: number; order: number }[] = [];
   const dealable = dealableCards(sweep);
   SCENARIO_CARDS.forEach((card, order) => {
     if (!dealable.includes(card)) return;

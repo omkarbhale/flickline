@@ -39,8 +39,9 @@ describe('bot skill model', () => {
 
 describe('bot runs', () => {
   it('finishes a run of every mode quickly and reports plain data', () => {
+    // Seed 4: on seed 3 Sweep's first meet Echo, aiming for real since #90, wins its duel before the bot's first shot.
     for (const mode of listModes()) {
-      const r = playMode(new HeadlessGame({ seed: 3, map: mapForMode(mode) }), { mode, skill: 60, seed: 3 });
+      const r = playMode(new HeadlessGame({ seed: 4, map: mapForMode(mode) }), { mode, skill: 60, seed: 4 });
       expect(r.finished, mode).toBe(true);
       expect(r.wallMs, mode).toBeLessThan(5000);
       expect(r.stats.shots, mode).toBeGreaterThan(0);

@@ -28,8 +28,8 @@ export interface GateEnv {
   readonly catalog: readonly SectorSource[];
   readonly cfg: SweepTunables;
   readonly body: PlanBody;
-  /** How far an Echo's footsteps carry, metres (`audio.enemy.maxAudibleM`: the radius the fights use). */
-  readonly hearM: number;
+  /** How far an Echo's footsteps carry on a map, metres: the radius the fights use there (`sim/hearing.ts`: the shared table with the map's own over it). */
+  readonly hearM: (mapId: string) => number;
   /** The primary the run starts with (`ModeDef.weapon`). */
   readonly startPrimary: string;
 }
@@ -220,7 +220,7 @@ export function planGate(plan: RunPlan, env: GateEnv): GatePlan {
     const stake = drawn[d]!;
     const want = bases[d]! + (stake.stake === 'hot' ? g.hotExtraContacts : 0);
     const sector = buildSector(rng, cfg, sources[d]!, body, index, roles[d]!, wanted[d]!, condition, view.recent.slice(), want, stake, view.contacts);
-    doors.push({ door: d as 0 | 1, facts: doorFacts(sector, cfg, env.hearM), sector });
+    doors.push({ door: d as 0 | 1, facts: doorFacts(sector, cfg, env.hearM(sector.mapId)), sector });
   }
   return { index, doors: [doors[0]!, doors[1]!] };
 }

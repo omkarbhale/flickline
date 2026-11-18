@@ -1,4 +1,5 @@
 import { vec3, type Vec3 } from '../core/vec3';
+import { SOUND_KINDS, type EnemySoundKind } from '../config/attribution';
 import {
   ANCHOR_KINDS,
   MAP_SCHEMA_VERSION,
@@ -137,7 +138,7 @@ class IdSet {
 
 const TOP_KEYS = [
   'schema', 'id', 'name', 'bounds', 'spawn', 'boxes', 'targets', 'anchors', 'nav', 'lanes',
-  'checkpoints', 'sectors', 'marks', 'look', 'lint',
+  'checkpoints', 'sectors', 'marks', 'look', 'lint', 'hearing',
 ];
 
 export function parseMap(raw: unknown): ParseResult {
@@ -373,11 +374,23 @@ export function parseMap(raw: unknown): ParseResult {
     }
   }
 
+  // this map's sound radii over the shared table (#99)
+  let hearing: Partial<Record<EnemySoundKind, number>> | undefined;
+  if (root.hearing !== undefined) {
+    const ho = r.obj(root.hearing, '$.hearing');
+    if (ho) {
+      r.keys(ho, SOUND_KINDS, '$.hearing');
+      hearing = {};
+      for (const k of SOUND_KINDS) if (ho[k] !== undefined) hearing[k] = r.posNum(ho[k], `$.hearing.${k}`);
+    }
+  }
+
   if (r.errors.length > 0) return { ok: false, errors: r.errors };
   return {
     ok: true,
     map: {
       schema: MAP_SCHEMA_VERSION, id, name, bounds, spawn, boxes, targets, anchors, nav, lanes, checkpoints, sectors, marks, look, lint,
+      ...(hearing ? { hearing } : {}),
       enemyFeet: enemyFeetOf(anchors),
     },
   };
