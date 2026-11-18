@@ -3,7 +3,7 @@ import { listModes, mapForMode, playMode, type BotReport, type BotRunOptions } f
 import { BOT_PARAM_KEYS, type BotParams } from './skill';
 import { runSuite } from './suite';
 import {
-  formatGatePolicyReport, formatLeanAb, formatMeetReport, formatOvertimeReport, formatPaceReport, formatSweepReport, formatTrialReport, gatePolicyReport, leanAb,
+  formatGatePolicyReport, formatLeanAb, formatMeetReport, formatOvertimeReport, formatPaceReport, formatSightReport, formatSweepReport, formatTrialReport, gatePolicyReport, leanAb,
   meetReport, overtimeReport, paceRow, sweepReport, trialReport, type PaceRow, type Walker,
 } from './sweepReport';
 import { aimReport } from './aimCalibration';
@@ -212,6 +212,8 @@ export function main(argv: string[], log: (s: string) => void = console.log): nu
     if (args.json) log(JSON.stringify({ balance: balance[0]!.rows, pace }, null, 2));
     else {
       for (const line of formatSweepReport(balance[0]!.rows)) log(line);
+      log('');
+      for (const line of formatSightReport(balance[0]!.rows)) log(line);
       log('');
       for (const line of formatPaceReport(pace, target)) log(line);
       log(`${total} runs, ${(performance.now() - t0).toFixed(0)} ms`);

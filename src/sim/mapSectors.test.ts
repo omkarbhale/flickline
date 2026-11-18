@@ -76,9 +76,10 @@ function issues(raw: unknown): MapIssue[] {
   return r.ok ? [] : r.errors;
 }
 
+/** The sector errors of a map, not counting what a take sector must offer (`sector-bands`, tested on its own below). */
 function sectorErrors(raw: unknown, check?: string): string[] {
   return lintErrors(lintMap(load(raw)))
-    .filter((i) => i.check.startsWith('sector') && (check === undefined || i.check === check))
+    .filter((i) => i.check.startsWith('sector') && (check === undefined ? i.check !== 'sector-bands' : i.check === check))
     .map((i) => `[${i.check}] ${i.where}: ${i.message}`);
 }
 
@@ -135,7 +136,7 @@ describe('sectors in the map schema', () => {
 describe('sector lint', () => {
   it('passes the base fixture: hold anchors hidden behind the divider, exit reachable through the gap', () => {
     const report = lintMap(load(room()));
-    expect(report.issues.filter((i) => i.check.startsWith('sector'))).toEqual([]);
+    expect(report.issues.filter((i) => i.check.startsWith('sector') && i.check !== 'sector-bands')).toEqual([]);
     expect(report.sectors).toHaveLength(1);
     expect(report.sectors[0]!.holdAnchors).toBe(2);
     expect(report.sectors[0]!.longest.length).toBeGreaterThan(10);
@@ -234,22 +235,100 @@ describe('sector lint', () => {
     expect(sectorErrors(base, 'sector-approach').some((e) => e.includes('cannot be reached on foot'))).toBe(true);
   });
 
-  it('fails when two regions overlap, and lets regions that only touch, or differ in height, pass', () => {
-    const second = (min: number[], max: number[]) => ({
-      id: 'room-other', role: ['meet'], region: { min, max }, entry: [5, 0, 5], exit: [5, 0, 6], holdAnchors: ['hold-seen'],
+  it('lets regions overlap: a map is a venue and a sector a route through it', () => {
+    const raw = edited((m) => {
+      m.sectors.push({ id: 'room-other', role: ['meet'], region: { min: [-10, 0, -10], max: [10, 4, 10] }, entry: [5, 0, 5], exit: [5, 0, 6], holdAnchors: ['hold-seen'] });
     });
-    const overlapping = edited((m) => {
-      m.sectors[0].region = { min: [-10, 0, -10], max: [0, 4, 10] };
-      m.sectors[0].entry = [-5, 0, -5];
-      m.sectors[0].exit = [-5, 0, 5];
-      m.sectors[0].holdAnchors = ['hold-west'];
-      m.sectors.push(second([-1, 0, -10], [10, 4, 10]));
+    expect(sectorErrors(raw)).toEqual([]);
+  });
+});
+
+describe('what a take sector offers (#249)', () => {
+  const bandErrors = (raw: unknown): string[] => sectorErrors(raw, 'sector-bands');
+
+  it('reports where each hold anchor first shows to a player walking from the entry to the exit, and its band', () => {
+    const report = lintMap(load(room()));
+    const sights = report.sectors[0]!.sights;
+    expect(sights.map((x) => x.id)).toEqual(['hold-hidden', 'hold-hidden-2']);
+    // from the entry the divider hides both; the walk reaches the gap on its way to the exit
+    expect(sights[0]!.distM).toBeCloseTo(11.66, 1);
+    expect(sights[0]!.band).toBe('mid');
+    expect(sights[1]!.distM).toBeCloseTo(9.55, 1);
+    expect(sights[1]!.band).toBe('close');
+    for (const x of sights) expect(x.dy).toBe(0);
+    expect(formatLintReport(report).join('\n')).toContain('first sights: hold-hidden 11.66 m mid');
+  });
+
+  it('a take sector must offer something off the floor plane and a crouched position; a sector with no first sights is not a take', () => {
+    expect(bandErrors(room())).toEqual([
+      '[sector-bands] sector room-take: no hold anchor stands 1 m or more above or below the player where it first shows; a take sector needs one fight off the floor plane',
+      '[sector-bands] sector room-take: no hold anchor is crouched; a take sector needs a low position',
+    ]);
+    const full = edited((m) => {
+      m.boxes.push({ id: 'deck', tag: 'platform', min: [6, 0, -8], max: [8, 1.2, -6] });
+      m.boxes.push({ id: 'ramp', tag: 'ramp', min: [3, 0, -8], max: [6, 1.2, -6], ramp: { rise: '+x', lowY: 0 } });
+      m.anchors.push({ kind: 'hold', id: 'hold-up', pos: [7, 1.2, -7], yaw: 1.57 });
+      m.anchors.push({ kind: 'hold', id: 'hold-low', pos: [5, 0, -3.2], yaw: 1.57, stance: 'crouch' });
+      m.sectors[0].holdAnchors.push('hold-up', 'hold-low');
     });
-    expect(sectorErrors(overlapping, 'sector-overlap')).toHaveLength(1);
-    overlapping.sectors[1].region = { min: [0, 0, -10], max: [10, 4, 10] }; // touching at x = 0
-    expect(sectorErrors(overlapping, 'sector-overlap')).toEqual([]);
-    overlapping.sectors[1].region = { min: [-10, 4, -10], max: [10, 8, 10] }; // stacked above
-    expect(sectorErrors(overlapping, 'sector-overlap')).toEqual([]);
+    expect(bandErrors(full)).toEqual([]);
+    const sights = lintMap(load(full)).sectors[0]!.sights;
+    expect(sights.find((x) => x.id === 'hold-up')!.dy).toBeGreaterThanOrEqual(1);
+    expect(sights.find((x) => x.id === 'hold-low')!.crouched).toBe(true);
+  });
+
+  it('asks for every distance band the sector\'s own ground reaches, and no more', () => {
+    // a 17 m longest sightline cannot start a fight at 20 m: only close and mid are owed, and both are met
+    expect(bandErrors(room()).some((e) => e.includes('long band'))).toBe(false);
+    // take the close one away: the close band is owed whatever the size
+    const noClose = edited((m) => { m.sectors[0].holdAnchors = ['hold-hidden']; });
+    expect(bandErrors(noClose).some((e) => e.includes('the close band'))).toBe(true);
+    // a hall long enough for a 20 m fight, with no anchor that far, owes the long band
+    const hall = edited((m) => {
+      m.bounds = { min: [-30, 0, -10], max: [10, 4, 10] };
+      m.boxes[0] = { id: 'floor', tag: 'floor', min: [-30.5, -1, -10.5], max: [10.5, 0, 10.5] };
+      m.sectors[0].region = { min: [-30, 0, -10], max: [10, 4, 10] };
+    });
+    expect(bandErrors(hall).some((e) => e.includes('the long band'))).toBe(true);
+  });
+
+  it('a take sector needs one hold anchor that holds from cover (a body mostly hidden at its first sight)', () => {
+    const open = edited((m) => { m.sectors[0].holdAnchors = ['hold-hidden-2']; });
+    expect(bandErrors(open).some((e) => e.includes('holds from cover'))).toBe(true);
+    expect(bandErrors(room()).some((e) => e.includes('holds from cover'))).toBe(false);
+  });
+
+  it('a hold sector is asked for the arrivals its ground reaches, and one off the floor plane: each approach lane\'s first sight from the entry', () => {
+    const hold = edited((m) => {
+      m.sectors[0].role = ['hold'];
+      m.sectors[0].region = { min: [0.5, 0, -10], max: [10, 4, 10] };
+      m.sectors[0].entry = [5, 0, 8];
+      m.sectors[0].exit = [5, 0, 5];
+      m.sectors[0].holdAnchors = ['hold-hidden', 'hold-seen'];
+      m.sectors[0].approaches = ['lane-in'];
+    });
+    const sec = lintMap(load(hold)).sectors[0]!;
+    expect(sec.arrivals.map((x) => x.id)).toEqual(['lane-in']);
+    expect(sec.arrivals[0]!.distM).not.toBeNull();
+    expect(sec.arrivals[0]!.dy).toBe(0);
+    const errs = bandErrors(hold);
+    expect(errs.some((e) => e.includes('no approach lane brings an arrival 1 m or more above or below'))).toBe(true);
+    expect(errs.every((e) => !e.includes('anchor'))).toBe(true);
+    expect(formatLintReport(lintMap(load(hold))).join('\n')).toContain('arrivals first seen: lane-in');
+    // a take sector reports no arrivals, a hold sector no anchor sights
+    expect(lintMap(load(room())).sectors[0]!.arrivals).toEqual([]);
+    expect(sec.sights).toEqual([]);
+  });
+
+  it('warns about an anchor the walk never shows (an Echo there is met only by leaving the route)', () => {
+    const raw = edited((m) => {
+      m.anchors.push({ kind: 'hold', id: 'hold-pen', pos: [8, 0, -8], yaw: 0 });
+      m.sectors[0].holdAnchors.push('hold-pen');
+    });
+    const warn = lintMap(load(raw)).issues.filter((i) => i.severity === 'warning' && i.check === 'sector-bands');
+    expect(warn).toHaveLength(1);
+    expect(warn[0]!.message).toContain('hold-pen');
+    expect(lintMap(load(raw)).sectors[0]!.sights.find((x) => x.id === 'hold-pen')!.distM).toBeNull();
   });
 });
 
@@ -264,10 +343,30 @@ describe('shipped maps', () => {
     for (const s of map.sectors) expect(text).toContain(`sector ${s.id}`);
   });
 
-  it('Elbow has four sectors: three that can be taken (the door and hub also hold) and three that can be held (#204)', () => {
-    expect(elbowMap.sectors).toHaveLength(4);
+  it('every take sector of the shipped maps offers fights across the distance bands its ground reaches, off the floor plane, from cover and crouched (#249)', () => {
+    for (const map of [elbowMap, laneMap]) {
+      const report = lintMap(map);
+      for (const sec of report.sectors.filter((x) => x.role.includes('take'))) {
+        const bands = new Set(sec.sights.map((x) => x.band));
+        expect(bands.has('close'), `${sec.id} close`).toBe(true);
+        if (sec.longest.length >= 10) expect(bands.has('mid'), `${sec.id} mid`).toBe(true);
+        if (sec.longest.length >= 20) expect(bands.has('long'), `${sec.id} long`).toBe(true);
+        expect(sec.sights.some((x) => x.dy !== null && Math.abs(x.dy) >= 1), `${sec.id} off the floor plane`).toBe(true);
+        expect(sec.sights.some((x) => x.crouched), `${sec.id} crouched`).toBe(true);
+        expect(sec.sights.some((x) => x.exposure !== null && x.exposure < 0.75), `${sec.id} from cover`).toBe(true);
+      }
+    }
+  });
+
+  it('Lane\'s take sector and all three of Elbow\'s have a 20 m line to start a long fight on', () => {
+    const longs = [elbowMap, laneMap].flatMap((map) => lintMap(map).sectors.filter((s) => s.role.includes('take') && s.sights.some((x) => x.band === 'long')).map((s) => s.id));
+    expect(longs.sort()).toEqual(['elbow-take-door', 'elbow-take-hub', 'elbow-take-west', 'lane-take-far']);
+  });
+
+  it('Elbow has six sectors: three to take (each a route down a long arm, #249) and three to hold (#204)', () => {
+    expect(elbowMap.sectors).toHaveLength(6);
     expect(sectorsByRole(elbowMap, 'take').map((s) => s.id).sort()).toEqual(['elbow-take-door', 'elbow-take-hub', 'elbow-take-west']);
-    expect(sectorsByRole(elbowMap, 'hold').map((s) => s.id).sort()).toEqual(['elbow-hold-corner', 'elbow-take-door', 'elbow-take-hub']);
+    expect(sectorsByRole(elbowMap, 'hold').map((s) => s.id).sort()).toEqual(['elbow-hold-corner', 'elbow-hold-door', 'elbow-hold-hub']);
     // Every sector names approach lanes: arrivals of a hold sector and followers of a take sector walk them in.
     for (const s of elbowMap.sectors) expect(s.approaches.length, s.id).toBeGreaterThanOrEqual(2);
     expect(sectorsByRole(elbowMap, 'meet')).toHaveLength(0);

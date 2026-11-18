@@ -333,7 +333,7 @@ describe('hold sectors in the sim (#204)', () => {
     }
     off();
     expect(opened).toBeGreaterThan(0);
-    expect(spawned.length).toBe(sp.contacts.reduce((n, c) => n + c.echoes.length, 0));
+    expect(spawned.length).toBe(st.contacts.reduce((n, c) => n + c.plan.echoes.length, 0));
     // A flank spawned on the clock of the win that armed it, never before.
     for (const c of st.contacts) {
       if (c.plan.after === undefined) continue;
@@ -346,7 +346,7 @@ describe('hold sectors in the sim (#204)', () => {
       }
     }
     // Every contact of the sector was won, and the exit was announced once.
-    expect(log.filter((l) => l.type === 'contactSettled' && l.e.outcome === 'cleared')).toHaveLength(sp.contacts.length);
+    expect(log.filter((l) => l.type === 'contactSettled' && l.e.outcome === 'cleared')).toHaveLength(st.contacts.length);
     expect(log.filter((l) => l.type === 'sectorExitOpened' && l.e.index === sector)).toHaveLength(1);
     // And it leads on, with the sector cleared.
     g.world.placePlayer(sp.exit.x, sp.exit.y, sp.exit.z, 0);

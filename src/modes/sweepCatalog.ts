@@ -1,10 +1,13 @@
 import type { Vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
 import { bodyTop, lineClear } from '../sim/exposure';
-import type { BoxDef } from '../sim/types';
+import { rayBox } from '../sim/collision';
 import { holdAnchorsOf, holdStance, holdStandPos } from '../sim/mapQuery';
+import { bodyShows, firstSeenFrom, firstSight, navRoute, routePoints, type FirstSeen, type FirstSight } from '../sim/mapSight';
 import type { MapDef, SectorDef } from '../sim/mapTypes';
 import type { ApproachLane, SectorSource, SectorSpot } from './sweepDirector';
+
+export { bodyShows, navRoute };
 
 /**
  * The sector catalog of the Sweep run director (#201): every sector of the shipped maps (#200), with
@@ -12,55 +15,48 @@ import type { ApproachLane, SectorSource, SectorSpot } from './sweepDirector';
  * against the map's own collision boxes. Pure: reads map data and tunables only.
  */
 
-/** Sample grid laid over an Echo's body for "is any part of it visible" (finer than the lint's three points). */
-const SIGHT_COLUMNS = 7;
-const SIGHT_ROWS = 8;
-/** Heights of the route's walk-line check (shins, chest). */
-const WALK_LINE_Y = [0.3, 1.2];
 /** Heights above the feet a walking body must pass at (shins, waist, chest). */
 const WALK_HEIGHTS = [0.3, 0.9, 1.3];
 
-/**
- * Whether any part of a body standing at `feet` shows from `eye`: a grid across its width from the
- * ankles up to and including the crown. (The exposure grid of `sim/exposure.ts` samples cell centres,
- * so it misses the top of the head, which is what shows first over half cover.)
- */
-export function bodyShows(boxes: readonly BoxDef[], halfWidth: number, top: number, eye: Vec3, feet: Vec3): boolean {
-  let lx = -(feet.z - eye.z), lz = feet.x - eye.x;
-  const ll = Math.hypot(lx, lz);
-  if (ll < 1e-9) { lx = 1; lz = 0; } else { lx /= ll; lz /= ll; }
-  for (let r = 0; r < SIGHT_ROWS; r++) {
-    const y = feet.y + 0.05 + ((top - 0.05) * r) / (SIGHT_ROWS - 1);
-    for (let c = 0; c < SIGHT_COLUMNS; c++) {
-      const off = ((c / (SIGHT_COLUMNS - 1)) * 2 - 1) * halfWidth;
-      if (lineClear(boxes, eye.x, eye.y, eye.z, feet.x + lx * off, y, feet.z + lz * off)) return true;
-    }
-  }
-  return false;
-}
-
-/** Rays of the entry sightline fan, and the step along each, metres. */
+/** Rays of the sightline fan, and the spacing of the walk's points it is cast from, metres. */
 const SIGHTLINE_RAYS = 72;
-const SIGHTLINE_STEP_M = 0.5;
+const SIGHTLINE_STEP_M = 2;
+
+const sightlineNormal = { x: 0, y: 0, z: 0 };
+/** Sightlines are a property of a static map: each is measured once per map, sector and eye height, whatever catalog asks. */
+const lineCache = new WeakMap<MapDef, Map<string, number>>();
 
 /**
- * The longest unobstructed horizontal line at standing eye height from a sector's entry, staying inside
- * its region (metres): what the gate calls the sector's sightline (design §4.5: long or close).
+ * The longest unobstructed horizontal line at standing eye height from any point of the walk a sector makes from its entry to
+ * its exit, staying inside its region (metres): what the gate calls the sector's sightline (design §4.5: long or close). It is
+ * measured along the walk, not from the entry alone, because a sector often opens round a corner (#249): standing at the entry
+ * you see little, and the fights it holds start a few steps on at the range this reports.
  */
-export function entrySightline(map: MapDef, sector: SectorDef, eyeHeight: number): number {
-  const e = sector.entry, r = sector.region;
-  const eyeY = e.y + eyeHeight;
+export function routeSightline(map: MapDef, sector: SectorDef, eyeHeight: number): number {
+  let cache = lineCache.get(map);
+  if (!cache) lineCache.set(map, (cache = new Map()));
+  const key = `${sector.id}|${eyeHeight}`;
+  const known = cache.get(key);
+  if (known !== undefined) return known;
+  const r = sector.region;
   let best = 0;
-  for (let k = 0; k < SIGHTLINE_RAYS; k++) {
-    const a = (k / SIGHTLINE_RAYS) * Math.PI * 2;
-    const dx = Math.sin(a), dz = Math.cos(a);
-    for (let t = SIGHTLINE_STEP_M; t <= 200; t += SIGHTLINE_STEP_M) {
-      const x = e.x + dx * t, z = e.z + dz * t;
-      if (x < r.min.x || x > r.max.x || z < r.min.z || z > r.max.z) break;
-      if (!lineClear(map.boxes, e.x, eyeY, e.z, x, eyeY, z)) break;
-      if (t > best) best = t;
+  for (const p of routePoints(map, sector.entry, sector.exit, SIGHTLINE_STEP_M)) {
+    const eyeY = p.y + eyeHeight;
+    for (let k = 0; k < SIGHTLINE_RAYS; k++) {
+      const a = (k / SIGHTLINE_RAYS) * Math.PI * 2;
+      const dx = Math.sin(a), dz = Math.cos(a);
+      // Cut the ray where it leaves the region, then at the first box it meets.
+      const tx = dx > 1e-9 ? (r.max.x - p.x) / dx : dx < -1e-9 ? (r.min.x - p.x) / dx : Infinity;
+      const tz = dz > 1e-9 ? (r.max.z - p.z) / dz : dz < -1e-9 ? (r.min.z - p.z) / dz : Infinity;
+      let len = Math.max(0, Math.min(tx, tz, 200));
+      for (let i = 0; i < map.boxes.length && len > best; i++) {
+        const t = rayBox(p.x, eyeY, p.z, dx, 0, dz, map.boxes[i]!, len, sightlineNormal);
+        if (t >= 0 && t < len) len = t;
+      }
+      if (len > best) best = len;
     }
   }
+  cache.set(key, best);
   return best;
 }
 
@@ -69,25 +65,93 @@ export function yawTowards(a: Vec3, b: Vec3): number {
   return Math.atan2(-(b.x - a.x), -(b.z - a.z));
 }
 
+const quantum = (v: number): number => Math.round(v * 100);
+const q = quantum;
+
+/**
+ * What a sector's visibility and walkability answers depend on is the map and a few numbers (the body, the hull), not the
+ * run: the answers are kept per map and those numbers, so every catalog built over the same map (one per run of the bot, one
+ * per test) shares them. Keys quantise positions to a centimetre.
+ */
+const geometryCache = new WeakMap<MapDef, Map<string, { vis: Map<string, boolean>; walk: Map<string, boolean> }>>();
+function geometryMemo(map: MapDef, tunables: Tunables): { vis: Map<string, boolean>; walk: Map<string, boolean> } {
+  let byParams = geometryCache.get(map);
+  if (!byParams) geometryCache.set(map, (byParams = new Map()));
+  const h = tunables.targets.hit;
+  const key = `${h.torsoWidth}|${h.headCentreStand}|${h.headCentreCrouch}|${h.headRadius}|${tunables.movement.hullHalfWidth}`;
+  let m = byParams.get(key);
+  if (!m) byParams.set(key, (m = { vis: new Map(), walk: new Map() }));
+  return m;
+}
+
+/**
+ * First sights are a few millions of ray tests per map, and the maps are static: each is worked out once per map (and
+ * the numbers it depends on), the first time a placement asks for it.
+ */
+const sightCache = new WeakMap<MapDef, Map<string, FirstSight | null>>();
+/** The same for where a hold sector's arrivals are first seen from its entry, by sector and lane. */
+const laneSightCache = new WeakMap<MapDef, Map<string, FirstSeen | null>>();
+
 /** One map's sectors as the director's `SectorSource`s. Visibility answers are memoised per sector. */
 export function sectorSources(map: MapDef, tunables: Tunables): SectorSource[] {
   const boxes = map.boxes;
   const hit = tunables.targets.hit;
   const hw = tunables.movement.hullHalfWidth;
+  const step = tunables.sweep.place.walkStepM;
   return map.sectors.map((sector) => {
     const spots: SectorSpot[] = [];
+    // Where each anchor first shows to a player walking the sector from its entry to its exit (#249), worked out on first use.
+    let walk: Vec3[] | null = null;
+    const memos = new Map<string, FirstSight | null>();
+    // Where an arrival on a lane is first seen by a player standing at the sector's entry (#249), worked out on first use.
+    const laneSights = new Map<string, FirstSeen | null>();
+    const laneSightOf = (lane: MapDef['lanes'][number]): FirstSeen | null => {
+      let v = laneSights.get(lane.id);
+      if (v !== undefined) return v;
+      let cache = laneSightCache.get(map);
+      if (!cache) laneSightCache.set(map, (cache = new Map()));
+      const key = `${sector.id}|${lane.id}|${tunables.movement.standEyeHeight}|${step}|${hit.torsoWidth}|${hit.headCentreStand}|${hit.headRadius}`;
+      v = cache.get(key);
+      if (v === undefined) {
+        const eye = { x: sector.entry.x, y: sector.entry.y + tunables.movement.standEyeHeight, z: sector.entry.z };
+        v = firstSeenFrom(boxes, hit, tunables.movement.standEyeHeight, eye, routePoints(map, lane.start, lane.end, step));
+        cache.set(key, v);
+      }
+      laneSights.set(lane.id, v);
+      return v;
+    };
+    let line = -1;
+    const lineOf = (): number => (line >= 0 ? line : (line = routeSightline(map, sector, tunables.movement.standEyeHeight)));
+    const sightOf = (a: ReturnType<typeof holdAnchorsOf>[number], feet: Vec3, crouched: boolean): FirstSight | null => {
+      const memo = memos.get(a.id);
+      if (memo !== undefined) return memo;
+      let cache = sightCache.get(map);
+      if (!cache) sightCache.set(map, (cache = new Map()));
+      const key = `${sector.id}|${a.id}|${tunables.movement.standEyeHeight}|${step}|${hit.torsoWidth}|${hit.headCentreStand}|${hit.headCentreCrouch}|${hit.headRadius}`;
+      let v = cache.get(key);
+      if (v === undefined) {
+        walk ??= routePoints(map, sector.entry, sector.exit, step);
+        v = firstSight(boxes, hit, tunables.movement.standEyeHeight, walk, a.kind === 'peek' ? [feet, a.out] : [feet], crouched, step);
+        cache.set(key, v);
+      }
+      memos.set(a.id, v);
+      return v;
+    };
     for (const a of holdAnchorsOf(map, sector)) {
       const feet = holdStandPos(a)!;
       const crouched = holdStance(a) === 'crouch';
-      if (a.kind === 'peek') spots.push({ id: a.id, feet: { ...feet }, crouched, peek: { hold: { ...a.hold }, out: { ...a.out }, pattern: a.pattern } });
-      else if (a.kind === 'hold') spots.push({ id: a.id, feet: { ...feet }, crouched, yaw: a.yaw });
+      if (a.kind === 'peek') {
+        spots.push({ id: a.id, feet: { ...feet }, crouched, get sight() { return sightOf(a, feet, crouched); }, peek: { hold: { ...a.hold }, out: { ...a.out }, pattern: a.pattern } });
+      } else if (a.kind === 'hold') {
+        spots.push({ id: a.id, feet: { ...feet }, crouched, get sight() { return sightOf(a, feet, crouched); }, yaw: a.yaw });
+      }
     }
+    const { vis: seen, walk: walked } = geometryMemo(map, tunables);
     const approaches: ApproachLane[] = [];
     for (const id of sector.approaches) {
       const lane = map.lanes.find((l) => l.id === id);
-      if (lane) approaches.push({ id: lane.id, start: { ...lane.start }, end: { ...lane.end }, width: lane.width });
+      if (lane) approaches.push({ id: lane.id, start: { ...lane.start }, end: { ...lane.end }, width: lane.width, get sight() { return laneSightOf(lane); } });
     }
-    const seen = new Map<string, boolean>();
     const source: SectorSource = {
       mapId: map.id,
       footstepM: map.hearing?.footstep ?? tunables.attribution.soundRadiusM.footstep,
@@ -98,14 +162,14 @@ export function sectorSources(map: MapDef, tunables: Tunables): SectorSource[] {
       // Face the way in: the first leg of the walk from the entry to the exit (straight at the exit can be a wall).
       entryYaw: yawTowards(sector.entry, navRoute(map, sector.entry, sector.exit)[0] ?? sector.exit),
       exit: { ...sector.exit },
-      sightlineM: entrySightline(map, sector, tunables.movement.standEyeHeight),
+      get sightlineM() { return lineOf(); },
       spots,
       // A meet group crosses on the first straight leg of the walk from the exit to the entry.
       meetRoute: sector.role.includes('meet')
         ? { from: { ...sector.exit }, to: { ...(navRoute(map, sector.exit, sector.entry)[0] ?? sector.entry) } }
         : undefined,
       visible(eye, feet, crouched) {
-        const key = `${eye.x.toFixed(2)},${eye.y.toFixed(2)},${eye.z.toFixed(2)}|${feet.x.toFixed(2)},${feet.y.toFixed(2)},${feet.z.toFixed(2)}|${crouched ? 1 : 0}`;
+        const key = `${q(eye.x)},${q(eye.y)},${q(eye.z)}|${q(feet.x)},${q(feet.y)},${q(feet.z)}|${crouched ? 1 : 0}`;
         let v = seen.get(key);
         if (v === undefined) {
           v = bodyShows(boxes, hit.torsoWidth / 2, bodyTop(hit, crouched), eye, feet);
@@ -115,23 +179,30 @@ export function sectorSources(map: MapDef, tunables: Tunables): SectorSource[] {
       },
       route: (from, to) => navRoute(map, from, to),
       walkable(a, b) {
-        // The centre line and both shoulders of the body, at shin, waist and chest height.
-        let lx = -(b.z - a.z), lz = b.x - a.x;
-        const ll = Math.hypot(lx, lz);
-        if (ll < 1e-9) return true;
-        lx /= ll; lz /= ll;
-        // Run past the far end by the hull's half width, so the body at `b` is clear of walls too.
-        const fx = (b.x - a.x) / ll, fz = (b.z - a.z) / ll;
-        const ex = b.x + fx * hw, ez = b.z + fz * hw;
-        for (const h of WALK_HEIGHTS) {
-          for (const side of [-hw, 0, hw]) {
-            if (!lineClear(boxes, a.x + lx * side, a.y + h, a.z + lz * side, ex + lx * side, b.y + h, ez + lz * side)) return false;
-          }
-        }
-        return true;
+        const key = `${q(a.x)},${q(a.y)},${q(a.z)}|${q(b.x)},${q(b.y)},${q(b.z)}`;
+        let w = walked.get(key);
+        if (w === undefined) walked.set(key, (w = walkClear(a, b)));
+        return w;
       },
     };
     return source;
+
+    /** Whether a body can walk the straight line `a` to `b`: the centre line and both shoulders, at shin, waist and chest height. */
+    function walkClear(a: Vec3, b: Vec3): boolean {
+      let lx = -(b.z - a.z), lz = b.x - a.x;
+      const ll = Math.hypot(lx, lz);
+      if (ll < 1e-9) return true;
+      lx /= ll; lz /= ll;
+      // Run past the far end by the hull's half width, so the body at `b` is clear of walls too.
+      const fx = (b.x - a.x) / ll, fz = (b.z - a.z) / ll;
+      const ex = b.x + fx * hw, ez = b.z + fz * hw;
+      for (const h of WALK_HEIGHTS) {
+        for (const side of [-hw, 0, hw]) {
+          if (!lineClear(boxes, a.x + lx * side, a.y + h, a.z + lz * side, ex + lx * side, b.y + h, ez + lz * side)) return false;
+        }
+      }
+      return true;
+    }
   });
 }
 
@@ -140,66 +211,4 @@ export function sectorCatalog(maps: readonly MapDef[], tunables: Tunables): Sect
   const out: SectorSource[] = [];
   for (const m of maps) out.push(...sectorSources(m, tunables));
   return out;
-}
-
-function walkLine(map: MapDef, a: Vec3, b: Vec3): boolean {
-  for (const y of WALK_LINE_Y) if (!lineClear(map.boxes, a.x, a.y + y, a.z, b.x, b.y + y, b.z)) return false;
-  return true;
-}
-
-/** The nearest nav node with a clear walk line to `p`, or the nearest at all. */
-function nearestNode(map: MapDef, p: Vec3): number {
-  let best = -1, bestD = Infinity, any = -1, anyD = Infinity;
-  const nodes = map.nav.nodes;
-  for (let i = 0; i < nodes.length; i++) {
-    const n = nodes[i]!.pos;
-    const d = Math.hypot(n.x - p.x, n.z - p.z) + Math.abs(n.y - p.y) * 2;
-    if (d < anyD) { anyD = d; any = i; }
-    if (d < bestD && walkLine(map, p, n)) { bestD = d; best = i; }
-  }
-  return best >= 0 ? best : any;
-}
-
-/** Shortest walk from `from` to `to`: straight when the line is clear, else through the nav graph (Dijkstra). */
-export function navRoute(map: MapDef, from: Vec3, to: Vec3): Vec3[] {
-  if (walkLine(map, from, to)) return [{ ...to }];
-  const nodes = map.nav.nodes;
-  if (nodes.length === 0) return [{ ...to }];
-  const index = new Map(nodes.map((n, i) => [n.id, i]));
-  const adj: number[][] = nodes.map(() => []);
-  for (const [a, b] of map.nav.edges) {
-    const i = index.get(a), j = index.get(b);
-    if (i === undefined || j === undefined) continue;
-    adj[i]!.push(j);
-    adj[j]!.push(i);
-  }
-  const s = nearestNode(map, from), g = nearestNode(map, to);
-  const dist = nodes.map(() => Infinity);
-  const prev = nodes.map(() => -1);
-  const done = nodes.map(() => false);
-  dist[s] = 0;
-  for (;;) {
-    let u = -1;
-    for (let i = 0; i < nodes.length; i++) if (!done[i] && (u < 0 || dist[i]! < dist[u]!)) u = i;
-    if (u < 0 || dist[u] === Infinity || u === g) break;
-    done[u] = true;
-    for (const v of adj[u]!) {
-      const a = nodes[u]!.pos, b = nodes[v]!.pos;
-      const nd = dist[u]! + Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-      if (nd < dist[v]!) { dist[v] = nd; prev[v] = u; }
-    }
-  }
-  const chain: Vec3[] = [];
-  for (let v = g; v >= 0; v = prev[v]!) chain.unshift({ ...nodes[v]!.pos });
-  // Cut corners: drop a node when the walk line skips it.
-  const route: Vec3[] = [];
-  let at = from;
-  const all = [...chain, { ...to }];
-  for (let i = 0; i < all.length; i++) {
-    const next = all[i + 1];
-    if (next && walkLine(map, at, next)) continue;
-    route.push(all[i]!);
-    at = all[i]!;
-  }
-  return route;
 }

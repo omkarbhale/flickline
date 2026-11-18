@@ -15,7 +15,7 @@ import type { SkillId } from './contracts';
 import { ContactTrials, type SightQuery, type TrialSink } from './contactTrials';
 import type { ModeContext, ModeDef, ModeEvent } from './modeDef';
 import { sectorCatalog } from './sweepCatalog';
-import { isOvertime, planFollowers, planRun, sectorDepth, sectorDialOffset, type ContactPlan, type EchoPlan, type GatePlan, type RunPlan, type SectorPlan, type SectorSource } from './sweepDirector';
+import { isOvertime, placeAtDial, planFollowers, planRun, sectorDepth, sectorDialOffset, type ContactPlan, type EchoPlan, type GatePlan, type RunPlan, type SectorPlan, type SectorSource } from './sweepDirector';
 import { NO_LEAN, leanedSweep, type Lean } from './lean';
 import { commitGate, planGate, planOvertimeGate, type GateEnv } from './sweepGate';
 
@@ -209,9 +209,13 @@ function footstepRadius(tunables: Tunables, mapId: string): number {
 }
 
 /** What the gate planner reads: the catalog, the tunables, how far Echoes are heard (the fights' radius, per map) and the starting primary. */
-export function sweepEnv(tunables: Tunables, lean: Lean = NO_LEAN): GateEnv {
+/**
+ * What the gate planner reads (above), and `dial`: the dial the sectors drawn now are played at, which sets how far from the
+ * player the Echoes stand (design §9.4's distance axis, #249); without one the plan asks for the distance of the middle of the dial.
+ */
+export function sweepEnv(tunables: Tunables, lean: Lean = NO_LEAN, dial?: number): GateEnv {
   return {
-    catalog: sweepCatalog(tunables), cfg: leanedCfg(tunables, lean), body: tunables.movement, hearM: (mapId) => footstepRadius(tunables, mapId), startPrimary: sweep.weapon,
+    catalog: sweepCatalog(tunables), cfg: leanedCfg(tunables, lean, dial), body: tunables.movement, hearM: (mapId) => footstepRadius(tunables, mapId), startPrimary: sweep.weapon,
   };
 }
 
@@ -219,9 +223,9 @@ export function sweepEnv(tunables: Tunables, lean: Lean = NO_LEAN): GateEnv {
  * The plan a seed starts with (what `setup` plays: the opener; the gates are drawn as the run reaches them; `placing`: a new
  * profile's first run, with its placing Opener): for tests, the bot report and the debug hook.
  */
-export function sweepPlan(seed: number, tunables: Tunables, lean: Lean = NO_LEAN, placing = false, coldLevel: number | null = null): RunPlan {
+export function sweepPlan(seed: number, tunables: Tunables, lean: Lean = NO_LEAN, placing = false, coldLevel: number | null = null, dial?: number): RunPlan {
   const catalog = sweepCatalog(tunables);
-  const plan = planRun(seed, catalog, leanedCfg(tunables, lean), tunables.movement, placing);
+  const plan = planRun(seed, catalog, leanedCfg(tunables, lean, dial), tunables.movement, placing);
   // A cold opener (design §8.5) replaces the drawn opener; a placing run never has one (it has no level yet).
   if (coldLevel === null || placing) return plan;
   const cold = coldOpenerPlan(seed, coldLevel, catalog, undefined, tunables.coldOpener);
@@ -241,10 +245,15 @@ export function sectorKey(st: SweepState): number {
   return (st.sector * 64 + st.leg + 1) * 64 + st.openerStage + 1;
 }
 
-/** The sweep tunables with the run's lean applied to the card and role weights (design §4.4, #210); the same object when there is no lean. */
-function leanedCfg(tunables: Tunables, lean: Lean): Tunables['sweep'] {
+/**
+ * The sweep tunables with the run's lean applied to the card and role weights (design §4.4, #210) and, given a dial, the
+ * distance it asks of a placement (`place.targetM`, design §9.4, #249); the same object when there is neither.
+ */
+function leanedCfg(tunables: Tunables, lean: Lean, dial?: number): Tunables['sweep'] {
   const spec = lean.length > 0 ? { cards: lean, boost: tunables.lean.boost, maxShareFactor: tunables.lean.maxShareFactor } : null;
-  return leanedSweep(tunables.sweep, spec);
+  const cfg = leanedSweep(tunables.sweep, spec);
+  if (dial === undefined || !Number.isFinite(dial)) return cfg;
+  return placeAtDial(cfg, tunables.dial.axes.distance, dial);
 }
 
 /** The classifier's trials, sent to the runner, and its sight query (the context is the run's). */
@@ -382,7 +391,10 @@ function enterSector(ctx: ModeContext<SweepState>, sp: SectorPlan): void {
   st.entryEhp = ehp(ctx);
   st.entryScore = ctx.stats.score;
   // The gate after this sector is drawn now, while the screen is cut (it costs a few ms the first time a sector is placed).
-  st.nextGate = i + 1 < cfg.sectors ? planGate(st.plan, sweepEnv(ctx.tunables, ctx.lean)) : planOvertimeGate(st.plan, sweepEnv(ctx.tunables, ctx.lean));
+  // Its Echoes stand as far as the dial of that sector asks: the matched dial now (it moves by at most a beat's step before then) plus its depth offset.
+  const nextDial = ctx.pinned ? ctx.dial : st.dial.matched + sectorDialOffset(cfg, i + 1);
+  const env = sweepEnv(ctx.tunables, ctx.lean, nextDial);
+  st.nextGate = i + 1 < cfg.sectors ? planGate(st.plan, env) : planOvertimeGate(st.plan, env);
   if (cold) {
     const c = coldStartEv;
     c.tick = ctx.simTick;
@@ -851,7 +863,7 @@ export const sweep: ModeDef<SweepState> = {
     // A new profile's first run places it inside its Opener (design §9.2); a pinned run never does.
     const placing = ctx.newProfile && !ctx.pinned;
     ctx.state = {
-      plan: sweepPlan(ctx.seed, ctx.tunables, ctx.lean, placing, ctx.coldOpenerLevel), nextGate: null, gate: null, mult: 1, role: 'take', sectorTick0: 0, exitOpen: true,
+      plan: sweepPlan(ctx.seed, ctx.tunables, ctx.lean, placing, ctx.coldOpenerLevel, ctx.dial), nextGate: null, gate: null, mult: 1, role: 'take', sectorTick0: 0, exitOpen: true,
       exitFallbackTick: Infinity, wonSector: 0, carry: null, nextPlanIndex: 1000, sector: 0, contacts: [], entryEhp: 0, entryScore: 0,
       nextContactId: 0, won: 0, lost: 0, done: false, banked: -1, overtime: 0, dial: new SectorDial(ctx.tunables.dial), trials: trialsFor(ctx),
       openerStage: placing ? 0 : -1, openerFought: 0, leg: -1, secKinds: 0, secBase: 0, secAlive: 0, secFollowers: 0,

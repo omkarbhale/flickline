@@ -15,9 +15,22 @@ const env = sweepEnv(tunables);
 /** A mix of both doors, by seed and depth. */
 const mixed = (seed: number) => (_g: GatePlan, plan: RunPlan): 0 | 1 => ((seed + plan.sectors.length) & 1) as 0 | 1;
 const echoesOf = (d: DoorPlan): number => d.sector.contacts.reduce((n, c) => n + c.echoes.length, 0);
-/** Echoes the door can claim to hear: every one but a meet group or a hold arrival that walks (walking is silent, design 4.4). */
-const audibleOf = (d: DoorPlan): number =>
-  d.sector.contacts.reduce((n, c) => n + c.echoes.filter((e) => e.gait !== 'walk' && (e.arrive === undefined || e.arrive.running)).length, 0);
+/**
+ * Echoes the door can claim to hear: every one but a meet group or a hold arrival that walks (walking is silent, design 4.4), and
+ * only those whose spot (an arrival's: where its run ends) is within the footstep radius of the sector's map from its entry.
+ */
+const audibleOf = (d: DoorPlan): number => {
+  const radius = env.hearM(d.sector.mapId);
+  let n = 0;
+  for (const c of d.sector.contacts) {
+    for (const e of c.echoes) {
+      if (e.gait === 'walk' || (e.arrive !== undefined && !e.arrive.running)) continue;
+      const at = e.arrive ? e.arrive.route[e.arrive.route.length - 1]! : e.feet;
+      if (Math.hypot(at.x - d.sector.entry.x, at.z - d.sector.entry.z) <= radius) n++;
+    }
+  }
+  return n;
+};
 /** The bucket by the design's words (§4.5), written out here so the test does not lean on the code it checks. */
 const bucketOf = (n: number): 'quiet' | 'few' | 'several' => (n === 0 ? 'quiet' : n <= 2 ? 'few' : 'several');
 
@@ -34,8 +47,8 @@ describe('gate doors (#205)', () => {
           doors++;
           const n = audibleOf(d);
           expect(d.facts.heard, `seed ${seed} gate ${gate.index} door ${d.door}: ${n} audible Echoes`).toBe(bucketOf(n));
-          // A take sector holds no walkers: its bucket is its Echo count.
-          if (d.sector.role === 'take') expect(n).toBe(echoesOf(d));
+          // A take sector holds no walkers: its bucket counts the Echoes within the footstep radius (long anchors lie beyond a small map's radius, #249).
+          if (d.sector.role === 'take') expect(n).toBeLessThanOrEqual(echoesOf(d));
           expect(d.facts.role).toBe(d.sector.role);
           expect(d.facts.stake).toBe(d.sector.stake);
           expect(d.facts.arms).toBe(d.sector.arms);

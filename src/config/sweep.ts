@@ -55,7 +55,7 @@ export interface GateTunables {
   armsPool: readonly string[];
   /** The "heard" bucket of a count: up to `quietMax` Echoes = quiet, up to `fewMax` = one or two, more = several. */
   heard: { quietMax: number; fewMax: number };
-  /** A sector's longest sightline from its entry, at or above this many metres, is `long`; below, `close` (design §10: close 5-8 m, mid 12-16, long 22-26). */
+  /** A sector's longest sightline on the walk from its entry to its exit, at or above this many metres, is `long`; below, `close` (design §10: close 5-8 m, mid 12-16, long 22-26). */
   longSightlineM: number;
 }
 
@@ -196,6 +196,35 @@ export interface SweepTunables {
     clearPeekerShare: number;
     /** Share of `take-unaware` Echoes that walk a lane rather than stand (`unaware` and moving: it is busy elsewhere). */
     unawareMoverShare: number;
+    /**
+     * Where an Echo stands is drawn by distance (design §9.4, #249): each free hold anchor of a sector is weighted by how near
+     * its **first-sight distance** (how far the player is from it when the walk from entry to exit first shows it,
+     * `sim/mapSight.ts`) is to `targetM`, on a log scale with a spread of `distanceSigma` (a natural-log width: 0.5 puts an
+     * anchor a factor of 1.65 off the target at 60% of the peak weight). The card still decides what kind of Echo stands there.
+     * The run overlays both per plan from the dial that plan is played at; the values here are the dial-50 ones.
+     */
+    /** The distance the dial asks for, metres (design §9.4: 5 at dial 0, 35 at dial 100, geometric). */
+    targetM: number;
+    /** The spread of the draw at dial 50, and at the ends of the dial (linear between): a beginner's fights are all near, an expert's range wide. */
+    distanceSigma: number;
+    distanceSigmaAt0: number;
+    distanceSigmaAt100: number;
+    /** Weight (of a peak 1) of an anchor the walk never shows: a fight the player only has by leaving the route. */
+    offRouteWeight: number;
+    /** Floor of every weight, so no anchor is ever impossible. */
+    weightFloor: number;
+    /**
+     * Bands of a first sight (design §10, #249): below `closeToM` is **close**, from `longFromM` **long**, in between **mid**.
+     * The map lint wants every take sector to offer all three.
+     */
+    closeToM: number;
+    longFromM: number;
+    /** An anchor at least this far above (or below) the player's feet at its first sight is **off the floor plane** (#249; the report's "height difference above 1 m"). */
+    levelM: number;
+    /** An Echo whose body the player sees less than this share of at its first sight holds **from cover** (over a wall, past a frame). */
+    coverExposureMax: number;
+    /** Spacing of the walk's sample points for the first-sight search, metres. */
+    walkStepM: number;
   };
   /**
    * A new profile's first Opener (design §9.2): instead of one or two contacts it is a chain of short
@@ -306,6 +335,17 @@ export const sweep: SweepTunables = {
     sampleStepM: 0.25,
     clearPeekerShare: 0.6,
     unawareMoverShare: 0.7,
+    targetM: 13.2,
+    distanceSigma: 0.88,
+    distanceSigmaAt0: 0.55,
+    distanceSigmaAt100: 1.2,
+    offRouteWeight: 0.05,
+    weightFloor: 0.02,
+    closeToM: 10,
+    longFromM: 20,
+    levelM: 1,
+    coverExposureMax: 0.75,
+    walkStepM: 0.5,
   },
   // `hold` is gentle too, and joins the list with hold sectors (#204).
   opener: { contactsMin: 4, contactsMax: 6, maxSectors: 9, cards: ['take-unaware', 'clear'], winMaxShieldLoss: 0.5 },
@@ -335,7 +375,7 @@ export const sweep: SweepTunables = {
     hotMultiplier: 1.5,
     armsPool: ['kestrel', 'vane', 'rill'],
     heard: { quietMax: 0, fewMax: 2 },
-    longSightlineM: 15,
+    longSightlineM: 20,
   },
 };
 

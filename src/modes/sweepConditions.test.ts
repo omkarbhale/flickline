@@ -66,6 +66,7 @@ describe('sector conditions (#207, design §4.6)', () => {
     const noCond = cloneTunables();
     noCond.sweep.conditions.ecoChance = 0;
     noCond.sweep.conditions.lightChance = 0;
+    noCond.sweep.gate.stakeWeight = tunables.sweep.gate.stakeWeight; // the same doors, so only the conditions differ
     for (const seed of [3, 8, 21]) {
       const a = sweepPlan(seed).sectors.map((s) => [s.sectorId, s.contacts]);
       const b = sweepPlan(seed, noCond).sectors.map((s) => [s.sectorId, s.contacts]);

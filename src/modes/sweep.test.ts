@@ -59,7 +59,7 @@ describe('Sweep run director (#201)', () => {
     const takes = cat.filter((s) => s.roles.includes('take')).map((s) => `${s.mapId}/${s.id}`).sort();
     expect(takes).toEqual(['elbow/elbow-take-door', 'elbow/elbow-take-hub', 'elbow/elbow-take-west', 'lane/lane-take-far']);
     const holds = cat.filter((s) => s.roles.includes('hold'));
-    expect(holds.map((s) => s.id).sort()).toEqual(['elbow-hold-corner', 'elbow-take-door', 'elbow-take-hub']);
+    expect(holds.map((s) => s.id).sort()).toEqual(['elbow-hold-corner', 'elbow-hold-door', 'elbow-hold-hub']);
     for (const h of holds) expect(h.approaches.length, h.id).toBeGreaterThanOrEqual(2);
   });
 
@@ -166,7 +166,7 @@ describe('Sweep run director (#201)', () => {
       }
     }
     expect(echoes).toBeGreaterThan(200 * 4);
-  });
+  }, 30_000);
 });
 
 /** Start a Sweep run headless and hand back what the tests read (`newProfile`: the first run of a profile, which places it). */

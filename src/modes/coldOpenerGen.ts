@@ -4,7 +4,7 @@ import type { TakeCard } from '../config/sweep';
 import type { Tunables } from '../config/tunables';
 import { Rng } from '../core/rng';
 import type { Vec3 } from '../core/vec3';
-import { cardSpots, hiddenSpots, placeEcho, type EchoPlan, type PlanBody, type SectorSource } from './sweepDirector';
+import { cardSpots, hiddenSpots, pickSpot, placeAtDial, placeEcho, type EchoPlan, type PlanBody, type SectorSource } from './sweepDirector';
 
 /**
  * The generator of the cold opener's calibrated pool (design §8.5, #209). Run once, from a fixed seed,
@@ -73,13 +73,15 @@ export function eligibleSectors(catalog: readonly SectorSource[], body: PlanBody
 }
 
 /** One stored contact of `card` in sector `s`, drawn from `rng` with the director's placement rules. */
-function contactIn(rng: Rng, t: Tunables, s: SectorSource, body: PlanBody, card: TakeCard): ColdContact {
+function contactIn(rng: Rng, t: Tunables, level: number, s: SectorSource, body: PlanBody, card: TakeCard): ColdContact {
+  // The anchors are drawn by distance as a run's are (#249): the level is the dial the Echoes stand at.
+  const cfg = placeAtDial(t.sweep, t.dial.axes.distance, level);
   const free = hiddenSpots(s, body);
   const spots = [];
-  for (let k = 0; k < cardSpots(card); k++) spots.push(free.splice(rng.int(free.length), 1)[0]!);
+  for (let k = 0; k < cardSpots(card); k++) spots.push(free.splice(pickSpot(rng, cfg, free), 1)[0]!);
   const placed: EchoPlan[] = [];
-  if (card === 'clear') placed.push(placeEcho(rng, t.sweep, s, body, spots[rng.int(2)]!, card));
-  else for (const spot of spots) placed.push(placeEcho(rng, t.sweep, s, body, spot, card));
+  if (card === 'clear') placed.push(placeEcho(rng, cfg, s, body, spots[rng.int(2)]!, card));
+  else for (const spot of spots) placed.push(placeEcho(rng, cfg, s, body, spot, card));
   const echoes = placed.map((e) => storeEcho(e, Math.floor(rng.next() * 0x100000000) >>> 0));
   return { map: s.mapId, sector: s.id, card, spots: spots.map((p) => p.id), echoes };
 }
@@ -97,7 +99,7 @@ export function generateColdPool(t: Tunables, catalog: readonly SectorSource[]):
       const rng = new Rng(slotSeed(cfg.generatorSeed, level, slot));
       // Start each slot at its own place in the sector cycle, so a day's slots spread over the sectors too.
       const variants: ColdContact[] = [];
-      for (let v = 0; v < cfg.variants; v++) variants.push(contactIn(rng, t, sectors[(slot + v) % sectors.length]!, body, card));
+      for (let v = 0; v < cfg.variants; v++) variants.push(contactIn(rng, t, level, sectors[(slot + v) % sectors.length]!, body, card));
       slots.push(variants);
     });
     out[level] = { profile: coldProfile(t, level), slots };

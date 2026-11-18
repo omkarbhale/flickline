@@ -1,8 +1,11 @@
+import { axisValue } from '../adaptive/dial';
+import type { AxisDef } from '../config/dial';
 import { Rng } from '../core/rng';
 import type { Economy } from '../config/economy';
 import type { Vec3 } from '../core/vec3';
 import type { GateStake, HeardBucket, HoldCard, SectorRole, SweepCard, SweepTunables, TakeCard } from '../config/sweep';
 import { MAX_ROUTE } from '../sim/enemyAi';
+import type { FirstSeen, FirstSight } from '../sim/mapSight';
 import type { PeekPattern } from '../sim/mapTypes';
 import type { Expectation } from '../sim/enemyTiming';
 import type { ColdOpenerPlan } from './coldOpener';
@@ -42,6 +45,12 @@ export interface SectorSpot {
   readonly peek?: { readonly hold: Vec3; readonly out: Vec3; readonly pattern: PeekPattern };
   /** Posts: the direction the anchor faces (radians, architecture §6 convention), for a lane across it. */
   readonly yaw?: number;
+  /**
+   * Where the anchor first shows to a player walking the sector from its entry to its exit (`sim/mapSight.ts`, #249): the
+   * distance the fight starts at. `null`: the walk never shows it (the player meets it only by leaving the route);
+   * absent: not known (a hand-made source), drawn as if every distance were as good as another.
+   */
+  readonly sight?: FirstSight | null;
 }
 
 /** One sector of a map, with what the director needs to place Echoes in it. */
@@ -79,6 +88,11 @@ export interface ApproachLane {
   readonly start: Vec3;
   readonly end: Vec3;
   readonly width: number;
+  /**
+   * Where an Echo walking the lane is first seen by a player standing at the sector's entry (#249): the distance a hold
+   * fight starts at. `null`: the lane is never in sight of the entry; absent: not known (a hand-made source).
+   */
+  readonly sight?: FirstSeen | null;
 }
 
 export type EchoKind = 'strafer' | 'peeker';
@@ -437,6 +451,60 @@ export function entryEye(s: SectorSource, body: PlanBody): Vec3 {
   return { x: s.entry.x, y: s.entry.y + body.standEyeHeight, z: s.entry.z };
 }
 
+/**
+ * How much a spot is wanted for the distance the plan asks for (`cfg.place.targetM`, from the dial: design §9.4, #249): a
+ * bell on the log of its first-sight distance, floored so no anchor is impossible. A spot the walk never shows weighs
+ * `offRouteWeight`; a spot with no first-sight data weighs 1.
+ */
+export function spotWeight(cfg: SweepTunables, spot: SectorSpot): number {
+  return sightWeight(cfg, spot.sight);
+}
+
+/** The weight of a first sight (a spot's or a lane's) for the distance the plan asks for: see `spotWeight`. */
+function sightWeight(cfg: SweepTunables, sight: { readonly distM: number } | null | undefined): number {
+  const p = cfg.place;
+  if (sight === undefined) return 1;
+  if (sight === null) return Math.max(p.weightFloor, p.offRouteWeight);
+  const z = Math.log(Math.max(1, sight.distM) / p.targetM) / p.distanceSigma;
+  return Math.max(p.weightFloor, Math.exp(-0.5 * z * z));
+}
+
+/** Index of the spot drawn from `free`, weighted by `spotWeight` (one draw, always). */
+export function pickSpot(rng: Rng, cfg: SweepTunables, free: readonly SectorSpot[]): number {
+  const u = rng.next();
+  let total = 0;
+  for (const s of free) total += spotWeight(cfg, s);
+  let x = u * total;
+  for (let i = 0; i < free.length; i++) {
+    x -= spotWeight(cfg, free[i]!);
+    if (x < 0) return i;
+  }
+  return free.length - 1;
+}
+
+/** Index of the approach lane drawn from `pool`, weighted by how far from the entry its arrivals are first seen (one draw, always; #249). */
+export function pickLane(rng: Rng, cfg: SweepTunables, pool: readonly ApproachLane[]): number {
+  const u = rng.next();
+  let total = 0;
+  for (const l of pool) total += sightWeight(cfg, l.sight);
+  let x = u * total;
+  for (let i = 0; i < pool.length; i++) {
+    x -= sightWeight(cfg, pool[i]!.sight);
+    if (x < 0) return i;
+  }
+  return pool.length - 1;
+}
+
+/**
+ * `cfg` as a plan played at `dial` draws with it (design §9.4, #249): the distance the dial asks of a placement and how widely the
+ * draw spreads round it. `axis` is the dial's distance axis (`dial.axes.distance`).
+ */
+export function placeAtDial(cfg: SweepTunables, axis: AxisDef, dial: number): SweepTunables {
+  const p = cfg.place;
+  const t = Math.min(1, Math.max(0, dial / 100));
+  return { ...cfg, place: { ...p, targetM: axisValue(axis, dial), distanceSigma: p.distanceSigmaAt0 + (p.distanceSigmaAt100 - p.distanceSigmaAt0) * t } };
+}
+
 /** The spots of a sector an Echo can stand on unseen from its entry (an anchor in view is skipped, never used). */
 export function hiddenSpots(s: SectorSource, body: PlanBody): SectorSpot[] {
   const eye = entryEye(s, body);
@@ -706,7 +774,7 @@ function planHold(rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody,
       const others = lanes.filter((l) => l.id !== prevLane);
       if (others.length > 0) pool = others;
     }
-    const laneIdx = rng.int(pool.length);
+    const laneIdx = pickLane(rng, cfg, pool);
     const count = card === 'trade' ? 2 : 1;
     const echoes: EchoPlan[] = [];
     const spots: string[] = [];
@@ -716,18 +784,22 @@ function planHold(rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody,
       const atSec = card === 'flank' ? h.flankDelaySec[0] + rng.next() * (h.flankDelaySec[1] - h.flankDelaySec[0]) : at + gap;
       const forceRun = card === 'flank';
       let echo: EchoPlan | null = null;
-      if (rng.next() < h.peekerShare && free.length > 0) {
+      const wantsPeek = rng.next() < h.peekerShare;
+      // The arrival draws from a stream of its own (one value from the plan's), so which lane the dial's distance axis chose,
+      // and how many lanes a Peeker had to try, never move the draws of the contacts after it (#249).
+      const arrival = new Rng(Math.floor(rng.next() * 0x100000000) >>> 0);
+      if (wantsPeek && free.length > 0) {
         // A Peeker walks to a free peek anchor along the first lane (this one, then the others) that keeps it clear of the entry.
         const spot = free[free.length - 1]!;
         for (let l = 0; l < pool.length && !echo; l++) {
-          echo = planArrival(rng, cfg, s, { lane: pool[(laneIdx + l) % pool.length]!, spot, forceRun, atSec });
+          echo = planArrival(arrival, cfg, s, { lane: pool[(laneIdx + l) % pool.length]!, spot, forceRun, atSec });
         }
         if (echo) {
           free.pop();
           spots.push(spot.id);
         }
       }
-      echoes.push(echo ?? planArrival(rng, cfg, s, { lane: pool[laneIdx]!, forceRun, atSec })!);
+      echoes.push(echo ?? planArrival(arrival, cfg, s, { lane: pool[laneIdx]!, forceRun, atSec })!);
     }
     contacts.push({ index: firstIndex + k, card, spots, echoes, ...(card === 'flank' ? { after: k - 1 } : {}) });
   }
@@ -745,7 +817,7 @@ export function planFollowers(seed: number, cfg: SweepTunables, s: SectorSource,
   const rng = new Rng(planSeed(seed ^ Math.imul(sectorIndex + 1, 0x9e3779b1)));
   const h = cfg.hold;
   const card: HoldCard = wonBefore ? 'flank' : 'trade';
-  const lane = s.approaches[rng.int(s.approaches.length)]!;
+  const lane = s.approaches[pickLane(rng, cfg, s.approaches)]!;
   const n = Math.min(count, cfg.follow.max);
   const base = cfg.follow.delaySec[0] + rng.next() * (cfg.follow.delaySec[1] - cfg.follow.delaySec[0]);
   const echoes: EchoPlan[] = [];
@@ -834,7 +906,7 @@ export function buildSector(
       if (!card) break;
       recent.push(card);
       const spots: SectorSpot[] = [];
-      for (let k = 0; k < cardSpots(card); k++) spots.push(free.splice(rng.int(free.length), 1)[0]!);
+      for (let k = 0; k < cardSpots(card); k++) spots.push(free.splice(pickSpot(rng, cfg, free), 1)[0]!);
       const echoes: EchoPlan[] = [];
       if (card === 'clear') {
         // Two possible spots, one of them occupied (design §4.4).

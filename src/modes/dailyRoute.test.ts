@@ -7,6 +7,7 @@ import type { RunSummary } from '../progress/save';
 import type { StorageLike } from '../settings/settings';
 import { addDays, dailyLabel, dailySeed, isDateKey, localDateKey } from './dailyRoute';
 import { SWEEP_MODE, sweepPlan, type SweepState } from './sweep';
+import type { SectorPlan } from './sweepDirector';
 
 const tunables = cloneTunables();
 
@@ -54,19 +55,27 @@ describe('the Daily Route seed (#208)', () => {
 });
 
 /** The route of a date as a player plays it: a fresh game (profile) and a dial of its own. */
-function playedRoute(dateKey: string, dial: number): unknown {
+function playedRoute(dateKey: string, dial: number): { seed: number; sectors: SectorPlan[] } {
   const g = new HeadlessGame({ seed: 1 });
   expect(g.modes.start(SWEEP_MODE, { seed: dailySeed(dateKey), pinDial: dial })).toBe(true);
   const state = g.modes.runner.state as SweepState;
   return { seed: state.plan.seed, sectors: state.plan.sectors };
 }
 
+/** What every player of a date shares: the sectors, their roles, conditions and stakes, and the cards and Echo counts of every contact. */
+function sharedFacts(sectors: readonly SectorPlan[]): unknown {
+  return sectors.map((s) => ({
+    index: s.index, mapId: s.mapId, sectorId: s.sectorId, entry: s.entry, exit: s.exit, role: s.role, drawn: s.drawn, condition: s.condition, stake: s.stake, arms: s.arms,
+    contacts: s.contacts.map((c) => ({ index: c.index, card: c.card, echoes: c.echoes.length })),
+  }));
+}
+
 describe('the Daily Route is one route per date (#208)', () => {
-  it('same date: the same route on two fresh profiles, whatever each one\'s dial', () => {
+  it('same date: the same route on two fresh profiles, whatever each one\'s dial; only where each Echo stands follows the dial (#249)', () => {
     const a = playedRoute('2026-03-01', 15);
     const b = playedRoute('2026-03-01', 85);
-    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
-    expect(JSON.stringify(a)).toBe(JSON.stringify({ seed: dailySeed('2026-03-01'), sectors: sweepPlan(dailySeed('2026-03-01'), tunables).sectors }));
+    expect(a.seed).toBe(b.seed);
+    expect(JSON.stringify(sharedFacts(a.sectors))).toBe(JSON.stringify(sharedFacts(b.sectors)));
   });
 
   it('next date: a different route', () => {

@@ -65,7 +65,8 @@ export type ColdPool = Readonly<Record<number, ColdLevelPool>>;
 export interface ColdOpenerTunables {
   /**
    * Content version (see the file comment). Version 1 was the Range item lists of the retired Daily
-   * Baseline run (#150, #190), never shipped as a measurement; version 2 is the contact pool.
+   * Baseline run (#150, #190), never shipped as a measurement; version 2 is the contact pool; version 3 redraws it over the
+   * reshaped Elbow and Lane, with the anchors drawn by distance (#249).
    */
   version: number;
   /** A cold opener is due after this many hours without a finished run (§8.5; transfer.md H1 may raise it). */
@@ -82,8 +83,8 @@ export interface ColdOpenerTunables {
   slots: readonly TakeCard[];
   /**
    * Take sectors (`<map>/<sector>`) the pool never uses: a sector whose exit can be reached without
-   * meeting its Echoes would let a measured contact pass unplayed. `elbow/elbow-take-west`: its exit sits
-   * beside its entry (#230); taking it out of this list is a new pool and a new version.
+   * meeting its Echoes would let a measured contact pass unplayed. None today (Elbow's west arm was
+   * listed while its exit sat beside its entry, #230; #249 made it a walk down the whole arm).
    */
   excludeSectors: readonly string[];
   /** Stored variants per slot and level (slots x variants = the pool of a level, design: about 30). */
@@ -123,12 +124,12 @@ export interface ColdOpenerTunables {
 }
 
 export const coldOpener: ColdOpenerTunables = {
-  version: 2,
+  version: 3,
   gapHours: 8,
   minRuns: 3,
   levels: [15, 30, 45, 60, 75, 90],
   slots: ['take-unaware', 'take-expected', 'clear', 'take-unaware', 'take-expected', 'clear'],
-  excludeSectors: ['elbow/elbow-take-west'],
+  excludeSectors: [],
   variants: 5,
   generatorSeed: 0xc01d0b37,
   firstLevelSuccess: 0.7,
