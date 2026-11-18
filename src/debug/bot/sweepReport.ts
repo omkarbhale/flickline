@@ -130,11 +130,11 @@ export function sweepReport(skills: readonly number[], runs: number, firstSeed =
 /** The report as a Markdown table (posted on the issue). */
 export function formatSweepReport(rows: readonly SweepSkillRow[]): string[] {
   const out = [
-    '| Bot skill | Runs | Contact win rate | Fights / run | Depth reached (of 4) | Made it out | HP+shield at exit 1 / 2 / 3 / 4 | Run length (live s) | Score |',
+    '| Bot skill | Runs | Contact win rate | Fights / run | Depth reached (sectors entered) | Made it out | HP+shield at exit 1 / 2 / … (runs that walked out) | Run length (live s) | Score |',
     '|---|---|---|---|---|---|---|---|---|',
   ];
   for (const r of rows) {
-    const ehp = [0, 1, 2, 3].map((k) => (r.exitsSeen[k] ? `${r.meanEhpAtExit[k]!.toFixed(0)} (n ${r.exitsSeen[k]})` : '—')).join(' / ');
+    const ehp = Array.from(r.exitsSeen, (n, k) => (n ? `${r.meanEhpAtExit[k]!.toFixed(0)} (n ${n})` : '—')).join(' / ') || '—';
     out.push(
       `| ${r.skill} | ${r.runs} | ${(r.contactWinRate * 100).toFixed(0)} % | ${r.contactsPerRun.toFixed(1)} | ${r.meanReached.toFixed(2)} | ${(r.finishedShare * 100).toFixed(0)} % | ${ehp} | ${r.meanLiveSec.toFixed(1)} | ${r.meanScore.toFixed(0)} |`,
     );
@@ -197,7 +197,7 @@ export function gatePolicyReport(
 
 export function formatGatePolicyReport(rows: readonly GatePolicyRow[]): string[] {
   const out = [
-    '| Bot skill | Policy | Runs | Score | Depth (of 4) | Made it out | vs first policy: score (± s.e.) | vs first policy: depth | Doors taken: shield / arms / hot / plain |',
+    '| Bot skill | Policy | Runs | Score | Depth (sectors entered) | Made it out | vs first policy: score (± s.e.) | vs first policy: depth | Doors taken: shield / arms / hot / plain |',
     '|---|---|---|---|---|---|---|---|---|',
   ];
   for (const r of rows) {
@@ -617,7 +617,7 @@ export function leanAb(o: LeanAbOptions): { off: LeanArm; on: LeanArm; rows: Lea
 export function formatLeanAb(rows: readonly LeanAbRow[]): string[] {
   const pct = (v: number): string => `${(v * 100).toFixed(1)} %`;
   const out = [
-    '| Lean | Fights in the planted cards / run | Fights / run | Moving-shot share, runs 1–5 | Last 5 runs | Change | Weakness left after the last run | Runs flagged "moving shots" by the stub | Runs dealt a lean | Depth (of 4) |',
+    '| Lean | Fights in the planted cards / run | Fights / run | Moving-shot share, runs 1–5 | Last 5 runs | Change | Weakness left after the last run | Runs flagged "moving shots" by the stub | Runs dealt a lean | Depth (sectors entered) |',
     '|---|---|---|---|---|---|---|---|---|---|',
   ];
   for (const r of rows) {
