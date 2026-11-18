@@ -67,6 +67,10 @@ The same command then prints the **fight-pace table** (#248, design §2.2) for t
 
 Under the balance table (#249) come the first-sight tables: how far from the player each Echo was when it first saw them (`enemySawPlayer`, horizontal), as percentiles per skill with the share of fights beyond 20 m and across more than 1 m of height, and the same by sector (which maps give the long fights and the fights across levels). `sightReport.test.ts` holds the distance target over 100 runs: a median of 12 to 15 m and at least a fifth of fights beyond 20 m.
 
+### Enemy mind calibration (#90; `aimCalibration.ts`, `mindAudit.ts`)
+
+`npm run bot -- --aim-report [--runs 6]` measures the enemy mind's aimed shots against the **standard moving bot** (run legs of 0.3-0.8 s, alternating, with a 0.2-0.5 s stop after about half of them; kept alive). It prints signature S7, the headshot share of a still Echo's hits at each anchor (10 and 20 m), and the damage per minute at a dial for a Sweep-like strafing Echo, aimed against the dial's rolled shots (`enemyHitChance`, design §5.3). `aimCalibration.test.ts` holds S7 within 5 points at every anchor (fewer seeds). `mindAudit.test.ts` checks that the mind's aim path allocates nothing per tick (8 Echoes aiming, no shots; only sites under `src/sim/mind/` count) and costs well under 0.01 ms per Echo per tick (about 0.005 ms here).
+
 ### Trials from contacts and the skill harness (#203)
 
 `npm run bot -- --trial-report [--runs 50] [--skills 30,50,70] [--profile-runs 5]` plays runs on profiles of `--profile-runs` runs each (the first run of each places it with the staircase Opener) and counts every `skillTrial` per skill, with its win rate, and the contacts that produced no trial (there must be none). The bot never pre-aims and fires short bursts, so it produces almost no `precision` or `spray` items and fails most `angles` ones.

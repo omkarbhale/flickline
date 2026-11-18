@@ -203,14 +203,19 @@ function sourceOf(tunables: Tunables, mapId: string, sectorId: string): SectorSo
   return sweepCatalog(tunables).find((x) => x.mapId === mapId && x.id === sectorId);
 }
 
+/** How far an Echo's running steps carry on `mapId`, metres: the shared table with that map's own radius over it. */
+function footstepRadius(tunables: Tunables, mapId: string): number {
+  return (sweepCatalog(tunables).find((x) => x.mapId === mapId)?.footstepM) ?? tunables.attribution.soundRadiusM.footstep;
+}
+
+/** What the gate planner reads: the catalog, the tunables, how far Echoes are heard (the fights' radius, per map) and the starting primary. */
 /**
- * What the gate planner reads: the catalog, the tunables, how far Echoes are heard (the fights' radius) and the starting
- * primary. `dial`: the dial the sectors drawn now are played at, which sets how far from the player the Echoes stand
- * (design §9.4's distance axis, #249); without one the plan asks for the distance of the middle of the dial.
+ * What the gate planner reads (above), and `dial`: the dial the sectors drawn now are played at, which sets how far from the
+ * player the Echoes stand (design §9.4's distance axis, #249); without one the plan asks for the distance of the middle of the dial.
  */
 export function sweepEnv(tunables: Tunables, lean: Lean = NO_LEAN, dial?: number): GateEnv {
   return {
-    catalog: sweepCatalog(tunables), cfg: leanedCfg(tunables, lean, dial), body: tunables.movement, hearM: tunables.audio.enemy.maxAudibleM, startPrimary: sweep.weapon,
+    catalog: sweepCatalog(tunables), cfg: leanedCfg(tunables, lean, dial), body: tunables.movement, hearM: (mapId) => footstepRadius(tunables, mapId), startPrimary: sweep.weapon,
   };
 }
 
@@ -294,7 +299,10 @@ function spawnEcho(ctx: ModeContext<SweepState>, c: ContactRt, e: EchoPlan, cold
     ? { tellSec: p.tellSec, enemyReactionSec: p.reactionSec, enemyHitChance: p.hitChance, strafeSpeed: p.strafeSpeed, strafeLegSec: p.strafeLegSec, standStillSec: p.standStillSec, peekWideSec: p.peekWideSec }
     : ctx.axes;
   const cfg = ctx.tunables.sweep;
-  const fire = { tellSec: a.tellSec!, reactionSec: a.enemyReactionSec!, hitChance: a.enemyHitChance!, expectation: e.expectation };
+  // Mind-driven (#90): every Echo aims and shoots like a player at the run's mind skill; the dial's hit chance is a calibration target.
+  const fire = {
+    tellSec: a.tellSec!, reactionSec: a.enemyReactionSec!, hitChance: a.enemyHitChance!, expectation: e.expectation, mindSkill: ctx.mindSkill,
+  };
   const arrive = e.arrive ? { route: e.arrive.route, speed: e.arrive.speed, engageM: e.arrive.engageM } : undefined;
   // No trial per Echo: the contact's facts are classified into trials (`contactTrials.ts`). An arrival is out of the sector when
   // it spawns; the fairness floors bind it as it walks in (`sim/arrival.ts`).

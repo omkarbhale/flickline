@@ -132,7 +132,20 @@ export function commandMoveToward(b: EnemyBody, wx: number, wz: number): void {
 // An Echo's bullets.
 // ---------------------------------------------------------------------------------------------
 
-const NULL_SINK: EventSink<SimEvents> = { emit() {} };
+/**
+ * What the body's own code reported this tick, kept for `stepEnemyBody` to announce: a landing and a
+ * reload start are sounds the player hears (`enemyLanded`, `enemyReloadStarted`, with their radii).
+ * The player's other movement and gun events (`footstep`, `playerJumped`, `shotFired`, ...) are the
+ * player's, so everything else is dropped.
+ */
+let bodyLanded = false;
+let bodyReloaded = false;
+const BODY_SINK: EventSink<SimEvents> = {
+  emit(type) {
+    if (type === 'playerLanded') bodyLanded = true;
+    else if (type === 'reloadStarted') bodyReloaded = true;
+  },
+};
 const shotRay = createRay();
 const zoneHit = createZoneHit();
 const firedEv: RunEvents['enemyFired'] = { tick: 0, id: 0, hit: false, dir: { x: 0, y: 0, z: 0 }, audibleToPlayer: false };
@@ -199,27 +212,65 @@ const gunScratch: WeaponScratch = createWeaponScratch();
  * `prevPos` is snapshotted there, for interpolation), then its gun through `stepWeapon`, exactly
  * the order `World.step` uses for the player. The command's `jump` and `reload` are edges, as
  * the player's are: they apply to this tick and are cleared after it. The player's movement
- * events (`footstep`, `playerJumped`, ...) are the player's, so the body's are dropped; enemy
- * footsteps are positioned sounds the audio derives from the motion. Allocates nothing.
+ * events (`footstep`, `playerJumped`, ...) are the player's, so the body's are dropped; what the player can hear of an
+ * Echo comes back as `enemyFootstep` (`sim/enemySound.ts`), `enemyLanded` and `enemyReloadStarted` (here), each with
+ * `audibleToPlayer`. Allocates nothing.
  */
 export function stepEnemyBody(t: TargetState, ctx: BehaviourContext): void {
   const b = t.body;
   const tun = ctx.tunables;
   const w = ctx.world;
-  stepBody(b.kin, b.cmd, w.boxes, tun.movement, b.gait, TICK_DT, ctx.tick, NULL_SINK);
+  bodyLanded = bodyReloaded = false;
+  stepBody(b.kin, b.cmd, w.boxes, tun.movement, b.gait, TICK_DT, ctx.tick, BODY_SINK);
   t.crouched = b.kin.crouching;
+  stepEnemyGun(t, ctx);
+  if (bodyLanded) w.enemySound('landing', ctx.events, ctx.tick, t);
+  if (bodyReloaded) w.enemySound('reload', ctx.events, ctx.tick, t);
+  b.cmd.jump = false;
+  b.cmd.reload = false;
+}
+
+/**
+ * The gun of an Echo whose slot its FSM moves itself (a Peeker sliding out of cover, an arrival
+ * walking in): the body is brought in step with the slot (velocity from this tick's motion, so its
+ * shots carry the real movement error; stance and eye height; the command's view), then only its
+ * gun steps. Used by the enemy mind (#90) so every mind-driven Echo shoots through the one gun.
+ */
+export function stepKinematicGun(t: TargetState, ctx: BehaviourContext): void {
+  const b = t.body;
+  const k = b.kin;
+  const m = ctx.tunables.movement;
+  k.vel.x = (k.pos.x - k.prevPos.x) / TICK_DT;
+  k.vel.y = 0;
+  k.vel.z = (k.pos.z - k.prevPos.z) / TICK_DT;
+  k.grounded = true;
+  k.crouching = t.crouched;
+  k.height = t.crouched ? m.crouchHeight : m.standHeight;
+  k.eyeHeight = k.prevEyeHeight = t.crouched ? m.crouchEyeHeight : m.standEyeHeight;
+  k.yaw = b.cmd.yaw;
+  k.pitch = b.cmd.pitch;
+  bodyReloaded = false;
+  stepEnemyGun(t, ctx);
+  if (bodyReloaded) ctx.world.enemySound('reload', ctx.events, ctx.tick, t);
+  b.cmd.reload = false;
+}
+
+/** One tick of an Echo's gun (`stepWeapon`) under its command, its bullets resolved against the player. */
+function stepEnemyGun(t: TargetState, ctx: BehaviourContext): void {
+  const b = t.body;
+  const tun = ctx.tunables;
+  const w = ctx.world;
   const g = gunWorld;
   g.boxes = w.boxes;
   g.table = tun.weapon;
   g.rules = tun.weaponRules;
   g.move = tun.movement;
-  // Its spread and recoil draws come from its own aim stream (#86): its shots never shift the world's draws or another Echo's.
-  g.rng = t.streams.aim;
+  // Its spread and recoil draws come from its own decision stream (#86): its shots never shift the world's
+  // draws or another Echo's, and never its own view's (the aim model draws from `aim`, #90).
+  g.rng = t.streams.decisions;
   shooter = t;
   shooterCtx = ctx;
-  stepWeapon(b.weapon, b.cmd, b.kin, g, ctx.tick, NULL_SINK, gunScratch);
+  stepWeapon(b.weapon, b.cmd, b.kin, g, ctx.tick, BODY_SINK, gunScratch);
   shooter = null;
   shooterCtx = null;
-  b.cmd.jump = false;
-  b.cmd.reload = false;
 }
