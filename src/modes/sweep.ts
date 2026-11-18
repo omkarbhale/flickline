@@ -290,7 +290,10 @@ function spawnEcho(ctx: ModeContext<SweepState>, c: ContactRt, e: EchoPlan, cold
     ? { tellSec: p.tellSec, enemyReactionSec: p.reactionSec, enemyHitChance: p.hitChance, strafeSpeed: p.strafeSpeed, strafeLegSec: p.strafeLegSec, standStillSec: p.standStillSec, peekWideSec: p.peekWideSec }
     : ctx.axes;
   const cfg = ctx.tunables.sweep;
-  const fire = { tellSec: a.tellSec!, reactionSec: a.enemyReactionSec!, hitChance: a.enemyHitChance!, expectation: e.expectation };
+  // Mind-driven (#90): every Echo aims and shoots like a player at the run's mind skill; the dial's hit chance is a calibration target.
+  const fire = {
+    tellSec: a.tellSec!, reactionSec: a.enemyReactionSec!, hitChance: a.enemyHitChance!, expectation: e.expectation, mindSkill: ctx.mindSkill,
+  };
   const arrive = e.arrive ? { route: e.arrive.route, speed: e.arrive.speed, engageM: e.arrive.engageM } : undefined;
   // No trial per Echo: the contact's facts are classified into trials (`contactTrials.ts`). An arrival is out of the sector when
   // it spawns; the fairness floors bind it as it walks in (`sim/arrival.ts`).

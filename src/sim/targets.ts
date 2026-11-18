@@ -9,9 +9,10 @@ import { createAimInfo, measureAim, yawOf, type AimInfo } from './aim';
 import { lineBlockedRay } from './collision';
 import { arriveInit } from './arrival';
 import { createEnemyAi, resetEnemyAi, type ArriveParams, type FireParams, type PeekParams, type StrafeParams } from './enemyAi';
-import { createEnemyBody, resetEnemyBody, stepEnemyBody } from './enemyBody';
+import { createEnemyBody, resetEnemyBody, stepEnemyBody, stepKinematicGun } from './enemyBody';
 import { stepEnemySteps } from './enemySound';
 import { fireInit } from './enemyFire';
+import { mindAfterGun, mindFireStep } from './mind/duel';
 import { BEHAVIOURS } from './enemies';
 import { peekInit } from './peeker';
 import { strafeInit } from './strafer';
@@ -159,7 +160,7 @@ function createSlot(tunables: Tunables): TargetState {
     swayTarget: 0,
     fsm: createFsm(),
     streams: new EnemyStreams(),
-    ai: createEnemyAi(),
+    ai: createEnemyAi(tunables.mind.aim.historyTicks),
     body: createEnemyBody(pos, prevPos, tunables),
     visibleTick: -1,
     firstShotTick: -1,
@@ -375,10 +376,18 @@ export class TargetField {
       }
       fsmStep(b, t, ctx);
       // A state that moves the slot itself (an arrival walking its route in) leaves the body still.
-      if (b.drivesBody && t.alive && !b.states[t.fsm.state]!.kinematic) {
+      const bodyStep = b.drivesBody === true && t.alive && !b.states[t.fsm.state]!.kinematic;
+      const mind = t.alive && t.ai.mind;
+      // A mind aims and sets its trigger every tick, between the movement's keys and the body's step (#90).
+      if (mind) mindFireStep(t, ctx, bodyStep);
+      if (bodyStep) {
         stepEnemyBody(t, ctx);
         b.bodyMoved?.(t);
+      } else if (mind) {
+        // Moved by its FSM (a Peeker, an arrival): only its gun steps, at the view the mind set.
+        stepKinematicGun(t, ctx);
       }
+      if (mind) mindAfterGun(t, ctx);
       // Its running steps, wherever it moved from (the body, or an arrival walking its route): `sim/enemySound.ts`.
       if (kind.shape === 'humanoid' && t.alive) stepEnemySteps(t, ctx);
     }
@@ -677,6 +686,7 @@ export class TargetField {
         const w = t.body.weapon;
         mix(k.vel.x); mix(k.vel.y); mix(k.vel.z); mix(k.yaw); mix(k.pitch); mix(k.grounded ? 1 : 0);
         mix(w.shots); mix(w.slots[0]!.mag); mix(w.sprayCount); mix(w.recoilPitch); mix(w.recoilYaw); mix(w.reloadLeft);
+        if (a.mind) { mix(a.aim.yaw); mix(a.aim.pitch); mix(a.aim.phase); }
       }
     }
     for (let i = 0; i < this.spawners.length; i++) mix(this.spawners[i]!.respawnTick);

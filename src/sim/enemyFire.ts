@@ -7,7 +7,8 @@ import { createShotTiming, enemyShotTiming, type ReactionDist } from './enemyTim
 import {
   FIRE_BURST, FIRE_COOL, FIRE_IDLE, FIRE_TELL, FIRE_WAIT, type EnemyAi,
 } from './enemyAi';
-import { lineClear } from './exposure';
+import { ceilTicks, muzzleY, seesPlayer } from './enemySight';
+import { mindFireReset, mindInit } from './mind/duel';
 import type { BehaviourContext } from './fsm';
 import type { HitZone, TargetState } from './types';
 import type { RunEvents } from './runEvents';
@@ -35,11 +36,6 @@ import type { RunEvents } from './runEvents';
 
 declare module './types' {
   interface SimEvents extends Pick<RunEvents, 'enemyTell' | 'enemyFired'> {}
-}
-
-/** Whole ticks that last at least `sec` (the tell floor must not round down). */
-export function ceilTicks(sec: number): number {
-  return Math.max(1, Math.ceil(sec * TICK_RATE - 1e-9));
 }
 
 /**
@@ -98,7 +94,12 @@ const timing = createShotTiming();
 const reactionScratch: ReactionDist = { muSec: 0, sigmaSec: 0, tauSec: 0 };
 
 /** Back to idle: nothing in progress (the contact is forgotten, the reaction runs again on the next sight). */
-export function fireReset(a: EnemyAi): void {
+export function fireReset(t: TargetState): void {
+  const a = t.ai;
+  if (a.mind) {
+    mindFireReset(t);
+    return;
+  }
   a.phase = FIRE_IDLE;
   a.contactTick = -1;
   a.tellStartTick = -1;
@@ -106,22 +107,6 @@ export function fireReset(a: EnemyAi): void {
   a.burstLeft = 0;
   a.burstsLeft = 0;
   a.gate = false;
-}
-
-/** Muzzle position of a target (chest height, lower when crouched) into the scratch outputs. */
-function muzzleY(t: TargetState, cfg: EnemyFireTunables): number {
-  return t.pos.y + (t.crouched ? cfg.muzzleHeightCrouch : cfg.muzzleHeightStand);
-}
-
-/** Whether the enemy can see (and is in range of) the player's eye. */
-export function seesPlayer(t: TargetState, ctx: BehaviourContext): boolean {
-  const cfg = ctx.tunables.enemies.fire;
-  const p = ctx.world.player;
-  const ex = p.pos.x, ey = p.pos.y + p.eyeHeight, ez = p.pos.z;
-  const mx = t.pos.x, my = muzzleY(t, cfg), mz = t.pos.z;
-  const dx = ex - mx, dy = ey - my, dz = ez - mz;
-  if (dx * dx + dy * dy + dz * dz > cfg.acquireRangeM * cfg.acquireRangeM) return false;
-  return lineClear(ctx.world.boxes, mx, my, mz, ex, ey, ez);
 }
 
 /** Whether this enemy may shoot right now (it can, the mode lets enemies fire, the run is live). */
@@ -214,11 +199,21 @@ function shoot(t: TargetState, ctx: BehaviourContext): void {
  * Advance one tick of the shooting model. `gate` is the movement's permission to start a tell
  * now (a Strafer while it brakes, a Peeker at the top of a wide peek). `windowEndTick` (Peeker)
  * bounds a second burst. Call once per tick from the movement FSM, after it moved.
+ *
+ * A mind-driven Echo (`FireParams.mindSkill`) only records what the movement offers: `gate` (it is
+ * stopping here) and `committed` (it commits to a fight here at all; default `gate`: a Strafer's legs
+ * commit, a Peeker's baits do not). Its aim and shots run once per tick in `mind/duel.ts`.
  */
-export function fireStep(t: TargetState, ctx: BehaviourContext, gate: boolean): void {
+export function fireStep(t: TargetState, ctx: BehaviourContext, gate: boolean, committed = gate): void {
   const a = t.ai;
+  if (a.mind) {
+    // The mind steps once per tick on its own (`TargetField.step`); the movement only says what it offers.
+    a.gate = gate;
+    a.committed = committed;
+    return;
+  }
   if (!active(a, ctx)) {
-    if (a.phase !== FIRE_IDLE) fireReset(a);
+    if (a.phase !== FIRE_IDLE) fireReset(t);
     return;
   }
   const cfg = ctx.tunables.enemies.fire;
@@ -232,7 +227,7 @@ export function fireStep(t: TargetState, ctx: BehaviourContext, gate: boolean): 
   }
   // From here the enemy is in a contact: losing the player drops it (the reaction runs again on the next sight).
   if (!seesPlayer(t, ctx)) {
-    fireReset(a);
+    fireReset(t);
     return;
   }
   switch (a.phase) {
@@ -278,8 +273,13 @@ function endBurst(t: TargetState, ctx: BehaviourContext, cfg: EnemyFireTunables)
   a.coolEndTick = ctx.tick + secondsToTicks(ctx.rng.range(cfg.gapMinSec, cfg.gapMaxSec));
 }
 
-/** Whether a tell or burst is in progress (the movement holds still until it is done). */
+/**
+ * Whether a tell or burst is in progress (the movement holds still until it is done). A mind's tell
+ * is its aim phase and lasts until its first shot, so it holds the movement only where the movement
+ * offered a shot (`gate`: a Strafer's stop, a wide peek), never on a bait.
+ */
 export function fireBusy(a: EnemyAi): boolean {
+  if (a.mind) return a.phase === FIRE_BURST || (a.phase === FIRE_TELL && a.gate);
   return a.phase === FIRE_TELL || a.phase === FIRE_BURST;
 }
 
@@ -294,5 +294,6 @@ export function fireInit(t: TargetState, ctx: BehaviourContext, p: FireParams | 
   a.hitChance = p?.hitChance ?? cfg.defaultHitChance;
   a.expectation = p?.expectation ?? 'attending';
   a.weapon = p?.weapon ?? ctx.world.enemyWeapon;
-  fireReset(a);
+  if (p?.mindSkill !== undefined) mindInit(t, ctx, p.mindSkill);
+  else fireReset(t);
 }
