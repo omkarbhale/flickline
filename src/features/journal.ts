@@ -21,9 +21,10 @@ declare module '../debug/hook' {
 
 /**
  * Feeds the run's events to the play journal (`progress/journal.ts`, #251): `runReady`, `runStarted`, `sectorEntered` (the
- * run's depth), `sectorEnded` (the Finale's exit: how long a full run took, #274) and `runEnded` with the run's fight pace (#248: its own `FightPace`, subscribed before the journal's `runEnded`
- * so it has closed the run when the journal reads it; the overlay's tracker is a tools feature and the two never share state),
- * for run modes only (Sweep and its Daily Route; a fixture mode is not play the player chose).
+ * run's depth), `sectorEnded` (the Finale's exit: how long a full run took, #274) and `runEnded` with the run's fight pace
+ * (#248: its own `FightPace`, subscribed before the journal's `runEnded` so it has closed the run when the journal reads it;
+ * the overlay's tracker is a tools feature and the two never share state), for run modes only (Sweep and its Daily Route; a
+ * fixture mode is not play the player chose).
  * Nothing is sent anywhere and nothing reads the journal to change play: it is a record the player owns and exports.
  *
  * The writes are deferred (no storage write mid-fight). A finished run is written by the progress feature's batch in the same

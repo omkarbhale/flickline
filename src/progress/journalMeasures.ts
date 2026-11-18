@@ -49,7 +49,10 @@ export interface JournalMeasures {
    */
   fightsPerMin: { median: number | null; pooled: number | null; runs: number };
   deadAir: { median: number | null; over: Share };
-  /** How long a full run takes (#274, design §4.1): the median seconds live to the Finale's exit over the runs that cleared it (since #274), and how many did. */
+  /**
+   * How long a full run takes (#274, design §4.1): the median seconds live to the Finale's exit over the runs that cleared it
+   * (saved since #274), and how many did. Null with none.
+   */
   finaleClear: { median: number | null; runs: number };
   /** R7: first and latest played day, days played, and the return on day 3 and day 7. */
   firstDay: string | null;
