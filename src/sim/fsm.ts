@@ -5,6 +5,7 @@ import type { EnemySoundKind } from '../config/attribution';
 import type { WeaponId } from '../config/weapon';
 import type { BoxDef, FsmState, HitZone, PlayerState, SimEvents, TargetState } from './types';
 import type { Tunables } from '../config/tunables';
+import type { MindSystem } from './mind/system';
 
 /**
  * Small finite-state-machine base for enemy behaviours (design §5.4). Advanced only by the fixed
@@ -36,6 +37,8 @@ export interface EnemyWorld {
   playerMoving(): boolean;
   /** Whether a sound of this kind made at (`x`, `z`) reaches the player: the `audibleToPlayer` an enemy sound event carries (fight-attribution F1). */
   soundAudible(kind: EnemySoundKind, x: number, z: number): boolean;
+  /** The enemy mind's perception, nav graph and team facts (#91): what mind-driven Echoes use. Absent in worlds without minds (test stubs). */
+  readonly minds?: MindSystem;
   /**
    * An enemy made a sound of `kind` (a running step, a landing, a reload start) where it stands: announce it
    * (`enemyFootstep`, `enemyLanded`, `enemyReloadStarted`, each stamped with `audibleToPlayer`) and say whether the player can hear it.

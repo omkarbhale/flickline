@@ -713,6 +713,7 @@ targetSpawned { id, kind, pos, tags }     targetVisible { id }
 targetHit { id, zone, damage, absorbed, hpLeft, shieldLeft, killed }    targetKilled { id, kind, zone, ttkMs, rtMs, firstBullet, bullets, shield, clean }
 targetExpired { id }                      targetShielded { id }   (Bulwark plate hit)
 enemyTell { id, durationMs }              enemyFired { id, hit: boolean, dir }
+enemyStateChanged { id, state, from }     enemyReacted { id, reactMs, contact, expected }   (the enemy mind, #91)
 playerDamaged { amount (HP lost), absorbed, hp, shield, dir, sourceId }   playerSlowed { factor, durationMs }   playerDied { }
 chainUpdated { count }                    streakUpdated { streak, mult }   surgeStarted { }  surgeEnded { }
 contactSettled { contactId, outcome: 'cleared'|'disengaged'|'avoided'|'died', kept, enemies, points, card }

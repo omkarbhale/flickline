@@ -10,6 +10,7 @@ import { applySoundRadii, createSoundRadii, type SoundRadii } from './hearing';
 import { seesPlayer } from './enemySight';
 import { TargetField, type SpawnOptions } from './targets';
 import { levelTargetsReset } from './targetsInit';
+import { MindSystem } from './mind/system';
 import { zoneDamage } from './damage';
 import { PlayerHealthSystem } from './playerHealth';
 import { createProbeState, resetProbe, stepRunProbe, type ProbeState } from './runProbe';
@@ -48,6 +49,21 @@ class KillHealRelay implements EventSink<SimEvents> {
       const k = payload as SimEvents['targetKilled'];
       this.health.healForKill(k.zone, k.tick, this.target);
     }
+  }
+}
+
+/**
+ * Forwards every event to the real sink and lets the enemy minds hear the player's own sounds
+ * (footsteps, landings, shots, reloads; #89, #91) from the same stream, so hearing is part of the
+ * simulation. One instance per world; `target` is swapped in per step. Allocates nothing.
+ */
+class HearingTap implements EventSink<SimEvents> {
+  target: EventSink<SimEvents> = NULL_SINK;
+  constructor(private readonly minds: MindSystem) {}
+
+  emit<K extends keyof SimEvents>(type: K, payload: SimEvents[K]): void {
+    this.target.emit(type, payload);
+    this.minds.hear(type, payload);
   }
 }
 
@@ -120,6 +136,9 @@ export class World implements EnemyWorld {
   readonly soundRadii: SoundRadii;
   private readonly healthSys: PlayerHealthSystem;
   private readonly relay: KillHealRelay;
+  /** The enemy minds' perception, nav graph and team facts (#89, #91): every mind-driven Echo perceives through it. */
+  readonly minds: MindSystem;
+  private readonly tap: HearingTap;
   /**
    * Whether targets and the weapon are live. The run controller clears it during `ready` (movement
    * only) and sets it when a self-driven run goes `live`; free play and mode runs keep it true.
@@ -173,9 +192,15 @@ export class World implements EnemyWorld {
     };
     this.soundRadii = createSoundRadii(opts.tunables.attribution.soundRadiusM);
     applySoundRadii(this.soundRadii, opts.tunables.attribution.soundRadiusM, this.level.hearing);
+    this.minds = new MindSystem(opts.tunables, this.level, this.player, this.seed);
+    // The enemy minds hear at the world's one radius table, the numbers the player's hearing of enemies reads (#99).
+    this.minds.setRadii(this.soundRadii);
+    this.tap = new HearingTap(this.minds);
     this.attribution = new AttributionFacts(this.level.boxes, this.targetField, this.player, this.soundRadii);
-    // Until the enemy minds (#89) answer, a firing enemy "sees" the player by the one sight rule its fire model already uses.
-    this.attribution.perception = { seesPlayer: (t) => t.ai.fireOn && this.firing && seesPlayer(t, this.behaviourCtx) };
+    // A mind-driven Echo sees the player when its perception does (#89, #91); the others by the one sight rule their fire model uses.
+    this.attribution.perception = {
+      seesPlayer: (t) => (t.mind.active ? this.minds.perception.sees(t.id) : t.ai.fireOn && this.firing && seesPlayer(t, this.behaviourCtx)),
+    };
     this.reset(this.seed);
   }
 
@@ -189,6 +214,7 @@ export class World implements EnemyWorld {
     this.weaponWorld.boxes = level.boxes;
     this.attribution.setBoxes(level.boxes);
     applySoundRadii(this.soundRadii, this.tunables.attribution.soundRadiusM, level.hearing);
+    this.minds.setLevel(level);
   }
 
   /** Restore the initial state; optionally with a new seed. */
@@ -215,6 +241,7 @@ export class World implements EnemyWorld {
     resetProbe(this.probe);
     this.behaviourCtx.tick = 0;
     this.behaviourCtx.events = NULL_SINK;
+    this.minds.reset();
     levelTargetsReset(this.targetField, this.level, this.behaviourCtx);
     this.attribution.reset();
   }
@@ -228,8 +255,11 @@ export class World implements EnemyWorld {
     this.tick++;
     const t = this.tunables;
     // Everything that can emit a kill runs through the relay (kill-heal); the rest uses the plain sink.
+    // The player's own movement and gun go through the hearing tap, so the enemy minds hear them.
+    const tap = this.tap;
+    tap.target = events;
     const relay = this.relay;
-    relay.target = events;
+    relay.target = tap;
     this.healthSys.step(this.player);
     let moveInput = input;
     if (this.movementLocked) {
@@ -238,16 +268,19 @@ export class World implements EnemyWorld {
       l.pitch = input.pitch;
       moveInput = l;
     }
-    stepBody(this.player, moveInput, this.level.boxes, t.movement, t.weapon[this.weapon.slots[this.weapon.active]!.id], TICK_DT, this.tick, events);
+    stepBody(this.player, moveInput, this.level.boxes, t.movement, t.weapon[this.weapon.slots[this.weapon.active]!.id], TICK_DT, this.tick, tap);
     if (!this.live) {
       relay.target = NULL_SINK;
+      tap.target = NULL_SINK;
       return;
     }
     this.targetField.updateVisibility(this.player, this.level.boxes, this.tick, events);
     stepWeapon(this.weapon, input, this.player, this.weaponWorld, this.tick, relay, this.weaponScratch);
+    this.minds.step(this.tick, this.targetField, events);
     this.stepTargets(relay);
     this.attribution.step(this.tick, events);
     relay.target = NULL_SINK;
+    tap.target = NULL_SINK;
     stepRunProbe(this.probe, this.player, this.weapon, this.targetField, input, t, this.tick, events, this.level);
   }
 

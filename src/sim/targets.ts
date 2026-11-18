@@ -10,6 +10,8 @@ import { lineBlockedRay } from './collision';
 import { arriveInit } from './arrival';
 import { createEnemyAi, resetEnemyAi, type ArriveParams, type FireParams, type PeekParams, type StrafeParams } from './enemyAi';
 import { createEnemyBody, resetEnemyBody, stepEnemyBody, stepKinematicGun } from './enemyBody';
+import { mindBehaviour, mindInit } from './mind/decision';
+import { createMindState, type MindParams } from './mind/state';
 import { stepEnemySteps } from './enemySound';
 import { fireInit } from './enemyFire';
 import { mindAfterGun, mindFireStep } from './mind/duel';
@@ -131,6 +133,12 @@ export interface SpawnOptions {
    * point of the route, which replaces the spawn position, and walks it in before it fights.
    */
   arrive?: ArriveParams;
+  /**
+   * Humanoids: a mind-driven Echo (#91, research §5.9 "Strafer and Peeker become mind presets"): the
+   * enemy mind replaces the kind's behaviour (the kind still names it for scoring and stats). Its mind
+   * skill, the angle it holds, where else it may go, whether it shoots. Needs a world with minds.
+   */
+  mind?: MindParams;
 }
 
 function createSlot(tunables: Tunables): TargetState {
@@ -162,6 +170,7 @@ function createSlot(tunables: Tunables): TargetState {
     streams: new EnemyStreams(),
     ai: createEnemyAi(tunables.mind.aim.historyTicks),
     body: createEnemyBody(pos, prevPos, tunables),
+    mind: createMindState(),
     visibleTick: -1,
     firstShotTick: -1,
     reactionShotTick: -1,
@@ -250,8 +259,9 @@ export class TargetField {
     opts?: SpawnOptions, spawner = -1,
   ): number {
     let t: TargetState | null = null;
+    let slot = -1;
     for (let i = 0; i < this.slots.length; i++) {
-      if (!this.slots[i]!.alive) { t = this.slots[i]!; break; }
+      if (!this.slots[i]!.alive) { t = this.slots[i]!; slot = i; break; }
     }
     if (!t) return -1;
     const tt = this.tunables.targets;
@@ -295,10 +305,14 @@ export class TargetField {
       const yaw = Math.atan2(-(pl.pos.x - x), -(pl.pos.z - z));
       resetEnemyBody(t.body, t.crouched, yaw, opts?.fire?.weapon ?? ctx.world.enemyWeapon, this.tunables);
     }
-    if (def.behaviour === 'strafer') strafeInit(t, ctx, opts?.strafe);
+    t.mind.active = false;
+    t.mind.perceiver = null;
+    const minded = opts?.mind !== undefined && def.shape === 'humanoid' && ctx.world.minds !== undefined;
+    if (minded) mindInit(t, ctx, slot, opts.mind);
+    else if (def.behaviour === 'strafer') strafeInit(t, ctx, opts?.strafe);
     else if (def.behaviour === 'peeker') peekInit(t, opts?.peek);
-    if (def.behaviour === 'strafer' || def.behaviour === 'peeker') fireInit(t, ctx, opts?.fire);
-    const behaviour = BEHAVIOURS[def.behaviour];
+    if (!minded && (def.behaviour === 'strafer' || def.behaviour === 'peeker')) fireInit(t, ctx, opts?.fire);
+    const behaviour = minded ? mindBehaviour : BEHAVIOURS[def.behaviour];
     const arriving = behaviour.arrive !== undefined && arriveInit(t, opts?.arrive);
     fsmStart(behaviour, t, ctx, arriving ? behaviour.arrive : behaviour.initial);
     if (events) {
@@ -367,7 +381,7 @@ export class TargetField {
         continue;
       }
       const kind = tt.kinds[t.kind];
-      const b = BEHAVIOURS[kind.behaviour];
+      const b = t.mind.active ? mindBehaviour : BEHAVIOURS[kind.behaviour];
       if (t.body.driven) {
         // The debug hook's command plays the body; the behaviour waits.
         stepEnemyBody(t, ctx);
