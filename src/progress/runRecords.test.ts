@@ -14,8 +14,8 @@ class Script {
   }
 
   /** Sector `n` (1-based, as the design numbers them); the event carries it 0-based. */
-  enter(n: number, role = 'take', condition = 'full', stake = 'plain'): this {
-    this.rec.sectorEntered({ index: n - 1, role, condition, stake });
+  enter(n: number, role = 'take', condition = 'full', stake = 'plain', opener = false): this {
+    this.rec.sectorEntered({ index: n - 1, opener, role, condition, stake });
     return this;
   }
 
@@ -55,6 +55,22 @@ describe('RunRecorder: the route strip', () => {
       // the sector the player died in: closed at the health it ended with, not cleared
       { index: 2, role: 'take', condition: 'full', stake: 'hot', won: 0, lost: 1, hpIn: 120, hpOut: 0, cleared: false, flawless: false },
     ]);
+  });
+
+  it('a placing Opener\'s contact sectors are one tile and one pace entry (#273)', () => {
+    const s = new Script();
+    for (let k = 0; k < 4; k++) {
+      s.enter(1, 'take', 'full', 'plain', true).contact('cleared', 'take-unaware').score(100 * (k + 1));
+      s.hp = 150 - 10 * k;
+      s.end(true);
+    }
+    s.enter(2).contact('died', 'crossfire', 0);
+    s.hp = 0;
+    const r = s.rec.finish(400);
+    expect(r.depth).toBe(2);
+    expect(r.cleared).toBe(1);
+    expect(r.pace).toEqual([400]);
+    expect(r.strip.map((t) => [t.index, t.won, t.cleared, t.hpIn, t.hpOut])).toEqual([[1, 4, true, 150, 120], [2, 0, false, 120, 0]]);
   });
 
   it('a disengaged contact is a loss for the strip and the situation, an avoided one is neither', () => {
