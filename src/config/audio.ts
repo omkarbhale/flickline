@@ -34,6 +34,9 @@ export type CueId =
   | 'whiz'
   | 'damageThud'
   | 'enemyFootstep'
+  | 'enemyLand'
+  | 'enemyReload'
+  | 'callout'
   | 'chain'
   | 'medal'
   | 'surgeWhoosh'
@@ -47,7 +50,7 @@ export const CUE_IDS: readonly CueId[] = [
   'shotPace', 'shotKestrel', 'hitBody', 'hitLeg', 'hitHead', 'kill', 'killSparkle', 'miss',
   'movingShot', 'streakBreak', 'uiTick', 'uiConfirm', 'jump', 'land', 'footstep',
   'shotRill', 'shotLongnail', 'reloadOut', 'reloadIn', 'equip', 'enemyShot', 'enemyTell', 'whiz', 'damageThud',
-  'enemyFootstep', 'chain', 'medal', 'surgeWhoosh', 'surgeShimmer', 'uiReady', 'uiGo', 'resultsFanfare', 'runEnd',
+  'enemyFootstep', 'enemyLand', 'enemyReload', 'callout', 'chain', 'medal', 'surgeWhoosh', 'surgeShimmer', 'uiReady', 'uiGo', 'resultsFanfare', 'runEnd',
 ];
 
 /** A pitched partial: sine or triangle with an optional exponential frequency sweep. */
@@ -234,6 +237,37 @@ export const cueRecipes: Record<Exclude<CueId, BuiltCueId>, CueRecipe> = {
     ],
   },
 
+  // An enemy's landing: the player's thump with a click on top, so it carries at distance like its step. Positioned.
+  enemyLand: {
+    bus: 'enemies', peakDb: -22, decayDb: -40, jitter: true,
+    layers: [
+      noise('lowpass', 0, 90, 700, undefined, 0.7, 1, 0.8),
+      tone('sine', 0, 90, 105, 52, 1, 1.0),
+      noise('bandpass', 0, 14, 1800, undefined, 1.0, 0.3, 0.5),
+    ],
+  },
+  // An enemy's reload (engagement-information 4.2: "reloads are deliberate cues"): magazine out, then in, with a
+  // metallic edge the player's own quieter pair does not have, so it reads as someone else's gun. Positioned at the hands.
+  enemyReload: {
+    bus: 'enemies', peakDb: -22, decayDb: -40, jitter: true,
+    layers: [
+      noise('highpass', 0, 5, 2300, undefined, 1.0, 0, 1.0),
+      tone('triangle', 0, 20, 900, 500, 0.5, 0.4),
+      noise('bandpass', 40, 7, 1700, undefined, 1.0, 0, 0.7),
+      tone('sine', 520, 45, 190, 120, 0.5, 0.9),
+      noise('bandpass', 520, 6, 2600, undefined, 1.0, 0, 0.8),
+    ],
+  },
+  // The callout stand-in's chirp (engagement-information 4.2): two short rising syllables, bright and clean, nothing like
+  // a weapon or a hit cue, well clear of the kill ladder (440-1109 Hz) and the tink (3 kHz). Placed on the side of the contact.
+  callout: {
+    bus: 'ui', peakDb: -20, decayDb: -45,
+    layers: [
+      tone('triangle', 0, 70, 1500, 1900, 0.5, 1.0),
+      tone('triangle', 95, 90, 1700, 2300, 0.5, 1.0),
+    ],
+  },
+
   // Weapons: Rill = tight and fast, Longnail = deep with a long tail (design 12).
   shotRill: {
     bus: 'weapons', peakDb: -15, decayDb: -50, jitter: true,
@@ -416,19 +450,19 @@ export interface AudioTunables {
   ladder: LadderTunables;
   enemyTell: TellTunables;
   chain: ChainTunables;
-  /** Where enemy sounds come from, and how far they are heard. */
+  /** Where enemy sounds come from, and when their steps are silent. How far they carry is not here: `attribution.soundRadiusM`. */
   enemy: {
     /** Height above an enemy's feet that its tell and shots are placed at (head/muzzle), metres. */
     muzzleHeightM: number;
-    /** Footsteps beyond this distance are not played. */
-    maxAudibleM: number;
+    /** Height above an enemy's feet its reload is placed at (where the hands work the gun), metres. */
+    handsHeightM: number;
     /** Distance between enemy footsteps, metres (the player's stride is `movement.footstepStride`). */
     strideM: number;
     /** An enemy that moves further than this in one tick teleported (respawn): no step is counted. */
     teleportM: number;
     /**
      * An enemy moving slower than this makes no step sound: a walk is silent, a run is heard (design §4.4, the same rule
-     * as the player's shift-walk). Just above a rifle walk (`movement.walkFraction` × 5.4 m/s = 2.7 m/s), below a run.
+     * as the player's shift-walk). Just above the fastest gun's walk (`movement.walkFraction` × 5.7375 m/s = 2.87 m/s), below any run; a test measures the shared body's walk against it.
      */
     silentBelowMps: number;
   };
@@ -486,7 +520,7 @@ export const audio: AudioTunables = {
     peakDb: -14, referenceMs: 300, spatial: { refDistance: 3, rolloff: 0.6 },
   },
   chain: { gains: [1, 0.8, 0.65], staggerMs: 55, noteMs: 140, peakDb: -17, foldAboveHz: 1400 },
-  enemy: { muzzleHeightM: 1.3, maxAudibleM: 30, strideM: 2.2, teleportM: 1.5, silentBelowMps: 3 },
+  enemy: { muzzleHeightM: 1.3, handsHeightM: 1.0, strideM: 2.2, teleportM: 1.5, silentBelowMps: 3 },
   whiz: { maxMissM: 3, minOffsetM: 0.25 },
   loopFadeMs: 120,
   duck: { db: -3, attackMs: 2, holdMs: 80, releaseMs: 40, dominanceDb: 6.5, weaponsPeakDb: -15 },

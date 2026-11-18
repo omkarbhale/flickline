@@ -265,16 +265,16 @@ describe('hearing: the same events and radii as the player\'s hearing of enemies
     expect(ev[0]!.e.sound).toBe('shot');
   });
 
-  it('reads the very table the player\'s hearing reads (scaled by the mind): shrink the radius and who hears changes', () => {
-    const r = rig([], (t) => { t.mind.hearing.radiusScale.footstep = 0.5; });
+  it('reads the table it is given (the world\'s, `setRadii`): shrink the radius and who hears changes', () => {
+    const r = rig();
     const full = rig();
     enemy(r, 1, 0, 0, FACE_PLUS_Z);
     enemy(full, 1, 0, 0, FACE_PLUS_Z);
     place(r, 0, -20);
     place(full, 0, -20);
-    expect(full.tun.mind.hearing.radiusScale.footstep).toBe(1); // symmetric by default
+    r.sys.setRadii({ ...r.tun.attribution.soundRadiusM, footstep: 15 });
     expect(heardAt(full, () => full.sys.hear('footstep', 1))).toBe(1);
-    expect(heardAt(r, () => r.sys.hear('footstep', 1))).toBe(0); // 20 m > 30 m x 0.5
+    expect(heardAt(r, () => r.sys.hear('footstep', 1))).toBe(0); // 20 m > 15 m
   });
 
   it('hearing goes through walls and ignores the field of view (sound is not sight)', () => {

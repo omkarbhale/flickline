@@ -111,10 +111,6 @@ describe('enemy sounds: audibleToPlayer at the radius edge', () => {
     expect(s.world.attribution.audible('footstep', 0, -(radii.footstep + 5))).toBe(false);
   });
 
-  it('the footstep radius is the one the audio layer already culls enemy footsteps at (until #99 owns one table)', () => {
-    expect(radii.footstep).toBe(defaultTunables.audio.enemy.maxAudibleM);
-  });
-
   it('reuses its payload: nothing is allocated per sound', () => {
     const s = setup();
     const seen: unknown[] = [];

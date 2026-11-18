@@ -203,10 +203,15 @@ function sourceOf(tunables: Tunables, mapId: string, sectorId: string): SectorSo
   return sweepCatalog(tunables).find((x) => x.mapId === mapId && x.id === sectorId);
 }
 
-/** What the gate planner reads: the catalog, the tunables, how far Echoes are heard (the fights' radius) and the starting primary. */
+/** How far an Echo's running steps carry on `mapId`, metres: the shared table with that map's own radius over it. */
+function footstepRadius(tunables: Tunables, mapId: string): number {
+  return (sweepCatalog(tunables).find((x) => x.mapId === mapId)?.footstepM) ?? tunables.attribution.soundRadiusM.footstep;
+}
+
+/** What the gate planner reads: the catalog, the tunables, how far Echoes are heard (the fights' radius, per map) and the starting primary. */
 export function sweepEnv(tunables: Tunables, lean: Lean = NO_LEAN): GateEnv {
   return {
-    catalog: sweepCatalog(tunables), cfg: leanedCfg(tunables, lean), body: tunables.movement, hearM: tunables.audio.enemy.maxAudibleM, startPrimary: sweep.weapon,
+    catalog: sweepCatalog(tunables), cfg: leanedCfg(tunables, lean), body: tunables.movement, hearM: (mapId) => footstepRadius(tunables, mapId), startPrimary: sweep.weapon,
   };
 }
 

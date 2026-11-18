@@ -1,7 +1,7 @@
 import type { EventSink } from '../core/eventBus';
 import { EnemyStreams } from '../core/rngStreams';
 import { DEG2RAD } from '../core/math';
-import { TICK_DT, TICK_RATE, secondsToTicks } from '../core/time';
+import { TICK_DT, secondsToTicks } from '../core/time';
 import { vec3, type Vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
 import { shieldAbsorbed } from './damage';
@@ -10,6 +10,7 @@ import { lineBlockedRay } from './collision';
 import { arriveInit } from './arrival';
 import { createEnemyAi, resetEnemyAi, type ArriveParams, type FireParams, type PeekParams, type StrafeParams } from './enemyAi';
 import { createEnemyBody, resetEnemyBody, stepEnemyBody, stepKinematicGun } from './enemyBody';
+import { stepEnemySteps } from './enemySound';
 import { fireInit } from './enemyFire';
 import { mindAfterGun, mindFireStep } from './mind/duel';
 import { BEHAVIOURS } from './enemies';
@@ -365,10 +366,12 @@ export class TargetField {
         this.expire(t, tick, ctx.events);
         continue;
       }
-      const b = BEHAVIOURS[tt.kinds[t.kind].behaviour];
+      const kind = tt.kinds[t.kind];
+      const b = BEHAVIOURS[kind.behaviour];
       if (t.body.driven) {
         // The debug hook's command plays the body; the behaviour waits.
         stepEnemyBody(t, ctx);
+        stepEnemySteps(t, ctx);
         continue;
       }
       fsmStep(b, t, ctx);
@@ -385,7 +388,8 @@ export class TargetField {
         stepKinematicGun(t, ctx);
       }
       if (mind) mindAfterGun(t, ctx);
-      if (t.ai.honest && t.ai.audibleTick < 0) this.trackAudible(t, ctx);
+      // Its running steps, wherever it moved from (the body, or an arrival walking its route): `sim/enemySound.ts`.
+      if (kind.shape === 'humanoid' && t.alive) stepEnemySteps(t, ctx);
     }
     for (let i = 0; i < this.spawners.length; i++) {
       const sp = this.spawners[i]!;
@@ -402,24 +406,6 @@ export class TargetField {
         ctx.events.emit('targetRespawned', respawnedPayload);
       }
     }
-  }
-
-  /**
-   * An arrival's steps reach the player (`ai.audibleTick`): it ran, not walked (the same silent speed
-   * the footstep audio uses), within the audible range, for one stride. The sim keeps its own count so
-   * "audible before it fires" is a fact of the run, not of the audio engine (design §4.4, S9).
-   */
-  private trackAudible(t: TargetState, ctx: BehaviourContext): void {
-    const a = t.ai;
-    const e = this.tunables.audio.enemy;
-    const mx = t.pos.x - t.prevPos.x, mz = t.pos.z - t.prevPos.z;
-    const moved = Math.sqrt(mx * mx + mz * mz);
-    if (moved * TICK_RATE < e.silentBelowMps) return;
-    const p = ctx.world.player;
-    const dx = t.pos.x - p.pos.x, dz = t.pos.z - p.pos.z;
-    if (dx * dx + dz * dz > e.maxAudibleM * e.maxAudibleM) return;
-    a.audibleAccum += moved;
-    if (a.audibleAccum >= e.strideM) a.audibleTick = ctx.tick;
   }
 
   private expire(t: TargetState, tick: number, events: EventSink<SimEvents>): void {

@@ -5,7 +5,7 @@
  * (degrees only in names ending `Deg`).
  *
  * The numbers that already have a home are not copied here: the attention cone, the memory half-life,
- * the callout delay and the decision interval are `mind.perception` (#88), the hearing error and radii
+ * the callout delay and the decision interval are `mind.perception` (#88), the hearing error
  * come from the enemy's `MindProfile`, the sound radii themselves are `attribution.soundRadiusM` (the
  * table the player's hearing of enemies reads, so the two sides cannot drift apart: the symmetric
  * channels of engagement-information §4.2), and the field of view is the player's own
@@ -41,7 +41,7 @@ export interface PerceptionTunables {
    * Hearing: a heard sound gives a position estimate with an error radius `max(floor, frac * d)`
    * (§5.3), uniform in a disc of that radius around the true feet position. The floor and the fraction
    * are the enemy's profile (`hearErrorFloorM`, `hearErrorFrac`, by mind skill, `config/mind.ts`), the
-   * radii its profile's `hear*M` (`attribution.soundRadiusM` x `mind.hearing.radiusScale`).
+   * radii the world's (`attribution.soundRadiusM`, `World.soundRadii`).
    */
   hearing: {
     /** A sound heard again within this many seconds, estimated within the combined error of the last one, is a repeat ... */

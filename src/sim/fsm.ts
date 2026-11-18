@@ -36,6 +36,11 @@ export interface EnemyWorld {
   playerMoving(): boolean;
   /** Whether a sound of this kind made at (`x`, `z`) reaches the player: the `audibleToPlayer` an enemy sound event carries (fight-attribution F1). */
   soundAudible(kind: EnemySoundKind, x: number, z: number): boolean;
+  /**
+   * An enemy made a sound of `kind` (a running step, a landing, a reload start) where it stands: announce it
+   * (`enemyFootstep`, `enemyLanded`, `enemyReloadStarted`, each stamped with `audibleToPlayer`) and say whether the player can hear it.
+   */
+  enemySound(kind: EnemySoundKind, events: EventSink<SimEvents>, tick: number, t: TargetState): boolean;
   /** A bullet of `weapon` hits the player in `zone` from (`sx`, `sy`, `sz`). */
   hitPlayer(
     weapon: WeaponId, zone: HitZone, sx: number, sy: number, sz: number, sourceId: number,
