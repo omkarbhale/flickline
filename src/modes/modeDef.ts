@@ -129,6 +129,11 @@ export interface SpawnOptions {
   /** Scenario card of the contact the target belongs to: carried on its `skillTrial` (Sweep). */
   card?: string;
   /**
+   * The dial the target was set at, for its kill's difficulty term (default: the beat's). The cold
+   * opener's Echoes play at its level, not at the run's dial (design §8.5).
+   */
+  dial?: number;
+  /**
    * The target produces a trial of its own (default true: killed = success, expired = failure). A
    * mode that classifies its fights into trials itself (Sweep, `recordTrial`) turns it off.
    */
@@ -151,6 +156,8 @@ export interface TrialOptions {
   difficulty: number;
   /** Scenario card of its contact. */
   card?: string;
+  /** The stream the trial belongs to (default: the mode's `trialSource`): the cold opener's are `baseline` inside a matched run (design §8.5). */
+  source?: TrialSource;
   rtMs?: number;
   extra?: TrialExtra;
 }
@@ -170,6 +177,11 @@ export type RunPhase = 'idle' | 'ready' | 'live' | 'result';
 export interface ModeContext<S = unknown> {
   readonly mode: ModeDef<S>;
   readonly seed: number;
+  /**
+   * The run opens with a cold opener at this level (design §8.5), or null. The host decides (the due
+   * rule reads the save and the clock); the mode plays it.
+   */
+  readonly coldOpenerLevel: number | null;
   /** The run's seeded stream: use it for every random choice, never `Math.random`. */
   readonly rng: Rng;
   /** The scenario cards the run leans toward (design §4.4, #210); empty for no lean. Only Sweep reads it. */
@@ -258,6 +270,11 @@ export interface ModeContext<S = unknown> {
    * Returns the points paid (rounded, never negative).
    */
   awardPoints(points: number): number;
+  /**
+   * Take `points` back off the run's score (Sweep's Overtime: points that were never banked, design §4.7, #206). Clamped so the score never goes
+   * below 0; returns what was taken. It emits nothing: the caller reports it (`overtimeLost`), and the runner's score is final once the run ends.
+   */
+  forfeitPoints(points: number): number;
   /** Feet position of a live target into `out`; false when it is gone (or the host cannot tell). */
   targetPosition(id: number, out: Vec3): boolean;
   /** An Echo that shoots back and the player can see each other now (line of sight either way, in range). */

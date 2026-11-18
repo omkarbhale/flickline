@@ -1,4 +1,5 @@
 import { defineFeature } from '../app/feature';
+import { tellStrength } from '../feedback/cueGate';
 import { EnemyFxLayer } from '../render/enemyFx';
 
 /**
@@ -9,6 +10,11 @@ export const feature = defineFeature({
   id: 'enemyFx',
   stage: 'presentation',
   setup(game) {
-    game.renderer.addLayer(new EnemyFxLayer(game.renderer, game.world, game.bus, game.tunables));
+    // The added tell fades with the dial and is off in a clean run or cold opener (design 7.4), as the tell tone is.
+    game.renderer.addLayer(
+      new EnemyFxLayer(game.renderer, game.world, game.bus, game.tunables, () =>
+        tellStrength(game.feedbackOptions, game.tunables.cues, game.tunables.dial, game.modes.runner.dial),
+      ),
+    );
   },
 });

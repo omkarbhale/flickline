@@ -1,6 +1,7 @@
 import type { Game } from '../app/game';
 import { median } from '../core/math';
 import { TICK_DT } from '../core/time';
+import { benchEnemyBodies, type EnemyBench } from './enemyBench';
 
 /**
  * The frame-time perf harness: a scripted 20 s scene run through the game's real frame loop in a
@@ -103,6 +104,8 @@ export interface PerfReport {
     /** Heap falls larger than 32 KiB (collections seen). */
     collections: number;
   };
+  /** What humanoid Echoes on the shared body add to the sim tick (#87; budget `render.budget.enemyTick`). */
+  enemies: EnemyBench;
   failures: string[];
   pass: boolean;
 }
@@ -360,6 +363,9 @@ export class PerfHarness {
     const worst = frames[n - 1] ?? 0;
     if (worst > th.worstFrameMs) failures.push(`worst frame ${worst.toFixed(0)} ms > ${th.worstFrameMs} ms`);
     if (hs.length && growth > th.heapGrowthBytes) failures.push(`heap floor grew ${(growth / 1048576).toFixed(1)} MB > ${(th.heapGrowthBytes / 1048576).toFixed(0)} MB`);
+    // Measured after the frames, on worlds of its own: the scene's numbers above are untouched.
+    const enemies = benchEnemyBodies(g.world.level, g.tunables);
+    if (!enemies.pass) failures.push(`${enemies.enemies} Echoes add ${Math.max(enemies.strafersMs, enemies.sprayingMs).toFixed(3)} ms to a sim tick > ${enemies.budgetMs} ms`);
 
     const r = g.renderer.stats;
     return {
@@ -398,6 +404,7 @@ export class PerfHarness {
         typicalAllocBytesPerSec: seconds ? (typicalStep * hs.length) / seconds : 0,
         collections,
       },
+      enemies,
       failures,
       pass: failures.length === 0,
     };

@@ -77,6 +77,28 @@ function stopTraceOf(t: Tunables, weapon: WeaponId, how: 'release' | 'counter'):
   return { speeds, ticksToZero, fullSpeed };
 }
 
+/**
+ * An Echo's stop (spec §5.3 target stop time): a Strafer at the dial-50 strafe speed, its body
+ * driven by commands (#87): it holds its strafe key for a second, lets go, and this counts the
+ * ticks until its body is at rest. The same measurement as the player's release, on the enemy.
+ */
+export function echoStopTicks(t: Tunables): number {
+  return memo(t, 'echo-stop', () => {
+    const sim = createSim({ tunables: t });
+    const id = sim.world.spawnTarget('strafer', 0, 0, -10, sim.bus);
+    const body = sim.world.targetField.byId(id)!.body;
+    body.driven = true;
+    body.cmd.moveX = 1;
+    sim.run(ticksOf(1));
+    body.cmd.moveX = 0;
+    for (let k = 1; k <= ticksOf(1); k++) {
+      sim.tick();
+      if (Math.hypot(body.kin.vel.x, body.kin.vel.z) <= 1e-9) return k;
+    }
+    return -1;
+  });
+}
+
 /** Braking (m/s^2) in the bands above and below `splitFraction` of full speed, from a release trace. */
 export function brakeRates(trace: StopTrace, splitFraction: number): { high: number; low: number } {
   const split = splitFraction * trace.fullSpeed;

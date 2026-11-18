@@ -187,23 +187,6 @@ export type TrialExtra = Readonly<Record<string, number>>;
 export type TrialSource = 'matched' | 'baseline';
 
 /**
- * One stored benchmark item (`config/baselineItems.ts`, shuffled and mirrored per run by
- * `buildBaselineSequence`), described relative to the crosshair: `angleDeg` from the crosshair direction, the target's `pitchDeg` above the
- * horizon, `distance` from the eye, an orb `scale` (x real head size) and the `exposureSec` it stays
- * up. `side` mirrors it: +1 puts it to the left of the crosshair, -1 to the right.
- */
-export interface FixedItem {
-  angleDeg: number;
-  pitchDeg: number;
-  distance: number;
-  scale: number;
-  exposureSec: number;
-  side: 1 | -1;
-  /** Position of the item in its stored list (before the run's shuffle). */
-  index: number;
-}
-
-/**
  * The facts the framework reads from the sim: the subset of `SimEvents` (design §14.3) it needs,
  * so the game bus satisfies `Subscribable<SourceEvents>` directly.
  */
@@ -257,7 +240,7 @@ export interface PlayerSourceEvents {
 }
 
 /** Events the framework emits. §14.3 names and payloads, plus `beatStarted` and `scoreAwarded`. */
-export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents, SectorEvents, Pick<RunEvents, 'contactSettled'> {
+export interface ModeEvents extends StreakEvents, MapEvents, SprayEvents, SectorEvents, Pick<RunEvents, 'contactSettled' | 'runBanked' | 'overtimeLost'> {
   /** The run moved the player (a sector entry, a gate's far side): the view should face `yaw` again. */
   playerPlaced: { tick: number; x: number; y: number; z: number; yaw: number };
   runReady: { tick: number; mode: ModeId; seed: number; dial: number };

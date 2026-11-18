@@ -25,9 +25,9 @@ function v2(): Record<string, unknown> {
   };
 }
 
-describe('save v2 -> v3 (#217)', () => {
+describe('save v2 -> v4 (#217, #251)', () => {
   it('is the current version and has a migration step from v2', () => {
-    expect(SAVE_VERSION).toBe(3);
+    expect(SAVE_VERSION).toBe(4);
     expect(typeof migrateSave(v2())).toBe('object');
   });
 
@@ -83,7 +83,7 @@ describe('save v2 -> v3 (#217)', () => {
     if (bare.ok) expect(bare.data.runBests).toEqual({});
   });
 
-  it('the store loads it, shows the drill bests to the menu, writes it back as v3 and records a first run best next to them', () => {
+  it('the store loads it, shows the drill bests to the menu, writes it back as v4 and records a first run best next to them', () => {
     const data: Record<string, string> = { [cfg.storageKey]: JSON.stringify(v2()) };
     const storage: StorageLike = { getItem: (k) => data[k] ?? null, setItem: (k, v) => { data[k] = v; } };
     const s = new ProgressStore(null, storage);
@@ -92,7 +92,8 @@ describe('save v2 -> v3 (#217)', () => {
     expect(s.bestRun(50)).toBeNull();
     s.setFlaggedSkill('track'); // any write persists the migrated save
     const stored = JSON.parse(data[cfg.storageKey]!);
-    expect(stored.version).toBe(3);
+    expect(stored.version).toBe(4);
+    expect(stored.journal).toEqual({ firstDay: null, sessions: [], runs: [], days: [] });
     expect(stored.drillBests.modeA.neon.score).toBe(1200);
     expect(stored.bests).toBeUndefined();
     // a drill run after the migration does not write a drill best
@@ -100,7 +101,7 @@ describe('save v2 -> v3 (#217)', () => {
     expect(s.best('modeA')).toBe(1200);
   });
 
-  it('a v1 file still walks all the way to v3', () => {
+  it('a v1 file still walks all the way to v4', () => {
     const r = readProgress(JSON.stringify({ version: 1, playLog: { bests: { modeA: 5 }, plays: { modeA: 4 }, flaggedSkill: 'flick' } }));
     expect(r.ok).toBe(true);
     if (r.ok) {
@@ -112,7 +113,7 @@ describe('save v2 -> v3 (#217)', () => {
 
   it('sanitises hand-edited run records: clamps, drops what cannot be read, caps the strip', () => {
     const r = readProgress(JSON.stringify({
-      version: 3,
+      version: 4,
       runBests: {
         neon: { best: { score: 1e12, depth: -4, cleared: 'x', seed: 5, date: 'd', dial: 500, strip: Array.from({ length: 80 }, () => ({ index: 1, role: 'take', won: 1e9 })), pace: [1, 'a', 3] }, deepest: 'nope', finalesCleared: -3 },
         notABand: { best: { score: 5 } },
@@ -136,7 +137,7 @@ describe('save v2 -> v3 (#217)', () => {
 
   it('refuses run records of the wrong top-level shape (the whole save, nothing half-imported)', () => {
     for (const k of ['runBests', 'dailyBests', 'situations', 'drillBests']) {
-      expect(readProgress(JSON.stringify({ version: 3, [k]: [] })).ok, k).toBe(false);
+      expect(readProgress(JSON.stringify({ version: 4, [k]: [] })).ok, k).toBe(false);
     }
   });
 });

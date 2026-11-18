@@ -17,6 +17,12 @@ function progress(): ProgressData {
   p.runBests = { neon: { best, deepest: best, finalesCleared: 1 } };
   p.dailyBests = { '2026-01-01': best };
   p.situations = { clear: [{ won: true, kept: 0.8 }, { won: false, kept: 0.1 }] };
+  p.journal = {
+    firstDay: '2026-01-01',
+    sessions: [{ at: 1_767_268_800, sec: 600, started: 2, finished: 2, end: 'death' }],
+    runs: [{ at: 1_767_268_800, sec: 200, depth: 3, end: 'death', pulled: true }, { at: 1_767_269_100, sec: 300, depth: 5, end: 'timer', pulled: false }],
+    days: [{ day: '2026-01-01', since: null }],
+  };
   return p;
 }
 
@@ -34,6 +40,18 @@ describe('save file', () => {
     expect(r.parts.settings).toEqual(parts().settings);
     expect(r.parts.profile).toEqual(parts().profile);
     expect(r.parts.progress).toEqual(parts().progress);
+  });
+
+  it('carries the play journal in the file and back (#251)', () => {
+    const text = buildSave(parts(), '2026-01-01T00:00:00.000Z');
+    expect(JSON.parse(text).journal.sessions[0]).toMatchObject({ started: 2, end: 'death' });
+    const r = parseSave(text);
+    expect(r.ok && r.parts.progress?.journal).toEqual(progress().journal);
+  });
+
+  it('a file with only a journal carries progress (nothing else is touched)', () => {
+    const r = parseSave(JSON.stringify({ format: 'flickline-save', version: PROGRESS_VERSION, journal: progress().journal }));
+    expect(r.ok && r.parts.progress?.journal.runs).toHaveLength(2);
   });
 
   it('is versioned and says what it is', () => {

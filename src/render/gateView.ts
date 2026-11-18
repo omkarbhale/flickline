@@ -3,7 +3,7 @@ import {
   SRGBColorSpace, type Scene,
 } from 'three';
 import { palette } from '../config/palette';
-import { drawDoorFace, FACE_H, FACE_W, type DoorFacts } from './gateGlyphs';
+import { drawDoorFace, drawLeaveFace, FACE_H, FACE_W, type DoorFacts, type LeaveFacts } from './gateGlyphs';
 import type { RenderFrame, RenderLayer } from './gameRenderer';
 
 /** Geometry and numbers the view needs from `config/sweep.ts` `gate` (structural, so render does not import the config's owner). */
@@ -89,12 +89,16 @@ export class GateView implements RenderLayer {
     return this.root.visible;
   }
 
-  /** The gate is entered: draw each door's face from its facts and show both doors open. */
-  show(facts: readonly [DoorFacts, DoorFacts]): void {
+  /**
+   * The gate is entered: draw each door's face from its facts and show both doors open. An Overtime gate (design 4.7, #206) passes
+   * `leave`: the door at `leave.door` is drawn as the Leave door (what it banks), the other as the way on.
+   */
+  show(facts: readonly [DoorFacts, DoorFacts], leave?: { door: 0 | 1; facts: LeaveFacts }): void {
     const opts = { shieldTo: this.cfg.shieldRefillTo, hotMult: this.cfg.hotMultiplier, hotExtra: this.cfg.hotExtraContacts, conditionTitles: this.titles };
     for (let d = 0; d < 2; d++) {
       const v = this.doors[d]!;
-      drawDoorFace(v.canvas.getContext('2d')!, facts[d]!, opts);
+      if (leave && leave.door === d) drawLeaveFace(v.canvas.getContext('2d')!, leave.facts);
+      else drawDoorFace(v.canvas.getContext('2d')!, facts[d]!, opts);
       v.tex.needsUpdate = true;
       v.faceMat.opacity = 1;
       v.shutter.scale.y = 0.0001;

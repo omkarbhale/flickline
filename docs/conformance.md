@@ -175,7 +175,7 @@ Regenerate with `npm run conformance` after changing `docs/mechanics-spec.md`, `
 | `7.1/target.speed_slow` | 5.3 | 2 m/s | P |  | config `dial.strafeSpeed.at0` | not implemented | no target speed tiers |
 | `7.1/target.speed_medium` | 5.3 | 3.5 m/s | P | 3.7 | config `enemies.strafer.defaultSpeed` | **deviation** | The Strafer's default speed (`enemies.strafer.defaultSpeed` 3.7 m/s) is the dial's mid value between the slow (2.0) and fast (5.4) ends; the dial (`dial.strafeSpeed`) replaces the spec's three fixed tiers with a continuous range (design §9.4), so 3.5 m/s is just one dial position. The spec value is a PLACEHOLDER. |
 | `7.1/target.speed_fast` | 5.3 | 5.4 m/s | P |  | config `dial.strafeSpeed.at100` | not implemented | no target speed tiers |
-| `7.1/target.stop_time` | 5.3 | 0.16 s | M | 0.16226 s | config `enemies.strafer` braking: time to stop from `brakeRefSpeed` | match |  |
+| `7.1/target.stop_time` | 5.3 | 0.16 s | M | 0.164063 s | sim: a Strafer's body lets go of its strafe key at the dial-50 speed, time to a standstill | match |  |
 
 ## Weapon handling (§7.2, §3.1)
 

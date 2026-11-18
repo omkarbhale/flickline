@@ -93,6 +93,7 @@ export class ResultsCard {
             <p class="rc-cause" data-k="cause" hidden></p>
             <p class="rc-seed">Seed <span data-k="seed"></span></p>
             <p class="rc-clean" data-k="clean" hidden>Clean run: no coaching cues, reference-like HUD. Treat this score as your reference-game level.</p>
+            <p class="rc-cold" data-k="cold" hidden></p>
           </div>
           <div class="rc-score">
             <span class="rc-score-num" data-k="score" aria-label="Score"></span>
@@ -215,7 +216,7 @@ export class ResultsCard {
     const ot = q('overtime');
     ot.hidden = m.overtime === null;
     if (m.overtime) {
-      ot.textContent = `Overtime ${m.overtime.points} ${m.overtime.state}`;
+      ot.textContent = `Overtime ${m.overtime.sectors} \u00b7 ${m.overtime.state === 'banked' ? '+' : '\u2212'}${m.overtime.points} ${m.overtime.state}`;
       ot.dataset.state = m.overtime.state;
     }
 

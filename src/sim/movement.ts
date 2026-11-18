@@ -2,9 +2,9 @@ import { DEG2RAD } from '../core/math';
 import type { EventSink } from '../core/eventBus';
 import type { MovementTunables } from '../config/movement';
 import { moveAxis, moveAxisStep, moveAxisY, snapDown, standBlocked, sweepDelta } from './collision';
-import type { BoxDef, PlayerState, SimEvents, TickInput } from './types';
+import type { BodyState, BoxDef, SimEvents, TickInput } from './types';
 
-/** Events the player movement emits (part of `SimEvents`). */
+/** Events the player movement emits (part of `SimEvents`). An Echo's body steps with a sink that drops them. */
 export interface PlayerEvents {
   playerJumped: { tick: number };
   playerLanded: { tick: number; impactSpeed: number };
@@ -67,8 +67,28 @@ export function brakeSpeed(speed: number, floor: number, maxSpeed: number, m: Mo
   return bk[4]!;
 }
 
+/**
+ * Ground distance a body braking from `speed` covers until it stops with no keys held (spec §2.3:
+ * the two bands of `brake`, continuous). The tick-by-tick stop covers a little less (the position
+ * steps with the braked velocity), so a body that releases with this much room stops inside it.
+ */
+export function brakeDistance(speed: number, maxSpeed: number, m: MovementTunables): number {
+  const scale = maxSpeed / m.brakeRefSpeed;
+  const high = m.brakeDecelHigh * scale;
+  const low = m.brakeDecelLow * scale;
+  const band = m.brakeBandFraction * maxSpeed;
+  if (speed <= band) return (speed * speed) / (2 * low);
+  return (speed * speed - band * band) / (2 * high) + (band * band) / (2 * low);
+}
+
+/** Seconds a full stop from `maxSpeed` takes (spec §2.3: 0.16 s, the same for every max speed). */
+export function stopSeconds(m: MovementTunables): number {
+  const b = m.brakeBandFraction;
+  return m.brakeRefSpeed * ((1 - b) / m.brakeDecelHigh + b / m.brakeDecelLow);
+}
+
 /** Scale the horizontal velocity of `p` so its speed is at most `bk[6]` (the cap goes through the scratch: no double argument). */
-function capHorizontal(p: PlayerState): void {
+function capHorizontal(p: BodyState): void {
   const cap = bk[6]!;
   const sp2 = p.vel.x * p.vel.x + p.vel.z * p.vel.z;
   if (sp2 > cap * cap) {
@@ -79,8 +99,9 @@ function capHorizontal(p: PlayerState): void {
 }
 
 /**
- * Player movement, `docs/mechanics-spec.md` §2. `maxSpeed` is the equipped weapon's run speed
- * (spec §2.1); walking and crouch-walking are fractions of it (§2.2).
+ * Humanoid movement, `docs/mechanics-spec.md` §2: the player's and every body-driven Echo's (#87),
+ * one code path. `maxSpeed` is the equipped weapon's run speed (spec §2.1); walking and
+ * crouch-walking are fractions of it (§2.2).
  *
  * Ground (§2.3): the horizontal velocity splits into the part along the wish direction and the part
  * across it. Along it, the player accelerates at `maxSpeed / accelTimeToMax` up to the target speed
@@ -95,10 +116,10 @@ function capHorizontal(p: PlayerState): void {
  * integrated exactly (trapezoid), so the jump apex is `jumpApex`.
  *
  * Collision, steps, ramps, crouch headroom and footsteps are unchanged. It is the only movement
- * entry point, also used by bodies that are not the player. No allocations: works on `p` in place.
+ * entry point. No allocations: works on `p` in place.
  */
-export function stepPlayer(
-  p: PlayerState,
+export function stepBody(
+  p: BodyState,
   input: TickInput,
   boxes: readonly BoxDef[],
   m: MovementTunables,

@@ -104,7 +104,10 @@ canvas#game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .lh[data-phase="result"] .lh-timer { color: var(--lh-dim); }
 .lh-scorebox { display: flex; align-items: baseline; gap: calc(var(--u) * 12); justify-content: center; min-width: calc(var(--u) * 250); }
 .lh-score { font-weight: 800; font-size: calc(var(--u) * 52); line-height: 1; letter-spacing: .01em; }
+.lh-score { position: relative; }
 .lh-score > span { display: inline-block; transform-origin: 50% 70%; }
+/* Overtime (design 4.7): the points earned since the Finale and not banked yet, apart from the banked score. */
+.lh-ot { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); white-space: nowrap; font-style: normal; font-weight: 800; font-size: calc(var(--u) * 15); letter-spacing: .1em; color: var(--lh-gold); }
 .lh-mult { font-weight: 800; font-size: calc(var(--u) * 26); color: var(--lh-dim); }
 .lh-mult[data-tier="1"] { color: #e8edf2; }
 .lh-mult[data-tier="2"] { color: var(--lh-accent); }

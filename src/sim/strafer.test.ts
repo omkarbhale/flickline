@@ -5,7 +5,8 @@ import { EventBus } from '../core/eventBus';
 import { TICK_DT } from '../core/time';
 import { vec3 } from '../core/vec3';
 import { fireParams, straferParams } from './enemyParams';
-import { brakeSeconds, STRAFER_DECEL, STRAFER_LEG, STRAFER_STAND } from './strafer';
+import { stopSeconds } from './movement';
+import { STRAFER_DECEL, STRAFER_LEG, STRAFER_STAND } from './strafer';
 import { createTickInput, type LevelDef, type SimEvents } from './types';
 import { World } from './world';
 
@@ -95,8 +96,8 @@ describe('Strafer FSM at the dial endpoints (design §5.2, §9.4, spec §5.3)', 
   });
 
   it('every stop takes the spec\'s 0.16 s, at the slowest and the fastest speed', () => {
-    expect(brakeSeconds(cfg)).toBeGreaterThan(0.155);
-    expect(brakeSeconds(cfg)).toBeLessThan(0.165);
+    expect(stopSeconds(tun.movement)).toBeGreaterThan(0.155);
+    expect(stopSeconds(tun.movement)).toBeLessThan(0.165);
     for (const dial of [0, 100]) {
       const stops = spans(run(dial, 3, 128 * 40).state, STRAFER_DECEL);
       expect(stops.length).toBeGreaterThan(20);
@@ -104,17 +105,17 @@ describe('Strafer FSM at the dial endpoints (design §5.2, §9.4, spec §5.3)', 
     }
   });
 
-  it('braking is constant deceleration in two bands (39 then 24 m/s^2 scaled by speed / 5.4)', () => {
+  it('brakes with the player\'s braking: 39 then 24 m/s^2 (scaled by speed / 5.4), split at a quarter of its speed', () => {
     const r = run(100, 5, 128 * 10);
-    // Find a stop and read the velocity ramp: 5.4 -> 1.485 at 39 m/s^2, then 24 m/s^2 to zero.
+    // Find a stop and read the velocity ramp: 5.4 -> 1.35 at 39 m/s^2, then 24 m/s^2 to zero.
     const i0 = r.state.findIndex((s, i) => s === STRAFER_DECEL && r.state[i - 1] === STRAFER_LEG);
     const v = (k: number): number => Math.abs(r.vel[i0 + k]!);
-    // The state flips on the tick the brake is decided; velocity starts falling on the next one.
-    expect(v(0)).toBeCloseTo(5.4, 5);
+    // It lets go of the key on the tick it decides to stop: the speed falls on that very tick.
+    expect(v(-1)).toBeCloseTo(5.4, 5);
+    expect(v(-1) - v(0)).toBeCloseTo(39 * TICK_DT, 5);
     expect(v(0) - v(1)).toBeCloseTo(39 * TICK_DT, 5);
-    expect(v(1) - v(2)).toBeCloseTo(39 * TICK_DT, 5);
     let k = 0;
-    while (v(k) > 5.4 * 0.275 + 1e-9) k++;
+    while (v(k) > 5.4 * tun.movement.brakeBandFraction + 1e-9) k++;
     expect(v(k + 1) - v(k + 2)).toBeCloseTo(24 * TICK_DT, 5);
   });
 

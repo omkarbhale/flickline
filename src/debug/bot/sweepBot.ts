@@ -4,13 +4,13 @@ import { vec3, type Vec3 } from '../../core/vec3';
 import { lineClear } from '../../sim/exposure';
 import { targetAimPoint, wrapPi, yawOf } from '../../sim/aim';
 import { Rng } from '../../core/rng';
-import { sweepCatalog, type GateRt, type SweepState } from '../../modes/sweep';
+import { atRisk, currentSector, sectorKey, sweepCatalog, type GateRt, type SweepState } from '../../modes/sweep';
 import { navRoute } from '../../modes/sweepCatalog';
 import type { TickInput } from '../../sim/types';
 import type { World } from '../../sim/world';
 import type { Bot, BotStats } from './bot';
 import type { BotGame } from './headless';
-import { leftDoor, type GatePolicy } from './gatePolicy';
+import { alwaysLeave, leftDoor, type GatePolicy, type OvertimePolicy } from './gatePolicy';
 
 /** A waypoint counts as reached within this horizontal distance, metres. */
 const REACH_M = 0.6;
@@ -71,6 +71,8 @@ export class SweepBot {
      * every fight, as every report before the lean assumed. No random draw is made at 0, so those reports do not change.
      */
     private readonly movingFireShare = 0,
+    /** At an Overtime gate (design §4.7, #206): leave or push on. Default: leave, so a run ends at the Finale as it did before Overtime. */
+    private readonly overtimePolicy: OvertimePolicy = alwaysLeave,
   ) {
     this.rng = new Rng((seed ^ 0x2545f491) >>> 0 || 1);
     bot.visibleOnly = true;
@@ -92,7 +94,7 @@ export class SweepBot {
     if (!st?.plan) return out;
     if (st.gate) return this.throughGate(st.gate, world, out);
     this.gate = null;
-    if (st.sector !== this.sector) {
+    if (sectorKey(st) !== this.sector) {
       this.plan(st, true);
       this.exitOpen = st.exitOpen;
     } else if (st.exitOpen && !this.exitOpen) {
@@ -214,7 +216,16 @@ export class SweepBot {
   private throughGate(gate: GateRt, world: World, out: TickInput): TickInput {
     if (this.gate !== gate) {
       this.gate = gate;
-      this.door = this.policy(gate.plan, { hp: world.health.hp, shield: world.health.shield });
+      const leave = gate.plan.leave;
+      if (leave === undefined) this.door = this.policy(gate.plan, { hp: world.health.hp, shield: world.health.shield });
+      else {
+        const st = this.game.modes.runner.state as SweepState;
+        const score = this.game.modes.runner.stats.score;
+        const pick = this.overtimePolicy({
+          hp: world.health.hp, shield: world.health.shield, overtimeSectors: st.overtime, atRisk: atRisk(st, score), banked: st.banked,
+        });
+        this.door = pick === 'leave' ? leave : leave === 0 ? 1 : 0;
+      }
     }
     const g = this.game.tunables.sweep.gate;
     const door = g.doors[this.door];
@@ -236,7 +247,7 @@ export class SweepBot {
 
   /** The yaw towards the middle of the sector's approach lanes' starts: where the bot knows the map's arrivals come from. */
   private arrivalDirection(st: SweepState): number {
-    const sp = st.plan.sectors[st.sector]!;
+    const sp = currentSector(st);
     const src = sweepCatalog(this.game.tunables).find((x) => x.mapId === sp.mapId && x.id === sp.sectorId);
     const p = this.game.world.player.pos;
     if (!src || src.approaches.length === 0) return this.bot.yaw;
@@ -248,8 +259,8 @@ export class SweepBot {
 
   /** The route to the sector's exit (straight, or along the nav graph), from its entry or from where the player stands. */
   private plan(st: SweepState, fromEntry: boolean): void {
-    this.sector = st.sector;
-    const sp = st.plan.sectors[st.sector]!;
+    this.sector = sectorKey(st);
+    const sp = currentSector(st);
     const map = this.game.modes.currentMap;
     this.path = navRoute(map, fromEntry ? sp.entry : this.game.world.player.pos, sp.exit);
     this.wp = 0;

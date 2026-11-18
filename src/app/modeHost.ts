@@ -15,7 +15,7 @@ import { testMode } from '../modes/testMode';
 import { economyShield } from '../sim/damage';
 import { FIRE_IDLE } from '../sim/enemyAi';
 import { rayBox } from '../sim/collision';
-import { MAPS } from '../sim/mapLoader';
+import { findMap } from '../sim/mapLoader';
 import type { MapDef } from '../sim/mapTypes';
 import '../sim/economyEvents';
 import type { SpawnOptions } from '../sim/targets';
@@ -154,11 +154,18 @@ export class ModeHost {
     });
     // A decided contact feeds the fight track the run's dial follows (design §9.3.1: contacts won; #203).
     bus.on('contactSettled', (e) => {
-      if (e.difficulty === undefined || e.outcome === 'avoided' || this.active?.trialSource === 'baseline') return;
+      // The cold opener's contacts are its measurement (design §8.5): they never move the run's dial.
+      if (e.difficulty === undefined || e.outcome === 'avoided' || this.active?.trialSource === 'baseline' || e.source === 'baseline') return;
       skills.observeFight(e.difficulty, e.outcome === 'cleared');
     });
     bus.on('runStarted', () => this.releaseReady());
   }
+
+  /**
+   * Whether a run of `modeId` on `seed` opens with a cold opener, and at which level (design §8.5); null
+   * for no. Set by the cold-opener feature, which reads the save and the clock (`features/coldOpener.ts`).
+   */
+  coldOpenerFor: ((modeId: string, seed: number) => number | null) | null = null;
 
   /** The map in the world now: the one the last started mode asked for (the URL's `?map=` or Range until one starts). */
   get currentMap(): MapDef {
@@ -185,7 +192,7 @@ export class ModeHost {
    * unknown map id.
    */
   loadMap(mapId: string): boolean {
-    const next = MAPS[mapId];
+    const next = findMap(mapId);
     if (!next) return false;
     if (next === this.map) return true;
     this.map = next;
@@ -223,6 +230,7 @@ export class ModeHost {
     this.active = mode;
     this.runner.begin(mode, {
       seed, pinDial: opts.pinDial ?? this.pinFor(id), anchors: opts.anchors ?? this.anchors, lean: opts.lean, newProfile: opts.newProfile ?? this.newProfile,
+      coldOpenerLevel: opts.coldOpenerLevel ?? this.coldOpenerFor?.(id, seed) ?? undefined,
     });
     if (opts.pick !== undefined) this.pickPrimary(opts.pick);
     return true;
