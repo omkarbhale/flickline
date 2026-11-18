@@ -200,6 +200,9 @@ export function mindInit(t: TargetState, ctx: BehaviourContext, slot: number, pa
   m.alertStampSec = -1;
   m.alarmSec = -1;
   set(m.threat, w.x, w.y, w.z);
+  // A holder spawns facing what it holds (the body was turned towards the player).
+  const fx = w.x - t.pos.x, fz = w.z - t.pos.z;
+  if (fx * fx + fz * fz > 1e-6) t.body.kin.yaw = t.body.cmd.yaw = Math.atan2(-fx, -fz);
   m.stateId = -1;
   m.duelPhase = DUEL_STOP; m.legEndTick = 0; m.legDir = 1; m.lastLegSec = -1; m.movingBurst = false; m.movingWaitTick = -1;
   m.gateTick = -1; m.shotDelayTicks = 0; m.burstN = 0; m.burstShots0 = 0; m.crouchCount = 0; m.crouchBurst = false;

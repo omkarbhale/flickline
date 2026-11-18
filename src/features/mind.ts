@@ -45,6 +45,8 @@ declare module '../debug/hook' {
     minds(): MindReport[];
     /** Force a mind-driven Echo into a decision state (playtests, screenshots); returns false for an unknown id or state. */
     mindState(id: number, state: MindStateName): boolean;
+    /** Load a map by id outside any mode (its boxes, nav graph and look), for mind playtests on real geometry; false for an unknown id. */
+    loadMap(id: string): boolean;
   }
 }
 
@@ -100,6 +102,11 @@ export const feature = defineFeature({
         const out: MindReport[] = [];
         each((t) => out.push(report(t)));
         return out;
+      },
+      loadMap(id) {
+        const ok = game.modes.loadMap(id);
+        if (ok) game.renderNow();
+        return ok;
       },
       mindState(id, state) {
         const t = game.world.targetField.byId(id);
