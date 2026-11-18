@@ -101,7 +101,7 @@ export function arriveStep(t: TargetState, ctx: BehaviourContext, engage: boolea
 const WALK_HEIGHTS = [0.3, 0.9, 1.3];
 
 /** Whether the straight walk from (`ax`, `az`) to (`bx`, `bz`) at height `y` hits nothing solid (shins, waist and chest, both shoulders). */
-function walkClear(boxes: readonly BoxDef[], hull: number, y: number, ax: number, az: number, bx: number, bz: number): boolean {
+export function walkClear(boxes: readonly BoxDef[], hull: number, y: number, ax: number, az: number, bx: number, bz: number): boolean {
   let lx = -(bz - az), lz = bx - ax;
   const ll = Math.sqrt(lx * lx + lz * lz);
   if (ll < 1e-9) return true;

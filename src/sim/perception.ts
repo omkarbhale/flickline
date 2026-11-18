@@ -1,12 +1,12 @@
 import type { EventSink, Subscribable } from '../core/eventBus';
 import { DEG2RAD } from '../core/math';
-import { lognormalTruncated } from '../core/dist';
+import { lognormalSigma, lognormalTruncated, TRUNCATE_TRIES } from '../core/dist';
 import { Rng } from '../core/rng';
 import { TICK_DT } from '../core/time';
 import { vec3, type Vec3 } from '../core/vec3';
 import type { EnemySoundKind } from '../config/attribution';
 import type { Tunables } from '../config/tunables';
-import { targetAimPoint, wrapPi, yawOf } from './aim';
+import { targetAimPoint } from './aim';
 import type { PerceptionQueries } from './attribution';
 import type { Expectation } from './enemyTiming';
 import type { MindProfile } from './mind/profile';
@@ -166,14 +166,14 @@ declare module './types' {
   interface SimEvents extends PerceptionEvents {}
 }
 
-/** How far enemy profile `pr` hears a sound of this kind: `attribution.soundRadiusM` x `mind.hearing.radiusScale`. */
-function soundRadius(pr: MindProfile, kind: EnemySoundKind): number {
-  switch (kind) {
-    case 'footstep': return pr.hearFootstepM;
-    case 'landing': return pr.hearLandingM;
-    case 'reload': return pr.hearReloadM;
-    default: return pr.hearShotM;
-  }
+const TWO_PI = Math.PI * 2;
+
+/** |a| wrapped to [0, PI], written so it inlines: the hot paths below take no helper that returns a double (architecture §7). */
+function absWrapped(a: number): number {
+  let r = a % TWO_PI;
+  if (r > Math.PI) r -= TWO_PI;
+  else if (r <= -Math.PI) r += TWO_PI;
+  return r < 0 ? -r : r;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -203,6 +203,8 @@ export class PerceptionSystem {
   private readonly maxHalf: number;
   private readonly maxRays: number;
   private readonly rangeSq: number;
+  /** Log-space SD of the decision interval's lognormal. */
+  private readonly decisionSigma: number;
 
   // Shares in flight (fixed ring, swap-remove).
   private shareCount = 0;
@@ -214,6 +216,15 @@ export class PerceptionSystem {
   private readonly shareY: Float64Array;
   private readonly shareZ: Float64Array;
 
+  /**
+   * The arguments of the private hot-path methods, passed as fields: V8 boxes a double passed to or
+   * returned from a function it does not inline (architecture §7), and these run every decision of
+   * every enemy. `now` is the sim time of the call; `x`..`err` a belief to `remember`; `dx`, `dz`, `d`
+   * the line to the player for `trace`; `bearing`, `off` a contact to `classify`; `conf` an output.
+   */
+  private readonly f = {
+    now: 0, x: 0, y: 0, z: 0, stamp: 0, conf0: 0, err: 0, dx: 0, dz: 0, d: 0, bearing: 0, off: 0, conf: 0,
+  };
   private readonly sawEv: SimEvents['perceiverSaw'] = { tick: 0, t: 0, id: 0, contact: 'unaware', inAttention: false, visibleMask: 0, distance: 0 };
   private readonly lostEv: SimEvents['perceiverLostSight'] = { tick: 0, t: 0, id: 0 };
   private readonly heardEv: SimEvents['perceiverHeard'] = { tick: 0, t: 0, id: 0, sound: 'footstep', x: 0, y: 0, z: 0, errorM: 0, distance: 0 };
@@ -235,6 +246,7 @@ export class PerceptionSystem {
     this.maxHalf = p.expectation.maxHalfWidthDeg * DEG2RAD;
     this.maxRays = Math.min(4, p.maxRaysPerDecision);
     this.rangeSq = p.sightRangeM * p.sightRangeM;
+    this.decisionSigma = lognormalSigma(tunables.mind.perception.decisionIntervalCv);
     this.shareTo = new Int32Array(p.maxShares);
     this.shareFrom = new Int32Array(p.maxShares);
     this.shareDue = new Float64Array(p.maxShares);
@@ -340,8 +352,10 @@ export class PerceptionSystem {
    * Not perception: used only by cards that say so, never by the mind on its own.
    */
   prime(p: Perceiver, x: number, y: number, z: number, nowSec: number, ageSec = 0, errM = 2): void {
-    this.remember(p, x, y, z, nowSec - ageSec, this.tunables.perception.confidence.prior, errM, 'prior', nowSec);
-    this.refreshExpectation(p, nowSec);
+    const f = this.f;
+    f.now = nowSec; f.x = x; f.y = y; f.z = z; f.stamp = nowSec - ageSec; f.conf0 = this.tunables.perception.confidence.prior; f.err = errM;
+    this.remember(p, 'prior');
+    this.refreshAt(p);
   }
 
   /** Confidence of the enemy's memory at `nowSec`, 0 when it has none. */
@@ -379,11 +393,14 @@ export class PerceptionSystem {
     for (let i = 0; i < this.pool.length; i++) {
       const p = this.pool[i]!;
       if (!p.active || !p.alive) continue;
-      const radius = soundRadius(p.profile, kind);
+      const pr = p.profile;
+      // How far this enemy hears the kind: `attribution.soundRadiusM` x `mind.hearing.radiusScale`.
+      const radius = kind === 'footstep' ? pr.hearFootstepM : kind === 'landing' ? pr.hearLandingM : kind === 'reload' ? pr.hearReloadM : pr.hearShotM;
       const dx = pl.x - p.eye.x, dz = pl.z - p.eye.z;
       const d = Math.sqrt(dx * dx + dz * dz);
       if (d > radius) continue;
-      const err = Math.max(p.profile.hearErrorFloorM, p.profile.hearErrorFrac * d) * p.hearScale;
+      const byDist = pr.hearErrorFrac * d;
+      const err = (byDist > pr.hearErrorFloorM ? byDist : pr.hearErrorFloorM) * p.hearScale;
       const a = p.rng.next() * Math.PI * 2;
       const r = err * Math.sqrt(p.rng.next());
       const ex = pl.x + Math.cos(a) * r, ez = pl.z + Math.sin(a) * r;
@@ -391,16 +408,19 @@ export class PerceptionSystem {
       if (now - p.lastHeardSec <= tun.hearing.repeatWindowSec) {
         const mx = ex - p.lastHeard.x, mz = ez - p.lastHeard.z;
         const reach = err + p.lastHeardErrM;
+        const shrunk = p.hearScale * tun.hearing.repeatShrink;
         p.hearScale = mx * mx + mz * mz <= reach * reach
-          ? Math.max(tun.hearing.repeatMinScale, p.hearScale * tun.hearing.repeatShrink)
+          ? (shrunk > tun.hearing.repeatMinScale ? shrunk : tun.hearing.repeatMinScale)
           : 1;
       } else {
         p.hearScale = 1;
       }
       p.lastHeardSec = now; p.lastHeardErrM = err; p.lastHeard.x = ex; p.lastHeard.y = pl.y; p.lastHeard.z = ez;
       p.heardCount++;
-      this.remember(p, ex, pl.y, ez, now, conf, err, 'sound', now);
-      this.refreshExpectation(p, now);
+      const f = this.f;
+      f.now = now; f.x = ex; f.y = pl.y; f.z = ez; f.stamp = now; f.conf0 = conf; f.err = err;
+      this.remember(p, 'sound');
+      this.refreshAt(p);
       const ev = this.heardEv;
       ev.tick = tick; ev.t = now; ev.id = p.id; ev.sound = kind; ev.x = ex; ev.y = pl.y; ev.z = ez; ev.errorM = err; ev.distance = d;
       this.events.emit('perceiverHeard', ev);
@@ -412,7 +432,7 @@ export class PerceptionSystem {
   /** Advance to `tick`: deliver callouts that are due, then run the decision points that have come round. Call once per sim tick. */
   step(tick: number): void {
     const now = tick * TICK_DT;
-    this.deliverShares(tick, now);
+    if (this.shareCount > 0) this.deliverShares(tick);
     const dec = this.tunables.perception;
     const mp = this.tunables.mind.perception;
     for (let i = 0; i < this.pool.length; i++) {
@@ -420,13 +440,20 @@ export class PerceptionSystem {
       if (!p.active) continue;
       if (p.nextDecisionSec < 0) { p.nextDecisionSec = now + p.rng.next() * mp.decisionIntervalMedianSec; continue; }
       if (now < p.nextDecisionSec) continue;
-      this.decide(p, tick, now);
-      p.nextDecisionSec = now + lognormalTruncated(p.rng, mp.decisionIntervalMedianSec, mp.decisionIntervalCv, dec.decisionMinSec, dec.decisionMaxSec);
+      this.decide(p, tick);
+      // `lognormalTruncated` written out: its double return would be boxed every decision of every enemy (architecture §7).
+      let v = 0;
+      for (let k = 0; k < TRUNCATE_TRIES; k++) {
+        v = mp.decisionIntervalMedianSec * Math.exp(this.decisionSigma * p.rng.normal());
+        if (v >= dec.decisionMinSec && v <= dec.decisionMaxSec) break;
+      }
+      p.nextDecisionSec = now + (v < dec.decisionMinSec ? dec.decisionMinSec : v > dec.decisionMaxSec ? dec.decisionMaxSec : v);
     }
   }
 
-  /** One decision point for `p`: look, then update memory, sharing and expectation. */
-  private decide(p: Perceiver, tick: number, now: number): void {
+  /** One decision point for `p`: look, then update memory, sharing and expectation. Takes the tick, not the time: V8 boxes a double passed to a function it does not inline (architecture §7). */
+  private decide(p: Perceiver, tick: number): void {
+    const now = tick * TICK_DT;
     const tun = this.tunables.perception;
     p.raysLast = 0;
     p.decisions++;
@@ -437,16 +464,26 @@ export class PerceptionSystem {
     const dSq = dx * dx + dz * dz;
     let off = Math.PI;
     if (p.alive && dSq <= this.rangeSq) {
-      off = Math.abs(wrapPi(yawOf(dx, dz) - p.yaw));
-      if (off <= this.halfFov) p.visibleMask = this.trace(p, dx, dz, Math.sqrt(dSq));
+      off = Math.atan2(-dx, -dz) - p.yaw;
+      off %= TWO_PI;
+      if (off > Math.PI) off -= TWO_PI; else if (off <= -Math.PI) off += TWO_PI;
+      if (off < 0) off = -off;
+      if (off <= this.halfFov) {
+        const f = this.f;
+        f.dx = dx; f.dz = dz; f.d = Math.sqrt(dSq);
+        p.visibleMask = this.trace(p);
+      }
     }
     const seen = p.visibleMask !== 0;
+    const f = this.f;
+    f.now = now;
 
     if (seen) {
       if (!p.sees) {
         // The contact is judged against what the enemy believed *before* this sighting.
-        this.refreshExpectation(p, now);
-        p.contact = this.classify(p, now, yawOf(dx, dz), off);
+        this.refreshAt(p);
+        f.bearing = Math.atan2(-dx, -dz); f.off = off;
+        p.contact = this.classify(p);
         p.sees = true;
         p.seenSinceSec = now;
         const ev = this.sawEv;
@@ -455,10 +492,11 @@ export class PerceptionSystem {
         this.events.emit('perceiverSaw', ev);
       }
       p.inAttention = off <= this.attentionHalf;
-      this.remember(p, pl.pos.x, pl.pos.y, pl.pos.z, now, tun.confidence.sight, tun.expectation.sightErrM, 'sight', now);
+      f.x = pl.pos.x; f.y = pl.pos.y; f.z = pl.pos.z; f.stamp = now; f.conf0 = tun.confidence.sight; f.err = tun.expectation.sightErrM;
+      this.remember(p, 'sight');
       if (now - p.lastShareSec >= tun.share.intervalSec) {
         p.lastShareSec = now;
-        this.shareSighting(p, now);
+        this.shareSighting(p);
       }
     } else if (p.sees) {
       p.sees = false;
@@ -468,8 +506,11 @@ export class PerceptionSystem {
       this.events.emit('perceiverLostSight', ev);
     }
 
-    if (p.memory.valid && this.confidenceAt(p, now) < tun.memory.forgetBelow) p.memory.valid = false;
-    this.refreshExpectation(p, now);
+    if (p.memory.valid) {
+      this.confNow(p.memory);
+      if (f.conf < tun.memory.forgetBelow) p.memory.valid = false;
+    }
+    this.refreshAt(p);
   }
 
   /**
@@ -477,7 +518,8 @@ export class PerceptionSystem {
    * the player's eye, chest and both shoulders. Returns the `SEEN_*` bits of the clear ones and sets
    * `sightPoint` to the best of them.
    */
-  private trace(p: Perceiver, dx: number, dz: number, d: number): number {
+  private trace(p: Perceiver): number {
+    const dx = this.f.dx, dz = this.f.dz, d = this.f.d;
     const s = this.tunables.perception.samples;
     const pl = this.player;
     const fx = pl.pos.x, fy = pl.pos.y, fz = pl.pos.z;
@@ -505,25 +547,39 @@ export class PerceptionSystem {
 
   // --- memory -------------------------------------------------------------------------------
 
-  /** Store a belief if it is at least as confident (now) as the one the enemy has. Returns whether it was stored. */
-  private remember(
-    p: Perceiver, x: number, y: number, z: number, stampSec: number, conf0: number, errM: number,
-    source: MemorySource, nowSec: number,
-  ): boolean {
+  /**
+   * Store the belief in `f` (`x`, `y`, `z`, `stamp`, `conf0`, `err`, at time `now`) if it is at least
+   * as confident now as the one the enemy has. Returns whether it was stored.
+   */
+  private remember(p: Perceiver, source: MemorySource): boolean {
+    const f = this.f;
     const half = this.tunables.mind.perception.memoryHalfLifeSec;
     const m = p.memory;
-    const incoming = conf0 * Math.pow(0.5, Math.max(0, nowSec - stampSec) / half);
-    if (m.valid && incoming < memoryConfidence(m, nowSec, half)) return false;
+    const age = f.now - f.stamp;
+    const incoming = f.conf0 * Math.pow(0.5, (age > 0 ? age : 0) / half);
+    if (m.valid) {
+      this.confNow(m);
+      if (incoming < f.conf) return false;
+    }
     m.valid = true; m.source = source;
-    m.pos.x = x; m.pos.y = y; m.pos.z = z;
-    m.stampSec = stampSec; m.confidence0 = conf0; m.errM = errM;
+    m.pos.x = f.x; m.pos.y = f.y; m.pos.z = f.z;
+    m.stampSec = f.stamp; m.confidence0 = f.conf0; m.errM = f.err;
     return true;
+  }
+
+  /** `memoryConfidence` of `m` at `f.now`, into `f.conf`. */
+  private confNow(m: Memory): void {
+    const f = this.f;
+    if (!m.valid) { f.conf = 0; return; }
+    const age = f.now - m.stampSec;
+    f.conf = m.confidence0 * Math.pow(0.5, (age > 0 ? age : 0) / this.tunables.mind.perception.memoryHalfLifeSec);
   }
 
   // --- shared sightings ---------------------------------------------------------------------
 
   /** `p` saw the player at `now`: queue a callout to every other living enemy, each after its own lognormal delay. */
-  private shareSighting(p: Perceiver, now: number): void {
+  private shareSighting(p: Perceiver): void {
+    const now = this.f.now;
     const sh = this.tunables.perception.share;
     const mp = this.tunables.mind.perception;
     const pl = this.player.pos;
@@ -539,7 +595,8 @@ export class PerceptionSystem {
     }
   }
 
-  private deliverShares(tick: number, now: number): void {
+  private deliverShares(tick: number): void {
+    const now = tick * TICK_DT;
     const conf = this.tunables.perception.confidence.shared;
     const err = this.tunables.perception.expectation.sightErrM;
     for (let n = this.shareCount - 1; n >= 0; n--) {
@@ -548,8 +605,10 @@ export class PerceptionSystem {
       if (to !== undefined && to.alive) {
         const seenAt = this.shareSeen[n]!;
         const x = this.shareX[n]!, y = this.shareY[n]!, z = this.shareZ[n]!;
-        const adopted = this.remember(to, x, y, z, seenAt, conf, err, 'shared', now);
-        this.refreshExpectation(to, now);
+        const f = this.f;
+        f.now = now; f.x = x; f.y = y; f.z = z; f.stamp = seenAt; f.conf0 = conf; f.err = err;
+        const adopted = this.remember(to, 'shared');
+        this.refreshAt(to);
         const ev = this.sharedEv;
         ev.tick = tick; ev.t = now; ev.id = to.id; ev.fromId = this.shareFrom[n]!;
         ev.x = x; ev.y = y; ev.z = z; ev.delaySec = now - seenAt; ev.adopted = adopted;
@@ -573,6 +632,14 @@ export class PerceptionSystem {
    * the player could have run from there to here, whichever is later.
    */
   refreshExpectation(p: Perceiver, now: number): void {
+    this.f.now = now;
+    this.refreshAt(p);
+  }
+
+  /** `refreshExpectation` at `f.now`. */
+  private refreshAt(p: Perceiver): void {
+    const f = this.f;
+    const now = f.now;
     const tun = this.tunables.perception;
     const ex = tun.expectation;
     const e = p.expect;
@@ -580,14 +647,17 @@ export class PerceptionSystem {
     if (m.valid) {
       const dx = m.pos.x - p.eye.x, dz = m.pos.z - p.eye.z;
       const d = Math.sqrt(dx * dx + dz * dz);
-      const age = Math.max(0, now - m.stampSec);
+      const age = now > m.stampSec ? now - m.stampSec : 0;
       e.active = true; e.fromMemory = true;
-      e.yaw = yawOf(dx, dz);
-      e.halfWidth = clamp(Math.atan2(m.errM + ex.driftMps * age, Math.max(d, 0.5)), this.minHalf, this.maxHalf);
+      e.yaw = Math.atan2(-dx, -dz);
+      const hw = Math.atan2(m.errM + ex.driftMps * age, d > 0.5 ? d : 0.5);
+      e.halfWidth = hw < this.minHalf ? this.minHalf : hw > this.maxHalf ? this.maxHalf : hw;
       e.dist = d;
-      e.confidence = memoryConfidence(m, now, this.tunables.mind.perception.memoryHalfLifeSec);
+      this.confNow(m);
+      e.confidence = f.conf;
       e.windowOpenSec = m.stampSec;
-      e.windowCloseSec = m.stampSec + Math.max(ex.windowSec, d / ex.assumedSpeedMps + ex.windowSec / 2);
+      const run = d / ex.assumedSpeedMps + ex.windowSec / 2;
+      e.windowCloseSec = m.stampSec + (run > ex.windowSec ? run : ex.windowSec);
     } else if (p.sector.active) {
       e.active = true; e.fromMemory = false;
       e.yaw = p.sector.yaw; e.halfWidth = p.sector.halfWidth; e.dist = 0;
@@ -605,12 +675,20 @@ export class PerceptionSystem {
    * the view; else `unaware` (the orientation cost applies). Reads the expectation as last refreshed.
    */
   classifyContact(p: Perceiver, nowSec: number, bearingYaw: number): Expectation {
-    return this.classify(p, nowSec, bearingYaw, Math.abs(wrapPi(bearingYaw - p.yaw)));
+    const f = this.f;
+    f.now = nowSec; f.bearing = bearingYaw; f.off = absWrapped(bearingYaw - p.yaw);
+    return this.classify(p);
   }
 
-  private classify(p: Perceiver, now: number, bearing: number, offAxis: number): Expectation {
+  /** `classifyContact` for the contact in `f` (`now`, `bearing`, `off`). */
+  private classify(p: Perceiver): Expectation {
+    const f = this.f;
+    const now = f.now, bearing = f.bearing, offAxis = f.off;
     const e = p.expect;
-    if (e.active && now >= e.windowOpenSec && now <= e.windowCloseSec && Math.abs(wrapPi(bearing - e.yaw)) <= e.halfWidth) {
+    let db = (bearing - e.yaw) % TWO_PI;
+    if (db > Math.PI) db -= TWO_PI; else if (db <= -Math.PI) db += TWO_PI;
+    if (db < 0) db = -db;
+    if (e.active && now >= e.windowOpenSec && now <= e.windowCloseSec && db <= e.halfWidth) {
       return 'prepared';
     }
     return offAxis <= this.attentionHalf ? 'attending' : 'unaware';

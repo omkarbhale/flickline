@@ -158,6 +158,48 @@ export function auditEnemyBodies(opts: AuditOptions & { count?: number } = {}): 
 }
 
 /** Run `warmupTicks`, then profile the allocations of `ticks` more. */
+/**
+ * The enemy mind (#91) in the same audit: `count` mind-driven Echoes around a strafing player who
+ * never dies, holding, reacting, duelling (stops, bursts, legs, crouches), disengaging, re-peeking and
+ * repositioning through the nav-free test room, with perception and hearing live. Measures the mind's
+ * decision layer, its perception and its moves on top of the shared body.
+ *
+ * Its default ceiling is `MIND_CEILING_BYTES_PER_TICK`, not 8: the per-tick mind code allocates
+ * nothing, but the perceiver's decision points (about one every 0.12 s per Echo) and its hearing run
+ * in V8's mid tier and box a few doubles each (~35 B per decision; issue #272 takes them to 0). One
+ * new per-tick allocation in any of the four Echoes adds at least 64 B/tick, so the ceiling still
+ * catches the regressions the audit exists for.
+ */
+export function auditMinds(opts: AuditOptions & { count?: number } = {}): AllocAudit {
+  const ticks = opts.ticks ?? 20_000;
+  const warmupTicks = opts.warmupTicks ?? 40_000;
+  const count = opts.count ?? 4;
+  const tunables = cloneTunables();
+  const world = new World({ level: testRoom, tunables, seed: opts.seed ?? 1 });
+  world.enemiesFire = true;
+  const bus = new EventBus<SimEvents>();
+  world.placePlayer(0, 0, 8, 0);
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2;
+    world.spawnTarget('strafer', 9 * Math.cos(a), 0, 8 + 9 * Math.sin(a), bus, { mind: { skill: (i * 100) / Math.max(1, count - 1) } });
+  }
+  const input = createTickInput();
+  input.pitch = 1.2; // the player's bullets go into the open sky: no Echo dies, the scene never changes
+  let at = 0;
+  const run = (n: number): void => {
+    for (let i = 0; i < n; i++, at++) {
+      input.moveX = Math.floor(at / 90) % 2 === 0 ? 1 : -1;
+      input.fire = at % 256 < 24;
+      world.health.hp = 1e6; // a probe, not a fight: the player never dies (a headshot cannot kill)
+      world.step(input, bus);
+    }
+  };
+  return profileTicks(run, warmupTicks, ticks, opts.ceilingBytesPerTick ?? MIND_CEILING_BYTES_PER_TICK);
+}
+
+/** The mind audit's ceiling, bytes per tick, for four Echoes (see `auditMinds`). */
+export const MIND_CEILING_BYTES_PER_TICK = 48;
+
 function profileTicks(run: (n: number) => void, warmupTicks: number, ticks: number, ceiling: number): AllocAudit {
   run(warmupTicks);
   const session = new Session();

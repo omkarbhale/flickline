@@ -4,6 +4,7 @@ import type { WeaponId } from '../config/weapon';
 import type { RunEvents } from './runEvents';
 import type { EnemyAi } from './enemyAi';
 import type { EnemyBody } from './enemyBody';
+import type { MindState } from './mind/state';
 
 /** Per-tick player command. The only way input reaches the simulation. Angles in radians. */
 export interface TickInput {
@@ -159,6 +160,8 @@ export interface TargetState {
    * slot's own `pos` / `prevPos`, so a body-driven Echo moves the slot and interpolates like the player.
    */
   body: EnemyBody;
+  /** A mind-driven Echo's decision state (`sim/mind/state.ts`, #91): active when it spawned with `SpawnOptions.mind`, which then replaces its kind's behaviour. */
+  mind: MindState;
   // --- bookkeeping for the kill event (design §3 stat definitions) ---
   /** First tick the target was in view and unoccluded; -1 until `targetVisible` fired. */
   visibleTick: number;
