@@ -28,9 +28,11 @@ export interface RepeatOptions {
   gatePolicy: string;
   /** What the bot does after the Finale (default `bank`: push while healthy, leave when hurt). */
   overtimePolicy: string;
+  /** Walk at the scripted human pace of #248 (`HUMAN_PACE`) instead of the bot's own: the closer estimate of a person's run length. */
+  humanPace: boolean;
 }
 
-export const REPEAT_DEFAULTS: RepeatOptions = { skills: [30, 50, 70], runs: 50, players: 3, firstSeed: 1, gatePolicy: 'facts', overtimePolicy: 'bank' };
+export const REPEAT_DEFAULTS: RepeatOptions = { skills: [30, 50, 70], runs: 50, players: 3, firstSeed: 1, gatePolicy: 'facts', overtimePolicy: 'bank', humanPace: false };
 
 /** One run of a chain. */
 export interface RepeatRunFacts {
@@ -53,7 +55,9 @@ export interface RepeatRunFacts {
 }
 
 /** One chain of consecutive runs on one profile. */
-export function repeatChain(skill: number, runs: number, firstSeed: number, gatePolicy = REPEAT_DEFAULTS.gatePolicy, overtimePolicy = REPEAT_DEFAULTS.overtimePolicy): RepeatRunFacts[] {
+export function repeatChain(
+  skill: number, runs: number, firstSeed: number, gatePolicy = REPEAT_DEFAULTS.gatePolicy, overtimePolicy = REPEAT_DEFAULTS.overtimePolicy, humanPace = false,
+): RepeatRunFacts[] {
   const gate = GATE_POLICIES[gatePolicy];
   if (!gate) throw new Error(`unknown gate policy '${gatePolicy}' (known: ${Object.keys(GATE_POLICIES).join(', ')})`);
   const overtime = OVERTIME_POLICIES[overtimePolicy];
@@ -97,7 +101,7 @@ export function repeatChain(skill: number, runs: number, firstSeed: number, gate
   for (let i = 0; i < runs; i++) {
     const lean = keeper.fresh(weakestCards(recordOf, t.lean, t.sweep));
     f = { seed, route: [], pairs: [], lean: lean.slice(), endReason: null, liveSec: 0, sectors: 0, reached: 0, finaleCleared: false, overtimeSectors: 0, fights: 0, score: 0 };
-    const r = playMode(g, { mode: 'sweep', skill, seed, gatePolicy: gate, overtimePolicy: overtime, lean });
+    const r = playMode(g, { mode: 'sweep', skill, seed, gatePolicy: gate, overtimePolicy: overtime, lean, sweepHumanPace: humanPace });
     f.endReason = r.stats.endReason;
     f.liveSec = r.stats.liveSec;
     f.score = r.modeRun?.score ?? 0;
@@ -238,7 +242,7 @@ export function repeatReport(o: RepeatOptions = REPEAT_DEFAULTS): { rows: Repeat
   for (const skill of o.skills) {
     const list: RepeatRunFacts[][] = [];
     for (let p = 0; p < o.players; p++) {
-      const runs = repeatChain(skill, o.runs, o.firstSeed + p * 1000, o.gatePolicy, o.overtimePolicy);
+      const runs = repeatChain(skill, o.runs, o.firstSeed + p * 1000, o.gatePolicy, o.overtimePolicy, o.humanPace);
       list.push(runs);
       chains.push({ skill, runs });
     }

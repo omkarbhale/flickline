@@ -36,7 +36,8 @@ const HELP = `npm run bot -- [options]
                      skills 30/50/70 (or --skills) over --runs runs (default 50), --profile-runs runs per profile (default 5)
   --repeat-report    Repeat report (#214): --players (default 3) per skill at skills 30/50/70 (or --skills) each play --runs (default 50)
                      consecutive runs on one profile (the results card's seed chain, the lean on); how often sectors, sector-and-card
-                     pairs and routes repeat, run length, Finale reach and clear; --policy (gate, default facts), --overtime (default bank)
+                     pairs and routes repeat, run length, Finale reach and clear; --policy (gate, default facts), --overtime (default bank),
+                     --walker bot|human (human: the scripted human pace of #248, for run length)
   --skill-harness    the run-level simulated-player harness of design §9.6 (#203): abilities 10..90 (or --skills),
                      each with its likely self-report and with none, over --seeds profiles (default 100)
   --list             list the modes
@@ -217,6 +218,7 @@ export function main(argv: string[], log: (s: string) => void = console.log): nu
       firstSeed: args.seed !== undefined ? Number(args.seed) : REPEAT_DEFAULTS.firstSeed,
       gatePolicy: typeof args.policy === 'string' ? args.policy : REPEAT_DEFAULTS.gatePolicy,
       overtimePolicy: typeof args.overtime === 'string' ? args.overtime : REPEAT_DEFAULTS.overtimePolicy,
+      humanPace: args.walker === 'human',
     });
     if (args.json) log(JSON.stringify(r, null, 2));
     else {

@@ -46,4 +46,11 @@ describe('the repeat report (bot harness, #214)', () => {
     expect(t).toHaveLength(7);
     expect(t[2]).toMatch(/^\| 50 \| 1 × 3 \|/);
   });
+
+  it('walks at the scripted human pace when asked (the closer estimate of a person\'s run length)', () => {
+    const bot = repeatChain(50, 1, 7);
+    const human = repeatChain(50, 1, 7, 'facts', 'bank', true);
+    expect(human[0]!.route[0]).toBe(bot[0]!.route[0]); // the same seed deals the same Opener
+    expect(human[0]!.liveSec).not.toBe(bot[0]!.liveSec);
+  });
 });
