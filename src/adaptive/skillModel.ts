@@ -16,9 +16,9 @@
  * **Priors and correlation.** The prior is a Gaussian (self-report mean 15/35/55/75, skip 40,
  * s.d. 25; §9.2). A skill that has not been played yet keeps that s.d. but its mean moves
  * `correlation` (40 %) of the way from the prior to the mean rating of the played skills, so the
- * placement run initialises all seven and each skill sharpens on its own once it is first played.
+ * first run's placing Opener initialises all seven and each skill sharpens on its own once it is first played.
  *
- * **Placement.** `Staircase` (staircase.ts) picks the dial of each placement item: 2-up/1-down,
+ * **Placement.** `Staircase` (staircase.ts) picks the dial of each placing item: 2-up/1-down,
  * step 16 → 8 → 4 → 2. The trials feed the posterior as usual; `finishPlacement` then keeps the
  * posterior mean within ±`sanityBound` of the staircase's own estimate.
  *
@@ -35,7 +35,7 @@
  * `matchRating()` is the seven skill means weighted by their precision (1 / variance): the skills'
  * own summary of the line, which counts a barely measured skill for what its evidence is worth.
  *
- * **Steady state.** `dialFor(mode, beatIndex, wave)` is called once per beat (10 s in drills, a
+ * **Steady state.** `dialFor(mode, beatIndex, wave)` is called once per beat (10 s in a clocked mode, a
  * contact in Sweep). It aims the *matched dial* at the mode's target success rate
  * (θ − s·logit(p): 70 % for every mode, `config/dial.ts`), moves it by at most ±3 per beat, resets it to the target
  * at beat 0 (a new run), and adds the wave-curve offset for that beat (warm-up −8 … peak +6,
@@ -292,7 +292,7 @@ export class SkillState {
   }
 
   /**
-   * End of the placement run: if the staircase has enough reversals and the posterior mean lies
+   * End of a placing run: if the staircase has enough reversals and the posterior mean lies
    * more than `sanityBound` from the staircase's estimate, shift the posterior to that bound.
    * Returns the resulting rating.
    */

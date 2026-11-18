@@ -1,5 +1,6 @@
 import type { PeekTunables } from '../config/enemies';
 import { secondsToTicks, TICK_DT } from '../core/time';
+import { arriveStep } from './arrival';
 import type { PeekParams } from './enemyAi';
 import { fireBusy, fireReset, fireStep } from './enemyFire';
 import { bodyExposure } from './exposure';
@@ -28,6 +29,8 @@ export const PEEK_HIDDEN = 0;
 export const PEEK_MOVE = 1;
 export const PEEK_HOLD = 2;
 export const PEEK_BACK = 3;
+/** Walking its route in to its cover (hold sectors, `sim/arrival.ts`): the state of an arriving Peeker until it is behind its cover. */
+export const PEEK_ARRIVE = 4;
 
 /** One step of a pattern: how much of the body to show, for how long, and whether it stands up. */
 export interface PeekStep {
@@ -224,8 +227,21 @@ const back: BehaviourState = {
   },
 };
 
+const arrive: BehaviourState = {
+  name: 'arrive',
+  enter(t) {
+    t.crouched = false;
+  },
+  update(t, ctx) {
+    if (!arriveStep(t, ctx, false)) return STAY;
+    t.ai.arriving = false;
+    return PEEK_HIDDEN;
+  },
+};
+
 export const peekerBehaviour: Behaviour = {
   name: 'peeker',
-  states: [hidden, move, hold, back],
+  states: [hidden, move, hold, back, arrive],
   initial: PEEK_HIDDEN,
+  arrive: PEEK_ARRIVE,
 };

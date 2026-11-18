@@ -1,44 +1,39 @@
-import type { StraferTunables } from '../config/enemies';
-import { moveTowards } from '../core/math';
 import { TICK_DT } from '../core/time';
+import { arriveStep, walkReach } from './arrival';
 import { FIRE_WAIT, type EnemyAi, type StrafeParams } from './enemyAi';
+import { commandLookAt, commandMoveToward } from './enemyBody';
 import { fireBusy, fireStep } from './enemyFire';
+import { seesPlayer } from './enemySight';
 import { mindWantsStop } from './mind/duel';
 import {
   fsmSetTimerRange, fsmSetTimerTicks, STAY, type Behaviour, type BehaviourContext, type BehaviourState,
 } from './fsm';
+import { brakeDistance, brakeSpeed } from './movement';
 import type { TargetState } from './types';
 
 /**
- * Strafer (design §5.2, §9.4): an Echo that mirrors a strafing player. It runs a leg (0.3-1.0 s,
- * drawn up to the dial's leg), brakes to a real stop with the spec's braking (§2.3: about 0.16 s,
- * the same stop time at every speed), stands still (0.2-0.4 s by the dial), then strafes again,
- * reversing on a seeded coin. The stand-still is exactly the window where a counter-strafed shot
- * is accurate; where enemies shoot back it shoots in that window (its tell starts as it brakes,
- * and it does not move again until its burst is out).
+ * Strafer (design §5.2, §9.4): an Echo that mirrors a strafing player. It runs a leg (0.35-1.0 s,
+ * drawn up to the dial's leg), lets go of its strafe key and stops (spec §2.3: 0.16 s, the same
+ * stop time at every speed), stands still (0.25-0.4 s by the dial), then strafes again, reversing
+ * on a seeded coin. The stand-still is exactly the window where a counter-strafed shot is
+ * accurate; where enemies shoot back it shoots in that window (its tell starts as it brakes, and it
+ * does not move again until its burst is out).
  *
- * Motion is along a line (a map's `strafe-lane`, or a line square to the player at spawn): pure
- * 1-D kinematics on `ai.s`, so the whole thing is a few multiplies per tick.
+ * It plays through the shared body (#87, `sim/enemyBody.ts`): each tick its state writes a
+ * command (face the player, hold the key that runs along the lane, or hold nothing) and the
+ * player's own movement code accelerates, brakes and collides it. Its run speed is the dial's
+ * strafe speed (the body's gait); acceleration and braking are the player's. The lane is a map's
+ * `strafe-lane`, or a line square to the player at spawn; `ai.s` and `ai.vel` are the body's
+ * position and velocity along it, read back after every step.
  */
 
 export const STRAFER_LEG = 0;
 export const STRAFER_DECEL = 1;
 export const STRAFER_STAND = 2;
+/** Walking its route in (hold sectors, `sim/arrival.ts`): the state of an arriving Strafer until it hands over to the legs. */
+export const STRAFER_ARRIVE = 3;
 
-/** Distance the braking bands cover from cruise speed `v`, metres (spec §2.3 bands scaled by v / ref speed). */
-export function brakeDistance(v: number, cfg: StraferTunables): number {
-  const b = cfg.brakeBandFraction;
-  const speed = Math.abs(v);
-  return speed * cfg.brakeRefSpeed * ((1 - b * b) / (2 * cfg.brakeHigh) + (b * b) / (2 * cfg.brakeLow));
-}
-
-/** Time the braking bands take from cruise speed `v`, seconds (independent of `v` by construction). */
-export function brakeSeconds(cfg: StraferTunables): number {
-  const b = cfg.brakeBandFraction;
-  return cfg.brakeRefSpeed * ((1 - b) / cfg.brakeHigh + b / cfg.brakeLow);
-}
-
-/** Set a freshly spawned Strafer's lane and numbers (before its FSM starts). */
+/** Set a freshly spawned Strafer's lane and numbers (before its FSM starts; its body is already reset). */
 export function strafeInit(t: TargetState, ctx: BehaviourContext, p: StrafeParams | undefined): void {
   const a = t.ai;
   const cfg = ctx.tunables.enemies.strafer;
@@ -47,8 +42,8 @@ export function strafeInit(t: TargetState, ctx: BehaviourContext, p: StrafeParam
   a.standSec = p?.standStillSec ?? cfg.defaultStandStillSec;
   a.vel = 0;
   a.dir = 1;
-  a.brakeFrom = 0;
   a.travel = p?.travel === true && p.laneA !== undefined && p.laneB !== undefined;
+  t.body.gait.runSpeedMps = a.speed;
   const o = a.laneOrigin;
   if (p?.laneA && p.laneB) {
     let dx = p.laneB.x - p.laneA.x, dz = p.laneB.z - p.laneA.z;
@@ -74,6 +69,7 @@ export function strafeInit(t: TargetState, ctx: BehaviourContext, p: StrafeParam
   t.prevPos.x = t.pos.x; t.prevPos.y = t.pos.y; t.prevPos.z = t.pos.z;
 }
 
+/** Stand on the lane at `ai.s` (where a lane is set up; from then on the body moves it). */
 function placeOnLane(t: TargetState): void {
   const a = t.ai;
   t.pos.x = a.laneOrigin.x + a.axis.x * a.s;
@@ -81,18 +77,102 @@ function placeOnLane(t: TargetState): void {
   t.pos.z = a.laneOrigin.z + a.axis.z * a.s;
 }
 
-/** Integrate the lane position by one tick; the lane's ends stop it dead (the guard brakes before them). */
-function advance(t: TargetState): void {
+/** Read the moved body back: position and signed speed along the lane (`Behaviour.bodyMoved`). */
+function measure(t: TargetState): void {
   const a = t.ai;
-  a.s += a.vel * TICK_DT;
-  if (a.s < 0) { a.s = 0; a.vel = 0; } else if (a.s > a.laneLen) { a.s = a.laneLen; a.vel = 0; }
-  placeOnLane(t);
+  const v = t.body.kin.vel;
+  a.s = (t.pos.x - a.laneOrigin.x) * a.axis.x + (t.pos.z - a.laneOrigin.z) * a.axis.z;
+  a.vel = v.x * a.axis.x + v.z * a.axis.z;
+}
+
+/**
+ * This tick's command: face the player's head (a mind's view is its aim model's, #90) and hold the
+ * key that runs along the lane in direction `dir` (+1 / -1), or no key at all (`dir` 0).
+ */
+function steer(t: TargetState, ctx: BehaviourContext, dir: number): void {
+  const p = ctx.world.player;
+  const b = t.body;
+  // A mind looks where its aim model has it (#90, `mind/duel.ts`); the dial's Echo faces the player.
+  if (!t.ai.mind) commandLookAt(b, p.pos.x, p.pos.y + p.eyeHeight, p.pos.z);
+  commandMoveToward(b, t.ai.axis.x * dir, t.ai.axis.z * dir);
 }
 
 /** Room left ahead in the current direction, metres. */
 function room(a: EnemyAi, dir: number): number {
   return dir > 0 ? a.laneLen - a.s : a.s;
 }
+
+/**
+ * Whether the key must be let go of now for the stop to end inside the lane: holding it one more
+ * tick would cover that tick at the next speed plus the braking distance from it (spec §2.3).
+ */
+function mustRelease(t: TargetState, ctx: BehaviourContext): boolean {
+  const a = t.ai;
+  const m = ctx.tunables.movement;
+  const top = t.body.gait.runSpeedMps;
+  const v = Math.abs(a.vel);
+  const next = Math.min(top, v + (top / m.accelTimeToMax) * TICK_DT);
+  return room(a, a.dir) <= next * TICK_DT + brakeDistance(next, top, m) + 1e-3;
+}
+
+/**
+ * The leg's run speed, set as the body's gait: the dial's strafe speed, but an arrival that has not
+ * told the player it is here yet runs its legs (steps that carry) rather than walks them.
+ */
+function legGait(t: TargetState, ctx: BehaviourContext): void {
+  const a = t.ai;
+  t.body.gait.runSpeedMps = a.honest && a.audibleTick < 0 && t.visibleTick < 0
+    ? Math.max(a.speed, ctx.tunables.audio.enemy.silentBelowMps + 0.4)
+    : a.speed;
+}
+
+/** Metres between the samples of the lane's wall test. */
+const LANE_STEP_M = 0.25;
+
+/**
+ * The strafe lane of an arrival that has stopped walking: through where it stands, square to the way
+ * it was heading (to the way to the player when it has him in its sights), as long each way as it can
+ * walk without meeting a wall. In a corridor too narrow to strafe across it strafes along it.
+ */
+function laneHere(t: TargetState, ctx: BehaviourContext): void {
+  const a = t.ai;
+  const cfg = ctx.tunables.enemies.strafer;
+  const hull = ctx.tunables.movement.hullHalfWidth;
+  const boxes = ctx.world.boxes;
+  let hx = a.headX, hz = a.headZ;
+  if (seesPlayer(t, ctx)) {
+    const p = ctx.world.player;
+    const dx = p.pos.x - t.pos.x, dz = p.pos.z - t.pos.z;
+    const l = Math.sqrt(dx * dx + dz * dz);
+    if (l > 1e-6) { hx = dx / l; hz = dz / l; }
+  }
+  let ax = -hz, az = hx;
+  let fwd = walkReach(boxes, hull, t.pos.x, t.pos.y, t.pos.z, ax, az, cfg.freeHalfRangeM, LANE_STEP_M);
+  let back = walkReach(boxes, hull, t.pos.x, t.pos.y, t.pos.z, -ax, -az, cfg.freeHalfRangeM, LANE_STEP_M);
+  if (fwd + back < cfg.minLegRoomM * 2) {
+    ax = hx; az = hz;
+    fwd = walkReach(boxes, hull, t.pos.x, t.pos.y, t.pos.z, ax, az, cfg.freeHalfRangeM, LANE_STEP_M);
+    back = walkReach(boxes, hull, t.pos.x, t.pos.y, t.pos.z, -ax, -az, cfg.freeHalfRangeM, LANE_STEP_M);
+  }
+  a.axis.x = ax; a.axis.y = 0; a.axis.z = az;
+  a.laneOrigin.x = t.pos.x - ax * back; a.laneOrigin.y = t.pos.y; a.laneOrigin.z = t.pos.z - az * back;
+  a.laneLen = fwd + back;
+  a.s = back;
+  a.vel = 0;
+  placeOnLane(t);
+}
+
+/** Walking its route in: moved by `arriveStep` along the route (kinematic: the body waits until the legs start). */
+const arrive: BehaviourState = {
+  name: 'arrive',
+  kinematic: true,
+  update(t, ctx) {
+    if (!arriveStep(t, ctx, true)) return STAY;
+    t.ai.arriving = false;
+    laneHere(t, ctx);
+    return STRAFER_LEG;
+  },
+};
 
 const leg: BehaviourState = {
   name: 'leg',
@@ -107,24 +187,25 @@ const leg: BehaviourState = {
       // On its route: towards the far end, with no timer; it stops when it has reacted to the player or runs out of lane.
       a.dir = 1;
       t.fsm.timerTicks = -1;
-      return;
+    } else if (room(a, a.dir) < cfg.minLegRoomM) {
+      // Never start towards a wall: turn round instead.
+      a.dir = -a.dir;
     }
-    // Never start towards a wall: turn round instead.
-    if (room(a, a.dir) < cfg.minLegRoomM) a.dir = -a.dir;
+    legGait(t, ctx);
+    steer(t, ctx, a.dir);
   },
   update(t, ctx) {
     const a = t.ai;
-    const cfg = ctx.tunables.enemies.strafer;
-    a.vel = moveTowards(a.vel, a.dir * a.speed, (a.speed / cfg.accelSec) * TICK_DT);
-    advance(t);
+    legGait(t, ctx);
     // A leg commits to the fight (a mind may shoot from it by its moving-shot habit) but is no stop.
     fireStep(t, ctx, false, true);
     // On its route it keeps moving through its reaction to the player (first sight to the tell), then brakes so the tell starts in the stop.
     if (!a.mind && a.travel && a.phase === FIRE_WAIT && ctx.tick >= a.readyTick) return STRAFER_DECEL;
-    // A mind counter-strafes as its aim arrives, so its shot leaves from the stop (#90).
+    // A mind lets go of its key as its aim arrives, so its shot leaves from the stop (#90).
     if (mindWantsStop(t, ctx.tick)) return STRAFER_DECEL;
-    // Brake early enough to stop inside the lane.
-    if (room(a, a.vel !== 0 ? Math.sign(a.vel) : a.dir) <= brakeDistance(a.vel, cfg) + 0.02) return STRAFER_DECEL;
+    // Let go early enough to stop inside the lane.
+    if (mustRelease(t, ctx)) return STRAFER_DECEL;
+    steer(t, ctx, a.dir);
     return STAY;
   },
   onTimer: () => STRAFER_DECEL,
@@ -132,26 +213,19 @@ const leg: BehaviourState = {
 
 const decel: BehaviourState = {
   name: 'decel',
-  enter(t) {
-    t.ai.brakeFrom = Math.abs(t.ai.vel);
+  enter(t, ctx) {
     // The first stop ends the route: from here it strafes on the line.
     t.ai.travel = false;
+    steer(t, ctx, 0);
   },
   update(t, ctx) {
     const a = t.ai;
-    const cfg = ctx.tunables.enemies.strafer;
-    const v0 = a.brakeFrom;
-    const speed = Math.abs(a.vel);
-    if (speed > 0) {
-      const scale = v0 / cfg.brakeRefSpeed;
-      const rate = (speed > cfg.brakeBandFraction * v0 ? cfg.brakeHigh : cfg.brakeLow) * scale;
-      const next = Math.max(0, speed - rate * TICK_DT);
-      a.vel = a.vel > 0 ? next : -next;
-      advance(t);
-    }
+    steer(t, ctx, 0);
     // The tell starts as it brakes, so the burst lands in the stand-still.
     fireStep(t, ctx, true);
-    return a.vel === 0 ? STRAFER_STAND : STAY;
+    // It stands still from the tick its body comes to rest (this tick's step brakes to zero).
+    const v = Math.abs(a.vel);
+    return v === 0 || brakeSpeed(v, 0, t.body.gait.runSpeedMps, ctx.tunables.movement, 1, TICK_DT) === 0 ? STRAFER_STAND : STAY;
   },
 };
 
@@ -159,10 +233,11 @@ const stand: BehaviourState = {
   name: 'stand',
   enter(t, ctx) {
     const cfg = ctx.tunables.enemies.strafer;
-    t.ai.vel = 0;
+    steer(t, ctx, 0);
     fsmSetTimerRange(t, ctx.rng, cfg.standMinSec, Math.max(cfg.standMinSec, t.ai.standSec));
   },
   update(t, ctx) {
+    steer(t, ctx, 0);
     fireStep(t, ctx, true);
     return STAY;
   },
@@ -178,6 +253,9 @@ const stand: BehaviourState = {
 
 export const straferBehaviour: Behaviour = {
   name: 'strafer',
-  states: [leg, decel, stand],
+  states: [leg, decel, stand, arrive],
   initial: STRAFER_LEG,
+  arrive: STRAFER_ARRIVE,
+  drivesBody: true,
+  bodyMoved: measure,
 };

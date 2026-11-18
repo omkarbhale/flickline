@@ -3,6 +3,7 @@ import type { EnemyStreams } from '../core/rngStreams';
 import type { WeaponId } from '../config/weapon';
 import type { RunEvents } from './runEvents';
 import type { EnemyAi } from './enemyAi';
+import type { EnemyBody } from './enemyBody';
 
 /** Per-tick player command. The only way input reaches the simulation. Angles in radians. */
 export interface TickInput {
@@ -34,7 +35,18 @@ export function createTickInput(): TickInput {
   };
 }
 
-export interface PlayerState {
+/**
+ * A humanoid's per-tick command (`docs/research/player-like-enemies.md` §5.1): the keys and view a
+ * player sends, so an Echo's command runs through the same movement and weapon code as the
+ * player's `TickInput` (#87). The same shape by definition: a mind writes one per tick.
+ */
+export type EnemyCommand = TickInput;
+
+/**
+ * The kinematic body of a humanoid: the player, or an Echo driven by `EnemyCommand`s (#87). One
+ * movement model (`stepBody`) and one weapon model (`stepWeapon`) take it, whoever owns it.
+ */
+export interface BodyState {
   /** Feet centre. `prevPos` is the position at the start of the latest tick (for interpolation). */
   pos: Vec3;
   prevPos: Vec3;
@@ -55,6 +67,9 @@ export interface PlayerState {
   /** Aim punch from being hit (spec §4.4), radians added to the view pitch (+ = up). Set by the health step. */
   aimPunch: number;
 }
+
+/** The player's body. */
+export type PlayerState = BodyState;
 
 /** The player's health and the timers behind tagging and flinch. Plain data (hashable, snapshot-able). */
 export interface PlayerHealth {
@@ -139,6 +154,11 @@ export interface TargetState {
   streams: EnemyStreams;
   /** Strafer / Peeker motion and shooting state (`sim/enemyAi.ts`); unused by Post and Beacon. */
   ai: EnemyAi;
+  /**
+   * Humanoids: the shared kinematic body (`sim/enemyBody.ts`, #87). Its `pos` / `prevPos` are this
+   * slot's own `pos` / `prevPos`, so a body-driven Echo moves the slot and interpolates like the player.
+   */
+  body: EnemyBody;
   // --- bookkeeping for the kill event (design §3 stat definitions) ---
   /** First tick the target was in view and unoccluded; -1 until `targetVisible` fired. */
   visibleTick: number;
@@ -195,7 +215,7 @@ export interface WeaponState {
   wasGrounded: boolean;
   /** Sim time of the last landing, seconds. */
   landTime: number;
-  /** Option (drills): shots never use ammo, so the magazine never empties. Survives reset(). */
+  /** Option (debug, playtests): shots never use ammo, so the magazine never empties. Survives reset(). */
   infiniteMagazine: boolean;
   /** Option: reloads never use reserve ammo. Survives reset(). */
   infiniteReserve: boolean;

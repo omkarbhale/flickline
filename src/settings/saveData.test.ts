@@ -6,7 +6,7 @@ import { DEFAULT_SETTINGS, sanitizeSettings } from './settings';
 
 function progress(): ProgressData {
   const p = defaultProgress();
-  p.plays = { orbit: 3 };
+  p.plays = { modeA: 3 };
   p.flaggedSkill = 'flick';
   p.medals = { needle: { count: 2, last: '2026-01-01T00:00:00.000Z' } };
   const best = {
@@ -17,11 +17,17 @@ function progress(): ProgressData {
   p.runBests = { neon: { best, deepest: best, finalesCleared: 1 } };
   p.dailyBests = { '2026-01-01': best };
   p.situations = { clear: [{ won: true, kept: 0.8 }, { won: false, kept: 0.1 }] };
+  p.journal = {
+    firstDay: '2026-01-01',
+    sessions: [{ at: 1_767_268_800, sec: 600, started: 2, finished: 2, end: 'death' }],
+    runs: [{ at: 1_767_268_800, sec: 200, depth: 3, end: 'death', pulled: true }, { at: 1_767_269_100, sec: 300, depth: 5, end: 'timer', pulled: false }],
+    days: [{ day: '2026-01-01', since: null }],
+  };
   return p;
 }
 
 const parts = () => ({
-  settings: sanitizeSettings({ sensitivity: 0.55, quality: 'high', fpsCap: 144, keys: { jump: ['KeyF'] }, difficultyPin: { orbit: 40 } }),
+  settings: sanitizeSettings({ sensitivity: 0.55, quality: 'high', fpsCap: 144, keys: { jump: ['KeyF'] }, difficultyPin: { modeA: 40 } }),
   profile: { ...DEFAULT_PROFILE, selfReport: 'some' as const, firstRunDone: true },
   progress: progress(),
 });
@@ -34,6 +40,18 @@ describe('save file', () => {
     expect(r.parts.settings).toEqual(parts().settings);
     expect(r.parts.profile).toEqual(parts().profile);
     expect(r.parts.progress).toEqual(parts().progress);
+  });
+
+  it('carries the play journal in the file and back (#251)', () => {
+    const text = buildSave(parts(), '2026-01-01T00:00:00.000Z');
+    expect(JSON.parse(text).journal.sessions[0]).toMatchObject({ started: 2, end: 'death' });
+    const r = parseSave(text);
+    expect(r.ok && r.parts.progress?.journal).toEqual(progress().journal);
+  });
+
+  it('a file with only a journal carries progress (nothing else is touched)', () => {
+    const r = parseSave(JSON.stringify({ format: 'flickline-save', version: PROGRESS_VERSION, journal: progress().journal }));
+    expect(r.ok && r.parts.progress?.journal.runs).toHaveLength(2);
   });
 
   it('is versioned and says what it is', () => {
@@ -80,23 +98,23 @@ describe('save file', () => {
   });
 
   it('leaves out the parts the file does not have', () => {
-    const r = parseSave(JSON.stringify({ format: 'flickline-save', version: 2, plays: { orbit: 5 } }));
+    const r = parseSave(JSON.stringify({ format: 'flickline-save', version: 2, plays: { modeA: 5 } }));
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.parts.settings).toBeUndefined();
       expect(r.parts.profile).toBeUndefined();
-      expect(r.parts.progress?.plays.orbit).toBe(5);
+      expect(r.parts.progress?.plays.modeA).toBe(5);
     }
   });
 
   it('migrates a version 1 file (settings, profile, play log): counts and the flagged skill carry over', () => {
-    const v1 = { format: 'flickline-save', version: 1, exportedAt: 'x', settings: { sensitivity: 0.6 }, profile: { selfReport: 'some', firstRunDone: true }, playLog: { bests: { orbit: 9 }, plays: { orbit: 4, coldStart: 2 }, flaggedSkill: 'track' } };
+    const v1 = { format: 'flickline-save', version: 1, exportedAt: 'x', settings: { sensitivity: 0.6 }, profile: { selfReport: 'some', firstRunDone: true }, playLog: { bests: { modeA: 9 }, plays: { modeA: 4, modeB: 2 }, flaggedSkill: 'track' } };
     const r = parseSave(JSON.stringify(v1));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.parts.settings?.sensitivity).toBe(0.6);
     expect(r.parts.profile?.selfReport).toBe('some');
-    expect(r.parts.progress?.plays).toEqual({ orbit: 4, coldStart: 2 });
+    expect(r.parts.progress?.plays).toEqual({ modeA: 4, modeB: 2 });
     expect(r.parts.progress?.flaggedSkill).toBe('track');
     // the old per-mode bests had no dial, so they are not placed into a band
     expect(r.parts.progress?.runBests).toEqual({});

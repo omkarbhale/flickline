@@ -90,7 +90,6 @@ export class GameRenderer {
   /** Every level's visuals built so far: a level loaded again (a mode back on its map) is a scene swap, not a rebuild. */
   private readonly levels = new Map<LevelDef, LevelMesh>();
   private targetsCapacity = -1;
-  private laneArmed = false;
   private readonly envUniforms: EnvUniforms;
   private readonly sky: Sky;
   private readonly blobs: BlobShadows;
@@ -256,7 +255,6 @@ export class GameRenderer {
       this.levels.set(world.level, level);
     }
     this.level = level;
-    level.setMarksArmed(this.laneArmed);
     this.scene.add(level.root);
     this.blobs.setLevel(world.level.boxes);
     this.applyQuality();
@@ -277,12 +275,6 @@ export class GameRenderer {
     this.renderer.compile(this.scene, this.camera);
     this.renderer.compile(this.overlay.scene, this.overlay.camera);
     this.post.precompile(this.renderer);
-  }
-
-  /** Light or dim the loaded map's armed floor stripe (Lane). Survives a level reload. */
-  setLaneArmed(armed: boolean): void {
-    this.laneArmed = armed;
-    this.level?.setMarksArmed(armed);
   }
 
   /**

@@ -154,17 +154,11 @@ export function zoneCentre(out: Vec3, t: TargetState, h: HitTunables, kind: Targ
 }
 
 /**
- * What a zone trace reads of a body: an Echo's `TargetState`, or the player's pose when an Echo
- * shoots at the player (#90: the player wears the same three zones, spec §5.1).
- */
-export type ZoneBody = Pick<TargetState, 'pos' | 'crouched' | 'scale'>;
-
-/**
  * Trace one unit-direction ray against a target. Returns true and fills `out` when a zone is
  * struck no further than `ray.maxDist`.
  */
 export function traceTargetRay(
-  t: ZoneBody,
+  t: TargetState,
   h: HitTunables,
   kind: TargetKindDef,
   ray: Ray,
@@ -180,12 +174,21 @@ export function traceTargetRay(
     return true;
   }
 
-  const crouched = t.crouched;
-  const base = t.pos.y;
+  return traceHumanoidRay(t.pos, t.crouched, h, ray, out);
+}
+
+/**
+ * Trace one unit-direction ray against the humanoid zones of a body standing (or crouched) with
+ * its feet at `pos`: an Echo's, or the player's when an Echo shoots (#87: both sides share one
+ * hitbox). Returns true and fills `out` when a zone is struck no further than `ray.maxDist`.
+ */
+export function traceHumanoidRay(pos: Vec3, crouched: boolean, h: HitTunables, ray: Ray, out: ZoneHit): boolean {
+  prim[IN_LIMIT] = ray.maxDist;
+  const base = pos.y;
   let found = false;
 
   // Head first so that exact ties go to the head.
-  prim[IN_CX] = t.pos.x; prim[IN_CZ] = t.pos.z;
+  prim[IN_CX] = pos.x; prim[IN_CZ] = pos.z;
   prim[IN_CY] = base + (crouched ? h.headCentreCrouch : h.headCentreStand);
   prim[IN_R] = h.headRadius;
   if (raySphereN(ray)) {

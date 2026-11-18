@@ -216,7 +216,7 @@ export const mind: MindTunables = {
     // headshot share of hits lands on `calibrationHeadshotShare` (signature S7, the calibration report on
     // #90). `rhythmGain`: weight of the learnt-rhythm prediction over plain linear lead once a strafe
     // rhythm is regular (S4: a regular ADAD is tracked under 120 ms at m >= 65, a random one is not).
-    aimDropM: [0.38, 0.26, 0.185, 0.145],
+    aimDropM: [0.42, 0.26, 0.195, 0.15],
     rhythmGain: [0, 0.2, 0.85, 1],
     movingShotShare: [0.5, 0.3, 0.15, 0.06],
     shotAfterGateSec: [0.18, 0.14, 0.1, 0.07],

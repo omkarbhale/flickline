@@ -1,6 +1,4 @@
 import type { Rng } from '../core/rng';
-import { TICK_DT } from '../core/time';
-import type { Vec3 } from '../core/vec3';
 import type { MovementTunables } from '../config/movement';
 import type { WeaponDef, WeaponRules } from '../config/weapon';
 import { zoneDamage } from './damage';
@@ -112,53 +110,4 @@ export function stepYawSign(def: WeaponDef, state: RecoilState, dt: number): voi
   const maxDelta = (2 * dt) / def.recoilFlipTimeSec;
   const d = state.yawTarget - state.yawSign;
   state.yawSign = Math.abs(d) <= maxDelta ? state.yawTarget : state.yawSign + Math.sign(d) * maxDelta;
-}
-
-/** Timers count down in float seconds; this absorbs rounding so whole-tick durations stay exact (as `sim/weapon.ts`). */
-const EPS = 1e-9;
-
-/** A gun's recoil offset plus the time of its last shot: what `returnRecoil` reads and scales. */
-export interface RecoilReturnState extends RecoilState {
-  /** Sim time of the last shot, seconds. */
-  lastShotTime: number;
-}
-
-/**
- * Spec §3.5 recoil return, one tick ending at `tick`: the offset is held for `recoilReturnDelaySec`,
- * then glides along its own direction on a smoothstep (no velocity jump at either end) that lands
- * on the crosshair exactly at the gun recovery time, so the offset never outlives the spray reset
- * (#191). Stateless: each tick scales the offset by ease(u) / ease(u one tick ago). Takes the tick
- * (a small integer) rather than a time so no double is boxed per call. Shared by the player's gun
- * and the Echoes' (#90).
- */
-export function returnRecoil(def: WeaponDef, state: RecoilReturnState, tick: number): void {
-  if (state.recoilPitch === 0 && state.recoilYaw === 0) return;
-  const dt = TICK_DT;
-  const sinceShot = tick * dt - state.lastShotTime;
-  if (sinceShot < def.recoilReturnDelaySec - EPS) return;
-  const span = def.recoverySec - def.recoilReturnDelaySec;
-  let k = 0;
-  if (def.recoverySec - sinceShot > EPS && span > EPS) {
-    const u = (sinceShot - def.recoilReturnDelaySec) / span;
-    const v = u - dt / span < 0 ? 0 : u - dt / span;
-    k = (1 - u * u * (3 - 2 * u)) / (1 - v * v * (3 - 2 * v));
-  }
-  state.recoilPitch *= k;
-  state.recoilYaw *= k;
-}
-
-/**
- * Spec §3.3 spread draw: the unit direction at angle `r` (radians) from the axis at (`yaw`, `pitch`),
- * turned by `phi` around it, into `out`. right = (cos y, 0, -sin y) and up = (sin y sin p, cos p,
- * cos y sin p) are orthonormal with the axis. Shared by the player's gun and the Echoes' (#90).
- */
-export function coneDirection(out: Vec3, yaw: number, pitch: number, r: number, phi: number): Vec3 {
-  const sy = Math.sin(yaw), cy = Math.cos(yaw), sp = Math.sin(pitch), cp = Math.cos(pitch);
-  const dx = -sy * cp, dy = sp, dz = -cy * cp;
-  const cr = Math.cos(r), sr = Math.sin(r);
-  const a = sr * Math.cos(phi), b = sr * Math.sin(phi);
-  out.x = dx * cr + a * cy + b * sy * sp;
-  out.y = dy * cr + b * cp;
-  out.z = dz * cr - a * sy + b * cy * sp;
-  return out;
 }

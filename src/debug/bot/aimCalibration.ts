@@ -43,6 +43,11 @@ export interface CalibrationOpts {
   strafe: boolean;
   /** The player stands still instead of strafing. */
   still?: boolean;
+  /**
+   * Identical Echoes side by side (2 m apart) at the distance, shooting together: more hits per
+   * simulated second for the same answer (default 1). Damage per minute is per Echo.
+   */
+  copies?: number;
   tunables?: Tunables;
 }
 
@@ -70,7 +75,14 @@ function runSeed(o: CalibrationOpts, seed: number, out: CalibrationResult): numb
   const strafe = o.strafe
     ? { ...straferParams(ax), laneA: vec3(-6, 0, z), laneB: vec3(6, 0, z) }
     : { speed: 0, legSec: 1, standStillSec: 1, laneA: vec3(0, 0, z), laneB: vec3(0, 0, z) };
-  world.spawnTarget('strafer', 0, 0, z, bus, { strafe, fire });
+  const copies = Math.max(1, o.copies ?? 1);
+  for (let c = 0; c < copies; c++) {
+    const x = (c - (copies - 1) / 2) * 2;
+    const lane = o.strafe ? strafe : { ...strafe, laneA: vec3(x, 0, z), laneB: vec3(x, 0, z) };
+    world.spawnTarget('strafer', x, 0, z, bus, { strafe: lane, fire });
+  }
+  // A player no burst can kill (several Echoes may hit in one tick): every shot counts.
+  world.health.maxHp = 1e9;
   let damage = 0;
   bus.on('enemyFired', (e) => {
     out.shots++;
@@ -109,7 +121,7 @@ function runSeed(o: CalibrationOpts, seed: number, out: CalibrationResult): numb
     world.health.hp = world.health.maxHp;
     world.step(input, bus);
   }
-  return damage;
+  return damage / copies;
 }
 
 /** Run `seeds` seeds and sum them. */
@@ -132,13 +144,13 @@ export function aimReport(seeds = 6, seconds = 60, dial = 50): string[] {
   const t = cloneTunables();
   const anchors = t.mind.anchorSkills;
   const targets = t.mind.anchors.calibrationHeadshotShare;
-  lines.push(`S7: headshot share of hits, still Echo vs the standard moving bot (${seeds} seeds x ${seconds} s per row)`);
+  lines.push(`S7: headshot share of hits, still Echoes vs the standard moving bot (${seeds} seeds x ${seconds} s x 3 Echoes per row)`);
   lines.push('mind skill | distance | shots | hit rate | head / body / leg | headshot share | target | dmg/min');
   for (let i = 0; i < anchors.length; i++) {
     // S7 pools 10, 15 and 20 m (the band is for the anchor, not for one distance).
     let head = 0, hits = 0;
     for (const d of [10, 15, 20]) {
-      const r = calibrate({ mindSkill: anchors[i]!, dial: anchors[i]!, distanceM: d, seconds, seeds, strafe: false });
+      const r = calibrate({ mindSkill: anchors[i]!, dial: anchors[i]!, distanceM: d, seconds, seeds, strafe: false, copies: 3 });
       head += r.zones.head;
       hits += r.zones.head + r.zones.body + r.zones.leg;
       lines.push(

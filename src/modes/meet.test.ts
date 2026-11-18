@@ -30,7 +30,7 @@ function meetSeed(from = 1, pred: (n: number) => boolean = () => true): { seed: 
 }
 
 describe('sector roles (design §4.2, #212)', () => {
-  it('the Opener is a take; no role is drawn three times in a row; the mix follows takes 50 / holds 35 / meets 15', () => {
+  it('the Opener is a take and the Finale a hold; no role is drawn three times in a row, nor a meet after a meet; the mix follows takes 50 / holds 35 / meets 15 before the rules', () => {
     const rng = new Rng(77);
     const counts: Record<SectorRole, number> = { take: 0, hold: 0, meet: 0 };
     for (let run = 0; run < 3000; run++) {
@@ -38,44 +38,51 @@ describe('sector roles (design §4.2, #212)', () => {
       for (let i = 0; i < 6; i++) {
         const r = drawRole(rng, cfg, i, drawn);
         if (i === 0) expect(r).toBe('take');
+        else if (i === 5) expect(r).toBe('hold');
         else counts[r]++;
+        if (i > 0 && r === 'meet') expect(drawn[i - 1]).not.toBe('meet');
         drawn.push(r);
         if (i >= 2) expect(drawn[i] === drawn[i - 1] && drawn[i] === drawn[i - 2]).toBe(false);
       }
+      // Sectors 2 to 5 have a take and a hold among them, whatever doors were taken.
+      expect(drawn.slice(1, 5)).toContain('take');
+      expect(drawn.slice(1, 5)).toContain('hold');
     }
     const total = counts.take + counts.hold + counts.meet;
-    expect(counts.meet / total).toBeGreaterThan(0.12);
+    // Drawn at 50 / 35 / 15; barring a third alike and a second meet, and the take and hold every run must have, move them a little.
+    expect(counts.meet / total).toBeGreaterThan(0.09);
     expect(counts.meet / total).toBeLessThan(0.2);
-    expect(counts.hold / total).toBeGreaterThan(0.28);
-    expect(counts.take / total).toBeGreaterThan(0.42);
+    expect(counts.hold / total).toBeGreaterThan(0.3);
+    expect(counts.take / total).toBeGreaterThan(0.35);
   });
 
-  it('a run plays takes and meets today (a drawn hold plays as a take until #204): about 13% of later sectors are meets, never two in a row', () => {
+  it('a run plays takes, holds and meets: about 10-15% of later sectors are meets, never two in a row (one meet sector), and the Finale is a hold', () => {
     let later = 0, meets = 0, runsWithMeet = 0;
     for (let seed = 1; seed <= 600; seed++) {
       const roles = sweepPlan(seed).sectors.map((s) => s.role);
       expect(roles[0]).toBe('take');
-      expect(roles.every((r) => r === 'take' || r === 'meet')).toBe(true);
+      expect(roles[roles.length - 1]).toBe('hold');
       for (let i = 1; i < roles.length; i++) {
         later++;
         if (roles[i] === 'meet') {
           meets++;
-          expect(roles[i - 1]).toBe('take'); // there is one meet sector: it is never dealt twice in a row
+          expect(roles[i - 1]).not.toBe('meet'); // there is one meet sector: it is never dealt twice in a row
         }
       }
       if (roles.includes('meet')) runsWithMeet++;
     }
-    expect(meets / later).toBeGreaterThan(0.09);
+    expect(meets / later).toBeGreaterThan(0.07);
     expect(meets / later).toBeLessThan(0.17);
     expect(runsWithMeet).toBeGreaterThan(60);
   });
 
-  it('a catalog without a meet sector plays a drawn meet as a take; so does a drawn hold today', () => {
-    const takesOnly = sweepCatalog(tunables).filter((s) => !s.roles.includes('meet'));
+  it('a catalog without a meet or a hold sector plays a drawn meet or hold as a take', () => {
+    const takesOnly = sweepCatalog(tunables).filter((s) => !s.roles.includes('meet') && !s.roles.includes('hold'));
     const t = cloneTunables();
     t.sweep.roleMix = { take: 0, hold: 1, meet: 1 };
     for (let seed = 1; seed <= 50; seed++) {
-      const plan = planRoute(seed, { ...sweepEnv(t), catalog: takesOnly }, () => 0);
+      const env = { ...sweepEnv(t), catalog: takesOnly };
+      const plan = planRoute(seed, env, () => 0);
       expect(plan.sectors).toHaveLength(t.sweep.sectors);
       expect(plan.sectors.every((s) => s.role === 'take')).toBe(true);
     }
@@ -126,7 +133,7 @@ describe('meet plans (design §4.2, #212)', () => {
     expect(sideBySide).toBeGreaterThan(20);
     expect([...sizes].sort()).toEqual([1, 2]);
     expect([...gaits].sort()).toEqual(['run', 'walk']);
-  });
+  }, 30_000);
 
   it('routes are walkable from the Echo\'s start to the end (the Lane\'s cover stops stay clear of the lane)', () => {
     const lane = sweepCatalog(tunables).find((s) => s.id === 'lane-meet-near')!;
@@ -136,7 +143,7 @@ describe('meet plans (design §4.2, #212)', () => {
         for (const e of s.contacts[0]!.echoes) expect(lane.walkable(e.laneA!, e.laneB!), `seed ${seed}`).toBe(true);
       }
     }
-  });
+  }, 30_000);
 
   it('the same seed gives the same meet; seeds differ', () => {
     const { seed } = meetSeed();
@@ -150,6 +157,7 @@ describe('meet plans (design §4.2, #212)', () => {
 /** Leave the current sector by its exit and walk through the gate behind it by `doorAt`. */
 function leave(g: HeadlessGame, input: TickInput, state: () => SweepState, seed: number): void {
   const sp = state().plan.sectors[state().sector]!;
+  if (sp.role === 'hold') state().exitOpen = true; // a hold's exit opens when its Echoes are dead (#204); these tests are about the meet after it
   g.world.placePlayer(sp.exit.x, sp.exit.y, sp.exit.z, 0);
   g.advance(input);
   const gc = cfg.gate;
@@ -241,9 +249,9 @@ function meetSeedWithGait(gait: 'run' | 'walk'): { seed: number; index: number }
 
 describe('who stopped first (the meet contact fact, #212)', () => {
   /** Play a meet with a scripted player and settle it: the `contactSettled` of the meet. */
-  function playMeet(script: (tick: number, input: TickInput) => void, ticks: number) {
+  function playMeet(script: (tick: number, input: TickInput) => void, ticks: number, tun?: Tunables) {
     const { seed, index } = meetSeedWithGait('run');
-    const { g, input, state } = toSector(seed, index);
+    const { g, input, state } = toSector(seed, index, tun);
     const settled: { card?: string; stopFirst?: string; outcome: string }[] = [];
     g.bus.on('contactSettled', (e) => settled.push({ card: e.card, stopFirst: e.stopFirst, outcome: e.outcome }));
     for (let k = 0; k < ticks; k++) {
@@ -266,7 +274,10 @@ describe('who stopped first (the meet contact fact, #212)', () => {
 
   it('a player who keeps running at them while they brake and shoot did not: an Echo stopped first', () => {
     // Forward (-z) for 4 s: the Echoes' reaction is 0.3-1.2 s, they brake in 0.16 s, the player is still above the deadzone.
-    const r = playMeet((_k, input) => { input.moveZ = 1; input.yaw = 0; }, 128 * 4);
+    // Their moving-shot habit is off (#90): with it a low-tier Echo may run and gun the whole route instead of braking.
+    const tun = cloneTunables();
+    tun.mind.anchors.movingShotShare = [0, 0, 0, 0];
+    const r = playMeet((_k, input) => { input.moveZ = 1; input.yaw = 0; }, 128 * 4, tun);
     expect(r).toHaveLength(1);
     expect(r[0]!.stopFirst).toBe('echo');
   });

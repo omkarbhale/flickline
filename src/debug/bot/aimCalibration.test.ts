@@ -16,11 +16,11 @@ describe('S7 headshot share of hits on the standard moving bot', () => {
     it(`mind skill ${m}: ${(target * 100).toFixed(0)} % +- 5`, () => {
       let head = 0, hits = 0;
       for (const d of [10, 15, 20]) {
-        const r = calibrate({ mindSkill: m, dial: m, distanceM: d, seconds: 45, seeds: 4, strafe: false });
+        const r = calibrate({ mindSkill: m, dial: m, distanceM: d, seconds: 45, seeds: 4, strafe: false, copies: 3 });
         head += r.zones.head;
         hits += r.zones.head + r.zones.body + r.zones.leg;
       }
-      expect(hits).toBeGreaterThan(100);
+      expect(hits).toBeGreaterThan(300);
       expect(Math.abs(head / hits - target), `${((100 * head) / hits).toFixed(1)} % of ${hits} hits`).toBeLessThanOrEqual(0.05);
     }, 20_000);
   }

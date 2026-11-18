@@ -18,7 +18,7 @@ import type { Vec3 } from '../core/vec3';
 export type RunEndReason = 'timer' | 'death' | 'complete' | 'quit' | 'left';
 
 /**
- * Spray Wall's facts (design §4.5): one spray = one trial. They are logged (`feedback/eventLog.ts`)
+ * Spray facts (design §3, §8.2): one spray = one trace (the retired Spray Wall mode emitted them; the results card reads them, #213). They are logged (`feedback/eventLog.ts`)
  * so the spray trace is, like every stat, a pure function of the event log: the stat tracker cuts
  * the run's shots into sprays between `sprayStarted` and `sprayEnded`.
  */
@@ -104,6 +104,15 @@ export interface SectorEvents {
     stake: 'plain' | 'shield' | 'arms' | 'hot';
     role: SweepSectorRole;
     heard: 'quiet' | 'few' | 'several';
+    /** The door walked through is an Overtime gate's Leave door (design §4.7, #206): the run ends, `stake`, `role` and `heard` are placeholders. */
+    leave?: boolean;
+  };
+  /** A hold sector's exit opened: every Echo of the sector is dead (design §4.2). A take sector's exit is always open and never announces it. */
+  sectorExitOpened: {
+    tick: number;
+    t: number;
+    sectorId: string;
+    index: number;
   };
   sectorEnded: {
     tick: number;
@@ -143,9 +152,9 @@ export interface RunEvents extends SprayEvents, SectorEvents {
   medalAwarded: { tick: number; id: string };
 
   /**
-   * One Sweep contact or Corner Clear angle ended (design §3 "Contact", §8.1, §14.3). `enemies` is how many
+   * One Sweep contact ended (design §3 "Contact", §8.1, §14.3). `enemies` is how many
    * enemies the contact sent (the Untouched medal needs 3 or more); `kept` is the health kept, 1 = no damage.
-   * Emitted by the mode that owns contacts (Corner Clear #50, Sweep #51); the medals engine reads it.
+   * Emitted by the mode that owns contacts (Sweep, #51); the medals engine reads it.
    */
   contactSettled: {
     tick: number;
@@ -161,6 +170,8 @@ export interface RunEvents extends SprayEvents, SectorEvents {
     trials?: number;
     /** The contact's item difficulty (its placement dial + its card's offset, design §9.1): a decided contact feeds the fight track at it (#203). */
     difficulty?: number;
+    /** `baseline`: a cold-opener contact (design §8.5), the measurement: it never feeds the fight track. Absent: matched. */
+    source?: 'matched' | 'baseline';
     /**
      * Meet contacts (#212, design §4.2): which side first dropped to counter-strafe speed or below (the accuracy
      * deadzone, `sweep.meet.stopSpeedMps`) once the contact opened: the player, an Echo, both in the same tick, or
@@ -169,8 +180,17 @@ export interface RunEvents extends SprayEvents, SectorEvents {
     stopFirst?: 'player' | 'echo' | 'both' | 'neither';
   };
 
-  /** A Leave gate banked the run (design §4.7, §14.3; Overtime and its gates arrive with #204, so nothing emits this yet): `points` includes the Overtime points that were at risk (design §4.7). */
-  runBanked: { tick: number; t: number; points: number; overtimeSectors: number };
+  /**
+   * The player walked through an Overtime gate's Leave door (design §4.7, §14.3, #206): the run is over and every point is banked.
+   * `points` is the Overtime points that were at risk and are now banked (0 when the run leaves straight after the Finale),
+   * `overtimeSectors` how many Overtime sectors the run played, `score` the run's final score.
+   */
+  runBanked: { tick: number; t: number; points: number; overtimeSectors: number; score: number };
+  /**
+   * The run ended in Overtime without a Leave (death, or a quit): the Overtime points that were still unbanked are gone (design §4.7;
+   * the points of the route's own sectors are never touched). `points` is what was lost, `score` the run's final score after it.
+   */
+  overtimeLost: { tick: number; t: number; points: number; overtimeSectors: number; score: number };
 }
 
 declare module '../core/gameEvents' {

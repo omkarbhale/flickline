@@ -254,6 +254,8 @@ describe('shots are aimed, not rolled', () => {
 describe('determinism and isolation (S11)', () => {
   function trace(seed: number, enemies: number): number[][] {
     const d = duel(seed);
+    // A player no burst can kill: a death would end the run's fire for everyone, which is not about isolation.
+    d.world.health.maxHp = 1e9;
     const ts: TargetState[] = [];
     for (let i = 0; i < enemies; i++) ts.push(spawnStill(d, [35, 65, 100][i]!, 10 + 3 * i, {}, 3 * i - 3));
     const out: number[][] = ts.map(() => []);

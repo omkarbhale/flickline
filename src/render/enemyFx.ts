@@ -57,6 +57,11 @@ export class EnemyFxLayer implements RenderLayer {
     private readonly world: World,
     bus: Subscribable<Pick<RunEvents, 'enemyFired'>>,
     t: Tunables,
+    /**
+     * How strong the added tell (head-node flare, line) is, 1 .. 0 (design §7.4: it fades with the dial and is
+     * off in a clean run or cold opener); the windup itself is untouched. Default full.
+     */
+    private readonly tellStrength: () => number = () => 1,
   ) {
     this.cfg = t.enemies.fx;
     this.fire = t.enemies.fire;
@@ -134,8 +139,9 @@ export class EnemyFxLayer implements RenderLayer {
     const pz = p.prevPos.z + (p.pos.z - p.prevPos.z) * alpha;
     const py = p.pos.y + p.height * this.fire.bodyAimFraction;
     const flicker = 1 - cfg.tellFlickerDepth * (0.5 + 0.5 * Math.sin(this.clock * Math.PI * 2 * cfg.tellFlickerHz));
+    const strength = Math.min(1, Math.max(0, this.tellStrength()));
 
-    for (let i = 0; i < slots.length && nFlares < cfg.tellCapacity; i++) {
+    for (let i = 0; i < slots.length && nFlares < cfg.tellCapacity && strength > 0; i++) {
       const t = slots[i]!;
       if (!t.alive || t.ai.phase !== FIRE_TELL) continue;
       const a = t.ai;
@@ -151,7 +157,7 @@ export class EnemyFxLayer implements RenderLayer {
       this.fColor[f] = fc.r; this.fColor[f + 1] = fc.g; this.fColor[f + 2] = fc.b;
       const g = nFlares * 4;
       this.fParams[g] = cfg.flareStartM + (cfg.flareEndM - cfg.flareStartM) * progress;
-      this.fParams[g + 1] = cfg.flareAlpha * (0.55 + 0.45 * progress);
+      this.fParams[g + 1] = cfg.flareAlpha * (0.55 + 0.45 * progress) * strength;
       this.fParams[g + 2] = 0;
       this.fParams[g + 3] = progress * 1.2;
       nFlares++;
@@ -174,7 +180,7 @@ export class EnemyFxLayer implements RenderLayer {
       }
       this.lColor[o] = lc.r; this.lColor[o + 1] = lc.g; this.lColor[o + 2] = lc.b;
       const q = nLines * 4;
-      this.lParams[q] = cfg.tellLineAlpha * flicker * (0.5 + 0.5 * progress);
+      this.lParams[q] = cfg.tellLineAlpha * flicker * (0.5 + 0.5 * progress) * strength;
       this.lParams[q + 1] = 0;
       this.lParams[q + 2] = cfg.tellLineWidthM;
       nLines++;

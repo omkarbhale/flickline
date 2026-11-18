@@ -15,7 +15,7 @@ export const ENEMY_KINDS = ['post', 'beacon', 'strafer', 'peeker', 'rusher', 'bu
 export type EnemyKind = (typeof ENEMY_KINDS)[number];
 
 /**
- * The contact settle (design §8.1, #132). A contact is one Sweep contact or one Corner Clear angle.
+ * The contact settle (design §8.1, #132). A contact is one Sweep contact.
  * When it ends it pays `kill × rate × kept`, where `kill` is one kill's worth (the mean `base` of the
  * contact's enemies × difficulty) and `kept = 1 − damage taken / health+shield at the start`:
  *
@@ -71,8 +71,8 @@ export interface ScoringTunables {
   /**
    * Chain credit only for isolated kills (#132): a kill made while another live enemy had line of
    * sight to the player from a bearing more than this many degrees away from the victim's (a second
-   * angle, a crossfire) neither extends nor starts a chain. Drills have no return fire, so every
-   * drill kill is isolated.
+   * angle, a crossfire) neither extends nor starts a chain. A run with no return fire has no
+   * crossfire, so every kill there is isolated.
    */
   isolationAngleDeg: number;
   contact: ContactSettleTunables;

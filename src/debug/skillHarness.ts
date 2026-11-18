@@ -42,7 +42,7 @@ export interface HarnessOptions {
   seed: number;
   /** Ability per skill, offsets from `ability` (default 0 for every skill). */
   skillOffsets?: Partial<Record<SkillId, number>>;
-  /** Per-contact performance noise, dial points (default 4, as the drill harness). */
+  /** Per-contact performance noise, dial points (default 4). */
   noiseSd?: number;
   /** A lost contact ends the run with this probability (default 0.3; a lost fight is often a retreat, design §8.1). */
   deathOnLoss?: number;
@@ -244,7 +244,7 @@ export interface HarnessRow {
   maxSectorStep: number;
 }
 
-/** Runs before the session (placement and settling), and runs in a 30-minute session (v0: four sectors, ~7 contacts, ~3.5 min a run). */
+/** Runs before the session (placement and settling), and runs in a 30-minute session (six sectors with holds and the Finale, ~14 contacts, five to nine minutes a run, design §4.1). */
 export const SETTLE_RUNS = 3;
 export const SESSION_RUNS = 8;
 

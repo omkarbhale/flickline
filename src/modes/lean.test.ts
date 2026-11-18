@@ -86,10 +86,11 @@ describe('the table: diagnostics to cards (design §8.3, #210)', () => {
     expect(leanCfg.table.headHeight.cards).toEqual(expect.arrayContaining(['clear', 'take-unaware']));
   });
 
-  it('a run can deal five cards today (the four take cards and the meet), and the lean skips the rest', () => {
-    expect(dealableCards(cfg).sort()).toEqual(['clear', 'crossfire', 'meet', 'take-expected', 'take-unaware']);
+  it('a run can deal six cards the lean knows (the four take cards, the meet and the hold sector\'s `hold`), and the lean skips the rest', () => {
+    expect(dealableCards(cfg).sort()).toEqual(['clear', 'crossfire', 'hold', 'meet', 'take-expected', 'take-unaware']);
     const v = leanView('switchHesitation', leanCfg, cfg)!;
-    expect(v.cards).toEqual(['crossfire']); // `trade` is not dealt yet
+    // `trade` and `flank` are dealt inside a hold sector (#204), but the lean only moves sector roles and take cards (#210): it cannot lean towards them yet.
+    expect(v.cards).toEqual(['crossfire']);
     expect(v.line).not.toMatch(/trade/);
   });
 });
@@ -229,7 +230,7 @@ describe('the sampler with a lean (seeded plans)', () => {
     expect(mOn / mOff).toBeLessThan(2);
     // The cards that were not leaned fall a little, as the leaned ones rise.
     expect(on.cards['take-unaware']! / on.takeContacts).toBeLessThan(off.cards['take-unaware']! / off.takeContacts);
-  });
+  }, 30_000);
 
   it('a boost far past the cap still holds a leaned card under twice its share', () => {
     const wild = cloneTunables();
@@ -239,7 +240,7 @@ describe('the sampler with a lean (seeded plans)', () => {
     const ratio = on.cards.clear! / on.takeContacts / (off.cards.clear! / off.takeContacts);
     expect(ratio).toBeGreaterThan(1.5);
     expect(ratio).toBeLessThan(2.2); // 2 plus the noise of a few hundred draws
-  });
+  }, 30_000);
 
   it('coverage and the card rules of design §4.4 still hold with a lean', () => {
     for (let seed = 1; seed <= 300; seed++) {

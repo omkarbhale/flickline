@@ -1,5 +1,6 @@
 import { parseMap, type MapIssue } from './mapSchema';
 import type { MapDef } from './mapTypes';
+import { resolveMap } from './mapMirror';
 import elbowJson from './levels/elbow.json';
 import gateJson from './levels/gate.json';
 import laneJson from './levels/lane.json';
@@ -40,3 +41,8 @@ export const MAPS: Readonly<Record<string, MapDef>> = {
   [elbowMap.id]: elbowMap,
   [gateMap.id]: gateMap,
 };
+
+/** A shipped map by id, or its mirror for `<id>~m` (the cold opener's mirrored contacts, design §8.5); null when unknown. */
+export function findMap(id: string): MapDef | null {
+  return resolveMap(MAPS, id);
+}

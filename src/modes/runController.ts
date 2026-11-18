@@ -13,7 +13,7 @@ import type { World } from '../sim/world';
 export type RunState = 'idle' | 'ready' | 'live' | 'result';
 
 export interface StartRunOptions {
-  /** Mode id ('cold-start', 'orbit', ...). Any string works for a plain run. */
+  /** Mode id ('sweep', ...). Any string works for a plain run. */
   mode: string;
   seed: number;
   /** Difficulty dial 0..100 in force for the run. */

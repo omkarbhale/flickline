@@ -12,18 +12,11 @@ export const DIAL_MAX = 100;
 
 /** Concrete axis values for one dial setting (units as in `config/dial.ts`). */
 export interface DialAxes {
-  beaconScale: number;
   distance: number;
-  flickMinDeg: number;
-  flickMaxDeg: number;
   strafeSpeed: number;
   strafeLegSec: number;
   standStillSec: number;
-  strafeLimitSec: number;
   exposureSec: number;
-  orbitExposureSec: number;
-  coldStartExposureSec: number;
-  stopAndPopExposureSec: number;
   peekWideSec: number;
   enemyReactionSec: number;
   tellSec: number;
@@ -31,30 +24,21 @@ export interface DialAxes {
   tellCue: number;
   enemyHitChance: number;
   density: number;
-  sprayHitFraction: number;
 }
 
 export function createAxes(): DialAxes {
   return {
-    beaconScale: 0,
     distance: 0,
-    flickMinDeg: 0,
-    flickMaxDeg: 0,
     strafeSpeed: 0,
     strafeLegSec: 0,
     standStillSec: 0,
-    strafeLimitSec: 0,
     exposureSec: 0,
-    orbitExposureSec: 0,
-    coldStartExposureSec: 0,
-    stopAndPopExposureSec: 0,
     peekWideSec: 0,
     enemyReactionSec: 0,
     tellSec: 0,
     tellCue: 0,
     enemyHitChance: 0,
     density: 0,
-    sprayHitFraction: 0,
   };
 }
 
@@ -93,25 +77,17 @@ export function tellCueAt(dial: number, cfg: DialTunables = tunables.dial): numb
 export function axes(dial: number, out: DialAxes = createAxes(), cfg: DialTunables = tunables.dial): DialAxes {
   const a = cfg.axes;
   const f = cfg.floors;
-  out.beaconScale = Math.max(f.minTargetScale, axisValue(a.beaconScale, dial));
   out.distance = axisValue(a.distance, dial);
-  out.flickMinDeg = axisValue(a.flickMinDeg, dial);
-  out.flickMaxDeg = Math.max(out.flickMinDeg, axisValue(a.flickMaxDeg, dial));
   out.strafeSpeed = axisValue(a.strafeSpeed, dial);
   out.strafeLegSec = axisValue(a.strafeLegSec, dial);
   out.standStillSec = axisValue(a.standStillSec, dial);
-  out.strafeLimitSec = Math.max(f.exposureSec, axisValue(a.strafeLimitSec, dial));
   out.exposureSec = Math.max(f.exposureSec, axisValue(a.exposureSec, dial));
-  out.orbitExposureSec = Math.max(f.exposureSec, f.orbitExposureSec, axisValue(a.orbitExposureSec, dial));
-  out.coldStartExposureSec = Math.max(f.exposureSec, f.coldStartExposureSec, axisValue(a.coldStartExposureSec, dial));
-  out.stopAndPopExposureSec = Math.max(f.exposureSec, f.stopAndPopExposureSec, axisValue(a.stopAndPopExposureSec, dial));
   out.peekWideSec = Math.max(f.exposureSec, axisValue(a.peekWideSec, dial));
   out.enemyReactionSec = Math.max(f.enemyReactionSec, axisValue(a.enemyReactionSec, dial));
   out.tellSec = Math.max(f.tellSec, axisValue(a.tellSec, dial));
   out.tellCue = tellCueAt(dial, cfg);
   out.enemyHitChance = clamp(axisValue(a.enemyHitChance, dial), 0, 1);
   out.density = Math.max(1, axisValue(a.density, dial));
-  out.sprayHitFraction = clamp(axisValue(a.sprayHitFraction, dial), 0, 1);
   return out;
 }
 

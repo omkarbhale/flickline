@@ -9,15 +9,13 @@ import { rayBox } from './collision';
 import { createAimInfo, nearestAimTarget, type AimInfo } from './aim';
 import { createZoneHit, type ZoneHit } from './hitZones';
 import type { TargetField } from './targets';
-import type { BoxDef, HitZone, PlayerState, SimEvents, TickInput, WeaponState } from './types';
+import type { BodyState, BoxDef, HitZone, SimEvents, TickInput, WeaponState } from './types';
 import {
   applyRecoilKick,
-  coneDirection,
   damageFor,
   isMovingShot,
   movementErrorDeg,
   sprayAccumDeg,
-  returnRecoil,
   sprayIncrement,
   stepYawSign,
 } from './weaponModel';
@@ -243,11 +241,19 @@ export function createWeaponState(loadout: readonly WeaponId[], table: WeaponTab
  * `infiniteMagazine` / `infiniteReserve` options (they belong to the mode, not the run).
  */
 export function resetWeaponState(w: WeaponState, loadout: readonly WeaponId[], table: WeaponTable): void {
-  w.slots.length = 0;
+  // Slot objects are reused, so re-arming an Echo's gun at a respawn (mid-run) allocates nothing.
   for (let i = 0; i < loadout.length; i++) {
     const def = table[loadout[i]!];
-    w.slots.push({ id: loadout[i]!, mag: def.magazine, reserve: def.reserve });
+    const slot = w.slots[i];
+    if (slot) {
+      slot.id = loadout[i]!;
+      slot.mag = def.magazine;
+      slot.reserve = def.reserve;
+    } else {
+      w.slots.push({ id: loadout[i]!, mag: def.magazine, reserve: def.reserve });
+    }
   }
+  w.slots.length = loadout.length;
   w.active = 0;
   w.shots = 0;
   w.cooldown = 0;
@@ -306,11 +312,22 @@ function startReload(w: WeaponState, def: WeaponDef, tick: number, events: Event
   events.emit('reloadStarted', e);
 }
 
+/**
+ * Where a fired bullet goes: the half of a shot that depends on who fired it (#87). The weapon
+ * model (spray, spread, movement error, recoil, ammo) is the same for every body; it fills
+ * `s.fired` (the `shotFired` payload: origin `s.origin`, direction with spread `s.dir`, cone axis
+ * `s.aimDir`, spread, recoil and movement state) and hands it over. The player's bullets trace the
+ * targets (`PlayerShots`); an Echo's trace the player (`sim/enemyBody.ts`).
+ */
+export interface ShotResolver {
+  resolve(s: WeaponScratch, p: BodyState, world: WeaponWorld, events: EventSink<SimEvents>): void;
+}
+
 /** Everything the weapon simulation reads besides its own state. */
 export interface WeaponWorld {
   boxes: readonly BoxDef[];
-  /** The target registry: hit zones, shot bookkeeping, damage application and kill events. */
-  field: TargetField;
+  /** Who this gun's bullets can hit (`PlayerShots` for the player). */
+  shots: ShotResolver;
   table: WeaponTable;
   rules: WeaponRules;
   /** Movement tunables: the walk fractions the movement-error ramp shares with the walk speeds. */
@@ -331,7 +348,7 @@ export interface WeaponWorld {
 export function stepWeapon(
   w: WeaponState,
   input: TickInput,
-  p: PlayerState,
+  p: BodyState,
   world: WeaponWorld,
   tick: number,
   events: EventSink<SimEvents>,
@@ -395,9 +412,23 @@ export function stepWeapon(
   // Recoil: yaw direction swing (switch time) and return towards the crosshair (spec §3.5): held
   // for `recoilReturnDelaySec`, then a smoothstep glide (no velocity jump at either end) along the
   // offset's own direction that lands on the crosshair exactly at the gun recovery time, so the
-  // offset never outlives the reset (#191). `weaponModel.returnRecoil`, shared with the Echoes' guns.
+  // offset never outlives the reset (#191). Stateless: each tick scales the offset by
+  // ease(u) / ease(u one tick ago). Inline maths, so no double is boxed per tick.
   stepYawSign(def, w, dt);
-  returnRecoil(def, w, tick);
+  if (w.recoilPitch !== 0 || w.recoilYaw !== 0) {
+    const sinceShot = time - w.lastShotTime;
+    if (sinceShot >= def.recoilReturnDelaySec - EPS) {
+      const span = def.recoverySec - def.recoilReturnDelaySec;
+      let k = 0;
+      if (def.recoverySec - sinceShot > EPS && span > EPS) {
+        const u = (sinceShot - def.recoilReturnDelaySec) / span;
+        const v = u - dt / span < 0 ? 0 : u - dt / span;
+        k = (1 - u * u * (3 - 2 * u)) / (1 - v * v * (3 - 2 * v));
+      }
+      w.recoilPitch *= k;
+      w.recoilYaw *= k;
+    }
+  }
 
   if (input.reload && canReload(w, def)) startReload(w, def, tick, events, s);
 
@@ -408,7 +439,7 @@ export function stepWeapon(
   let fired = false;
   if (pressed && w.equipLeft === 0 && w.reloadLeft === 0 && w.cooldown <= EPS) {
     if (slot.mag > 0 || w.infiniteMagazine) {
-      fire(w, def, p, world, tick, time, events, s);
+      fire(w, def, p, world, tick, events, s);
       fired = true;
       if (slot.mag === 0 && canReload(w, def)) startReload(w, def, tick, events, s); // auto-reload on empty
     } else if (canReload(w, def)) {
@@ -422,13 +453,14 @@ export function stepWeapon(
 function fire(
   w: WeaponState,
   def: WeaponDef,
-  p: PlayerState,
+  p: BodyState,
   world: WeaponWorld,
   tick: number,
-  time: number,
   events: EventSink<SimEvents>,
   s: WeaponScratch,
 ): void {
+  // From the tick, not passed in: a double argument to a function V8 does not inline is boxed (architecture §7).
+  const time = tick * TICK_DT;
   const rules = world.rules;
   const slot = w.slots[w.active]!;
 
@@ -469,8 +501,16 @@ function fire(
   const phi = world.rng.next() * Math.PI * 2;
   const power = moving ? rules.centreBiasPowerMoving : rules.centreBiasPowerStill;
   const r = spreadDeg * Math.pow(u, power) * DEG2RAD;
-  directionFromAngles(s.aimDir, yaw, pitch); // the cone axis, kept for `shotFired.aimDir`
-  const d = coneDirection(s.dir, yaw, pitch, r, phi);
+  const d = directionFromAngles(s.dir, yaw, pitch);
+  const ad = s.aimDir;
+  ad.x = d.x; ad.y = d.y; ad.z = d.z; // the cone axis, kept for `shotFired.aimDir` before the spread rotates `d`
+  const sy = Math.sin(yaw), cy = Math.cos(yaw), sp = Math.sin(pitch), cp = Math.cos(pitch);
+  // right = (cos y, 0, -sin y); up = (sin y sin p, cos p, cos y sin p): orthonormal with d.
+  const cr = Math.cos(r), sr = Math.sin(r);
+  const a = sr * Math.cos(phi), b = sr * Math.sin(phi);
+  d.x = d.x * cr + a * cy + b * sy * sp;
+  d.y = d.y * cr + b * cp;
+  d.z = d.z * cr - a * sy + b * cy * sp;
 
   // Kick for this bullet (moves the next ones), spec §3.5.
   const recoilIndex = w.recoilIndex;
@@ -499,28 +539,50 @@ function fire(
   f.recoilPitchDeg = recoilPitch;
   f.recoilYawDeg = recoilYaw;
   f.ammo = slot.mag;
-  // Stat data: where the crosshair (not the bullet) was relative to the nearest visible target.
   f.yaw = p.yaw;
   f.pitch = p.pitch;
+  world.shots.resolve(s, p, world, events);
+}
+
+/**
+ * The player's bullets (design §14.3): `shotFired` with the aim stats, a hitscan trace against the
+ * level and the target registry's hit zones, the shot bookkeeping for the kill stats,
+ * `shotImpact`, and the damage by zone and range (the registry applies it and emits the kill).
+ */
+export class PlayerShots implements ShotResolver {
+  constructor(readonly field: TargetField) {}
+
+  resolve(s: WeaponScratch, p: BodyState, world: WeaponWorld, events: EventSink<SimEvents>): void {
+    resolvePlayerShot(this.field, s, p, world, events);
+  }
+}
+
+function resolvePlayerShot(field: TargetField, s: WeaponScratch, p: BodyState, world: WeaponWorld, events: EventSink<SimEvents>): void {
+  const f = s.fired;
+  const o = s.origin;
+  const d = s.dir;
+  const tick = f.tick;
+  const def = world.table[f.weapon];
+  const rules = world.rules;
+  // Stat data: where the crosshair (not the bullet) was relative to the nearest visible target.
   const vd = directionFromAngles(viewDir, p.yaw, p.pitch);
-  const aim = nearestAimTarget(o.x, o.y, o.z, p.yaw, p.pitch, vd.x, vd.y, vd.z, world.field, scratchAim);
+  const aim = nearestAimTarget(o.x, o.y, o.z, p.yaw, p.pitch, vd.x, vd.y, vd.z, field, scratchAim);
   f.aimTargetId = aim.targetId;
   f.aimErr = aim.err;
   f.aimDYaw = aim.dYaw;
   f.aimDPitch = aim.dPitch;
   events.emit('shotFired', f);
 
-  const field = world.field;
   const tr = trace(world.boxes, field, o.x, o.y, o.z, d.x, d.y, d.z, rules.rangeM, s.trace);
   // Shot bookkeeping for the kill stats (bullets at a target, near misses, moving shots).
   const hitId = tr.kind === 2 ? field.slots[tr.targetIndex]!.id : -1;
-  field.registerShot(o.x, o.y, o.z, d.x, d.y, d.z, hitId, moving, tick, p, world.boxes, events);
+  field.registerShot(o.x, o.y, o.z, d.x, d.y, d.z, hitId, f.moving, tick, p, world.boxes, events);
   if (tr.kind === 0) return;
 
   const im = s.impact;
   im.tick = tick;
-  im.t = time;
-  im.shotId = shotId;
+  im.t = f.t;
+  im.shotId = f.shotId;
   im.distance = tr.distance;
   im.onTarget = tr.kind === 2;
   if (tr.kind !== 2) {

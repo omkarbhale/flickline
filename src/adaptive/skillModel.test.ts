@@ -74,28 +74,29 @@ describe('SkillState posterior (design §9.1–9.2)', () => {
 describe('beat scheduling (design §9.3.2)', () => {
   it('aims beat 0 at the target success rate plus the warm-up offset', () => {
     const s = new SkillState({ mean: 60, sd: 5 });
-    const target = s.rating('flick') - 9 * Math.log(0.7 / 0.3);
-    expect(s.dialFor('orbit', 0, [0])).toBeCloseTo(target, 9);
+    const target = s.rating('precision') - 9 * Math.log(0.7 / 0.3);
+    expect(s.dialFor('test', 0, [0])).toBeCloseTo(target, 9);
     const s2 = new SkillState({ mean: 60, sd: 5 });
-    expect(s2.dialFor('orbit', 0, cfg.waves.drill)).toBeCloseTo(target - 8, 9);
-    // Cold Start aims at its own configured target (inside the 60-80 % flow band, #170)
-    const p = cfg.modes.coldStart!.targetSuccess;
-    const s3 = new SkillState({ mean: 60, sd: 5 });
-    expect(s3.dialFor('coldStart', 0, [0])).toBeCloseTo(s3.rating('precision') - 9 * Math.log(p / (1 - p)), 9);
+    expect(s2.dialFor('test', 0, cfg.waves.drill)).toBeCloseTo(target - 8, 9);
+    // A mode aims at its own configured target (inside the 60-80 % flow band, #170)
+    const c = cloneTunables().dial;
+    c.modes.test!.targetSuccess = 0.6;
+    const s3 = new SkillState({ mean: 60, sd: 5 }, c);
+    expect(s3.dialFor('test', 0, [0])).toBeCloseTo(s3.rating('precision') - 9 * Math.log(0.6 / 0.4), 9);
   });
 
   it('moves the matched dial at most 3 per beat and only at beat boundaries', () => {
     const s = new SkillState({ mean: 30, sd: 25 });
-    const start = s.dialFor('orbit', 0, [0]);
+    const start = s.dialFor('test', 0, [0]);
     // a long streak of hits on hard items: the estimate jumps far above the dial
-    for (let i = 0; i < 40; i++) s.observe('flick', { itemDifficulty: 80, success: true });
-    expect(s.rating('flick')).toBeGreaterThan(60);
-    expect(s.dialFor('orbit', 1, [0])).toBeCloseTo(start + 3, 9);
-    expect(s.dialFor('orbit', 1, [0])).toBeCloseTo(start + 3, 9); // same beat: unchanged
-    expect(s.dialFor('orbit', 2, [0])).toBeCloseTo(start + 6, 9);
-    expect(s.dialFor('orbit', 4, [0])).toBeCloseTo(start + 12, 9); // two beats skipped: 2 x 3
+    for (let i = 0; i < 40; i++) s.observe('precision', { itemDifficulty: 80, success: true });
+    expect(s.rating('precision')).toBeGreaterThan(60);
+    expect(s.dialFor('test', 1, [0])).toBeCloseTo(start + 3, 9);
+    expect(s.dialFor('test', 1, [0])).toBeCloseTo(start + 3, 9); // same beat: unchanged
+    expect(s.dialFor('test', 2, [0])).toBeCloseTo(start + 6, 9);
+    expect(s.dialFor('test', 4, [0])).toBeCloseTo(start + 12, 9); // two beats skipped: 2 x 3
     // a new run (beat 0) starts at the target
-    expect(s.dialFor('orbit', 0, [0])).toBeCloseTo(s.targetDial('flick', 0.7), 9);
+    expect(s.dialFor('test', 0, [0])).toBeCloseTo(s.targetDial('precision', 0.7), 9);
   });
 
   it('applies the wave curve: warm-up once, then build, peak and breather repeat', () => {
@@ -118,16 +119,16 @@ describe('beat scheduling (design §9.3.2)', () => {
 describe('MatchedDifficulty (DifficultyModel seam)', () => {
   it('exposes the dial as level and axes, and records trials at the dial', () => {
     const s = new SkillState({ mean: 50, sd: 10 });
-    const m = new MatchedDifficulty(s, 'orbit', [0]);
+    const m = new MatchedDifficulty(s, 'test', [0]);
     const d = m.beat(0);
     expect(m.level).toBeCloseTo(d / 100, 9);
-    expect(m.axes.flickMinDeg).toBeCloseTo(20 + 0.4 * d, 9);
+    expect(m.axes.distance).toBeCloseTo(5 * Math.pow(7, d / 100), 9);
     m.recordOutcome(true);
-    expect(s.trialCount('flick')).toBe(1);
+    expect(s.trialCount('precision')).toBe(1);
     const sweep = new MatchedDifficulty(s, 'sweep');
     sweep.beat(0);
     sweep.recordOutcome(true); // Sweep reports per-skill trials itself
-    expect(s.trialCount('flick')).toBe(1);
+    expect(s.trialCount('precision')).toBe(1);
     expect(() => new MatchedDifficulty(s, 'nope')).toThrow();
   });
 });

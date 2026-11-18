@@ -68,7 +68,7 @@ export interface DroneVolumeAnchor extends AnchorBase {
 }
 
 /**
- * Spray Wall station: the player fires from `stand` (looking along `yaw`) at a post standing at
+ * Spray station (a retired drill's anchor, kept until the maps drop it): the player fires from `stand` (looking along `yaw`) at a post standing at
  * `post` in front of a wall `panel` (a box id) that records the bullet pattern.
  * `distance` is the metres between `stand` and `post`.
  */
@@ -83,7 +83,7 @@ export interface SprayAlcoveAnchor extends AnchorBase {
 
 /**
  * Where a placed Echo stands at the start of a sector (design 4.2, 10.2): feet centre `pos`,
- * facing `yaw`. A separate kind from `post` so the drills' post queries never pick it up; a
+ * facing `yaw`. A separate kind from `post` so the post queries never pick it up; a
  * sector's `holdAnchors` may also name existing `peek` anchors (their `hold` spot is used).
  */
 export interface HoldAnchor extends AnchorBase {
@@ -138,11 +138,9 @@ export interface CheckpointDef {
 
 /**
  * A flat marking painted on the floor (visual only, never collides): distance ticks, start lines.
- * `armed` marks are the stripe of a lane that lights up while a mode says it is armed (Lane's
- * Stop & Pop); the renderer draws them dim until a `laneArmedChanged` event turns them on.
  */
 export interface FloorMark {
-  kind: 'tick' | 'major' | 'line' | 'armed';
+  kind: 'tick' | 'major' | 'line';
   a: Vec3;
   b: Vec3;
   /** Stripe width in metres. */
@@ -156,7 +154,7 @@ export const SECTOR_ROLES: readonly SectorRole[] = ['take', 'hold', 'meet'];
  * A sector (design 4.2): a region of the map with an entry gate, an exit gate and placement
  * anchors. `role` lists every role the run director may give it (a sector can serve more than one).
  * `entry` and `exit` are feet positions on the floor; `holdAnchors` name `hold` or `peek` anchors
- * where Echoes stand; `approaches` name `lanes` the arriving enemies of a hold sector walk along.
+ * where Echoes stand; `approaches` name `lanes` the arriving enemies of a hold sector walk along (and the survivors of the sector before, who follow the player, #204): each starts outside the region and ends inside it.
  * Regions of one map never overlap (the lint checks it).
  */
 export interface SectorDef {

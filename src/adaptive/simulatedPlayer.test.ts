@@ -24,14 +24,14 @@ function simulatedPlayer(ability: number, rng: Rng): (difficulty: number) => boo
 }
 
 function placement(state: SkillState, play: (d: number) => boolean): number {
-  const sc = new Staircase(state.targetDial('flick', STAIRCASE_TARGET));
+  const sc = new Staircase(state.targetDial('precision', STAIRCASE_TARGET));
   for (let t = 0; t < PLACEMENT_TRIALS; t++) {
     const d = sc.dial;
     const ok = play(d);
-    state.observe('flick', { itemDifficulty: d, success: ok });
+    state.observe('precision', { itemDifficulty: d, success: ok });
     sc.record(ok);
   }
-  return state.finishPlacement('flick', sc);
+  return state.finishPlacement('precision', sc);
 }
 
 describe('simulated players: placement (design §9.2)', () => {
@@ -58,7 +58,7 @@ describe('simulated players: placement (design §9.2)', () => {
 
 describe('simulated players: a 10-minute session (design §9.3)', () => {
   const SEEDS = 4;
-  const RUNS = 10; // 60 s drills
+  const RUNS = 10; // 60 s runs
   const BEATS = 60 / tunables.dial.beat.drillSec;
   const TRIALS_PER_BEAT = 7; // ~45 targets per 60 s run
   const SETTLE_RUNS = 4; // placement error is worked off first; oscillation is judged after it
@@ -76,8 +76,8 @@ describe('simulated players: a 10-minute session (design §9.3)', () => {
         for (let run = 0; run < RUNS; run++) {
           let prev = Number.NaN;
           for (let beat = 0; beat < BEATS; beat++) {
-            const dial = state.dialFor('orbit', beat);
-            const m = state.matchedDial('orbit');
+            const dial = state.dialFor('test', beat);
+            const m = state.matchedDial('test');
             if (beat > 0) expect(Math.abs(m - prev)).toBeLessThanOrEqual(3 + 1e-9);
             expect(dial).toBeCloseTo(Math.min(100, Math.max(0, m + tunables.dial.waves.drill[beat])), 9);
             prev = m;
@@ -86,7 +86,7 @@ describe('simulated players: a 10-minute session (design §9.3)', () => {
               const ok = play(dial);
               hits += ok ? 1 : 0;
               trials++;
-              state.observe('flick', { itemDifficulty: dial, success: ok });
+              state.observe('precision', { itemDifficulty: dial, success: ok });
             }
           }
         }

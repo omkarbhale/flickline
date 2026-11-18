@@ -2,6 +2,7 @@ import { SKILL_IDS, type SkillId } from '../config/dial';
 import { progress as progressCfg, type ProgressTunables } from '../config/progress';
 import { SkillState, type SkillSnapshot } from '../adaptive/skillModel';
 import { sanitizePlayLog } from '../settings/playLog';
+import { emptyJournal, sanitizeJournal, type PlayJournal } from './journal';
 import type { RunEndReason } from '../sim/runEvents';
 
 /**
@@ -17,7 +18,8 @@ import type { RunEndReason } from '../sim/runEvents';
  * alike. Each version bump adds one entry to `MIGRATIONS` (version N -> N + 1), and `migrateSave`
  * walks them, so any older save loads. Version 1 was the #182 export file (settings, profile and
  * a play log of bests and run counts); version 2 kept drill bests per mode and dial band; version 3 (#217)
- * moves to run bests per dial band and keeps the drill bests read-only as `drillBests`.
+ * moves to run bests per dial band and keeps the drill bests read-only as `drillBests`; version 4 (#251) adds the
+ * play `journal` (`progress/journal.ts`): when and how the game was played, a local record that is never a reward.
  *
  * The settings and the profile keep their own stores and keys (live apply, #54 §5.6); the export file
  * (`settings/saveData.ts`) wraps them around this object. Cold-opener records and levels and reference
@@ -26,7 +28,7 @@ import type { RunEndReason } from '../sim/runEvents';
  *
  * Pure: no DOM, no clock (the caller reads dates), no randomness.
  */
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 /** The numbers kept with a run in the history and with a personal best. */
 export interface RunStatsSummary {
@@ -167,12 +169,14 @@ export interface ProgressData {
   coldOpeners: Record<string, unknown>[];
   coldOpenerLevels: Record<string, unknown>;
   checkins: Record<string, unknown>[];
+  /** The play journal (#251): sessions, runs and days, capped by age and count. A record, never a reward (design §2.5). */
+  journal: PlayJournal;
 }
 
 export function defaultProgress(): ProgressData {
   return {
     ratings: null, ranks: {}, runBests: {}, dailyBests: {}, situations: {}, drillBests: {}, medals: {}, history: [],
-    plays: {}, flaggedSkill: null, lastPrimary: '', coldOpeners: [], coldOpenerLevels: {}, checkins: [],
+    plays: {}, flaggedSkill: null, lastPrimary: '', coldOpeners: [], coldOpenerLevels: {}, checkins: [], journal: emptyJournal(),
   };
 }
 
@@ -416,6 +420,7 @@ export function sanitizeProgress(raw: unknown, cfg: ProgressTunables = progressC
   const levels = section(raw, 'coldOpenerLevels', 'object');
   out.coldOpenerLevels = levels ? (JSON.parse(JSON.stringify(levels)) as Rec) : {};
   out.checkins = plainObjects(section(raw, 'checkins', 'array'), cfg.maxCheckins);
+  out.journal = sanitizeJournal(raw.journal, cfg.journal);
   return out;
 }
 
@@ -449,6 +454,9 @@ export const MIGRATIONS: Record<number, (old: Rec) => Rec> = {
     delete next.baselineLevels;
     return next;
   },
+  // v3 -> v4 (#251): the play journal starts empty (the sanitiser reads a missing one as empty, so the step only moves the
+  // version). Nothing in an older save says when it was played, so nothing is invented.
+  3: (old) => ({ ...old, version: 4 }),
 };
 
 export type MigrateResult = { ok: true; raw: Rec; from: number } | { ok: false; error: string; newer?: boolean };

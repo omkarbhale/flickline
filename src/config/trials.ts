@@ -11,7 +11,7 @@
  * sector dial (aimed at 70 % from the posterior) drifts without bound. The Echoes' own numbers
  * (reaction, tell, strafe speed) already make most fights harder with the dial; a rule that judges
  * something the Echo does not change (crosshair placement, a flick's time, time on target, a spray's
- * hit share, a switch's time) moves its bar along the dial instead, as Spray Wall's hit fraction
+ * hit share, a switch's time) moves its bar along the dial instead, as the retired Spray Wall's hit fraction
  * did (`dial.axes.sprayHitFraction`). `{ at0, at100 }`: the bar at dial 0 and at dial 100, linear between.
  */
 
@@ -70,7 +70,7 @@ export const trials: TrialTunables = {
   track: { minDuelSec: 0.4, onTargetShare: { at0: 0.2, at100: 0.65 } },
   spray: { minBullets: 5, maxGapSec: 0.2, hitShare: { at0: 0.3, at100: 0.75 } },
   switch: { maxSec: { at0: 1.6, at100: 0.7 } },
-  cardOffset: { 'take-unaware': -3, 'take-expected': 2, clear: 0, crossfire: 4, meet: 0 },
+  cardOffset: { 'take-unaware': -3, 'take-expected': 2, clear: 0, crossfire: 4, meet: 0, hold: -3, trade: 0, flank: 0 },
 };
 
 /** This file's groups of `Tunables` (config/tunables.ts composes them). */

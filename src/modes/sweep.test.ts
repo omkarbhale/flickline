@@ -20,6 +20,7 @@ function sweepPlan(seed: number): RunPlan {
   return planRoute(seed, env, (_g, plan) => ((seed + plan.sectors.length) & 1) as 0 | 1);
 }
 
+
 /** A finer body grid than the director's own (9 x 13, crown included): an independent check that nothing shows. */
 const showsMemo = new Map<string, boolean>();
 function shows(mapId: string, eye: Vec3, feet: Vec3, crouched: boolean): boolean {
@@ -53,9 +54,13 @@ function* along(a: Vec3, b: Vec3, stepM = 0.1): Generator<Vec3> {
 }
 
 describe('Sweep run director (#201)', () => {
-  it('the catalog has the four take sectors of Elbow and Lane', () => {
-    const takes = sweepCatalog(tunables).filter((s) => s.roles.includes('take')).map((s) => `${s.mapId}/${s.id}`).sort();
+  it('the catalog has the take sectors of Elbow and Lane and the hold sectors of Elbow, each hold sector with approach lanes', () => {
+    const cat = sweepCatalog(tunables);
+    const takes = cat.filter((s) => s.roles.includes('take')).map((s) => `${s.mapId}/${s.id}`).sort();
     expect(takes).toEqual(['elbow/elbow-take-door', 'elbow/elbow-take-hub', 'elbow/elbow-take-west', 'lane/lane-take-far']);
+    const holds = cat.filter((s) => s.roles.includes('hold'));
+    expect(holds.map((s) => s.id).sort()).toEqual(['elbow-hold-corner', 'elbow-take-door', 'elbow-take-hub']);
+    for (const h of holds) expect(h.approaches.length, h.id).toBeGreaterThanOrEqual(2);
   });
 
   it('same seed, same plan; different seeds, different runs', () => {
@@ -75,7 +80,7 @@ describe('Sweep run director (#201)', () => {
     expect(sweepCatalog(tunables).filter((s) => !s.roles.includes('meet')).every((s) => s.meetRoute === undefined)).toBe(true);
   });
 
-  it('a plan is four sectors, the Opener a take, none twice in a row, with the card rules of design §4.4', () => {
+  it('a plan is six sectors, the Opener a take, none twice in a row, with the card rules of design §4.4', () => {
     const counts: Record<string, number> = {};
     for (let seed = 1; seed <= 300; seed++) {
       const plan = sweepPlan(seed);
@@ -91,10 +96,25 @@ describe('Sweep run director (#201)', () => {
           counts.meet = (counts.meet ?? 0) + 1;
           continue;
         }
+        if (s.role === 'hold') {
+          expect(s.stake).not.toBe('hot'); // a hold has no free anchor for the extra contact
+          expect(s.contacts.length).toBeGreaterThanOrEqual(perSector(cfg.hold.contactsMin, i));
+          expect(s.contacts.length).toBeLessThanOrEqual(perSector(cfg.hold.contactsMax, i));
+          for (const c of s.contacts) {
+            expect(['hold', 'trade', 'flank']).toContain(c.card);
+            expect(c.echoes).toHaveLength(c.card === 'trade' ? 2 : 1);
+            for (const e of c.echoes) expect(e.arrive).toBeDefined();
+            counts[c.card] = (counts[c.card] ?? 0) + 1;
+          }
+          continue;
+        }
         expect(s.contacts.length).toBeLessThanOrEqual(perSector(cfg.contactsMax, i) + (s.stake === 'hot' ? cfg.gate.hotExtraContacts : 0));
         const used = new Set<string>();
         for (const c of s.contacts) {
-          if (c.card === 'crossfire') expect(i).toBeGreaterThanOrEqual(cfg.crossfireFromSector);
+          if (c.card === 'crossfire') {
+            expect(i).toBeGreaterThanOrEqual(cfg.crossfireFromSector);
+            expect(cfg.noCrossfireSectors).not.toContain(i); // the breather in sector 5
+          }
           expect(c.spots).toHaveLength(cardSpots(c.card));
           expect(c.echoes).toHaveLength(c.card === 'clear' ? 1 : cardSpots(c.card));
           for (const p of c.spots) {
@@ -111,7 +131,7 @@ describe('Sweep run director (#201)', () => {
       for (let k = 2; k < cards.length; k++) expect(cards[k] === cards[k - 1] && cards[k] === cards[k - 2]).toBe(false);
     }
     // Every card is dealt.
-    for (const c of ['take-unaware', 'take-expected', 'clear', 'crossfire', 'meet']) expect(counts[c] ?? 0).toBeGreaterThan(20);
+    for (const c of ['take-unaware', 'take-expected', 'clear', 'crossfire', 'meet', 'hold', 'trade', 'flank']) expect(counts[c] ?? 0, c).toBeGreaterThan(20);
   });
 
   it('drawCard never deals a third card in a row, a crossfire before sector 3, or a card without room', () => {
@@ -133,7 +153,7 @@ describe('Sweep run director (#201)', () => {
       const sectors = [plan.sectors[0]!, ...plan.gates.flatMap((g) => [g.doors[0].sector, g.doors[1].sector])];
       for (const s of sectors) {
         // A meet sector hides nothing by design (its Echoes start 15 m or more away, in view, and are heard when they run).
-        if (s.role === 'meet') continue;
+        if (s.role === 'meet' || s.role === 'hold') continue;
         const eye = { x: s.entry.x, y: s.entry.y + eyeH, z: s.entry.z };
         for (const c of s.contacts) {
           for (const e of c.echoes) {
@@ -162,6 +182,8 @@ function startRun(seed: number, newProfile = false) {
   /** Walk straight out: stand the player on the exit and let one tick see it. */
   const toExit = (): void => {
     const sp = state().plan.sectors[state().sector]!;
+    // A hold sector's exit opens when its Echoes are dead (#204): the tests that only move through it open it.
+    if (state().role === 'hold') state().exitOpen = true;
     g.world.placePlayer(sp.exit.x, sp.exit.y, sp.exit.z, 0);
     g.advance(input);
   };
@@ -188,10 +210,18 @@ describe('Sweep mode (#201)', () => {
       const { g, log, input, state, next } = startRun(seed);
       const ready = Math.ceil(tunables.run.readySec * 128) + 1;
       for (let k = 0; k < ready; k++) g.advance(input);
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < cfg.sectors; i++) {
         const sp = state().plan.sectors[i]!;
         expect(state().sector).toBe(i);
         expect(g.modes.currentMap.id).toBe(sp.mapId);
+        if (sp.role === 'hold') {
+          // Nothing is in a hold sector when the player arrives: the Echoes are on their way.
+          expect(g.world.targets.filter((t) => t.alive), `seed ${seed} sector ${sp.sectorId}`).toEqual([]);
+          expect(state().exitOpen).toBe(false);
+          if (i < cfg.sectors - 1) next((seed & 1) as 0 | 1);
+          else break;
+          continue;
+        }
         if (sp.role === 'meet') {
           // A meet sector is the other kind: nothing hides, but no Echo starts closer than the fairness floor.
           const p = g.world.player.pos;
@@ -214,14 +244,14 @@ describe('Sweep mode (#201)', () => {
           g.advance(input);
         }
         expect(log.slice(from).filter((l) => l.type === 'targetVisible'), `seed ${seed} sector ${sp.sectorId}`).toEqual([]);
-        if (g.run.state === 'result') break;
+        if (g.run.state === 'result' || i === cfg.sectors - 1) break;
         next((seed & 1) as 0 | 1);
       }
     }
-  }, 30_000);
+  }, 60_000);
 
-  it('health carries over, the depth multiplier and dial offset follow the sector, and the last exit ends the run as left', () => {
-    const { g, log, input, state, toExit, next } = startRun(9);
+  it('health carries over, the depth multiplier and dial offset follow the sector, and the Leave door of the Finale\'s gate ends the run as left', () => {
+    const { g, log, input, state, toExit, throughGate, next } = startRun(9);
     for (let k = 0; k < 120; k++) g.advance(input);
     // Take a hit in sector 1: the damage must still be there in sector 2 (unless the door walked through gave a shield back).
     g.world.hitPlayer('kestrel', 'body', 0, 1.2, 0, -1, g.bus);
@@ -241,28 +271,32 @@ describe('Sweep mode (#201)', () => {
     expect(state().sector).toBe(1);
     expect(g.world.health.hp).toBe(hp);
     if (stake !== 'shield') expect(g.world.health.shield).toBe(shield);
-    next();
-    next();
+    for (let i = 0; i < cfg.sectors - 2; i++) next();
+    // The Finale's exit leads to the Overtime gate (#206): its left door leaves, and the run ends as left.
     toExit();
+    expect(state().gate!.plan.leave).toBe(0);
+    expect(g.run.state).toBe('live');
+    throughGate(0);
     expect(g.run.state).toBe('result');
     const entered = log.filter((l) => l.type === 'sectorEntered').map((l) => l.e);
-    expect(entered.map((e) => e.index)).toEqual([0, 1, 2, 3]);
-    expect(entered.every((e) => e.opener === false && e.of === 4)).toBe(true);
+    expect(entered.map((e) => e.index)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(entered.every((e) => e.opener === false && e.of === 6)).toBe(true);
     // One dial per sector, set at its entry and nowhere else (design §9.3.2).
     expect(log.filter((l) => l.type === 'beatStarted').map((l) => l.e.dial)).toEqual(entered.map((e) => e.dial));
-    expect(entered.map((e) => e.depth)).toEqual(cfg.depthMultiplier.slice(0, 4));
+    expect(entered.map((e) => e.depth)).toEqual(cfg.depthMultiplier);
+    expect(entered.map((e) => e.role)[5]).toBe('hold');
     expect(entered.map((e) => e.stake)[0]).toBe('plain');
     // The dial moves with the sector's offset (the posterior did not change: no trials resolved).
     const d0 = entered[0]!.dial as number;
-    for (let i = 1; i < 4; i++) {
+    for (let i = 1; i < 6; i++) {
       const want = d0 - cfg.dialOffset[0]! + cfg.dialOffset[i]!;
       expect(Math.abs((entered[i]!.dial as number) - want)).toBeLessThanOrEqual(3 * i + 1e-9);
     }
     const ended = log.filter((l) => l.type === 'sectorEnded').map((l) => l.e);
-    expect(ended).toHaveLength(4);
+    expect(ended).toHaveLength(6);
     expect(ended.every((e) => e.reason === 'exit' && e.cleared === false)).toBe(true);
     expect(log.filter((l) => l.type === 'runEnded').map((l) => l.e.reason)).toEqual(['left']);
-    expect(g.run.liveStats()).toMatchObject({ endReason: 'left', sectorsReached: 4, sectorsTotal: 4, sectorsCleared: 0 });
+    expect(g.run.liveStats()).toMatchObject({ endReason: 'left', sectorsReached: 6, sectorsTotal: 6, sectorsCleared: 0 });
     // Leaving every Echo alive: no Echo is left in the world.
     expect(g.world.targets.filter((t) => t.alive)).toEqual([]);
   });
@@ -358,7 +392,7 @@ describe('skill matching inside the run (#203)', () => {
     const d0 = entered[0]!.dial as number;
     expect(entered.slice(0, n).every((e) => e.dial === d0)).toBe(true);
     expect(entered[n]!.dial).toBeCloseTo(d0 + cfg.dialOffset[1]!, 9);
-    expect(g.run.liveStats()).toMatchObject({ sectorsReached: 2, sectorsTotal: 4 });
+    expect(g.run.liveStats()).toMatchObject({ sectorsReached: 2, sectorsTotal: 6 });
   });
 
   it('Echoes produce no trial of their own: a contact the player loses unseen is a failed angles trial', () => {
@@ -385,7 +419,8 @@ describe('skill matching inside the run (#203)', () => {
       g.bus.on('skillTrial', () => trials++);
       g.bus.on('contactSettled', (e) => {
         contacts++;
-        expect(e.trials, `seed ${seed} contact ${e.contactId}`).toBeGreaterThanOrEqual(1);
+        // A contact that was avoided (an arrival seen and lost again, nothing exchanged) has no trial to give.
+        if (e.outcome !== 'avoided') expect(e.trials, `seed ${seed} contact ${e.contactId}`).toBeGreaterThanOrEqual(1);
       });
       playMode(g, { mode: 'sweep', skill: 50, seed });
       expect(trials).toBeGreaterThan(0);

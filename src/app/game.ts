@@ -25,6 +25,8 @@ import type { HudClock } from '../hud/liveHud';
 import { InputManager } from '../input/input';
 import { GameRenderer } from '../render/gameRenderer';
 import { DEFAULT_PROFILE, ProfileStore } from '../settings/profile';
+import { buildJournalExport } from '../progress/journalExport';
+import { journalLine, summariseJournal } from '../progress/journalMeasures';
 import { ProgressStore } from '../progress/store';
 import { SkillState } from '../adaptive/skillModel';
 import { SKILL_IDS } from '../config/dial';
@@ -177,6 +179,7 @@ export class Game {
   private dailyDate: string | null = null;
   /** A playtest's stand-in for today's date (`daily.setDate`); null reads the clock. */
   private dateOverride: string | null = null;
+  private clockOverride: number | null = null;
 
   constructor(canvas: HTMLCanvasElement, hudRoot: HTMLElement, menuRoot: HTMLElement, debugRoot: HTMLElement) {
     let storage: Storage | null = null;
@@ -263,6 +266,8 @@ export class Game {
       exportSave: () => this.exportSave(),
       importSave: (parts) => this.importSave(parts),
       resetProgress: () => this.resetProgress(),
+      journalLine: () => journalLine(summariseJournal(this.progress.journal, this.now(), this.tunables.progress.journal)),
+      exportJournal: () => buildJournalExport(this.progress.journal, this.now()),
       runLabel: () => {
         const id = this.modes.modeId ?? this.run.info?.mode ?? null;
         return id === null ? null : this.modeName(id);
@@ -319,7 +324,7 @@ export class Game {
     this.refreshChrome();
     this.timeline.mark(this.profile.get().firstRunDone ? 'mainMenuShown' : 'firstRunPanelShown');
 
-    // `?mode=orbit` readies that mode now; it starts ticking when the player clicks Play (the sim only runs with the pointer locked). The menu no longer lists modes (#202); the link is for playtests until the drill code goes (#211).
+    // `?mode=<id>` readies that mode now; it starts ticking when the player clicks Play (the sim only runs with the pointer locked). The menu no longer lists modes (#202); the link is for playtests (`sweep`, `test`).
     const modeParam = new URLSearchParams(window.location.search).get('mode');
     if (modeParam) this.urlModeReadied = this.startMode(modeParam);
   }
@@ -450,7 +455,7 @@ export class Game {
 
   /** The name a mode goes by in the menu (pause title, difficulty pin). */
   private modeName(id: string): string {
-    return this.tunables.menu.modeCards[id]?.name ?? titleFromId(id);
+    return titleFromId(id);
   }
 
   /** The run clock's phase: the mode run's, else the plain run's (`idle` in the Lobby). */
@@ -461,6 +466,16 @@ export class Game {
   /** The local date the Daily Route is for right now (`YYYY-MM-DD`); it changes at local midnight. */
   today(): string {
     return this.dateOverride ?? localDateKey(new Date());
+  }
+
+  /** The wall clock in epoch ms, for the play journal (a playtest can move it: `setNow`). */
+  now(): number {
+    return this.clockOverride ?? Date.now();
+  }
+
+  /** Playtests only: pretend the clock reads `ms` epoch ms (null: the real clock), to look at a session gap or a new day. */
+  setNow(ms: number | null): void {
+    this.clockOverride = ms;
   }
 
   /** The date of the Daily Route now playing, or null when the run is not one. */

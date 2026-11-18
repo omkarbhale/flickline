@@ -3,7 +3,6 @@ import { vec3, type Vec3 } from '../core/vec3';
 import type { Expectation } from './enemyTiming';
 import type { PeekPattern } from './mapTypes';
 import { createAimState, type AimState } from './mind/aim';
-import { createMindGun, type MindGun } from './mind/gun';
 import { createMindProfile, type MindProfile } from './mind/profile';
 
 /**
@@ -61,6 +60,23 @@ export interface PeekParams {
   crouchedHold?: boolean;
 }
 
+/** Longest route an arriving Echo walks, in points (the director builds routes from the sector's nav graph). */
+export const MAX_ROUTE = 8;
+
+/**
+ * An Echo that arrives (Sweep's hold sectors, design §4.2): it spawns at the first point of `route`
+ * out of the sector, walks the route at `speed` and then fights as its kind does (`sim/arrival.ts`).
+ * A walker at or under `audio.enemy.silentBelowMps` makes no sound; a runner's steps carry.
+ */
+export interface ArriveParams {
+  /** Feet positions, the first being the spawn point. At least two, at most `MAX_ROUTE`. */
+  route: readonly Vec3[];
+  /** Speed along the route, m/s. */
+  speed: number;
+  /** Strafer: it stops walking and fights once it sees the player this close, metres. */
+  engageM: number;
+}
+
 /** The dial's numbers for one enemy's shooting (`DialAxes.tellSec`, `enemyReactionSec`, `enemyHitChance`). */
 export interface FireParams {
   /** Tell length at the dial, seconds (floored at `dial.floors.tellSec` when used). */
@@ -89,7 +105,7 @@ export interface EnemyAi {
   /** Feet position at lane distance 0. */
   laneOrigin: Vec3;
   laneLen: number;
-  /** Distance along the lane, metres, and the signed speed along it, m/s. */
+  /** Distance along the lane, metres, and the signed speed along it, m/s (the body's, read back after each step). */
   s: number;
   vel: number;
   /** Direction of the current / next leg, +1 or -1. */
@@ -98,8 +114,6 @@ export interface EnemyAi {
   speed: number;
   legSec: number;
   standSec: number;
-  /** Speed the current stop started from (the braking bands scale with it). */
-  brakeFrom: number;
   /** On its route (`StrafeParams.travel`): still heading for the far end of the lane, before its first stop. */
   travel: boolean;
 
@@ -119,6 +133,28 @@ export interface EnemyAi {
   crouchedHold: boolean;
   /** Tick the current exposure window ends (a second burst must fit before it). */
   windowEndTick: number;
+
+  // ---- arrival (hold sectors) -----------------------------------------------------------------
+  /** Walking its route in (the FSM's arrive state); false once it has handed over to its fight behaviour. */
+  arriving: boolean;
+  /**
+   * An arrival: it never starts a contact before the player has had information about it (it came
+   * into the player's view, or its running steps were audible), `docs/research/player-like-enemies.md` S9.
+   */
+  honest: boolean;
+  routeN: number;
+  routeI: number;
+  routeX: Float64Array;
+  routeY: Float64Array;
+  routeZ: Float64Array;
+  routeSpeed: number;
+  engageM: number;
+  /** Unit horizontal heading of the walk (the strafe lane after it is square to this). */
+  headX: number;
+  headZ: number;
+  /** Tick its steps were first audible to the player (a run within `audio.enemy.maxAudibleM`, one stride), -1 = not yet; and the metres run towards the next stride. */
+  audibleTick: number;
+  audibleAccum: number;
 
   // ---- shooting (shared) -----------------------------------------------------------------------
   /** This enemy can shoot at all (spawn option); the world's flag must also be on. */
@@ -154,10 +190,9 @@ export interface EnemyAi {
   mind: boolean;
   /** The movement commits to a fight here (last `fireStep`): a Strafer always, a Peeker on a wide peek. */
   committed: boolean;
-  /** This enemy's profile (mind skill and personality), its view and its gun. Preallocated per slot. */
+  /** This enemy's profile (mind skill and personality) and its view. Preallocated per slot. Its gun is its body's (#87). */
   profile: MindProfile;
   aim: AimState;
-  gun: MindGun;
   /** The expectation this contact was classified as (the spawn's, downgraded when the player appears off-attention). */
   contactExpectation: Expectation;
   /** The reaction drawn for this contact, seconds (before rounding to ticks; F8's "reaction drawn"). */
@@ -173,22 +208,24 @@ export interface EnemyAi {
   swipe: boolean;
   /** No new burst before this tick (rest after a burst or a tap). */
   restEndTick: number;
-  /** Sim time (s) the next bullet of the burst may leave (fractional, so the fire rate is exact). */
-  nextShotTime: number;
+  /** The body's gun shot count when the burst's last shot was counted (`mindAfterGun`). */
+  burstShotsMark: number;
 }
 
 /** `historyTicks`: how many observations the mind's aim keeps (`mind.aim.historyTicks`). */
 export function createEnemyAi(historyTicks = 64): EnemyAi {
   return {
-    axis: vec3(1, 0, 0), laneOrigin: vec3(), laneLen: 0, s: 0, vel: 0, dir: 1, speed: 0, legSec: 0, standSec: 0, brakeFrom: 0, travel: false,
+    axis: vec3(1, 0, 0), laneOrigin: vec3(), laneLen: 0, s: 0, vel: 0, dir: 1, speed: 0, legSec: 0, standSec: 0, travel: false,
     pattern: 'shoulder', hold: vec3(), out: vec3(), u: 0, uTarget: 0, step: 0, stepHoldTicks: 0, wideSec: 0, wideDrawSec: 0,
     crouchedHold: false, windowEndTick: 0,
+    arriving: false, honest: false, routeN: 0, routeI: 0, routeX: new Float64Array(MAX_ROUTE), routeY: new Float64Array(MAX_ROUTE),
+    routeZ: new Float64Array(MAX_ROUTE), routeSpeed: 0, engageM: 0, headX: 0, headZ: -1, audibleTick: -1, audibleAccum: 0,
     fireOn: false, initiator: false, expectation: 'attending', weapon: 'kestrel', tellSec: 0, reactionSec: 0, hitChance: 0,
     phase: FIRE_IDLE, contactTick: -1, readyTick: 0, tellTicks: 0, tellStartTick: -1, tellEndTick: -1, burstLeft: 0,
     burstsLeft: 0, nextShotTick: 0, coolEndTick: 0, lastShotTick: -1, gate: false,
-    mind: false, committed: false, profile: createMindProfile(), aim: createAimState(historyTicks), gun: createMindGun(),
+    mind: false, committed: false, profile: createMindProfile(), aim: createAimState(historyTicks),
     contactExpectation: 'attending', reactionDrawSec: 0, fireFloorTick: 0, gateTick: -1, shotDelayTicks: 0, movingHabit: false, swipe: false,
-    restEndTick: 0, nextShotTime: 0,
+    restEndTick: 0, burstShotsMark: 0,
   };
 }
 
@@ -196,17 +233,19 @@ export function createEnemyAi(historyTicks = 64): EnemyAi {
 export function resetEnemyAi(a: EnemyAi): void {
   a.axis.x = 1; a.axis.y = 0; a.axis.z = 0;
   a.laneOrigin.x = a.laneOrigin.y = a.laneOrigin.z = 0;
-  a.laneLen = 0; a.s = 0; a.vel = 0; a.dir = 1; a.speed = 0; a.legSec = 0; a.standSec = 0; a.brakeFrom = 0; a.travel = false;
+  a.laneLen = 0; a.s = 0; a.vel = 0; a.dir = 1; a.speed = 0; a.legSec = 0; a.standSec = 0; a.travel = false;
   a.pattern = 'shoulder';
   a.hold.x = a.hold.y = a.hold.z = 0;
   a.out.x = a.out.y = a.out.z = 0;
   a.u = 0; a.uTarget = 0; a.step = 0; a.stepHoldTicks = 0; a.wideSec = 0; a.wideDrawSec = 0; a.crouchedHold = false;
   a.windowEndTick = 0;
+  a.arriving = false; a.honest = false; a.routeN = 0; a.routeI = 0; a.routeSpeed = 0; a.engageM = 0; a.headX = 0; a.headZ = -1;
+  a.audibleTick = -1; a.audibleAccum = 0;
   a.fireOn = false; a.initiator = false; a.expectation = 'attending'; a.weapon = 'kestrel';
   a.tellSec = 0; a.reactionSec = 0; a.hitChance = 0;
   a.phase = FIRE_IDLE; a.contactTick = -1; a.readyTick = 0; a.tellTicks = 0; a.tellStartTick = -1; a.tellEndTick = -1;
   a.burstLeft = 0; a.burstsLeft = 0; a.nextShotTick = 0; a.coolEndTick = 0; a.lastShotTick = -1; a.gate = false;
   // The profile, view and gun are rebuilt by `mindInit` when the spawn asks for a mind.
   a.mind = false; a.committed = false; a.contactExpectation = 'attending'; a.reactionDrawSec = 0; a.fireFloorTick = 0; a.gateTick = -1; a.shotDelayTicks = 0;
-  a.movingHabit = false; a.swipe = false; a.restEndTick = 0; a.nextShotTime = 0;
+  a.movingHabit = false; a.swipe = false; a.restEndTick = 0; a.burstShotsMark = 0;
 }
