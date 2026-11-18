@@ -111,6 +111,8 @@ function printReport(r) {
   } else {
     console.log('  heap   not measurable here (performance.memory missing)');
   }
+  const e = r.enemies;
+  console.log(`  echoes on the shared body (#87)   ${e.enemies} Strafers add ${f(e.strafersMs * 1000, 1)} µs, ${e.enemies} running sprays ${f(e.sprayingMs * 1000, 1)} µs to a ${f(e.baseTickMs * 1000, 1)} µs sim tick (budget ${f(e.budgetMs * 1000, 0)} µs)`);
   console.log(r.pass ? 'smoke thresholds: PASS' : `smoke thresholds: FAIL\n  - ${r.failures.join('\n  - ')}`);
   console.log('(software-rendered headless browsers understate real frame rates: read this for correctness, relative cost and heap behaviour, not for absolute fps)');
 }

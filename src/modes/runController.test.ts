@@ -150,10 +150,10 @@ describe('run state machine', () => {
 describe('runs timed by the mode runner (mirrored)', () => {
   it('follows runReady/runStarted/runEnded from any emitter: log, stats, freeze, no own timer', () => {
     const { ctl, bus, run, world } = setup();
-    bus.emit('runReady', { tick: 0, mode: 'orbit', seed: 3, dial: 40 });
+    bus.emit('runReady', { tick: 0, mode: 'test', seed: 3, dial: 40 });
     expect(ctl.state).toBe('ready');
     expect(ctl.isSelfDriven).toBe(false);
-    expect(ctl.info).toEqual({ mode: 'orbit', seed: 3, dial: 40, durationSec: null });
+    expect(ctl.info).toEqual({ mode: 'test', seed: 3, dial: 40, durationSec: null });
     expect(ctl.restartRun()).toBe(false); // the mode host restarts mode runs
     run(READY + 500); // the controller must not time it: still `ready` until the runner says so
     expect(ctl.state).toBe('ready');
@@ -170,7 +170,7 @@ describe('runs timed by the mode runner (mirrored)', () => {
     expect(ctl.finalStats?.shots).toBe(1);
     expect(ctl.log.events.map((e) => e.type)).toContain('runEnded');
     expect(run(10)).toBe(0); // frozen
-    bus.emit('runReady', { tick: world.tick, mode: 'orbit', seed: 3, dial: 40 }); // the runner restarts
+    bus.emit('runReady', { tick: world.tick, mode: 'test', seed: 3, dial: 40 }); // the runner restarts
     expect(ctl.state).toBe('ready');
     expect(ctl.log.events.map((e) => e.type)).toEqual(['runReady']);
     expect(run(1)).toBe(1);
@@ -206,7 +206,7 @@ describe('target expiry', () => {
 describe('instant restart', () => {
   it('returns to ready from the same seed without rebuilding anything', () => {
     const { ctl, run, world } = setup();
-    ctl.startRun({ mode: 'orbit', seed: 77, dial: 33, durationSec: 5 });
+    ctl.startRun({ mode: 'test', seed: 77, dial: 33, durationSec: 5 });
     const level = world.level;
     const targets = world.targets;
     const player = world.player;
@@ -226,7 +226,7 @@ describe('instant restart', () => {
     expect(world.level).toBe(level);
     expect(world.targets).toBe(targets);
     expect(world.player).toBe(player);
-    expect(ctl.info).toEqual({ mode: 'orbit', seed: 77, dial: 33, durationSec: 5 });
+    expect(ctl.info).toEqual({ mode: 'test', seed: 77, dial: 33, durationSec: 5 });
     expect(ctl.finalStats).toBeNull();
     // a fresh log that starts at runReady
     expect(ctl.log.events.map((e) => e.type)).toEqual(['runReady']);

@@ -5,12 +5,12 @@ describe('SkillState.reseed', () => {
   it('starts every skill over from the new prior and forgets trials and beats', () => {
     const s = new SkillState('skip');
     for (let i = 0; i < 20; i++) s.observe('flick', { itemDifficulty: 80, success: true });
-    s.dialFor('orbit', 0);
+    s.dialFor('test', 0);
     expect(s.trialCount('flick')).toBe(20);
 
     s.reseed({ mean: 15, sd: 25 });
     expect(s.trialCount('flick')).toBe(0);
-    expect(Number.isNaN(s.matchedDial('orbit'))).toBe(true);
+    expect(Number.isNaN(s.matchedDial('test'))).toBe(true);
     for (const id of ['flick', 'precision'] as const) {
       expect(s.rating(id)).toBeCloseTo(15, 1);
       expect(s.confidence(id)).toBeGreaterThan(12);
@@ -25,7 +25,7 @@ describe('SkillState.reseed', () => {
     b.reseed('competitive');
     expect(b.rating('precision')).toBeCloseTo(a.rating('precision'), 6);
     expect(b.confidence('flick')).toBeCloseTo(a.confidence('flick'), 6);
-    expect(b.dialFor('placement', 0, [0])).toBeCloseTo(a.dialFor('placement', 0, [0]), 6);
+    expect(b.dialFor('test', 0, [0])).toBeCloseTo(a.dialFor('test', 0, [0]), 6);
   });
 
   it('lets later trials move the reseeded model, unplayed skills following', () => {

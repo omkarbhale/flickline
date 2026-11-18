@@ -108,10 +108,10 @@ describe('progress store: bests, plays and history', () => {
   it('a zero score is a play, never a best; a drill keeps no best, a quit keeps only its contacts', () => {
     const s = new ProgressStore(null, memoryStorage());
     expect(s.recordRun(run('sweep', 0), record(0)).newBest).toBe(false);
-    expect(s.recordRun(run('orbit', 900), null)).toMatchObject({ newBest: false, newDeepest: false });
+    expect(s.recordRun(run('modeA', 900), null)).toMatchObject({ newBest: false, newDeepest: false });
     expect(s.best('sweep')).toBeNull();
-    expect(s.best('orbit')).toBeNull(); // drill bests are read-only history now: nothing writes them
-    expect(s.plays('orbit')).toBe(1);
+    expect(s.best('modeA')).toBeNull(); // drill bests are read-only history now: nothing writes them
+    expect(s.plays('modeA')).toBe(1);
     s.recordContactsOnly(record(300, { contacts: [{ card: 'clear', won: true, kept: 0.5 }] }));
     expect(s.situation('clear')).toMatchObject({ contacts: 1, wins: 1 });
     expect(s.plays('sweep')).toBe(1);
@@ -135,12 +135,12 @@ describe('progress store: bests, plays and history', () => {
     const st = memoryStorage();
     const s = new ProgressStore(null, st);
     s.batch(() => {
-      for (let i = 0; i < 230; i++) s.recordRun(run('orbit', i + 1, { seed: i }), null);
+      for (let i = 0; i < 230; i++) s.recordRun(run('modeA', i + 1, { seed: i }), null);
     });
     expect(s.snapshot.history.length).toBe(cfg.historyMax);
     expect(s.snapshot.history[0]!.seed).toBe(30);
     expect(s.snapshot.history[199]!.seed).toBe(229);
-    expect(s.plays('orbit')).toBe(230); // the count is not capped with the history
+    expect(s.plays('modeA')).toBe(230); // the count is not capped with the history
     const reloaded = new ProgressStore(null, st);
     expect(reloaded.snapshot.history.length).toBe(200);
     expect(JSON.stringify(s.snapshot.history[0])).not.toContain('events');
@@ -165,9 +165,9 @@ describe('progress store: bests, plays and history', () => {
     const seen: (string | null)[] = [];
     bus.on('progressChanged', (e) => seen.push(e.modeId));
     const s = new ProgressStore(bus, memoryStorage());
-    s.recordRun(run('orbit', 5), null);
+    s.recordRun(run('modeA', 5), null);
     s.setFlaggedSkill('flick');
-    expect(seen).toEqual(['orbit', null]);
+    expect(seen).toEqual(['modeA', null]);
   });
 });
 
@@ -193,13 +193,13 @@ describe('progress store: persistence', () => {
   it('works from memory when storage is missing or blocked, and says so', () => {
     for (const storage of [null, blocked]) {
       const s = new ProgressStore(null, storage);
-      expect(() => s.recordRun(run('orbit', 5), null)).not.toThrow();
-      expect(s.plays('orbit')).toBe(1);
+      expect(() => s.recordRun(run('modeA', 5), null)).not.toThrow();
+      expect(s.plays('modeA')).toBe(1);
       expect(['memory', 'failed']).toContain(s.persistence);
     }
     expect(new ProgressStore(null, null).persistence).toBe('memory');
     const s = new ProgressStore(null, blocked);
-    s.recordRun(run('orbit', 5), null);
+    s.recordRun(run('modeA', 5), null);
     expect(s.persistence).toBe('failed');
   });
 
@@ -207,8 +207,8 @@ describe('progress store: persistence', () => {
     const st = memoryStorage();
     const full: StorageLike = { getItem: (k) => st.getItem(k), setItem: () => { throw new DOMException('full', 'QuotaExceededError'); } };
     const s = new ProgressStore(null, full);
-    s.recordRun(run('orbit', 7), null);
-    expect(s.plays('orbit')).toBe(1);
+    s.recordRun(run('modeA', 7), null);
+    expect(s.plays('modeA')).toBe(1);
     expect(s.persistence).toBe('failed');
   });
 
@@ -217,18 +217,18 @@ describe('progress store: persistence', () => {
     const s = new ProgressStore(null, st);
     expect(s.snapshot).toEqual(defaultProgress());
     expect(st.data[`${cfg.storageKey}.bak`]).toBe('{"version":2,"history":"nope"');
-    s.recordRun(run('orbit', 5), null);
-    expect(JSON.parse(st.data[cfg.storageKey]!).plays.orbit).toBe(1);
+    s.recordRun(run('modeA', 5), null);
+    expect(JSON.parse(st.data[cfg.storageKey]!).plays.modeA).toBe(1);
     expect(st.data[`${cfg.storageKey}.bak`]).toBe('{"version":2,"history":"nope"'); // the bad one is still there
   });
 
   it('never overwrites a save from a newer build', () => {
-    const newer = JSON.stringify({ version: SAVE_VERSION + 1, plays: { orbit: 99 } });
+    const newer = JSON.stringify({ version: SAVE_VERSION + 1, plays: { modeA: 99 } });
     const st = memoryStorage({ [cfg.storageKey]: newer });
     const s = new ProgressStore(null, st);
     expect(s.persistence).toBe('newer');
-    s.recordRun(run('orbit', 5), null);
-    expect(s.plays('orbit')).toBe(1); // it still plays
+    s.recordRun(run('modeA', 5), null);
+    expect(s.plays('modeA')).toBe(1); // it still plays
     expect(st.data[cfg.storageKey]).toBe(newer);
   });
 
@@ -237,7 +237,7 @@ describe('progress store: persistence', () => {
     const small = { ...cfg, maxSaveBytes: 6000 };
     const s = new ProgressStore(null, st, small);
     s.batch(() => {
-      for (let i = 0; i < 100; i++) s.recordRun(run('orbit', i + 1, { seed: i }), null);
+      for (let i = 0; i < 100; i++) s.recordRun(run('modeA', i + 1, { seed: i }), null);
     });
     expect(st.data[cfg.storageKey]!.length).toBeLessThanOrEqual(6000);
     expect(s.snapshot.history[s.snapshot.history.length - 1]!.seed).toBe(99);
@@ -245,10 +245,10 @@ describe('progress store: persistence', () => {
   });
 
   it('migrates a stored version 1 object and writes it back in the current version', () => {
-    const v1 = JSON.stringify({ version: 1, playLog: { bests: { orbit: 5 }, plays: { orbit: 4 }, flaggedSkill: 'flick' } });
+    const v1 = JSON.stringify({ version: 1, playLog: { bests: { modeA: 5 }, plays: { modeA: 4 }, flaggedSkill: 'flick' } });
     const st = memoryStorage({ [cfg.storageKey]: v1 });
     const s = new ProgressStore(null, st);
-    expect(s.plays('orbit')).toBe(4);
+    expect(s.plays('modeA')).toBe(4);
     expect(s.flaggedSkill).toBe('flick');
     s.setFlaggedSkill('track');
     expect(JSON.parse(st.data[cfg.storageKey]!).version).toBe(SAVE_VERSION);
@@ -257,13 +257,13 @@ describe('progress store: persistence', () => {
   it('replaces and resets, persisting both', () => {
     const st = memoryStorage();
     const s = new ProgressStore(null, st);
-    s.recordRun(run('orbit', 5), null);
+    s.recordRun(run('modeA', 5), null);
     const d = s.exportData();
     s.reset();
-    expect(s.plays('orbit')).toBe(0);
+    expect(s.plays('modeA')).toBe(0);
     expect(JSON.parse(st.data[cfg.storageKey]!).plays).toEqual({});
     s.replace(d);
-    expect(s.plays('orbit')).toBe(1);
+    expect(s.plays('modeA')).toBe(1);
   });
 });
 
@@ -310,5 +310,104 @@ describe('no time-played XP', () => {
     walk(toSave(s.snapshot as never));
     expect(keys.length).toBeGreaterThan(20);
     for (const k of keys) expect(k, k).not.toMatch(/xp|experience|time.?played|play.?time|playtime|minutes|hours|seconds.?played|duration|login|streakdays/i);
+  });
+});
+
+describe('progress store: cold openers (#209)', () => {
+  const rec = {
+    v: 2, date: '2026-03-01', at: '2026-03-01T08:00:00.000Z', gapH: 12, seed: 3, level: 45, legs: 6, of: 6, score: 1500, dial: 50,
+    skills: { angles: [50, 9, 4] as [number, number, number] }, trials: 6, contacts: 6, won: 4, headRate: 0.5, ttsMs: 600, movingShare: 0.1,
+    kept: 0.8, warm: false, sens: 0.4, end: 'exit' as const,
+  };
+  it('keeps a record and the level in memory until commit, then in the save; the warm answer is changed on the newest', () => {
+    const storage = memoryStorage();
+    const store = new ProgressStore(null, storage);
+    store.addColdOpener(rec, { v: 2, level: 45, moves: [] });
+    expect(storage.data[cfg.storageKey]).toBeUndefined(); // not written mid-run
+    store.commit();
+    const back = new ProgressStore(null, storage);
+    expect(back.snapshot.coldOpeners).toEqual([rec]);
+    expect(back.snapshot.coldOpenerLevels).toEqual({ v: 2, level: 45, moves: [] });
+    expect(back.setColdOpenerWarm(true)).toBe(true);
+    expect(new ProgressStore(null, storage).snapshot.coldOpeners[0]!.warm).toBe(true);
+    expect(new ProgressStore(null, memoryStorage()).setColdOpenerWarm(true)).toBe(false);
+  });
+});
+
+describe('the play journal in the store (#251)', () => {
+  const T = new Date('2026-03-02T12:00:00').getTime();
+  const key = cfg.storageKey;
+
+  function playRun(s: ProgressStore, t: number, reason: 'death' | 'timer' | 'quit' = 'timer'): void {
+    s.journalReady(t);
+    s.journalStarted(t + 3000);
+    s.journalSector(0);
+    s.journalSector(1);
+    s.journalEnded(t + 63_000, 60, reason);
+  }
+
+  it('records runs and is written only by commit, never in the middle of a run', () => {
+    const storage = memoryStorage();
+    const s = new ProgressStore(null, storage);
+    s.journalReady(T);
+    s.journalStarted(T + 3000);
+    expect(storage.data[key]).toBeUndefined(); // a run's events do not write storage mid-fight
+    s.journalSector(1);
+    s.journalEnded(T + 63_000, 60, 'death');
+    expect(storage.data[key]).toBeUndefined();
+    s.commit();
+    const stored = JSON.parse(storage.data[key]!);
+    expect(stored.version).toBe(SAVE_VERSION);
+    expect(stored.journal.runs).toEqual([{ at: Math.floor((T + 3000) / 1000), sec: 60, depth: 2, end: 'death', pulled: false }]);
+    expect(stored.journal.sessions[0]).toMatchObject({ started: 1, finished: 1, end: 'death' });
+  });
+
+  it('survives a reload and carries on in the same session', () => {
+    const storage = memoryStorage();
+    const a = new ProgressStore(null, storage);
+    playRun(a, T);
+    a.commit();
+    const b = new ProgressStore(null, storage);
+    expect(b.journal.runs).toHaveLength(1);
+    playRun(b, T + 120_000);
+    expect(b.journal.sessions).toHaveLength(1);
+    expect(b.journal.sessions[0]!.started).toBe(2);
+  });
+
+  it('is part of the export and an import replaces it, with the writer following the imported data', () => {
+    const a = new ProgressStore(null, null);
+    playRun(a, T);
+    const exported = a.exportData();
+    expect(exported.journal.runs).toHaveLength(1);
+    const b = new ProgressStore(null, null);
+    b.replace(exported);
+    expect(b.journal.runs).toHaveLength(1);
+    playRun(b, T + 120_000);
+    expect(b.journal.runs).toHaveLength(2);
+    expect(a.journal.runs).toHaveLength(1); // no sharing between the two
+    b.reset();
+    expect(b.journal.runs).toHaveLength(0);
+    playRun(b, T);
+    expect(b.journal.sessions).toHaveLength(1);
+  });
+
+  it('a progress write for another reason keeps the journal, and a blocked storage loses nothing in memory', () => {
+    const s = new ProgressStore(null, blocked);
+    playRun(s, T);
+    s.setFlaggedSkill('track');
+    expect(s.journal.runs).toHaveLength(1);
+    expect(s.persistence).toBe('failed');
+  });
+
+  it('a save of version 3 loads with an empty journal, then fills it', () => {
+    const v3 = { ...toSave(defaultProgress()), version: 3 } as Record<string, unknown>;
+    delete v3.journal;
+    const storage = memoryStorage({ [key]: JSON.stringify(v3) });
+    const s = new ProgressStore(null, storage);
+    expect(s.journal).toEqual({ firstDay: null, sessions: [], runs: [], days: [] });
+    playRun(s, T);
+    s.commit();
+    expect(JSON.parse(storage.data[key]!).version).toBe(SAVE_VERSION);
+    expect(JSON.parse(storage.data[key]!).journal.runs).toHaveLength(1);
   });
 });

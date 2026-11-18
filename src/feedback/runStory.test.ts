@@ -71,7 +71,7 @@ describe('RunStoryTracker', () => {
   const enter = (i: number, extra: object = {}): [StoryEventType, object] => ['sectorEntered', { sectorId: `s${i}`, index: i, role: 'take', ...extra }];
 
   it('a run without sectors has an empty story', () => {
-    const s = t([['runReady', { mode: 'orbit', seed: 1, dial: 50 }]]);
+    const s = t([['runReady', { mode: 'test', seed: 1, dial: 50 }]]);
     expect(s.sectors).toEqual([]);
     expect(s.situations).toEqual([]);
   });

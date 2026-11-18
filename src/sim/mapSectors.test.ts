@@ -336,15 +336,17 @@ describe('shipped maps', () => {
     }
   });
 
-  it('Lane\'s take sector and two of Elbow\'s have a 20 m line to start a long fight on', () => {
+  it('Lane\'s take sector and all three of Elbow\'s have a 20 m line to start a long fight on', () => {
     const longs = [elbowMap, laneMap].flatMap((map) => lintMap(map).sectors.filter((s) => s.role.includes('take') && s.sights.some((x) => x.band === 'long')).map((s) => s.id));
-    expect(longs.sort()).toEqual(['elbow-take-door', 'elbow-take-west', 'lane-take-far']);
+    expect(longs.sort()).toEqual(['elbow-take-door', 'elbow-take-hub', 'elbow-take-west', 'lane-take-far']);
   });
 
-  it('Elbow has three take sectors and one hold sector', () => {
-    expect(elbowMap.sectors).toHaveLength(4);
-    expect(sectorsByRole(elbowMap, 'take')).toHaveLength(3);
-    expect(sectorsByRole(elbowMap, 'hold')).toHaveLength(1);
+  it('Elbow has six sectors: three to take (each a route down a long arm, #249) and three to hold (#204)', () => {
+    expect(elbowMap.sectors).toHaveLength(6);
+    expect(sectorsByRole(elbowMap, 'take').map((s) => s.id).sort()).toEqual(['elbow-take-door', 'elbow-take-hub', 'elbow-take-west']);
+    expect(sectorsByRole(elbowMap, 'hold').map((s) => s.id).sort()).toEqual(['elbow-hold-corner', 'elbow-hold-door', 'elbow-hold-hub']);
+    // Every sector names approach lanes: arrivals of a hold sector and followers of a take sector walk them in.
+    for (const s of elbowMap.sectors) expect(s.approaches.length, s.id).toBeGreaterThanOrEqual(2);
     expect(sectorsByRole(elbowMap, 'meet')).toHaveLength(0);
   });
 

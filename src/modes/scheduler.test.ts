@@ -8,11 +8,10 @@ import { ringAnchors } from './testHarness';
 import { AnchorIndex, angleBetweenDeg, createSpawnQuery, SpawnScheduler } from './scheduler';
 
 const tun = cloneTunables();
-const cfg = tun.modes;
 const player = { pos: vec3(0, 0, 0), yaw: 0, pitch: 0, eyeHeight: 1.62 };
 
 function make(anchors: AnchorLike[], seed = 1, bounds?: { min: ReturnType<typeof vec3>; max: ReturnType<typeof vec3> }) {
-  return new SpawnScheduler(cfg, tun.dial.floors, new Rng(seed), new AnchorIndex({ anchors, bounds }), player);
+  return new SpawnScheduler(tun.dial.floors, new Rng(seed), new AnchorIndex({ anchors, bounds }), player);
 }
 
 describe('pickAnchor', () => {
@@ -158,91 +157,6 @@ describe('pickAnchor', () => {
   });
 });
 
-describe('pickShellPoint (Orbit-style shell)', () => {
-  const shell: AnchorLike = { id: 's', kind: 'beacon-shell', centre: vec3(0, 1.6, 0), rMin: 8, rMax: 25 };
-
-  it('honours radius, angle band, pitch limits and the spawn floors', () => {
-    const s = make([shell], 3);
-    const q = createSpawnQuery('beacon-shell');
-    const prev = directionFromAngles(vec3(), 0.7, 0.1);
-    q.refDir = prev;
-    q.minAngleDeg = 90;
-    q.maxAngleDeg = 180;
-    const out = vec3();
-    const dir = vec3();
-    for (let i = 0; i < 300; i++) {
-      expect(s.pickShellPoint(shell, q, out)).toBe(true);
-      const e = s.eyePosition();
-      const r = distance(e, out);
-      expect(r).toBeGreaterThanOrEqual(8 - 1e-9);
-      expect(r).toBeLessThanOrEqual(25 + 1e-9);
-      dir.x = (out.x - e.x) / r;
-      dir.y = (out.y - e.y) / r;
-      dir.z = (out.z - e.z) / r;
-      const ang = angleBetweenDeg(dir, prev);
-      expect(ang).toBeGreaterThanOrEqual(90 - 1e-6);
-      expect(ang).toBeLessThanOrEqual(180 + 1e-6);
-      const pitchDeg = Math.asin(dir.y) / DEG2RAD;
-      expect(pitchDeg).toBeGreaterThanOrEqual(cfg.shellPitchMinDeg - 1e-6);
-      expect(pitchDeg).toBeLessThanOrEqual(cfg.shellPitchMaxDeg + 1e-6);
-    }
-  });
-
-  it('biases the pitch towards head height', () => {
-    const s = make([shell], 5);
-    const q = createSpawnQuery('beacon-shell');
-    q.minAngleDeg = 20;
-    q.maxAngleDeg = 40;
-    const out = vec3();
-    let central = 0;
-    const N = 1000;
-    for (let i = 0; i < N; i++) {
-      s.pickShellPoint(shell, q, out);
-      const e = s.eyePosition();
-      const pitch = Math.asin((out.y - e.y) / distance(e, out)) / DEG2RAD;
-      if (Math.abs(pitch - cfg.shellPitchBiasDeg) < 6) central++;
-    }
-    // A uniform pitch over 45 degrees would put 12/45 = 27% there; the triangular bias doubles it.
-    expect(central / N).toBeGreaterThan(0.4);
-  });
-
-  it('stays inside the map bounds and fails cleanly when nothing fits', () => {
-    const s = make([shell], 9, { min: vec3(-30, 0, -30), max: vec3(30, 8, 30) });
-    const q = createSpawnQuery('beacon-shell');
-    q.minAngleDeg = 0;
-    q.maxAngleDeg = 180;
-    const out = vec3();
-    for (let i = 0; i < 200; i++) {
-      if (!s.pickShellPoint(shell, q, out)) continue;
-      expect(out.y).toBeGreaterThanOrEqual(0);
-      expect(out.y).toBeLessThanOrEqual(8);
-    }
-    const tight = make([shell], 9, { min: vec3(-1, 0, -1), max: vec3(1, 3, 1) });
-    expect(tight.pickShellPoint(shell, q, out)).toBe(false);
-    expect(tight.rejected).toBe(1);
-    q.minDist = 50;
-    q.maxDist = 60; // band beyond the shell
-    expect(make([shell]).pickShellPoint(shell, q, out)).toBe(false);
-  });
-
-  it('is deterministic under the seed', () => {
-    const run = (seed: number): number[] => {
-      const s = make([shell], seed);
-      const q = createSpawnQuery('beacon-shell');
-      q.minAngleDeg = 30;
-      q.maxAngleDeg = 120;
-      const out = vec3();
-      const v: number[] = [];
-      for (let i = 0; i < 20; i++) {
-        s.pickShellPoint(shell, q, out);
-        v.push(out.x, out.y, out.z);
-      }
-      return v;
-    };
-    expect(run(11)).toEqual(run(11));
-  });
-});
-
 describe('line of sight (the map says what is hidden)', () => {
   // A wall 5 m ahead (-Z) blocks everything in front of it within +-2 m of the axis.
   const wall = (from: { x: number; z: number }, to: { x: number; z: number }): boolean => {
@@ -257,26 +171,10 @@ describe('line of sight (the map says what is hidden)', () => {
     const open: AnchorLike = { id: 'open', kind: 'post', pos: vec3(9, 0, -12) };
     const q = createSpawnQuery('post');
     const out = vec3();
-    const s = new SpawnScheduler(cfg, tun.dial.floors, new Rng(1), source([behind, open]), player);
+    const s = new SpawnScheduler(tun.dial.floors, new Rng(1), source([behind, open]), player);
     for (let i = 0; i < 20; i++) expect(s.pickAnchor(q, out)!.id).toBe('open');
-    const s2 = new SpawnScheduler(cfg, tun.dial.floors, new Rng(1), source([behind]), player);
+    const s2 = new SpawnScheduler(tun.dial.floors, new Rng(1), source([behind]), player);
     expect(s2.pickAnchor(q, out)).toBeNull();
-  });
-
-  it('pickShellPoint never returns a point behind the wall', () => {
-    const shell: AnchorLike = { id: 's', kind: 'beacon-shell', centre: vec3(0, 1.62, 0), rMin: 8, rMax: 25 };
-    const s = new SpawnScheduler(cfg, tun.dial.floors, new Rng(3), source([shell]), player);
-    const q = createSpawnQuery('beacon-shell');
-    q.minAngleDeg = 0;
-    q.maxAngleDeg = 40; // straight ahead: the wall is in the way for the central part
-    const out = vec3();
-    let found = 0;
-    for (let i = 0; i < 200; i++) {
-      if (!s.pickShellPoint(shell, q, out)) continue;
-      found++;
-      expect(wall(s.eyePosition(), out)).toBe(true);
-    }
-    expect(found).toBeGreaterThan(20);
   });
 
   it('sightClear is true when the map gives no predicate', () => {

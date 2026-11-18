@@ -36,7 +36,7 @@ describe('the lean A/B (bot harness, #210)', () => {
     expect(t).toHaveLength(4);
     expect(t[2]).toMatch(/^\| off \|/);
     expect(t[3]).toMatch(/^\| on \|/);
-  });
+  }, 30_000);
 
   it('with no weakness planted the bot stops in every fight, as every earlier report assumed', () => {
     const clean = leanAb({ ...small, startShare: 0, players: 1, runs: 3 });

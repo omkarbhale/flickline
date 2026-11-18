@@ -99,7 +99,7 @@ export class Bot {
 
   /**
    * Only targets the player has seen count (`visibleTick`): no search turn towards one that has never
-   * been in view. A drill's targets appear in the open, so the drills leave it off; a run where Echoes
+   * been in view. A target in the open (the Lobby's) needs no sight check, so it is left off; a run where Echoes
    * hold behind cover (Sweep) turns it on, or the bot would know where they are through walls.
    */
   visibleOnly = false;
@@ -185,7 +185,7 @@ export class Bot {
     return this.targetId;
   }
 
-  /** With nothing to shoot at, a player tops up a part-empty magazine (Spray Wall asks for it after every spray). */
+  /** With nothing to shoot at, a player tops up a part-empty magazine (a player does it after every spray). */
   private wantsReload(world: World): boolean {
     const w = world.weapon;
     const slot = w.slots[w.active]!;

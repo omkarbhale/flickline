@@ -30,7 +30,7 @@ import type { RunEvents } from './runEvents';
  *   (shield, tagging, flinch, the damage arc); a miss passes the player's head at a seeded offset
  *   and the `enemyFired` direction lets the audio place the whiz on the right side.
  * - Every shot draws the same four numbers from the seeded stream, hit or miss, so a run replays.
- * - Nothing fires unless the world's `firing` flag is on (drills never set it).
+ * - Nothing fires unless the world's `firing` flag is on (a mode without return fire never sets it).
  */
 
 declare module './types' {
@@ -225,6 +225,8 @@ export function fireStep(t: TargetState, ctx: BehaviourContext, gate: boolean): 
   const tick = ctx.tick;
   a.gate = gate;
   if (a.phase === FIRE_IDLE) {
+    // An arrival waits until the player has had information about it: it came into view, or its steps carried (S9).
+    if (a.honest && t.visibleTick < 0 && a.audibleTick < 0) return;
     if (seesPlayer(t, ctx)) startContact(t, ctx);
     return;
   }

@@ -14,7 +14,7 @@ import type { PlayerTunables } from '../config/player';
  * Events read (payloads as in §14.3; extra fields are ignored, a missing optional field degrades the
  * tile instead of failing): `runReady`, `sectorEntered`, `sectorEnded`, `contactSettled` (+ its
  * `card`), `playerDamaged`, `playerHealed`, `shotFired`, `shotImpact`, `targetKilled`, `runBanked`,
-. A run without sectors (a drill mode) yields an empty story and the card hides both rows.
+. A run without sectors (a run that is not a Sweep run) yields an empty story and the card hides both rows.
  *
  * A **contact is won** when it ended `cleared`; **lost** when the player `died` in it or
  * `disengaged` (retreated after losing at least 30% of its starting health); `avoided` contacts
@@ -35,6 +35,8 @@ export interface StoryEvents {
   shotImpact: { result: 'hit' | 'miss' };
   targetKilled: { targetId?: number };
   runBanked: { points: number; overtimeSectors?: number };
+  /** The run ended in Overtime with points never banked (design §4.7, #206): they are gone. */
+  overtimeLost: { points: number; overtimeSectors?: number };
 }
 
 export type StoryEventType = keyof StoryEvents;
@@ -42,7 +44,7 @@ export type StoryEventType = keyof StoryEvents;
 /** Event types the story listens to (the feature subscribes to exactly these). */
 export const STORY_EVENT_TYPES: readonly StoryEventType[] = [
   'runReady', 'sectorEntered', 'sectorEnded', 'contactSettled', 'playerDamaged', 'playerHealed',
-  'shotFired', 'shotImpact', 'targetKilled', 'runBanked',
+  'shotFired', 'shotImpact', 'targetKilled', 'runBanked', 'overtimeLost',
 ];
 const READ = new Set<string>(STORY_EVENT_TYPES);
 
@@ -91,8 +93,10 @@ export interface RunStory {
   total: number | null;
   /** Overtime sectors entered (0 when the run never went past the route's last sector). */
   overtimeSectors: number;
-  /** Points a Leave gate banked, from `runBanked`; null when none was reported. */
+  /** Overtime points a Leave door banked, from `runBanked`; null when none was reported. */
   banked: number | null;
+  /** Overtime points a run ended with but never banked (death or quit in Overtime), from `overtimeLost`; null when none was reported. */
+  overtimeLost: number | null;
   /** Total contacts won / lost over the whole run. */
   won: number;
   lost: number;
@@ -127,6 +131,7 @@ export class RunStoryTracker {
   private current: MutableTile | null = null;
   private hp: number;
   private banked: number | null = null;
+  private forfeited: number | null = null;
   private total: number | null = null;
   private won = 0;
   private lost = 0;
@@ -141,6 +146,7 @@ export class RunStoryTracker {
     this.current = null;
     this.hp = this.cfg.startHp;
     this.banked = null;
+    this.forfeited = null;
     this.total = null;
     this.won = 0;
     this.lost = 0;
@@ -185,6 +191,9 @@ export class RunStoryTracker {
         break;
       case 'runBanked':
         this.banked = (e as StoryEvents['runBanked']).points;
+        break;
+      case 'overtimeLost':
+        this.forfeited = (e as StoryEvents['overtimeLost']).points;
         break;
     }
   }
@@ -289,6 +298,7 @@ export class RunStoryTracker {
       situations: Array.from(this.cards.values(), (r) => ({ ...r })),
       overtimeSectors: sectors.reduce((n, s) => n + (s.overtime ? 1 : 0), 0),
       banked: this.banked,
+      overtimeLost: this.forfeited,
       total: this.total,
       won: this.won,
       lost: this.lost,

@@ -23,7 +23,7 @@ import type { BoxDef, PlayerState, SimEvents, TargetState } from './types';
  * It owns no gameplay state: nothing here feeds back into the simulation, so the world's `hash()`
  * is unchanged. No full enemy mind exists yet (#89): until it does, `World` installs the sight rule
  * the shooting Echoes already use (`enemyFire.seesPlayer`: range and an unoccluded line from the
- * muzzle to the player's eye, no field-of-view test) for enemies that fire, and drill targets that
+ * muzzle to the player's eye, no field-of-view test) for enemies that fire, and targets that
  * never fire are never "exposed". The enemy body (#87) and #99 call the sound emitters below when
  * an enemy steps, lands or reloads, stamping each sound with `audibleToPlayer`; `enemyFired`
  * already carries it.
@@ -31,7 +31,7 @@ import type { BoxDef, PlayerState, SimEvents, TargetState } from './types';
 
 /**
  * What the enemy mind (#89) answers about the player, the one contract this module codes against.
- * A mind-less target (drill posts, beacons) is never reported as seeing him.
+ * A mind-less target (Lobby posts and Beacons) is never reported as seeing him.
  */
 export interface PerceptionQueries {
   /**

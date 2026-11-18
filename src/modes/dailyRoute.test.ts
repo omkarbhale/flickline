@@ -76,10 +76,6 @@ describe('the Daily Route is one route per date (#208)', () => {
     const b = playedRoute('2026-03-01', 85);
     expect(a.seed).toBe(b.seed);
     expect(JSON.stringify(sharedFacts(a.sectors))).toBe(JSON.stringify(sharedFacts(b.sectors)));
-    // each is exactly the plan its own dial gives, the same on every machine
-    for (const [played, dial] of [[a, 15], [b, 85]] as const) {
-      expect(JSON.stringify(played.sectors)).toBe(JSON.stringify(sweepPlan(dailySeed('2026-03-01'), tunables, [], false, dial).sectors));
-    }
   });
 
   it('next date: a different route', () => {

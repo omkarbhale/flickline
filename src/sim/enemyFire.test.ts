@@ -339,6 +339,14 @@ function expectedHits(f: Fight, baseChance: number): number {
   return f.shots.reduce((sum, s) => sum + enemyHitChance(baseChance, s.dist, s.moving, false, fireCfg), 0);
 }
 
+/** Variance of the hit count those shots predict (a sum of independent Bernoulli rolls). */
+function hitVariance(f: Fight, baseChance: number): number {
+  return f.shots.reduce((sum, s) => {
+    const p = enemyHitChance(baseChance, s.dist, s.moving, false, fireCfg);
+    return sum + p * (1 - p);
+  }, 0);
+}
+
 /** Expected HP lost per landed bullet: the zone weights x the Kestrel's bands, capped at 100 HP (the bot is reset each tick). */
 function hpPerHit(): number {
   const total = fireCfg.zoneHead + fireCfg.zoneBody + fireCfg.zoneLeg;
@@ -351,7 +359,7 @@ describe('bot playtest: damage taken over 60 s at dial 50', () => {
   const SEEDS = [1, 2, 3, 4, 5, 6];
   const BASE = axes(50).enemyHitChance;
 
-  type Totals = { shots: number; hits: number; damage: number; expected: number };
+  type Totals = { shots: number; hits: number; damage: number; expected: number; variance: number };
   const memo = new Map<string, Totals>();
   function totals(strafe: boolean, tagging: boolean): Totals {
     const key = `${strafe}/${tagging}`;
@@ -363,7 +371,7 @@ describe('bot playtest: damage taken over 60 s at dial 50', () => {
   }
 
   function measure(strafe: boolean, tagging: boolean): Totals {
-    let shots = 0, hits = 0, damage = 0, expected = 0;
+    let shots = 0, hits = 0, damage = 0, expected = 0, variance = 0;
     for (const seed of SEEDS) {
       const tun = cloneTunables();
       if (!tagging) tun.player.tag.speedScale = 1;
@@ -373,14 +381,17 @@ describe('bot playtest: damage taken over 60 s at dial 50', () => {
       hits += f.shots.filter((s) => s.hit).length;
       damage += f.damage;
       expected += expectedHits(f, BASE);
+      variance += hitVariance(f, BASE);
     }
-    return { shots, hits, damage, expected };
+    return { shots, hits, damage, expected, variance };
   }
 
   it('a standing bot takes the expected damage', () => {
     const r = totals(false, true);
     expect(r.shots).toBeGreaterThan(300);
-    expect(Math.abs(r.hits - r.expected) / r.expected).toBeLessThan(0.12);
+    // Within three standard deviations of the per-shot model (about 20% of ~140 expected hits over
+    // these six fights; 40 seeds land within 2%): a fixed percentage would fail on a fair sample.
+    expect(Math.abs(r.hits - r.expected)).toBeLessThan(3 * Math.sqrt(r.variance));
     const expectedDamage = r.expected * hpPerHit();
     expect(Math.abs(r.damage - expectedDamage) / expectedDamage).toBeLessThan(0.25);
   });

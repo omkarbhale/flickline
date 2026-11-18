@@ -5,7 +5,7 @@ import { rayBox } from '../sim/collision';
 import { holdAnchorsOf, holdStance, holdStandPos } from '../sim/mapQuery';
 import { bodyShows, firstSight, navRoute, routePoints, type FirstSight } from '../sim/mapSight';
 import type { MapDef, SectorDef } from '../sim/mapTypes';
-import type { SectorSource, SectorSpot } from './sweepDirector';
+import type { ApproachLane, SectorSource, SectorSpot } from './sweepDirector';
 
 export { bodyShows, navRoute };
 
@@ -128,10 +128,16 @@ export function sectorSources(map: MapDef, tunables: Tunables): SectorSource[] {
       }
     }
     const { vis: seen, walk: walked } = geometryMemo(map, tunables);
+    const approaches: ApproachLane[] = [];
+    for (const id of sector.approaches) {
+      const lane = map.lanes.find((l) => l.id === id);
+      if (lane) approaches.push({ id: lane.id, start: { ...lane.start }, end: { ...lane.end }, width: lane.width });
+    }
     const source: SectorSource = {
       mapId: map.id,
       id: sector.id,
       roles: sector.role,
+      approaches,
       entry: { ...sector.entry },
       // Face the way in: the first leg of the walk from the entry to the exit (straight at the exit can be a wall).
       entryYaw: yawTowards(sector.entry, navRoute(map, sector.entry, sector.exit)[0] ?? sector.exit),
@@ -151,6 +157,7 @@ export function sectorSources(map: MapDef, tunables: Tunables): SectorSource[] {
         }
         return v;
       },
+      route: (from, to) => navRoute(map, from, to),
       walkable(a, b) {
         const key = `${q(a.x)},${q(a.y)},${q(a.z)}|${q(b.x)},${q(b.y)},${q(b.z)}`;
         let w = walked.get(key);

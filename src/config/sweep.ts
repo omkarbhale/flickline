@@ -7,12 +7,18 @@
 
 import type { WeaponId } from './weapon';
 
+/** The scenario cards a take sector deals (design §4.4). */
+export type TakeCard = 'take-unaware' | 'take-expected' | 'clear' | 'crossfire';
+export const TAKE_CARDS: readonly TakeCard[] = ['take-unaware', 'take-expected', 'clear', 'crossfire'];
+/** The scenario cards a hold sector deals, and a survivor that follows the player (design §4.2, §4.4, #204). */
+export type HoldCard = 'hold' | 'trade' | 'flank';
+export const HOLD_CARDS: readonly HoldCard[] = ['hold', 'trade', 'flank'];
 /**
- * The scenario cards a sector can deal (design §4.4; the rest arrive with #97, #204). A take sector
- * deals the first four, a meet sector (#212) always deals `meet`.
+ * The scenario cards a sector can deal (design §4.4): a take sector deals the take cards, a hold sector
+ * (#204) the hold cards, a meet sector (#212) always `meet`.
  */
-export type SweepCard = 'take-unaware' | 'take-expected' | 'clear' | 'crossfire' | 'meet';
-export const SWEEP_CARDS: readonly SweepCard[] = ['take-unaware', 'take-expected', 'clear', 'crossfire', 'meet'];
+export type SweepCard = TakeCard | HoldCard | 'meet';
+export const SWEEP_CARDS: readonly SweepCard[] = [...TAKE_CARDS, ...HOLD_CARDS, 'meet'];
 
 /** Who has to move in a sector (design §4.2). */
 export type SectorRole = 'take' | 'hold' | 'meet';
@@ -58,28 +64,46 @@ export interface SweepTunables {
   killHeal: { body: number; head: number };
   /** The sector that is the Finale (design §4.1); sectors past it are Overtime. The Closer medal and the run records read it. */
   finaleSector: number;
-  /** Sectors in a run (v0: four take sectors; the six-sector shape with holds and the Finale is #204). */
+  /** Sectors in a run before Overtime (design §4.1: the Opener, four drawn by role, the Finale). Overtime (#206, `overtime`) goes beyond. */
   sectors: number;
+  /** 0-based sector indices that never deal a crossfire (design §4.1: sector 5 is a breather). */
+  noCrossfireSectors: readonly number[];
   /**
    * Per sector, by index: dial offset from the matched dial (design §4.1 and §9.3) and the depth
-   * multiplier applied to every point earned in it (design §8.1). A run longer than these lists
-   * repeats their last entry.
+   * multiplier applied to every point earned in it (design §8.1). These lists cover the `sectors` of the
+   * route; the Overtime sectors after them follow `overtime`.
    */
   dialOffset: readonly number[];
   depthMultiplier: readonly number[];
+  /**
+   * Overtime (design §4.1, §4.7, #206): after the Finale's exit gate the player may leave (the run ends, every point banked) or push on
+   * through another sector, and again after each. Overtime points are held unbanked until a Leave gate; dying loses them (never the
+   * points of the route's own sectors). Sector `k` of Overtime (`k` from 0): dial offset `dialOffset + k * dialStep`, depth multiplier
+   * `depthMultiplier + k * depthStep`; its contacts are drawn from `takeContacts` / `holdContacts` (an inclusive range, then capped by the
+   * sector's anchors) instead of the per-sector lists, which would repeat the Finale's five hold contacts. HYPOTHESIS until the balance pass (#53).
+   */
+  overtime: {
+    dialOffset: number;
+    dialStep: number;
+    depthMultiplier: number;
+    depthStep: number;
+    takeContacts: readonly [number, number];
+    holdContacts: readonly [number, number];
+  };
   /** Contacts per sector, by index: an inclusive range drawn uniformly, then capped by the sector's hold anchors. */
   contactsMin: readonly number[];
   contactsMax: readonly number[];
-  /** Base weight of each card (renormalised over the cards a contact may draw). */
-  cardWeight: Readonly<Record<SweepCard, number>>;
+  /** Base weight of each take card (renormalised over the cards a contact may draw). */
+  cardWeight: Readonly<Record<TakeCard, number>>;
   /** First sector index (0-based) that may deal a crossfire (design: "only from sector 3"). */
   crossfireFromSector: number;
   /** The same card never this many times in a row (design §4.4: never three in a row). */
   maxCardRun: number;
   /**
    * The mix of sector roles for sectors 2 and later (design §4.2: takes 50%, holds 35%, meets 15%; HYPOTHESIS), drawn
-   * per sector; the Opener is always a take. The same role is never drawn three times in a row. A role the run cannot
-   * play yet plays as a take: holds until #204.
+   * per sector; the Opener is always a take and the Finale (`finaleSector`) always a hold. The same role is never drawn
+   * three times in a row, and a run of `finaleSector` sectors or more has at least one take and one hold among sectors 2
+   * to 5 (`planRoles`, #204). A role the catalog cannot supply plays as a take.
    */
   roleMix: Readonly<Record<SectorRole, number>>;
   /** The roles a run plays today. A drawn role not listed plays as a take (holds arrive with #204); the lean skips it too (#210). */
@@ -112,6 +136,47 @@ export interface SweepTunables {
      */
     stopSpeedMps: number;
   };
+  /** Hold sectors (design §4.2): Echoes arrive along the sector's approach lanes. */
+  hold: {
+    /** Contacts per sector index, an inclusive range drawn uniformly (the Finale, index 5, is the run's largest). */
+    contactsMin: readonly number[];
+    contactsMax: readonly number[];
+    /** Base weight of each card a contact can draw (flank needs a second lane and a contact before it). */
+    cardWeight: Readonly<Record<HoldCard, number>>;
+    /** Seconds from the sector's start to the first arrival, and the span the arrivals are spread over: `[min, max]` drawn uniformly. */
+    firstArrivalSec: readonly [number, number];
+    windowSec: readonly [number, number];
+    /** The Finale's own window: more contacts take longer to arrive. */
+    finaleWindowSec: readonly [number, number];
+    /** A Peeker only walks to a peek anchor at least this far from the sector's entry (the walk there would meet the fairness floor), metres. */
+    minPeekFromEntryM: number;
+    /** A Peeker's walk to its cover keeps at least this far from the sector's entry (else a Strafer comes): the fairness floors would stop it in the open, metres. */
+    minRouteFromEntryM: number;
+    /** Share of arrivals that are Peekers (they need a free peek anchor; else a Strafer comes). */
+    peekerShare: number;
+    /** Share of Strafer arrivals that run (audible) rather than walk (silent). A flank always runs: it must be audible. */
+    runShare: number;
+    /** Speeds, m/s. A walk stays under `audio.enemy.silentBelowMps` (checked by a test). */
+    runMps: number;
+    walkMps: number;
+    /** A Strafer stops walking and fights once it sees the player this close: `[min, max]` metres, drawn per Echo. */
+    engageM: readonly [number, number];
+    /** Seconds between the two Echoes of a trade, and from a won contact to a flank's arrival. */
+    tradeGapSec: readonly [number, number];
+    flankDelaySec: readonly [number, number];
+    /** An arrival whose lane start is in the player's line of sight waits for it to clear, at most this long, seconds. */
+    deferMaxSec: number;
+    /** The exit opens this long after the last arrival is due even if an Echo is alive (one stuck behind a wall must not hold the run), seconds. */
+    exitFallbackSec: number;
+    /** Share of the lane's width an Echo may walk off the lane's centre line, each way. */
+    laneSpreadShare: number;
+  };
+  /**
+   * Survivors of a take sector left alive follow the player into the next sector (design §4.2): at
+   * most `max` of them, arriving `delaySec` after it begins along its approach lanes, as a flank when
+   * the player won a contact in the sector just left and as a trade otherwise.
+   */
+  follow: { max: number; delaySec: readonly [number, number] };
   /** Echo placement on hold anchors. */
   place: {
     /** A Strafer's lane is drawn in this length range, then shortened until all of it is hidden from the entry. */
@@ -211,16 +276,18 @@ export interface SweepTunables {
 export const sweep: SweepTunables = {
   killHeal: { body: 5, head: 10 },
   finaleSector: 6,
-  sectors: 4,
-  dialOffset: [-8, -3, 0, 3],
-  depthMultiplier: [1.0, 1.2, 1.4, 1.6],
-  contactsMin: [1, 1, 2, 2],
-  contactsMax: [1, 2, 2, 3],
-  cardWeight: { 'take-unaware': 0.3, 'take-expected': 0.35, clear: 0.2, crossfire: 0.25, meet: 0 },
+  sectors: 6,
+  noCrossfireSectors: [4],
+  dialOffset: [-8, -3, 0, 3, 0, 6],
+  depthMultiplier: [1.0, 1.2, 1.4, 1.6, 1.8, 2.0],
+  overtime: { dialOffset: 6, dialStep: 2, depthMultiplier: 2.2, depthStep: 0.2, takeContacts: [2, 3], holdContacts: [3, 4] },
+  contactsMin: [1, 1, 2, 2, 1, 1],
+  contactsMax: [1, 2, 2, 3, 2, 2],
+  cardWeight: { 'take-unaware': 0.3, 'take-expected': 0.35, clear: 0.2, crossfire: 0.25 },
   crossfireFromSector: 2,
   maxCardRun: 2,
   roleMix: { take: 0.5, hold: 0.35, meet: 0.15 },
-  playableRoles: ['take', 'meet'],
+  playableRoles: ['take', 'hold', 'meet'],
   meet: {
     groupTwoShare: [0, 0.4, 0.5, 0.6],
     runShare: 0.6,
@@ -234,6 +301,27 @@ export const sweep: SweepTunables = {
     endShortM: 3,
     stopSpeedMps: 1.5,
   },
+  hold: {
+    contactsMin: [1, 1, 1, 2, 1, 5],
+    contactsMax: [1, 2, 3, 3, 2, 5],
+    cardWeight: { hold: 0.6, trade: 0.25, flank: 0.15 },
+    firstArrivalSec: [5, 10],
+    windowSec: [25, 45],
+    finaleWindowSec: [40, 60],
+    minPeekFromEntryM: 6,
+    minRouteFromEntryM: 5.5,
+    peekerShare: 0.45,
+    runShare: 0.65,
+    runMps: 4.6,
+    walkMps: 2.4,
+    engageM: [6, 10],
+    tradeGapSec: [1.2, 2.8],
+    flankDelaySec: [4, 8],
+    deferMaxSec: 4,
+    exitFallbackSec: 120,
+    laneSpreadShare: 0.3,
+  },
+  follow: { max: 2, delaySec: [3, 6] },
   place: {
     laneMinM: 1.2,
     laneMaxM: 3,

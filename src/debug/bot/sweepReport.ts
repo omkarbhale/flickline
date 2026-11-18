@@ -1,5 +1,5 @@
 import { SKILL_IDS, type SkillId } from '../../config/dial';
-import { GATE_POLICIES, type GatePolicy } from './gatePolicy';
+import { GATE_POLICIES, OVERTIME_POLICIES, type GatePolicy, type OvertimePolicy } from './gatePolicy';
 import { cloneTunables, type Tunables } from '../../config/tunables';
 import { pickFix, shotSplit } from '../../feedback/results';
 import { dealableCards, leanView } from '../../modes/lean';
@@ -29,6 +29,12 @@ export interface SweepRunFacts {
   cards: string[];
   /** Stakes of the sectors entered through a door, in order (design §4.5). */
   stakes: string[];
+  /** The Finale was cleared (its exit walked out of: the run reached its Overtime gate, design §4.7, #206). */
+  finaleCleared: boolean;
+  /** Overtime sectors entered, and the Overtime points a Leave door banked or the end forfeited. */
+  overtimeSectors: number;
+  overtimeBanked: number;
+  overtimeLost: number;
   /** Every first sighting (`enemySawPlayer`, once per Echo): horizontal distance player to Echo and the Echo's feet above the player's, metres (#249). */
   sights: FirstSight[];
 }
@@ -112,21 +118,29 @@ export function bySector(sights: readonly FirstSight[]): Record<string, SightSta
 }
 
 /** One seeded run at one skill, with the sweep facts taken from the bus. */
-export function sweepRun(skill: number, seed: number, pinDial?: number, gatePolicy?: GatePolicy): SweepRunFacts {
+export function sweepRun(skill: number, seed: number, pinDial?: number, gatePolicy?: GatePolicy, overtimePolicy?: OvertimePolicy): SweepRunFacts {
   const g = new HeadlessGame({ seed });
   const f: SweepRunFacts = {
     seed, endReason: null, reached: 0, sectors: 0, ehpAtExit: [], contacts: { cleared: 0, disengaged: 0, avoided: 0, died: 0 },
-    liveSec: 0, score: 0, kills: 0, cards: [], stakes: [], sights: [],
+    liveSec: 0, score: 0, kills: 0, cards: [], stakes: [], sights: [], finaleCleared: false, overtimeSectors: 0, overtimeBanked: 0, overtimeLost: 0,
   };
   let sector = '';
   g.bus.on('sectorEntered', (e) => {
     sector = `${e.mapId}/${e.sectorId}`;
     f.reached = e.index + 1;
     f.sectors = e.of;
+    if (e.index >= e.of) f.overtimeSectors = e.index - e.of + 1;
     if (e.index > 0) f.stakes.push(e.stake);
   });
   g.bus.on('sectorEnded', (e) => {
     if (e.reason === 'exit') f.ehpAtExit[e.index] = g.world.health.hp + g.world.health.shield;
+    if (e.reason === 'exit' && e.index === f.sectors - 1) f.finaleCleared = true;
+  });
+  g.bus.on('runBanked', (e) => {
+    f.overtimeBanked = e.points;
+  });
+  g.bus.on('overtimeLost', (e) => {
+    f.overtimeLost = e.points;
   });
   g.bus.on('contactSettled', (e) => {
     f.contacts[e.outcome]++;
@@ -138,7 +152,7 @@ export function sweepRun(skill: number, seed: number, pinDial?: number, gatePoli
     const p = g.world.player.pos;
     f.sights.push({ sector, distM: Math.hypot(t.pos.x - p.x, t.pos.z - p.z), dy: t.pos.y - p.y });
   });
-  const r = playMode(g, { mode: 'sweep', skill, seed, pinDial, gatePolicy });
+  const r = playMode(g, { mode: 'sweep', skill, seed, pinDial, gatePolicy, overtimePolicy });
   f.endReason = r.stats.endReason;
   f.liveSec = r.stats.liveSec;
   f.score = r.modeRun?.score ?? 0;
@@ -300,6 +314,81 @@ export function formatGatePolicyReport(rows: readonly GatePolicyRow[]): string[]
     const share = ['shield', 'arms', 'hot', 'plain'].map((k) => `${(r.stakeShare[k]! * 100).toFixed(0)} %`).join(' / ');
     out.push(
       `| ${r.skill} | ${r.policy} | ${r.runs} | ${r.meanScore.toFixed(0)} | ${r.meanDepth.toFixed(2)} | ${(r.finishedShare * 100).toFixed(0)} % | ${r.deltaScore >= 0 ? '+' : ''}${r.deltaScore.toFixed(0)} (± ${r.deltaScoreSe.toFixed(0)}) | ${r.deltaDepth >= 0 ? '+' : ''}${r.deltaDepth.toFixed(2)} | ${share} |`,
+    );
+  }
+  return out;
+}
+
+/** One policy at one skill over seeded runs (#206): how deep Overtime goes and what the bank-or-push decision is worth. */
+export interface OvertimeRow {
+  policy: string;
+  skill: number;
+  runs: number;
+  /** Share of runs that cleared the Finale (reached the first Overtime gate). */
+  finaleClearedShare: number;
+  /** Of the runs that cleared the Finale: how many played 0 (left at once), 1, 2, 3 and 4 or more Overtime sectors, as shares. */
+  depthShare: number[];
+  /** Of the runs that cleared the Finale: mean Overtime sectors entered, the median and the deepest. */
+  meanDepth: number;
+  medianDepth: number;
+  maxDepth: number;
+  /** Of the runs that entered Overtime: the share that left alive, mean Overtime points banked (leavers) and lost (the rest). */
+  leftShare: number;
+  meanBanked: number;
+  meanLost: number;
+  meanScore: number;
+}
+
+/** The depth buckets of the report: 0, 1, 2, 3, 4 or more Overtime sectors. */
+export const OVERTIME_BUCKETS = 5;
+
+/** The Overtime depth distribution (#206): each policy at each skill over the same seeds. */
+export function overtimeReport(
+  skills: readonly number[], runs: number, firstSeed = 1, policies: readonly string[] = ['push', 'bank'], pinDial?: number,
+): { rows: OvertimeRow[]; runs: SweepRunFacts[] } {
+  const rows: OvertimeRow[] = [];
+  const all: SweepRunFacts[] = [];
+  for (const skill of skills) {
+    for (const name of policies) {
+      const policy = OVERTIME_POLICIES[name];
+      if (!policy) throw new Error(`unknown Overtime policy '${name}' (known: ${Object.keys(OVERTIME_POLICIES).join(', ')})`);
+      const list: SweepRunFacts[] = [];
+      for (let i = 0; i < runs; i++) list.push(sweepRun(skill, firstSeed + i, pinDial, undefined, policy));
+      all.push(...list);
+      const cleared = list.filter((f) => f.finaleCleared);
+      const depths = cleared.map((f) => f.overtimeSectors).sort((a, b) => a - b);
+      const share = new Array<number>(OVERTIME_BUCKETS).fill(0);
+      for (const d of depths) share[Math.min(d, OVERTIME_BUCKETS - 1)]!++;
+      const nc = cleared.length || 1;
+      const entered = list.filter((f) => f.overtimeSectors > 0);
+      const left = entered.filter((f) => f.endReason === 'left');
+      const lost = entered.filter((f) => f.endReason !== 'left');
+      rows.push({
+        policy: name, skill, runs: list.length,
+        finaleClearedShare: cleared.length / (list.length || 1),
+        depthShare: share.map((n) => n / nc),
+        meanDepth: depths.reduce((a, b) => a + b, 0) / nc,
+        medianDepth: depths.length ? depths[Math.floor(depths.length / 2)]! : 0,
+        maxDepth: depths.length ? depths[depths.length - 1]! : 0,
+        leftShare: entered.length ? left.length / entered.length : 0,
+        meanBanked: left.length ? left.reduce((a, f) => a + f.overtimeBanked, 0) / left.length : 0,
+        meanLost: lost.length ? lost.reduce((a, f) => a + f.overtimeLost, 0) / lost.length : 0,
+        meanScore: list.reduce((a, f) => a + f.score, 0) / (list.length || 1),
+      });
+    }
+  }
+  return { rows, runs: all };
+}
+
+export function formatOvertimeReport(rows: readonly OvertimeRow[]): string[] {
+  const out = [
+    '| Bot skill | Policy | Runs | Cleared the Finale | Overtime sectors played, of Finale clears: 0 / 1 / 2 / 3 / 4+ | Mean / median / max | Left alive (of runs in Overtime) | Overtime points banked (leavers) | Overtime points lost (the rest) | Score |',
+    '|---|---|---|---|---|---|---|---|---|---|',
+  ];
+  for (const r of rows) {
+    const share = r.depthShare.map((v) => `${(v * 100).toFixed(0)} %`).join(' / ');
+    out.push(
+      `| ${r.skill} | ${r.policy} | ${r.runs} | ${(r.finaleClearedShare * 100).toFixed(0)} % | ${share} | ${r.meanDepth.toFixed(2)} / ${r.medianDepth} / ${r.maxDepth} | ${(r.leftShare * 100).toFixed(0)} % | ${r.meanBanked.toFixed(0)} | ${r.meanLost.toFixed(0)} | ${r.meanScore.toFixed(0)} |`,
     );
   }
   return out;

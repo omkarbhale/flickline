@@ -1,13 +1,15 @@
 import type { EventSink } from '../core/eventBus';
 import { EnemyStreams } from '../core/rngStreams';
 import { DEG2RAD } from '../core/math';
-import { TICK_DT, secondsToTicks } from '../core/time';
+import { TICK_DT, TICK_RATE, secondsToTicks } from '../core/time';
 import { vec3, type Vec3 } from '../core/vec3';
 import type { Tunables } from '../config/tunables';
 import { shieldAbsorbed } from './damage';
 import { createAimInfo, measureAim, yawOf, type AimInfo } from './aim';
 import { lineBlockedRay } from './collision';
-import { createEnemyAi, resetEnemyAi, type FireParams, type PeekParams, type StrafeParams } from './enemyAi';
+import { arriveInit } from './arrival';
+import { createEnemyAi, resetEnemyAi, type ArriveParams, type FireParams, type PeekParams, type StrafeParams } from './enemyAi';
+import { createEnemyBody, resetEnemyBody, stepEnemyBody } from './enemyBody';
 import { fireInit } from './enemyFire';
 import { BEHAVIOURS } from './enemies';
 import { peekInit } from './peeker';
@@ -110,7 +112,7 @@ export interface SpawnOptions {
   shield?: number;
   /**
    * Health at spawn (default `maxHp`). A mode that needs a target to take any number of hits
-   * without dying (Spray Wall's Post) passes a very large value: it still emits `targetHit`, never `targetKilled`.
+   * without dying passes a very large value: it still emits `targetHit`, never `targetKilled`.
    */
   hp?: number;
   /** Strafer: the dial's speed, leg and stand-still and the lane it runs (defaults: the dial-50 values, a line square to the player). */
@@ -119,19 +121,26 @@ export interface SpawnOptions {
   peek?: PeekParams;
   /**
    * Strafer and Peeker: this enemy shoots back (the world's `enemiesFire` flag must also be on, so
-   * drills never see a shot). Absent = it never fires.
+   * a mode that never fires back sees no shot). Absent = it never fires.
    */
   fire?: FireParams;
+  /**
+   * Strafer and Peeker: the Echo arrives (a hold sector's, design §4.2): it spawns at the first
+   * point of the route, which replaces the spawn position, and walks it in before it fights.
+   */
+  arrive?: ArriveParams;
 }
 
-function createSlot(): TargetState {
+function createSlot(tunables: Tunables): TargetState {
+  const pos = vec3();
+  const prevPos = vec3();
   return {
     id: -1,
     kind: 'beacon',
     spawner: -1,
     home: vec3(),
-    pos: vec3(),
-    prevPos: vec3(),
+    pos,
+    prevPos,
     crouched: false,
     radius: 0,
     boundsY: 0,
@@ -150,6 +159,7 @@ function createSlot(): TargetState {
     fsm: createFsm(),
     streams: new EnemyStreams(),
     ai: createEnemyAi(),
+    body: createEnemyBody(pos, prevPos, tunables),
     visibleTick: -1,
     firstShotTick: -1,
     reactionShotTick: -1,
@@ -200,7 +210,7 @@ export class TargetField {
   private readonly losRay: Ray = createRay();
 
   constructor(readonly tunables: Tunables) {
-    for (let i = 0; i < tunables.targets.maxTargets; i++) this.slots.push(createSlot());
+    for (let i = 0; i < tunables.targets.maxTargets; i++) this.slots.push(createSlot(tunables));
   }
 
   /** Remove every target and forget the level's spawn points. */
@@ -277,10 +287,18 @@ export class TargetField {
     t.movingShot = false;
     t.prevPos.x = x; t.prevPos.y = y; t.prevPos.z = z;
     resetEnemyAi(t.ai);
+    if (def.shape === 'humanoid') {
+      // Facing the player, carrying the gun its shots would come from (the fire model's choice, else the fight's).
+      const pl = ctx.world.player;
+      const yaw = Math.atan2(-(pl.pos.x - x), -(pl.pos.z - z));
+      resetEnemyBody(t.body, t.crouched, yaw, opts?.fire?.weapon ?? ctx.world.enemyWeapon, this.tunables);
+    }
     if (def.behaviour === 'strafer') strafeInit(t, ctx, opts?.strafe);
     else if (def.behaviour === 'peeker') peekInit(t, opts?.peek);
     if (def.behaviour === 'strafer' || def.behaviour === 'peeker') fireInit(t, ctx, opts?.fire);
-    fsmStart(BEHAVIOURS[def.behaviour], t, ctx);
+    const behaviour = BEHAVIOURS[def.behaviour];
+    const arriving = behaviour.arrive !== undefined && arriveInit(t, opts?.arrive);
+    fsmStart(behaviour, t, ctx, arriving ? behaviour.arrive : behaviour.initial);
     if (events) {
       const p = spawnedPayload;
       p.tick = ctx.tick;
@@ -346,7 +364,19 @@ export class TargetField {
         this.expire(t, tick, ctx.events);
         continue;
       }
-      fsmStep(BEHAVIOURS[tt.kinds[t.kind].behaviour], t, ctx);
+      const b = BEHAVIOURS[tt.kinds[t.kind].behaviour];
+      if (t.body.driven) {
+        // The debug hook's command plays the body; the behaviour waits.
+        stepEnemyBody(t, ctx);
+        continue;
+      }
+      fsmStep(b, t, ctx);
+      // A state that moves the slot itself (an arrival walking its route in) leaves the body still.
+      if (b.drivesBody && t.alive && !b.states[t.fsm.state]!.kinematic) {
+        stepEnemyBody(t, ctx);
+        b.bodyMoved?.(t);
+      }
+      if (t.ai.honest && t.ai.audibleTick < 0) this.trackAudible(t, ctx);
     }
     for (let i = 0; i < this.spawners.length; i++) {
       const sp = this.spawners[i]!;
@@ -363,6 +393,24 @@ export class TargetField {
         ctx.events.emit('targetRespawned', respawnedPayload);
       }
     }
+  }
+
+  /**
+   * An arrival's steps reach the player (`ai.audibleTick`): it ran, not walked (the same silent speed
+   * the footstep audio uses), within the audible range, for one stride. The sim keeps its own count so
+   * "audible before it fires" is a fact of the run, not of the audio engine (design §4.4, S9).
+   */
+  private trackAudible(t: TargetState, ctx: BehaviourContext): void {
+    const a = t.ai;
+    const e = this.tunables.audio.enemy;
+    const mx = t.pos.x - t.prevPos.x, mz = t.pos.z - t.prevPos.z;
+    const moved = Math.sqrt(mx * mx + mz * mz);
+    if (moved * TICK_RATE < e.silentBelowMps) return;
+    const p = ctx.world.player;
+    const dx = t.pos.x - p.pos.x, dz = t.pos.z - p.pos.z;
+    if (dx * dx + dz * dz > e.maxAudibleM * e.maxAudibleM) return;
+    a.audibleAccum += moved;
+    if (a.audibleAccum >= e.strideM) a.audibleTick = ctx.tick;
   }
 
   private expire(t: TargetState, tick: number, events: EventSink<SimEvents>): void {
@@ -639,6 +687,10 @@ export class TargetField {
       if (t.kind === 'strafer' || t.kind === 'peeker') {
         const a = t.ai;
         mix(a.s); mix(a.vel); mix(a.u); mix(a.phase); mix(a.burstLeft); mix(t.crouched ? 1 : 0);
+        const k = t.body.kin;
+        const w = t.body.weapon;
+        mix(k.vel.x); mix(k.vel.y); mix(k.vel.z); mix(k.yaw); mix(k.pitch); mix(k.grounded ? 1 : 0);
+        mix(w.shots); mix(w.slots[0]!.mag); mix(w.sprayCount); mix(w.recoilPitch); mix(w.recoilYaw); mix(w.reloadLeft);
       }
     }
     for (let i = 0; i < this.spawners.length; i++) mix(this.spawners[i]!.respawnTick);

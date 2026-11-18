@@ -36,15 +36,18 @@ export interface GateEnv {
 
 /**
  * Echoes of a sector plan the player would hear from its entry: placed within `hearM` of it (horizontal
- * distance, like the footstep model), except a meet group that **walks**: walking is silent (design §4.4),
- * so a door does not claim to hear it. Every other Echo counts, so for a take sector the bucket is its Echo count.
+ * distance, like the footstep model), except a meet group or a hold sector's arrival that **walks**: walking is silent
+ * (design §4.4), so a door does not claim to hear it. An arrival is counted where its run ends (`ArrivePlan.route`). Every other Echo counts, so for a take sector the bucket is its Echo count.
  */
 export function heardCount(sp: SectorPlan, hearM: number): number {
   let n = 0;
   for (const c of sp.contacts) {
     for (const e of c.echoes) {
       if (e.gait === 'walk') continue;
-      const dx = e.feet.x - sp.entry.x, dz = e.feet.z - sp.entry.z;
+      // A hold sector's arrival is heard where its run ends (it spawns far off), and a walking one not at all.
+      if (e.arrive && !e.arrive.running) continue;
+      const at = e.arrive ? e.arrive.route[e.arrive.route.length - 1]! : e.feet;
+      const dx = at.x - sp.entry.x, dz = at.z - sp.entry.z;
       if (dx * dx + dz * dz <= hearM * hearM) n++;
     }
   }
@@ -222,7 +225,18 @@ export function planGate(plan: RunPlan, env: GateEnv): GatePlan {
   return { index, doors: [doors[0]!, doors[1]!] };
 }
 
-/** The player walked through `door` of `gate`: the run's route takes its sector. */
+/**
+ * The gate after the Finale and after each Overtime sector (design §4.7, #206): **Leave** (the left door: the run ends, every point
+ * banked) or **Overtime** (the right door: the next sector, drawn like any gate's door with the three honest facts and a stake).
+ * Drawn from the same stream as an ordinary gate, so the sector behind the Overtime door is the one the seed would have dealt there.
+ */
+export function planOvertimeGate(plan: RunPlan, env: GateEnv): GatePlan {
+  const g = planGate(plan, env);
+  const on = g.doors[1];
+  return { index: g.index, doors: [{ door: 0, facts: on.facts, sector: on.sector }, on], leave: 0 };
+}
+
+/** The player walked through `door` of `gate`: the run's route takes its sector (never the Leave door of an Overtime gate). */
 export function commitGate(plan: RunPlan, gate: GatePlan, door: 0 | 1): SectorPlan {
   const sector = gate.doors[door].sector;
   plan.gates.push(gate);

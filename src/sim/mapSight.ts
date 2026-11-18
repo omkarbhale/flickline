@@ -71,8 +71,21 @@ function nearestNode(map: MapDef, p: Vec3): number {
   return best >= 0 ? best : any;
 }
 
+/** Walks are a property of a static map and asked for again and again (every arrival of every plan): kept per map, positions to a centimetre. */
+const routeCache = new WeakMap<MapDef, Map<string, Vec3[]>>();
+const cm = (v: number): number => Math.round(v * 100);
+
 /** Shortest walk from `from` to `to`: straight when the line is clear, else through the nav graph (Dijkstra). */
 export function navRoute(map: MapDef, from: Vec3, to: Vec3): Vec3[] {
+  let cache = routeCache.get(map);
+  if (!cache) routeCache.set(map, (cache = new Map()));
+  const key = `${cm(from.x)},${cm(from.y)},${cm(from.z)}|${cm(to.x)},${cm(to.y)},${cm(to.z)}`;
+  let route = cache.get(key);
+  if (!route) cache.set(key, (route = computeRoute(map, from, to)));
+  return route.map((p) => ({ ...p }));
+}
+
+function computeRoute(map: MapDef, from: Vec3, to: Vec3): Vec3[] {
   if (walkLine(map, from, to)) return [{ ...to }];
   const nodes = map.nav.nodes;
   if (nodes.length === 0) return [{ ...to }];

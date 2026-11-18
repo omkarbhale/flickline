@@ -437,7 +437,7 @@ describe('magazine, reload, equip, swap (spec §3.1)', () => {
 describe('100 Kestrel bullets at a flat wall (headless spray test)', () => {
   const WALL_Z = -10;
   const wallRoom: LevelDef = {
-    name: 'spray wall',
+    name: 'spray range',
     boxes: [
       { tag: 'floor', min: vec3(-30, -1, -30), max: vec3(30, 0, 30) },
       { tag: 'wall', min: vec3(-30, 0, WALL_Z - 1), max: vec3(30, 30, WALL_Z) },

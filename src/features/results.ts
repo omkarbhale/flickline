@@ -1,7 +1,6 @@
 import { defineFeature } from '../app/feature';
 import { MODES } from '../app/modeHost';
 import { scriptedRun } from '../debug/scriptedSweep';
-import { PLACEMENT_MODE } from '../modes/placement';
 import '../feedback/cuePlanner'; // declares the cueScheduleSet event
 import { leanView } from '../modes/lean';
 import { ArmourNoteTracker } from '../feedback/armourNoteTracker';
@@ -131,7 +130,8 @@ export const feature = defineFeature({
       onNewRun: () => card.hide(),
       isClean: () => clean,
       dailyDate: () => game.dailyKey,
-      firstRating: (mode) => mode === PLACEMENT_MODE,
+      // A new profile's first run is the placing Opener (design §9.2): its rating has no "before" worth a delta.
+      firstRating: () => game.modes.newProfile,
     });
     game.onReset(() => {
       if (game.run.state !== 'result') card.hide();

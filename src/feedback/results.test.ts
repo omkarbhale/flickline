@@ -9,7 +9,7 @@ import type { RunStory } from './runStory';
 import type { RunStats, TargetStat } from './statTracker';
 import {
   buildCard, DASH, depthLabel, fill, formatDelta, formatThousands, nextSeed, pickFix, ResultsRecorder, shotSplit,
-  statCells, timeToShotBaselineMs, type ResultsEvents, type ShotSplit,
+  metricCell, statCells, timeToShotBaselineMs, type CardModel, type ResultsEvents, type ShotSplit,
 } from './results';
 
 const tunables = cloneTunables();
@@ -23,7 +23,7 @@ function target(p: Partial<TargetStat> = {}): TargetStat {
 
 function stats(p: Partial<RunStats> = {}): RunStats {
   return {
-    mode: 'coldStart', seed: 7, dial: 50, endReason: 'timer', liveTicks: 7680, durationSec: 60,
+    mode: 'test', seed: 7, dial: 50, endReason: 'timer', liveTicks: 7680, durationSec: 60,
     shots: 50, hits: 30, misses: 20, headHits: 12, bodyHits: 16, legHits: 2, kills: 10, cleanKills: 6, movingShots: 2,
     accuracy: 0.6, headshotRate: 0.4, medianRtMs: 620, medianTtkMs: 410, timeOnTarget: 0.31,
     medianStopLatencyMs: null, stopCount: 0, preAimErrorDeg: 6.24, headHeightDisciplineDeg: null, headHeightSamples: 0,
@@ -141,9 +141,9 @@ describe('pickFix (the #26 stub)', () => {
 describe('statCells', () => {
   it('lists the headline stats then the mode key metrics, with a dash for undefined values', () => {
     const cells = statCells(emptyStats());
-    expect(cells.map((c) => c.id)).toEqual(['accuracy', 'headshotRate', 'timeToShot', 'cleanStreak', 'movingShots', 'kills', 'firstShotRate', 'preAimError']);
+    expect(cells.map((c) => c.id)).toEqual(['accuracy', 'headshotRate', 'timeToShot', 'ttk', 'movingShots', 'kills', 'firstShotRate', 'preAimError']);
     const byId = Object.fromEntries(cells.map((c) => [c.id, c.value]));
-    for (const id of ['accuracy', 'headshotRate', 'timeToShot', 'cleanStreak', 'movingShots', 'firstShotRate', 'preAimError']) expect(byId[id]).toBe(DASH);
+    for (const id of ['accuracy', 'headshotRate', 'timeToShot', 'ttk', 'movingShots', 'firstShotRate', 'preAimError']) expect(byId[id]).toBe(DASH);
     expect(byId.kills).toBe('0');
   });
 
@@ -153,9 +153,7 @@ describe('statCells', () => {
     expect(byId.accuracy!.hint).toBe('30 of 50 shots');
     expect(byId.headshotRate!.value).toBe('40%');
     expect(byId.timeToShot!.value).toBe('620 ms');
-    expect(byId.ttk).toBeUndefined(); // Cold Start's kills are one bullet: the tile is the clean streak instead
-    expect(byId.cleanStreak!.value).toBe('4');
-    expect(Object.fromEntries(statCells(stats({ mode: 'strafeTrack' })).map((c) => [c.id, c])).ttk!.value).toBe('410 ms');
+    expect(byId.ttk!.value).toBe('410 ms');
     expect(byId.movingShots!.value).toBe('2');
     expect(byId.movingShots!.hint).toBe('4% of shots');
     expect(byId.firstShotRate!.value).toBe('67%'); // 2 of 3 engaged targets
@@ -163,37 +161,35 @@ describe('statCells', () => {
     expect(byId.preAimError!.value).toBe('6.2°');
   });
 
-  it('swaps the meaningless time to kill for the clean streak in one-bullet modes (#175)', () => {
-    for (const mode of ['coldStart', 'orbit', 'placement']) {
-      const ids = statCells(stats({ mode, maxCleanStreak: 7 })).map((c) => c.id);
-      expect(ids).not.toContain('ttk');
-      expect(ids.slice(0, 6)).toEqual(['accuracy', 'headshotRate', 'timeToShot', 'cleanStreak', 'movingShots', 'kills']);
-    }
-    const streak = statCells(stats({ mode: 'coldStart', maxCleanStreak: 7, kills: 12 })).find((c) => c.id === 'cleanStreak')!;
+  it('swaps the meaningless time to kill for the clean streak when kills are one bullet (#175)', () => {
+    const ids = statCells(stats({ medianTtkMs: 0.3, maxCleanStreak: 7 })).map((c) => c.id);
+    expect(ids).not.toContain('ttk');
+    expect(ids.slice(0, 6)).toEqual(['accuracy', 'headshotRate', 'timeToShot', 'cleanStreak', 'movingShots', 'kills']);
+    const streak = statCells(stats({ medianTtkMs: 0.3, maxCleanStreak: 7, kills: 12 })).find((c) => c.id === 'cleanStreak')!;
     expect(streak.value).toBe('7');
-    expect(statCells(stats({ mode: 'coldStart', kills: 0 })).find((c) => c.id === 'cleanStreak')!.value).toBe(DASH);
-    expect(statCells(stats({ mode: 'strafeTrack' })).map((c) => c.id)).toContain('ttk');
+    expect(statCells(stats({ medianTtkMs: 0.3, kills: 0 })).find((c) => c.id === 'cleanStreak')!.value).toBe(DASH);
+    expect(statCells(stats()).map((c) => c.id)).toContain('ttk');
   });
 
-  it('shows the mode specific pair and signs the flick bias', () => {
-    const o = statCells(stats({ mode: 'orbit', flickErrorBiasDeg: 2.34, flickErrorMeanAbsDeg: 3.1, flickCount: 9 }));
-    expect(o.slice(6).map((c) => c.id)).toEqual(['flickBias', 'flickError']);
-    expect(o[6]!.value).toBe('+2.3°');
-    expect(o[6]!.hint).toBe('you overshoot');
-    expect(statCells(stats({ mode: 'orbit', flickErrorBiasDeg: -1.2 }))[6]!.hint).toBe('you undershoot');
+  it('signs the flick bias', () => {
+    const o = metricCell('flickBias', stats({ flickErrorBiasDeg: 2.34, flickErrorMeanAbsDeg: 3.1, flickCount: 9 }));
+    expect(o.value).toBe('+2.3°');
+    expect(o.hint).toBe('you overshoot');
+    expect(metricCell('flickBias', stats({ flickErrorBiasDeg: -1.2 })).hint).toBe('you undershoot');
+    expect(metricCell('flickError', stats({ flickErrorBiasDeg: 2.34, flickErrorMeanAbsDeg: 3.1, flickCount: 9 })).id).toBe('flickError');
   });
 
-  it('Strafe Track shows time on target and the signed lead error (+ ahead of the target, - behind it)', () => {
-    const s = statCells(stats({ mode: 'strafeTrack', timeOnTarget: 0.42, leadErrorBiasDeg: 0.84, leadErrorMeanAbsDeg: 1.1, leadSamples: 120 }));
-    expect(s.slice(6).map((c) => c.id)).toEqual(['timeOnTarget', 'leadError']);
-    expect(s[6]!.value).toBe('42%');
-    expect(s[7]!.value).toBe('+0.8°');
-    expect(s[7]!.hint).toBe('you lead the target');
-    const lag = statCells(stats({ mode: 'strafeTrack', leadErrorBiasDeg: -1.46, leadSamples: 50 }))[7]!;
+  it('shows time on target and the signed lead error (+ ahead of the target, - behind it)', () => {
+    const s = stats({ timeOnTarget: 0.42, leadErrorBiasDeg: 0.84, leadErrorMeanAbsDeg: 1.1, leadSamples: 120 });
+    expect(metricCell('timeOnTarget', s).value).toBe('42%');
+    const lead = metricCell('leadError', s);
+    expect(lead.value).toBe('+0.8°');
+    expect(lead.hint).toBe('you lead the target');
+    const lag = metricCell('leadError', stats({ leadErrorBiasDeg: -1.46, leadSamples: 50 }));
     expect(lag.value).toBe('−1.5°');
     expect(lag.hint).toBe('you lag behind');
-    expect(statCells(stats({ mode: 'strafeTrack', leadErrorBiasDeg: 0.2, leadSamples: 50 }))[7]!.hint).toBe('on the line');
-    const none = statCells(stats({ mode: 'strafeTrack' }))[7]!;
+    expect(metricCell('leadError', stats({ leadErrorBiasDeg: 0.2, leadSamples: 50 })).hint).toBe('on the line');
+    const none = metricCell('leadError', stats());
     expect(none.value).toBe('—');
     expect(none.hint).toBe('');
   });
@@ -284,7 +280,7 @@ describe('buildCard', () => {
   it('marks an empty run and labels the mode and ending', () => {
     const c = buildCard(input({ stats: emptyStats(), score: 0 }));
     expect(c.empty).toBe(true);
-    expect(c.modeLabel).toBe('Cold Start');
+    expect(c.modeLabel).toBe('Test');
     expect(c.endLabel).toBe("Time's up");
     expect(c.fix.evidence).toBe(cfg.copy.empty.evidence);
     expect(buildCard(input({ stats: stats({ mode: 'my-new_mode' }) })).modeLabel).toBe('My New Mode');
@@ -300,7 +296,7 @@ describe('ResultsRecorder', () => {
     const s = stats();
     const rec = new ResultsRecorder({
       bus,
-      run: { log: { mode: 'coldStart', seed: 7, dial: 50, events: [], truncated: false }, liveStats: () => s },
+      run: { log: { mode: 'test', seed: 7, dial: 50, events: [], truncated: false }, liveStats: () => s },
       ratings: { rating: () => rating },
       skillOf: () => skill,
       pb: { best: () => 10000 },
@@ -313,18 +309,18 @@ describe('ResultsRecorder', () => {
   }
 
   it('marks the rating of a first-rating mode as first, and only that mode', () => {
-    const { bus, rec } = setup('line', undefined, (m) => m === 'placement');
-    bus.emit('runReady', { tick: 0, mode: 'placement', seed: 1, dial: 30 });
+    const { bus, rec } = setup('line', undefined, (m) => m === 'sweep');
+    bus.emit('runReady', { tick: 0, mode: 'sweep', seed: 1, dial: 30 });
     bus.emit('runEnded', { tick: 9, t: 45, reason: 'timer' });
     expect(rec.last!.rating!.first).toBe(true);
-    bus.emit('runReady', { tick: 0, mode: 'coldStart', seed: 1, dial: 30 });
+    bus.emit('runReady', { tick: 0, mode: 'test', seed: 1, dial: 30 });
     bus.emit('runEnded', { tick: 9, t: 60, reason: 'timer' });
     expect(rec.last!.rating!.first).toBe(false);
   });
 
   it('builds one card at runEnded from the score, medals and the rating before and after', () => {
     const { bus, rec, cards, setRating, newRuns } = setup('precision');
-    bus.emit('runReady', { tick: 0, mode: 'coldStart', seed: 7, dial: 50 });
+    bus.emit('runReady', { tick: 0, mode: 'test', seed: 7, dial: 50 });
     expect(newRuns()).toBe(1);
     bus.emit('scoreAwarded', { total: 100 });
     bus.emit('scoreAwarded', { total: 250 });
@@ -343,11 +339,11 @@ describe('ResultsRecorder', () => {
   it('flags the card as a clean run when the cue planner says the run was clean', () => {
     let clean = true;
     const { bus, rec } = setup('precision', () => clean);
-    bus.emit('runReady', { tick: 0, mode: 'coldStart', seed: 7, dial: 50 });
+    bus.emit('runReady', { tick: 0, mode: 'test', seed: 7, dial: 50 });
     bus.emit('runEnded', { tick: 9, t: 60, reason: 'timer' });
     expect(rec.last!.clean).toBe(true);
     clean = false;
-    bus.emit('runReady', { tick: 0, mode: 'coldStart', seed: 8, dial: 50 });
+    bus.emit('runReady', { tick: 0, mode: 'test', seed: 8, dial: 50 });
     bus.emit('runEnded', { tick: 9, t: 60, reason: 'timer' });
     expect(rec.last!.clean).toBe(false);
   });
@@ -373,7 +369,7 @@ describe('the run results card (design §8.2, #213)', () => {
     won: 1, lost: 0, avoided: 0, kills: 2, hpIn: 100, hpOut: 80, flawless: false, overtime: n > 6, points: 100, ...p,
   });
   const story = (n: number, p: Partial<RunStory> = {}): RunStory => ({
-    sectors: Array.from({ length: n }, (_, i) => tile(i + 1)), situations: [], overtimeSectors: Math.max(0, n - 6), banked: null, total: null, won: n, lost: 0, ...p,
+    sectors: Array.from({ length: n }, (_, i) => tile(i + 1)), situations: [], overtimeSectors: Math.max(0, n - 6), banked: null, overtimeLost: null, total: null, won: n, lost: 0, ...p,
   });
   const make = (st: RunStats, rs: RunStory | undefined, extra: object = {}) =>
     buildCard({ stats: st, split: null, score: 9000, rating: null, pb: null, medals: [], story: rs, ...extra });
@@ -425,6 +421,15 @@ describe('the run results card (design §8.2, #213)', () => {
     expect(depthLabel(story(4), 'quit')).toBe('Sector 4 of 6');
     // A shorter route (the run director's v0 reports four sectors): n of total, and leaving at its end clears it.
     expect(depthLabel(story(4, { total: 4 }), 'left')).toBe('Route cleared, 4 sectors');
+    // "Cleared" means every Echo dead: walking out without a fight is not clearing the route (#252).
+    const walked = (n: number, total: number, clearedUpTo: number): RunStory =>
+      story(n, { total, sectors: Array.from({ length: n }, (_, i) => tile(i + 1, { cleared: i < clearedUpTo, won: 0, kills: 0 })) });
+    expect(depthLabel(walked(4, 4, 0), 'left')).toBe('0 of 4 sectors cleared');
+    expect(depthLabel(walked(4, 4, 3), 'left')).toBe('3 of 4 sectors cleared');
+    expect(depthLabel(walked(4, 4, 4), 'left')).toBe('Route cleared, 4 sectors');
+    expect(depthLabel(walked(6, 6, 0), 'left')).toBe('0 of 6 sectors cleared');
+    expect(depthLabel(walked(6, 6, 5), 'left')).toBe('5 of 6 sectors cleared');
+    expect(depthLabel(walked(6, 6, 6), 'left')).toBe('Finale cleared');
     expect(depthLabel(story(3, { total: 4 }), 'death')).toBe('Sector 3 of 4');
     expect(depthLabel(story(2, { total: 4 }), 'quit')).toBe('Sector 2 of 4');
   });
@@ -432,13 +437,38 @@ describe('the run results card (design §8.2, #213)', () => {
   it('puts the end label, death cause and Overtime banked or lost in the header', () => {
     const dead = make(sweep(), story(8), { deathCause: 'Lost to a flank you could not see.' });
     expect(dead).toMatchObject({ endLabel: 'Eliminated', depth: 'Overtime 2', deathLine: 'Lost to a flank you could not see.' });
-    expect(dead.overtime).toEqual({ points: '200', state: 'lost' });
+    expect(dead.overtime).toEqual({ points: '200', state: 'lost', sectors: 2 });
     const left = make(sweep({ endReason: 'left' }), story(8), { deathCause: 'ignored' });
     expect(left.endLabel).toBe('Made it out');
     expect(left.deathLine).toBeNull();
-    expect(left.overtime).toEqual({ points: '200', state: 'banked' });
+    expect(left.overtime).toEqual({ points: '200', state: 'banked', sectors: 2 });
     expect(make(sweep(), story(3)).overtime).toBeNull();
     expect(make(sweep(), story(3)).deathLine).toBeNull();
+  });
+
+  it('reads what a Leave door banked and what the end forfeited from the run\'s own events, not from the tiles (#206)', () => {
+    // Tiles say 200 (two Overtime tiles of 100); the run reported 340 banked, or 250 forfeited.
+    const left = make(sweep({ endReason: 'left' }), story(8, { banked: 340 }));
+    expect(left.overtime).toEqual({ points: '340', state: 'banked', sectors: 2 });
+    const dead = make(sweep(), story(8, { overtimeLost: 250 }));
+    expect(dead.overtime).toEqual({ points: '250', state: 'lost', sectors: 2 });
+    // A quit in Overtime is not a Leave: the points are gone too.
+    expect(make(sweep({ endReason: 'quit' }), story(8, { overtimeLost: 250 })).overtime).toEqual({ points: '250', state: 'lost', sectors: 2 });
+  });
+
+  it('the recorder takes the run\'s final score from overtimeLost: the forfeited points are not in it (#206)', () => {
+    const bus = new EventBus<ResultsEvents>();
+    let model: CardModel | null = null;
+    const rec = new ResultsRecorder({
+      bus, run: { log: { mode: 'sweep', seed: 1, dial: 50, events: [], truncated: false }, liveStats: () => sweep() }, ratings: { rating: () => 0 }, skillOf: () => null,
+      story: { snapshot: () => story(8, { overtimeLost: 250 }) }, onCard: (c) => { model = c; },
+    });
+    bus.emit('runReady', { tick: 0, mode: 'sweep', seed: 1, dial: 50 });
+    bus.emit('scoreAwarded', { total: 9000 });
+    bus.emit('overtimeLost', { score: 8750 });
+    bus.emit('runEnded', { tick: 1, t: 1, reason: 'death' });
+    expect(rec.last!.scoreValue).toBe(8750);
+    expect(model!.overtime).toEqual({ points: '250', state: 'lost', sectors: 2 });
   });
 
   it('formats tiles: role, stake and condition words, fights, HP in to out, the gold mark', () => {

@@ -21,7 +21,7 @@ export interface CuePlanInput {
   /** Posterior mean on the 0-100 dial and its s.d. (the confidence band) for that skill. */
   rating: number;
   sd: number;
-  /** The Placement run is the probe: always full cues, never the clean run. */
+  /** The run places a new profile (the placing Opener, design §9.2): the probe, so always full cues and never the clean run. */
   placement: boolean;
   /** Settings: fade cues as the player improves / one clean run per session. */
   fading: boolean;

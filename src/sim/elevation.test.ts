@@ -5,7 +5,7 @@ import { TICK_RATE } from '../core/time';
 import { vec3 } from '../core/vec3';
 import { rayBox, rampY, supportBelow } from './collision';
 import { createTickInput, type BoxDef, type BoxTag, type LevelDef, type RampRise, type SimEvents, type TickInput } from './types';
-import { stepPlayer } from './movement';
+import { stepBody } from './movement';
 import { World } from './world';
 
 function box(tag: BoxTag, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): BoxDef {
@@ -279,7 +279,7 @@ describe('rays against ramps', () => {
 });
 
 describe('shared movement code', () => {
-  it('a body that is not the player (an enemy, #87) climbs steps and ramps through the same stepPlayer', () => {
+  it('a body that is not the player (an enemy, #87) climbs steps and ramps through the same stepBody', () => {
     const t = cloneTunables();
     const lv = level([box('platform', -3, 0, -6, 3, 0.3, -2), ramp('-z', 0, -3, 0, -14, 3, 2, -6), box('platform', -3, 0, -30, 3, 2, -14)]);
     const body = {
@@ -290,7 +290,7 @@ describe('shared movement code', () => {
     const bus = new EventBus<SimEvents>();
     const input = createTickInput();
     input.moveZ = 1;
-    for (let i = 0; i < TICK_RATE * 4; i++) stepPlayer(body, input, lv.boxes, t.movement, t.weapon.kestrel, 1 / TICK_RATE, i + 1, bus);
+    for (let i = 0; i < TICK_RATE * 4; i++) stepBody(body, input, lv.boxes, t.movement, t.weapon.kestrel, 1 / TICK_RATE, i + 1, bus);
     expect(body.pos.y).toBeCloseTo(2, 6);
     expect(body.grounded).toBe(true);
   });

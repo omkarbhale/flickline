@@ -4,13 +4,13 @@ import { vec3, type Vec3 } from '../../core/vec3';
 import { lineClear } from '../../sim/exposure';
 import { targetAimPoint, wrapPi, yawOf } from '../../sim/aim';
 import { Rng } from '../../core/rng';
-import type { GateRt, SweepState } from '../../modes/sweep';
+import { atRisk, currentSector, sectorKey, sweepCatalog, type GateRt, type SweepState } from '../../modes/sweep';
 import { navRoute } from '../../modes/sweepCatalog';
 import type { TickInput } from '../../sim/types';
 import type { World } from '../../sim/world';
 import type { Bot, BotStats } from './bot';
 import type { BotGame } from './headless';
-import { leftDoor, type GatePolicy } from './gatePolicy';
+import { alwaysLeave, leftDoor, type GatePolicy, type OvertimePolicy } from './gatePolicy';
 
 /** A waypoint counts as reached within this horizontal distance, metres. */
 const REACH_M = 0.6;
@@ -38,6 +38,8 @@ export class SweepBot {
   /** It was in a fight since the route was planned. */
   private fought = false;
   private sector = -1;
+  /** The sector's exit was open when last looked at: a hold sector's opens when its Echoes are dead, then the route is planned from where the bot stands. */
+  private exitOpen = true;
   private bestDist = Infinity;
   private bestAt = 0;
   private readonly aim = vec3();
@@ -69,6 +71,8 @@ export class SweepBot {
      * every fight, as every report before the lean assumed. No random draw is made at 0, so those reports do not change.
      */
     private readonly movingFireShare = 0,
+    /** At an Overtime gate (design §4.7, #206): leave or push on. Default: leave, so a run ends at the Finale as it did before Overtime. */
+    private readonly overtimePolicy: OvertimePolicy = alwaysLeave,
   ) {
     this.rng = new Rng((seed ^ 0x2545f491) >>> 0 || 1);
     bot.visibleOnly = true;
@@ -90,7 +94,13 @@ export class SweepBot {
     if (!st?.plan) return out;
     if (st.gate) return this.throughGate(st.gate, world, out);
     this.gate = null;
-    if (st.sector !== this.sector) this.plan(st, true);
+    if (sectorKey(st) !== this.sector) {
+      this.plan(st, true);
+      this.exitOpen = st.exitOpen;
+    } else if (st.exitOpen && !this.exitOpen) {
+      this.exitOpen = true;
+      this.plan(st, false);
+    }
 
     const p = world.player;
     const eyeY = p.pos.y + p.eyeHeight;
@@ -139,6 +149,19 @@ export class SweepBot {
         if (!lineClear(world.boxes, p.pos.x, eyeY, p.pos.z, this.aim.x, this.aim.y, this.aim.z)) out.fire = false;
       }
       this.fought = true;
+      return out;
+    }
+    // A hold sector: the Echoes come to the player. It stands at its entry facing where they come from and fights what arrives.
+    if (!st.exitOpen) {
+      const way = this.arrivalDirection(st);
+      const turn = WALK_TURN_DEG_PER_SEC * DEG2RAD * TICK_DT;
+      this.bot.yaw += Math.max(-turn, Math.min(turn, wrapPi(way - this.bot.yaw)));
+      this.bot.pitch += (0 - this.bot.pitch) * 0.2;
+      out.yaw = this.bot.yaw;
+      out.pitch = this.bot.pitch;
+      out.moveX = 0;
+      out.moveZ = 0;
+      out.fire = false;
       return out;
     }
     // A fight pulled it off its route: walk on from where it stands.
@@ -193,7 +216,16 @@ export class SweepBot {
   private throughGate(gate: GateRt, world: World, out: TickInput): TickInput {
     if (this.gate !== gate) {
       this.gate = gate;
-      this.door = this.policy(gate.plan, { hp: world.health.hp, shield: world.health.shield });
+      const leave = gate.plan.leave;
+      if (leave === undefined) this.door = this.policy(gate.plan, { hp: world.health.hp, shield: world.health.shield });
+      else {
+        const st = this.game.modes.runner.state as SweepState;
+        const score = this.game.modes.runner.stats.score;
+        const pick = this.overtimePolicy({
+          hp: world.health.hp, shield: world.health.shield, overtimeSectors: st.overtime, atRisk: atRisk(st, score), banked: st.banked,
+        });
+        this.door = pick === 'leave' ? leave : leave === 0 ? 1 : 0;
+      }
     }
     const g = this.game.tunables.sweep.gate;
     const door = g.doors[this.door];
@@ -213,10 +245,22 @@ export class SweepBot {
     return out;
   }
 
+  /** The yaw towards the middle of the sector's approach lanes' starts: where the bot knows the map's arrivals come from. */
+  private arrivalDirection(st: SweepState): number {
+    const sp = currentSector(st);
+    const src = sweepCatalog(this.game.tunables).find((x) => x.mapId === sp.mapId && x.id === sp.sectorId);
+    const p = this.game.world.player.pos;
+    if (!src || src.approaches.length === 0) return this.bot.yaw;
+    let x = 0, z = 0;
+    for (const a of src.approaches) { x += a.start.x; z += a.start.z; }
+    x /= src.approaches.length; z /= src.approaches.length;
+    return yawOf(x - p.x, z - p.z);
+  }
+
   /** The route to the sector's exit (straight, or along the nav graph), from its entry or from where the player stands. */
   private plan(st: SweepState, fromEntry: boolean): void {
-    this.sector = st.sector;
-    const sp = st.plan.sectors[st.sector]!;
+    this.sector = sectorKey(st);
+    const sp = currentSector(st);
     const map = this.game.modes.currentMap;
     this.path = navRoute(map, fromEntry ? sp.entry : this.game.world.player.pos, sp.exit);
     this.wp = 0;

@@ -5,7 +5,7 @@ import type { BoxDef } from './types';
 
 /**
  * Which floor can a player on foot reach? A flood fill over a grid of hull-sized cells using the
- * same rules as `stepPlayer`: from a cell you may walk to a neighbour whose floor is no more than
+ * same rules as `stepBody`: from a cell you may walk to a neighbour whose floor is no more than
  * `stepHeight` above your feet (stairs, ledges, ramps) or any distance below (you walk off an
  * edge), provided the standing hull fits there. Jumps are not counted: every raised hold must be
  * reachable by walking, so it is reachable by everyone. Used by the map lint; allocates freely

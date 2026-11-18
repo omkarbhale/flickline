@@ -7,6 +7,27 @@ export interface DialBand {
   from: number;
 }
 
+/**
+ * The play journal (design §14.5, #251): a local record of when and how the game was played, so repeat enjoyment
+ * (vision principle 10) is measured from real play. A record, never a reward: nothing here is shown as a goal.
+ */
+export interface JournalTunables {
+  /** A gap of this many seconds without a run event starts a new session (the issue: 30 minutes). */
+  sessionGapSec: number;
+  /** A run readied within this many seconds of the previous run's results card is "pulled back in" (the issue: 10 s). */
+  pulledWithinSec: number;
+  /** Days of sessions and runs kept (the issue: for example 90); the first day ever played is kept apart. */
+  keepDays: number;
+  /** Sanity caps on what a save or a hand-edited file may carry, so the journal cannot grow the save without bound. */
+  maxSessions: number;
+  maxRuns: number;
+  maxDays: number;
+  /** The window of the one-line summary ("this week"), days including today. */
+  summaryDays: number;
+  /** Deepest sector kept for a run (a sanity cap: the six sectors plus Overtime). */
+  maxDepth: number;
+}
+
 export interface ProgressTunables {
   /** `localStorage` key of the progress save (design §14.5; the settings and profile keep their own). */
   storageKey: string;
@@ -24,7 +45,7 @@ export interface ProgressTunables {
    * at an easier band does not hide a harder band's. Boundaries are tier boundaries (tested).
    */
   bands: DialBand[];
-  /** Modes whose runs keep run bests, situation records and the pace bar (design §4: Sweep is the one game). Every other mode is a drill: history and counts only. */
+  /** Modes whose runs keep run bests, situation records and the pace bar (design §4: Sweep is the one game). Every other mode is a fixture: history and counts only. */
   runModes: string[];
   /** Most route-strip tiles / pace points kept per run best (a sanity cap: the six sectors plus Overtime). */
   maxStrip: number;
@@ -41,6 +62,8 @@ export interface ProgressTunables {
    */
   promoteAfterRuns: number;
   demoteAfterRuns: number;
+  /** The play journal (#251). */
+  journal: JournalTunables;
 }
 
 export const progress: ProgressTunables = {
@@ -63,6 +86,7 @@ export const progress: ProgressTunables = {
   maxCards: 16,
   promoteAfterRuns: 1,
   demoteAfterRuns: 2,
+  journal: { sessionGapSec: 30 * 60, pulledWithinSec: 10, keepDays: 90, maxSessions: 500, maxRuns: 2000, maxDays: 120, summaryDays: 7, maxDepth: 24 },
 };
 
 /** This file's groups of `Tunables` (config/tunables.ts composes them). */

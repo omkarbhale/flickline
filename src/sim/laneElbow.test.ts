@@ -111,16 +111,6 @@ describe('Lane', () => {
     expect(laneMap.lanes[0]!.width).toBe(6);
   });
 
-  it('has an armed stripe (render-side marks the renderer lights); nothing else collides with it', () => {
-    const armed = laneMap.marks.filter((m) => m.kind === 'armed');
-    expect(armed.length).toBeGreaterThanOrEqual(2);
-    // The stripe is only floor paint: no box, no anchor, nothing the simulation sees.
-    expect(laneMap.boxes.some((b) => b.tag === 'floor' && b.max.y > 0)).toBe(false);
-    // The runner stays clear of the half-walls (they only occupy |x| >= 1), so it is never hidden under one.
-    const runner = armed.find((m) => m.a.x === m.b.x)!;
-    expect(Math.abs(runner.a.x)).toBeLessThan(1);
-  });
-
   it('has post anchors 15-30 m from the spawn, including a far-end alcove', () => {
     const posts = anchorsOfKind(laneMap, 'post');
     expect(posts.length).toBeGreaterThanOrEqual(15);
@@ -248,8 +238,8 @@ describe('Elbow', () => {
     expect(counts.long).toBeGreaterThanOrEqual(3);
   });
 
-  it('has six peek anchors and every peek pattern appears', () => {
-    expect(peeks).toHaveLength(6);
+  it('has eight peek anchors (six on the checkpoints, two for hold sectors, #204) and every peek pattern appears', () => {
+    expect(peeks).toHaveLength(8);
     expect(new Set(peeks.map((p) => p.pattern))).toEqual(new Set(['shoulder', 'wide', 'jiggle', 'hop']));
   });
 

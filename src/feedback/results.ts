@@ -56,7 +56,7 @@ export interface RatingView {
   /** Index into the tier table of the rating after the run (for the badge colour). */
   tierIndex: number;
   tierShift: 'up' | 'down' | 'same';
-  /** The player's first rating (the Placement run): there is no "before" worth showing, only the prior it started from. */
+  /** The player's first rating (a new profile's placing Opener): there is no "before" worth showing, only the prior it started from. */
   first: boolean;
   /** Progress 0..1 through the current sub-tier. */
   progress: number;
@@ -154,8 +154,11 @@ export interface CardModel {
   depth: string;
   /** The death cause line (#123) when the run ended in a death and one is known, else null. */
   deathLine: string | null;
-  /** Overtime points shown apart from the score (#206); null when the run never entered Overtime. */
-  overtime: { points: string; state: 'banked' | 'lost' } | null;
+  /**
+   * Overtime points shown apart from the score (design §4.7, §8.2, #206): `banked` when the run left at an Overtime gate (they are in the
+   * score), `lost` when it ended without leaving (they are not); `sectors` is the Overtime depth. Null when the run never entered Overtime.
+   */
+  overtime: { points: string; state: 'banked' | 'lost'; sectors: number } | null;
   /** The route strip (design §8.2 section 2): one tile per sector entered; empty for a run without sectors. */
   route: RouteTileView[];
   /** Fights by situation (design §8.2 section 3): the scenario cards fought this run; empty without cards. */
@@ -199,7 +202,7 @@ export interface ResultsInput {
   clean?: boolean;
   /** The armour and eco notes of the run (`feedback/armourNoteTracker.ts`). */
   notes?: readonly string[];
-  /** Whether the mode keeps personal bests at all (default true; the Placement run does not). */
+  /** Whether the mode keeps personal bests at all (default true). */
   keepsBest?: boolean;
   /**
    * The local date (`YYYY-MM-DD`) when the run was the Daily Route (design §4.8): `pb` is then the day best, the card
@@ -356,7 +359,7 @@ function firstShotRate(stats: RunStats): { value: number; of: number } | null {
   return engaged === 0 ? null : { value: firstKills / engaged, of: engaged };
 }
 
-function metricCell(id: MetricId, s: RunStats): StatCell {
+export function metricCell(id: MetricId, s: RunStats): StatCell {
   switch (id) {
     case 'firstShotRate': {
       const f = firstShotRate(s);
@@ -405,17 +408,17 @@ function metricCell(id: MetricId, s: RunStats): StatCell {
 
 /** Median time to kill is meaningless when kills are one bullet (first shot to death rounds to 0 ms, #175). */
 function ttkCell(s: RunStats, cfg: ResultsTunables): StatCell {
-  const oneBullet = cfg.oneBulletModes.includes(s.mode) || (s.medianTtkMs !== null && Math.round(s.medianTtkMs) <= 0);
+  const oneBullet = s.medianTtkMs !== null && Math.round(s.medianTtkMs) <= 0;
   return oneBullet ? metricCell(cfg.oneBulletTile, s) : { id: 'ttk', label: 'Time to kill', value: formatMs(s.medianTtkMs), hint: 'median' };
 }
 
 /**
- * The headline stats of design §8.2 section 5, then (drill modes) the mode's two key metrics (design §4). A sector
+ * The headline stats of design §8.2 section 5, then, for a run that is not a Sweep run, the two default key metrics. A sector
  * run shows exactly the design's six (`cfg.run.headline`): Accuracy, HS rate, median time to shot, median TTK,
  * moving shots and stop latency.
  */
 export function statCells(s: RunStats, cfg: ResultsTunables = defaultResults): StatCell[] {
-  const keys = cfg.keyMetrics[s.mode] ?? cfg.defaultKeyMetrics;
+  const keys = cfg.defaultKeyMetrics;
   const movingShare = s.shots > 0 ? s.movingShots / s.shots : null;
   const accuracy: StatCell = { id: 'accuracy', label: 'Accuracy', value: formatPercent(s.accuracy), hint: s.shots > 0 ? `${s.hits} of ${s.shots} shots` : 'no shots' };
   const headshotRate: StatCell = { id: 'headshotRate', label: 'HS rate', value: formatPercent(s.headshotRate), hint: s.hits > 0 ? `${s.headHits} of ${s.hits} hits` : '' };
@@ -453,14 +456,22 @@ export function depthLabel(story: RunStory, endReason: string | null, cfg: Resul
   const finale = cfg.run.routeSectors;
   if (n > finale) return fill(c.overtime, { k: n - finale });
   const last = story.sectors[n - 1]!;
+  // "Cleared" means every Echo dead (design §8.1), so leaving the route's end says "cleared" only for sectors that
+  // were: walking out of all of them without a fight is "0 of n sectors cleared", never "Route cleared" (#252).
+  const cleared = story.sectors.reduce((k, t) => k + (t.cleared ? 1 : 0), 0);
+  const leftAtEnd = (): string => (cleared >= n ? fill(c.routeDone, { n }) : fill(c.routePartial, { k: cleared, n }));
   // A route as long as the design's (six sectors, the last the Finale) is told in the design's words; a shorter
   // one (the run director's first version) is "n of total", and leaving at its end is clearing it.
   const total = story.total ?? finale;
   if (total >= finale) {
-    if (n === finale) return endReason === 'death' ? c.finaleDied : last.cleared || endReason === 'left' ? c.finale : fill(c.sector, { n, total });
+    if (n === finale) {
+      if (endReason === 'death') return c.finaleDied;
+      if (last.cleared) return c.finale;
+      return endReason === 'left' ? leftAtEnd() : fill(c.sector, { n, total });
+    }
     return fill(c.sector, { n, total });
   }
-  if (endReason === 'left' && n >= total) return fill(c.routeDone, { n });
+  if (endReason === 'left' && n >= total) return leftAtEnd();
   return fill(c.sector, { n, total });
 }
 
@@ -573,7 +584,8 @@ export function buildCard(rawInput: ResultsInput, cfg: ResultsTunables = default
   const pb = pbView(input, s.endReason, daily !== null ? 'day best' : isRun ? 'best run' : 'personal best');
   const reason: string | null = s.endReason;
   const overtimeTiles = story ? story.sectors.filter((t) => t.overtime) : [];
-  const overtimePoints = overtimeTiles.reduce((n, t) => n + t.points, 0);
+  // What a Leave door banked or the end forfeited, as the run reported it; the tiles' own points when it did not (a replayed story).
+  const overtimePoints = (reason === 'left' ? story?.banked : story?.overtimeLost) ?? overtimeTiles.reduce((n, t) => n + t.points, 0);
 
   return {
     mode: s.mode,
@@ -592,7 +604,7 @@ export function buildCard(rawInput: ResultsInput, cfg: ResultsTunables = default
     overtime:
       overtimeTiles.length === 0
         ? null
-        : { points: formatThousands(overtimePoints), state: reason === 'death' ? 'lost' : 'banked' },
+        : { points: formatThousands(overtimePoints), state: reason === 'left' ? 'banked' : 'lost', sectors: overtimeTiles.length },
     route: story ? story.sectors.map((t) => tileView(t, cfg)) : [],
     situations: story ? story.situations.map((r) => situationView(r, input.situationHistory, cfg)) : [],
     notes: input.notes ? input.notes.slice() : [],
@@ -616,6 +628,8 @@ export interface ResultsEvents {
   runReady: { tick: number; mode: string; seed: number; dial: number };
   runEnded: { tick: number; t: number; reason: RunEndReason };
   scoreAwarded: { total: number };
+  /** Overtime points forfeited at the run's end (design §4.7, #206): `score` is what the run finally scored. */
+  overtimeLost: { score: number };
   medalAwarded: { tick: number; id: string };
 }
 
@@ -641,7 +655,7 @@ export interface ResultsRecorderDeps {
   isClean?(): boolean;
   /** The date key when the run that just started is the Daily Route (read at `runReady`), else null. */
   dailyDate?(): string | null;
-  /** True for a mode whose result is the player's first rating (the Placement run): shown without a delta. */
+  /** True for a mode whose result is the player's first rating (a new profile's placing Opener): shown without a delta. */
   firstRating?(mode: string): boolean;
   /** The run's story (`RunStoryTracker`): route strip and fights by situation. Omit for a run without sectors. */
   story?: { snapshot(): RunStory };
@@ -686,6 +700,9 @@ export class ResultsRecorder {
     });
     deps.bus.on('scoreAwarded', (e) => {
       this.score = e.total;
+    });
+    deps.bus.on('overtimeLost', (e) => {
+      this.score = e.score;
     });
     deps.bus.on('medalAwarded', (e) => this.medals.push(e.id));
     deps.bus.on('runEnded', () => this.finish());

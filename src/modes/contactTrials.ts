@@ -10,8 +10,8 @@ import type { SkillId } from './contracts';
  *
  * | Skill | Item | Success |
  * |---|---|---|
- * | `precision` | first shot at an Echo first seen within `flickMinDeg` of the crosshair (Cold Start's first-bullet rule) | that bullet hits the head |
- * | `flick` | first shot at an Echo first seen further than `flickMinDeg` away (Orbit's must-flick item) | it hits, within the feasible time for the angle (× the dial's slack) |
+ * | `precision` | first shot at an Echo first seen within `flickMinDeg` of the crosshair (the first-bullet rule of the retired Cold Start drill) | that bullet hits the head |
+ * | `flick` | first shot at an Echo first seen further than `flickMinDeg` away (the must-flick item of the retired Orbit drill) | it hits, within the feasible time for the angle (× the dial's slack) |
  * | `track` | a duel with a strafing Echo, from first sight, while it and the player see each other | padded aim on it for the dial's share of the duel |
  * | `footwork` | the player's shots at an Echo that has the player in its sight | none of them a moving shot |
  * | `spray` | a burst of `minBullets` or more with a shot at an Echo | the dial's share of its bullets hit an Echo |
