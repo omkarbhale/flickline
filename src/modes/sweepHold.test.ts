@@ -111,7 +111,8 @@ describe('arrivals in the plan (#204)', () => {
         const src = sweepCatalog(tunables).find((c) => c.mapId === x.mapId && c.id === x.sectorId)!;
         const region = MAPS[x.mapId]!.sectors.find((m) => m.id === x.sectorId)!.region;
         const laneIds = new Set(src.approaches.map((a) => a.id));
-        const win = x.finale ? cfg.hold.finaleWindowSec : cfg.hold.windowSec;
+        // The last arrival is due at most the latest first arrival plus one longest gap per later contact (#248).
+        const lastDue = cfg.hold.firstArrivalSec[1] + Math.max(1, (x.contacts.length - 1) * cfg.hold.arrivalGapSec[1]);
         let lastAt = -1;
         for (const c of x.contacts) {
           for (const e of c.echoes) {
@@ -125,7 +126,7 @@ describe('arrivals in the plan (#204)', () => {
             expect(a.speed).toBe(a.running ? cfg.hold.runMps : cfg.hold.walkMps);
             if (c.card === 'flank') expect(a.running, 'a flank is audible: it runs').toBe(true);
             else {
-              expect(a.atSec).toBeLessThanOrEqual(win[1] + cfg.hold.tradeGapSec[1] + 1e-9);
+              expect(a.atSec).toBeLessThanOrEqual(lastDue + cfg.hold.tradeGapSec[1] + 1e-9);
               expect(a.atSec).toBeGreaterThanOrEqual(cfg.hold.firstArrivalSec[0]);
             }
           }

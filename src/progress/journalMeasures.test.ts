@@ -156,3 +156,37 @@ describe('the report table', () => {
     expect(reportMarkdown([{ name: 'ann', journal: tester(), asOfDay: null }])).not.toContain('**pooled**');
   });
 });
+
+describe('fight pace in the journal (#248)', () => {
+  it('a run keeps its fights and longest dead air; the measures read the rate of the runs that carry them', () => {
+    const j = emptyJournal();
+    const w = new JournalWriter(j, cfg);
+    const t0 = at('2026-03-02');
+    w.ready(t0);
+    w.started(t0 + 3000);
+    w.ended(t0 + 63_000, 60, 'death', { fights: 6, deadAirSec: 8.4 });
+    w.ready(t0 + 70_000);
+    w.started(t0 + 73_000);
+    w.ended(t0 + 103_000, 30, 'left', { fights: 1, deadAirSec: 17.6 });
+    play(w, t0 + 110_000, 60, 'timer'); // no pace: a run saved before #248 reads the same way
+    expect(j.runs.map((r) => [r.fights, r.deadAir])).toEqual([[6, 8], [1, 18], [undefined, undefined]]);
+    const m = journalMeasures(j);
+    expect(m.fightsPerMin.runs).toBe(2);
+    expect(m.fightsPerMin.median).toBeCloseTo((6 + 2) / 2, 9);
+    expect(m.fightsPerMin.pooled).toBeCloseTo((7 * 60) / 90, 9);
+    expect(m.deadAir.median).toBe(13);
+    expect(m.deadAir.over).toEqual({ n: 1, of: 2 });
+    expect(reportMarkdown([{ name: 'a', journal: j, asOfDay: '2026-03-02' }])).toContain('| 4 / 4.7 | 13 (1/2 (50%)) |');
+  });
+
+  it('a journal without paced runs measures none, and the saved fields survive the sanitiser', () => {
+    expect(journalMeasures(tester()).fightsPerMin).toEqual({ median: null, pooled: null, runs: 0 });
+    const j = emptyJournal();
+    const w = new JournalWriter(j, cfg);
+    w.ready(at('2026-03-02'));
+    w.started(at('2026-03-02') + 3000);
+    w.ended(at('2026-03-02') + 63_000, 60, 'death', { fights: 5, deadAirSec: 3 });
+    const back = readJournalExport(buildJournalExport(j, at('2026-03-02')));
+    expect(back.ok && back.journal.runs[0]).toMatchObject({ fights: 5, deadAir: 3 });
+  });
+});

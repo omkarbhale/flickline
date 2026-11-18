@@ -33,7 +33,7 @@ export function pooledJournal(entries: readonly ReportEntry[]): PlayJournal {
 }
 
 function row(name: string, m: JournalMeasures, day3: string, day7: string): string {
-  return `| ${name} | ${m.sessions} | ${m.runs} | ${num(m.runsPerSession.median)} / ${num(m.runsPerSession.mean)} | ${pct(m.oneRunSessions)} | ${pct(m.quitMidRun)} | ${pct(m.restarted)} | ${pct(m.restartedAfterDeath)} | ${pct(m.endedAfterDeath)} | ${num(m.medianRunSec, 0)} | ${m.daysPlayed} | ${day3} | ${day7} |`;
+  return `| ${name} | ${m.sessions} | ${m.runs} | ${num(m.runsPerSession.median)} / ${num(m.runsPerSession.mean)} | ${pct(m.oneRunSessions)} | ${pct(m.quitMidRun)} | ${pct(m.restarted)} | ${pct(m.restartedAfterDeath)} | ${pct(m.endedAfterDeath)} | ${num(m.medianRunSec, 0)} | ${num(m.fightsPerMin.median)} / ${num(m.fightsPerMin.pooled)} | ${num(m.deadAir.median, 0)} (${pct(m.deadAir.over)}) | ${m.daysPlayed} | ${day3} | ${day7} |`;
 }
 
 /** "k of n returned", over the testers whose export reaches that day. */
@@ -47,14 +47,14 @@ export function reportMarkdown(entries: readonly ReportEntry[]): string {
   const d3 = ms.map((m) => returnCell(m.day3));
   const d7 = ms.map((m) => returnCell(m.day7));
   const lines = [
-    '| tester | sessions | runs | runs per session (median / mean) | one-run sessions | quit mid-run | restarted straight after (R1) | restarted after a death (R6) | left after a death (R6) | median run s | days played | day 3 (R7) | day 7 (R7) |',
-    '|---|---|---|---|---|---|---|---|---|---|---|---|---|',
+    '| tester | sessions | runs | runs per session (median / mean) | one-run sessions | quit mid-run | restarted straight after (R1) | restarted after a death (R6) | left after a death (R6) | median run s | fights / live min, median run / pooled (#248) | longest dead air s, median run (runs over 15 s) | days played | day 3 (R7) | day 7 (R7) |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
     ...entries.map((e, i) => row(e.name, ms[i]!, d3[i]!, d7[i]!)),
   ];
   if (entries.length > 1) lines.push(row('**pooled**', journalMeasures(pooledJournal(entries)), `${tally(d3)} returned`, `${tally(d7)} returned`));
   lines.push(
     '',
-    'Restarted straight after: a finished run whose next run was readied within 10 s of its results card. Day 3 and day 7: `yes` = played exactly that many days after the first day, `later` = only after it, `no` = not by the export, `n/a` = that day had not come yet. The pooled return counts testers who played on or after that day.',
+    'Fights per live minute and dead air (design §2.2, #248) come from the runs saved since #248; the target is at least 4 fights a minute at the median run and no dead air over 15 s inside a sector. Restarted straight after: a finished run whose next run was readied within 10 s of its results card. Day 3 and day 7: `yes` = played exactly that many days after the first day, `later` = only after it, `no` = not by the export, `n/a` = that day had not come yet. The pooled return counts testers who played on or after that day.',
   );
   return lines.join('\n');
 }

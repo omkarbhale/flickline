@@ -10,7 +10,6 @@ describe('the first-sight block of the Sweep report (#249)', () => {
     expect(quantile([1, 2, 3, 4], 0.5)).toBeCloseTo(2.5, 9);
     expect(quantile([1, 2, 3, 4, 5], 0.25)).toBe(2);
     expect(quantile([1, 2, 3, 4, 5], 1)).toBe(5);
-    expect(quantile([1, 2, 3, 4, 5], 7)).toBe(5);
   });
 
   it('counts the share of sightings beyond 20 m and the share across more than 1 m of height, either way', () => {

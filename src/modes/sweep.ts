@@ -232,9 +232,12 @@ export function currentSector(st: SweepState): SectorPlan {
   return st.leg >= 0 && st.plan.cold ? st.plan.cold.sectors[st.leg]! : st.plan.sectors[st.sector]!;
 }
 
-/** A key that changes whenever the player is moved to a new sector or cold-opener leg (bots re-plan their route on it). */
+/**
+ * A key that changes whenever the player is moved to a new sector, cold-opener leg or placing-Opener stage (bots re-plan
+ * their route on it; a placing Opener's stages are all sector 0, #248).
+ */
 export function sectorKey(st: SweepState): number {
-  return st.sector * 64 + st.leg + 1;
+  return (st.sector * 64 + st.leg + 1) * 64 + st.openerStage + 1;
 }
 
 /**

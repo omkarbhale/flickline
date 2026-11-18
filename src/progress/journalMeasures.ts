@@ -42,6 +42,13 @@ export interface JournalMeasures {
   endedAfterDeath: Share;
   /** R1: the median seconds a run was live (null with none). */
   medianRunSec: number | null;
+  /**
+   * Fight pace (#248, design §2.2), over the runs that carry it (saved since #248, at least a live second): the median run's
+   * fights per live minute, the pooled rate (all their fights over all their minutes), the median run's longest dead air in
+   * seconds, and how many runs had dead air over `overSec` (the target, 15 s). Null with no such run.
+   */
+  fightsPerMin: { median: number | null; pooled: number | null; runs: number };
+  deadAir: { median: number | null; over: Share };
   /** R7: first and latest played day, days played, and the return on day 3 and day 7. */
   firstDay: string | null;
   lastDay: string | null;
@@ -61,7 +68,7 @@ function median(xs: readonly number[]): number | null {
  * The measures of a journal. `asOfDay` is the day the journal was written down (the export's date; default: the latest
  * played day), which decides whether day 3 and day 7 had come yet.
  */
-export function journalMeasures(j: PlayJournal, asOfDay?: string): JournalMeasures {
+export function journalMeasures(j: PlayJournal, asOfDay?: string, overSec = 15): JournalMeasures {
   const played = j.sessions.filter((s) => s.started > 0);
   const perSession = played.map((s) => s.started);
   const finishedRuns = j.runs.filter((r) => r.end !== 'quit');
@@ -77,6 +84,9 @@ export function journalMeasures(j: PlayJournal, asOfDay?: string): JournalMeasur
       observable: asOf !== null && daysBetween(j.firstDay, asOf) >= n,
     };
   };
+  const paced = j.runs.filter((r) => r.fights !== undefined && r.sec >= 1);
+  const paceSec = paced.reduce((a, r) => a + r.sec, 0);
+  const aired = paced.filter((r) => r.deadAir !== undefined);
   return {
     sessions: played.length,
     runs: j.runs.length,
@@ -88,6 +98,12 @@ export function journalMeasures(j: PlayJournal, asOfDay?: string): JournalMeasur
     restartedAfterDeath: { n: deaths.filter((r) => r.pulled).length, of: deaths.length },
     endedAfterDeath: { n: played.filter((s) => s.end === 'death').length, of: played.length },
     medianRunSec: median(j.runs.map((r) => r.sec)),
+    fightsPerMin: {
+      median: median(paced.map((r) => (r.fights! * 60) / r.sec)),
+      pooled: paced.length === 0 ? null : (paced.reduce((a, r) => a + r.fights!, 0) * 60) / paceSec,
+      runs: paced.length,
+    },
+    deadAir: { median: median(aired.map((r) => r.deadAir!)), over: { n: aired.filter((r) => r.deadAir! > overSec).length, of: aired.length } },
     firstDay: j.firstDay,
     lastDay,
     daysPlayed: j.days.length,

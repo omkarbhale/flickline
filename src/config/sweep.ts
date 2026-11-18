@@ -143,11 +143,15 @@ export interface SweepTunables {
     contactsMax: readonly number[];
     /** Base weight of each card a contact can draw (flank needs a second lane and a contact before it). */
     cardWeight: Readonly<Record<HoldCard, number>>;
-    /** Seconds from the sector's start to the first arrival, and the span the arrivals are spread over: `[min, max]` drawn uniformly. */
+    /**
+     * Seconds from the sector's start to the first arrival, `[min, max]` drawn uniformly. The later arrivals follow it
+     * one `arrivalGapSec` apart on average (one draw per sector), each placed at random inside its own slot, so the span
+     * grows with the contact count (a sector of five takes longer than a sector of two) and two arrivals are never more
+     * than about two gaps apart: the fight pace's dead-air target (#248, design §2.2). A larger contact count is the
+     * Finale's longer fight, not a longer wait.
+     */
     firstArrivalSec: readonly [number, number];
-    windowSec: readonly [number, number];
-    /** The Finale's own window: more contacts take longer to arrive. */
-    finaleWindowSec: readonly [number, number];
+    arrivalGapSec: readonly [number, number];
     /** A Peeker only walks to a peek anchor at least this far from the sector's entry (the walk there would meet the fairness floor), metres. */
     minPeekFromEntryM: number;
     /** A Peeker's walk to its cover keeps at least this far from the sector's entry (else a Strafer comes): the fairness floors would stop it in the open, metres. */
@@ -305,9 +309,10 @@ export const sweep: SweepTunables = {
     contactsMin: [1, 1, 1, 2, 1, 5],
     contactsMax: [1, 2, 3, 3, 2, 5],
     cardWeight: { hold: 0.6, trade: 0.25, flank: 0.15 },
-    firstArrivalSec: [5, 10],
-    windowSec: [25, 45],
-    finaleWindowSec: [40, 60],
+    // #248: the first arrival at 3–6 s and a gap of 6–10 s (were 5–10 s and a 25–45 s window, 40–60 s in the Finale, which left
+    // a two-contact hold up to 35 s between its arrivals: dead air the bot and the human-pace walker both measured).
+    firstArrivalSec: [3, 6],
+    arrivalGapSec: [6, 10],
     minPeekFromEntryM: 6,
     minRouteFromEntryM: 5.5,
     peekerShare: 0.45,
