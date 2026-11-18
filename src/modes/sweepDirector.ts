@@ -677,21 +677,22 @@ function peekSpotsFor(s: SectorSource, cfg: SweepTunables, body: PlanBody): Sect
 }
 
 /** The contacts of a hold sector: arrivals on seeded times along its approach lanes (design §4.2). */
-function planHold(rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody, index: number, finale: boolean, recent: SweepCard[], firstIndex: number): ContactPlan[] {
+function planHold(rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody, index: number, recent: SweepCard[], firstIndex: number): ContactPlan[] {
   const h = cfg.hold;
   const ot = isOvertime(cfg, index);
   const lo = ot ? cfg.overtime.holdContacts[0] : perSector(h.contactsMin, index);
   const hi = Math.max(lo, ot ? cfg.overtime.holdContacts[1] : perSector(h.contactsMax, index));
   const n = lo + rng.int(hi - lo + 1);
   const t0 = h.firstArrivalSec[0] + rng.next() * (h.firstArrivalSec[1] - h.firstArrivalSec[0]);
-  const win = finale ? h.finaleWindowSec : h.windowSec;
-  const span = Math.max(t0 + 1, win[0] + rng.next() * (win[1] - win[0]));
+  // One gap per sector, drawn where the window was (the plan's random stream is unchanged), times the arrivals after the first.
+  const gap = h.arrivalGapSec[0] + rng.next() * (h.arrivalGapSec[1] - h.arrivalGapSec[0]);
+  const span = t0 + Math.max(1, (n - 1) * gap);
   const free = shuffled(rng, peekSpotsFor(s, cfg, body));
   const lanes = s.approaches;
   const contacts: ContactPlan[] = [];
   for (let k = 0; k < n; k++) {
-    // The first contact arrives early (the sector is not left waiting); the rest are spread over the window in order,
-    // none exactly on a beat: stratified draws, not a clock.
+    // The first contact arrives early (the sector is not left waiting); the rest follow in order, one per gap-wide slot
+    // after it, none exactly on a beat: stratified draws, not a clock.
     const at = k === 0 ? t0 : t0 + ((span - t0) * (k - 1 + 0.15 + 0.85 * rng.next())) / Math.max(1, n - 1);
     const prev = contacts[k - 1];
     const card = drawHoldCard(rng, cfg, prev !== undefined && prev.card !== 'flank' && lanes.length >= 2, recent);
@@ -817,7 +818,7 @@ export function buildSector(
     contacts.push({ index: contactIndex++, card: 'meet', spots: [], echoes: placeMeet(rng, cfg, s, index) });
   } else if (role === 'hold') {
     // Nobody is placed: every contact arrives along an approach lane (design §4.2, #204).
-    contacts.push(...planHold(rng, cfg, s, body, index, index === cfg.finaleSector - 1, recent, contactIndex));
+    contacts.push(...planHold(rng, cfg, s, body, index, recent, contactIndex));
   } else {
     const free = hiddenSpots(s, body);
     for (let c = 0; c < want && free.length > 0; c++) {

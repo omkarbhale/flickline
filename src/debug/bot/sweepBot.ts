@@ -22,6 +22,36 @@ const STOPPED_SHARE = 0.85;
 const STUCK_SEC = 3;
 
 /**
+ * A scripted person's pace for the fight-pace report (#248): the bot walks faster than a person (it runs every metre,
+ * turns at 360°/s and never looks anywhere but where it goes), so its fights per minute are a ceiling. This walker
+ * shift-walks a share of the route's legs and runs the rest (2.7–5.4 m/s with a rifle), turns at a person's rate,
+ * stops at some waypoints to look around, and reads a gate's doors before walking through one. Fights are the same
+ * aiming bot's. The numbers are ASSUMPTIONS about people, not measurements (#214 measures real runs).
+ */
+export interface HumanPace {
+  /** Share of the route's legs (waypoint to waypoint) walked with the walk key: silent, half speed. */
+  walkShare: number;
+  /** View turn rate while walking and looking around, degrees per second. */
+  turnDegPerSec: number;
+  /** Chance of stopping at a waypoint to look around, and how long the look lasts (uniform), seconds. */
+  lookChance: number;
+  lookSec: readonly [number, number];
+  /** How far the look turns off the way ahead (uniform, either side), degrees. */
+  lookDeg: readonly [number, number];
+  /** Seconds spent reading a gate's two doors before walking to one. */
+  gateReadSec: number;
+}
+
+export const HUMAN_PACE: HumanPace = {
+  walkShare: 0.4,
+  turnDegPerSec: 200,
+  lookChance: 0.35,
+  lookSec: [0.5, 1.2],
+  lookDeg: [40, 110],
+  gateReadSec: 1.2,
+};
+
+/**
  * The bot's feet for Sweep (#201): it walks each sector from the entry to the exit along the map's
  * nav graph, looking where it walks, and takes the fights it meets: when the aiming `Bot` engages an
  * Echo it has seen, it counter-strafes to a stop and lets the aimer fire only while the Echo is in
@@ -52,6 +82,11 @@ export class SweepBot {
   /** This fight is one the bot fires in on the move (the planted weakness). */
   private movingFight = false;
   private readonly rng: Rng;
+  /** The human-pace walker's state: this leg is walked, and the look-around it is in (until tick, towards yaw). */
+  private walkLeg = false;
+  private lookUntil = -1;
+  private lookYaw = 0;
+  private gateReadUntil = -1;
 
   /**
    * `stopDelayMaxSec`: the bot keeps running its route for a uniform 0..this many seconds after it first engages an
@@ -73,6 +108,8 @@ export class SweepBot {
     private readonly movingFireShare = 0,
     /** At an Overtime gate (design §4.7, #206): leave or push on. Default: leave, so a run ends at the Finale as it did before Overtime. */
     private readonly overtimePolicy: OvertimePolicy = alwaysLeave,
+    /** Walk at a person's pace (`HUMAN_PACE`) instead of the bot's; null (the default): the bot's pace, as every report before #248 assumed. */
+    private readonly human: HumanPace | null = null,
   ) {
     this.rng = new Rng((seed ^ 0x2545f491) >>> 0 || 1);
     bot.visibleOnly = true;
@@ -104,6 +141,8 @@ export class SweepBot {
 
     const p = world.player;
     const eyeY = p.pos.y + p.eyeHeight;
+    out.walk = false;
+    if (!this.bot.idle) this.lookUntil = -1;
     if (this.bot.idle) this.engagedAt = -1;
     else if (this.engagedAt < 0) {
       this.engagedAt = world.tick;
@@ -173,9 +212,20 @@ export class SweepBot {
     // Walking: towards the next waypoint, looking where it goes, crosshair at head height.
     const target = this.path[this.wp];
     if (!target) return out;
+    const now = world.tick;
+    if (this.human && now < this.lookUntil) {
+      // Looking around: standing, turning towards the look's direction at a person's rate.
+      this.turnTowards(this.lookYaw, this.human.turnDegPerSec);
+      out.yaw = this.bot.yaw;
+      out.pitch = this.bot.pitch;
+      out.moveX = 0;
+      out.moveZ = 0;
+      out.fire = false;
+      this.bestAt = now;
+      return out;
+    }
     const dx = target.x - p.pos.x, dz = target.z - p.pos.z;
     const dist = Math.hypot(dx, dz);
-    const now = world.tick;
     if (dist < this.bestDist - 0.05) {
       this.bestDist = dist;
       this.bestAt = now;
@@ -187,17 +237,34 @@ export class SweepBot {
       this.wp++;
       this.bestDist = Infinity;
       this.bestAt = now;
+      if (this.human) this.newLeg(now, yawOf(dx, dz));
     }
-    const want = yawOf(dx, dz);
-    const turn = WALK_TURN_DEG_PER_SEC * DEG2RAD * TICK_DT;
-    const d = wrapPi(want - this.bot.yaw);
-    this.bot.yaw += Math.max(-turn, Math.min(turn, d));
-    this.bot.pitch += (0 - this.bot.pitch) * 0.2;
+    this.turnTowards(yawOf(dx, dz), this.human ? this.human.turnDegPerSec : WALK_TURN_DEG_PER_SEC);
     out.yaw = this.bot.yaw;
     out.pitch = this.bot.pitch;
     this.moveTowards(target, out);
+    out.walk = this.human !== null && this.walkLeg;
     out.fire = false;
     return out;
+  }
+
+  /** The view turns towards `want` (yaw, radians) by at most `degPerSec` this tick; the pitch settles to level. */
+  private turnTowards(want: number, degPerSec: number): void {
+    const turn = degPerSec * DEG2RAD * TICK_DT;
+    const d = wrapPi(want - this.bot.yaw);
+    this.bot.yaw += Math.max(-turn, Math.min(turn, d));
+    this.bot.pitch += (0 - this.bot.pitch) * 0.2;
+  }
+
+  /** The human-pace walker reached a waypoint: walk or run the next leg, and maybe stop to look around first. */
+  private newLeg(now: number, ahead: number): void {
+    const h = this.human!;
+    this.walkLeg = this.rng.next() < h.walkShare;
+    if (this.rng.next() >= h.lookChance) return;
+    const sec = h.lookSec[0] + this.rng.next() * (h.lookSec[1] - h.lookSec[0]);
+    const deg = h.lookDeg[0] + this.rng.next() * (h.lookDeg[1] - h.lookDeg[0]);
+    this.lookUntil = now + secondsToTicks(sec);
+    this.lookYaw = ahead + (this.rng.next() < 0.5 ? -1 : 1) * deg * DEG2RAD;
   }
 
   /** Keys that move towards `target` in the view's frame: the forward and right components of the way to go. */
@@ -226,6 +293,8 @@ export class SweepBot {
         });
         this.door = pick === 'leave' ? leave : leave === 0 ? 1 : 0;
       }
+      this.gateReadUntil = this.human ? world.tick + secondsToTicks(this.human.gateReadSec) : -1;
+      this.lookUntil = -1;
     }
     const g = this.game.tunables.sweep.gate;
     const door = g.doors[this.door];
@@ -238,7 +307,9 @@ export class SweepBot {
     out.yaw = this.bot.yaw;
     out.pitch = 0;
     out.moveX = 0;
-    out.moveZ = 1;
+    // A person reads the two doors before walking to one.
+    out.moveZ = world.tick < this.gateReadUntil ? 0 : 1;
+    out.walk = false;
     out.fire = false;
     this.fought = false;
     this.sector = -1;
@@ -266,5 +337,6 @@ export class SweepBot {
     this.wp = 0;
     this.bestDist = Infinity;
     this.bestAt = this.game.world.tick;
+    if (this.human && fromEntry) this.newLeg(this.game.world.tick, this.bot.yaw);
   }
 }
