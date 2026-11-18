@@ -21,6 +21,9 @@ export const LOGGED_EVENT_TYPES: readonly (keyof AllEvents)[] = [
   'aimOnTarget', 'leadSampled', 'headHeightSampled', 'playerStopped',
   'sprayStarted', 'sprayEnded',
   'sectorEntered', 'sectorExitOpened', 'sectorEnded', 'gateChosen',
+  // The fight ledger's inputs (#120): what the player's weapon and health were doing, and the enemy minds' sight and hearing.
+  'reloadStarted', 'reloadCompleted', 'reloadCancelled', 'weaponSwitched', 'playerHealed',
+  'perceiverSaw', 'perceiverLostSight', 'perceiverHeard', 'perceiverGotShared',
 ];
 
 /** The immutable-by-convention record of a run that `computeStats` consumes. */
