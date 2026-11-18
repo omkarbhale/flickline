@@ -262,6 +262,10 @@ export class StatTracker {
   private sectorsReached = 0;
   private sectorsTotal = 0;
   private sectorsCleared = 0;
+  /** A placing Opener's contact sectors (all index 0) count as one sector cleared: when every one of them was. */
+  private inOpener = false;
+  private openerSeen = false;
+  private openerCleared = true;
   private contactsWon = 0;
   private contactsLost = 0;
 
@@ -299,6 +303,8 @@ export class StatTracker {
     this.leadSum = this.leadAbsSum = this.leadN = 0;
     this.stopLatencies = [];
     this.sectorsReached = this.sectorsTotal = this.sectorsCleared = this.contactsWon = this.contactsLost = 0;
+    this.inOpener = this.openerSeen = false;
+    this.openerCleared = true;
   }
 
   /** Live subscription to the bus. Returns the unsubscribe function. */
@@ -611,10 +617,13 @@ export class StatTracker {
   private onSectorEntered(e: AllEvents['sectorEntered']): void {
     this.sectorsReached = Math.max(this.sectorsReached, e.index + 1);
     this.sectorsTotal = e.of;
+    this.inOpener = e.opener === true;
+    this.openerSeen ||= this.inOpener;
   }
 
   private onSectorEnded(e: AllEvents['sectorEnded']): void {
-    if (e.cleared) this.sectorsCleared++;
+    if (this.inOpener) this.openerCleared &&= e.cleared;
+    else if (e.cleared) this.sectorsCleared++;
   }
 
   private onContactSettled(e: AllEvents['contactSettled']): void {
@@ -709,7 +718,7 @@ export class StatTracker {
       sprayPullFallsApartIndex: collapseIndex(pullErrors, this.cfg.sprayTrace.pullToleranceDeg, false),
       sectorsReached: this.sectorsReached,
       sectorsTotal: this.sectorsTotal,
-      sectorsCleared: this.sectorsCleared,
+      sectorsCleared: this.sectorsCleared + (this.openerSeen && this.openerCleared ? 1 : 0),
       contactsWon: this.contactsWon,
       contactsLost: this.contactsLost,
     };

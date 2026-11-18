@@ -102,6 +102,39 @@ describe('RunStoryTracker', () => {
     expect(s.sectors.map((x) => [x.cleared, x.fell])).toEqual([[true, false], [false, false], [false, true], [false, true]]);
   });
 
+  it('folds a placing Opener\'s contact sectors into one tile: the route, the depth and the Overtime line count it once (#273)', () => {
+    const stage = (k: number): [StoryEventType, object] => ['sectorEntered', { sectorId: `o${k}`, index: 0, opener: true, of: 6, role: 'take' }];
+    const end = (id: string, cleared: boolean, points: number, reason = 'exit'): [StoryEventType, object] => ['sectorEnded', { sectorId: id, cleared, points, reason }];
+    const events: [StoryEventType, object][] = [];
+    for (let k = 0; k < 7; k++) {
+      events.push(stage(k), ['contactSettled', { contactId: k, outcome: 'cleared', kept: 1, points: 10, card: 'take-unaware' }], ['targetKilled', {}]);
+      if (k === 3) events.push(['playerDamaged', { hp: 70, shield: 0 }]);
+      events.push(end(`o${k}`, true, 100));
+    }
+    events.push(enter(1, { of: 6 }), ['playerDamaged', { hp: 0, shield: 0 }], end('s1', false, 0, 'death'));
+    const s = t(events);
+    expect(s.sectors.map((x) => x.number)).toEqual([1, 2]);
+    expect(s.sectors[0]).toMatchObject({ sectorId: 'o6', cleared: true, ended: true, fell: false, won: 7, kills: 7, hpIn: 100, hpOut: 70, points: 700, overtime: false });
+    expect(s.sectors[1]).toMatchObject({ number: 2, fell: true, hpIn: 70, hpOut: 0, overtime: false });
+    expect(s.overtimeSectors).toBe(0);
+    expect(s.total).toBe(6);
+    // The card of the issue: a death in sector 2 reads "Sector 2 of 6", never Overtime, with no Overtime line.
+    const stats = computeStats(runOf(scriptedRun(1, 2, 'death').events, 1));
+    const card = buildCard({ stats, split: null, score: 7936, rating: null, pb: null, medals: [], story: s });
+    expect(card.route).toHaveLength(2);
+    expect(card.route.map((x) => x.overtime)).toEqual([false, false]);
+    expect(card.depth).not.toMatch(/Overtime/);
+    expect(card.overtime).toBeNull();
+  });
+
+  it('an Opener that was not cleared in every contact sector is not cleared; a stage that ended in death ends the tile', () => {
+    const stage = (k: number): [StoryEventType, object] => ['sectorEntered', { sectorId: `o${k}`, index: 0, opener: true, role: 'take' }];
+    const end = (id: string, cleared: boolean, reason = 'exit'): [StoryEventType, object] => ['sectorEnded', { sectorId: id, cleared, reason }];
+    expect(t([stage(0), end('o0', false), stage(1), end('o1', true)]).sectors).toMatchObject([{ cleared: false, ended: true }]);
+    const died = t([stage(0), end('o0', true), stage(1), end('o1', false, 'death')]).sectors;
+    expect(died).toMatchObject([{ cleared: false, ended: true, fell: true }]);
+  });
+
   it('marks Flawless only with a shot fired, no miss and no moving shot', () => {
     const shot = (moving: boolean): [StoryEventType, object] => ['shotFired', { moving }];
     const miss: [StoryEventType, object] = ['shotImpact', { result: 'miss' }];

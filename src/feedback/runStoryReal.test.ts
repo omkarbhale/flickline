@@ -46,3 +46,37 @@ describe('the results card matches real Sweep runs', () => {
     });
   }
 });
+
+/**
+ * A new profile's first run places it inside the placing Opener (design §9.2): several contact sectors, all index 0.
+ * To the card they are one sector, the Opener (#273): the route, the depth and the Overtime line count it once.
+ */
+describe('the results card of a placing run counts the Opener once (#273)', () => {
+  for (const [skill, seed] of [[30, 6], [50, 8], [70, 12]] as const) {
+    it(`skill ${skill}, seed ${seed}`, () => {
+      const g = new HeadlessGame({ seed });
+      const tracker = new RunStoryTracker(storyConfigFrom(player, cfg.run.routeSectors, cfg.run.maxSectors));
+      let openerStages = 0;
+      g.bus.on('sectorEntered', (e) => { if (e.opener) openerStages++; });
+      g.bus.onAny((type, payload) => {
+        if (RunStoryTracker.reads(type)) tracker.ingest(type, payload as never);
+      });
+      const report = playMode(g, { mode: 'sweep', skill, seed, newProfile: true });
+      expect(report.finished).toBe(true);
+      expect(openerStages, 'the run did place').toBeGreaterThan(1);
+      const stats = g.run.liveStats();
+      const story = tracker.snapshot();
+
+      expect(story.sectors).toHaveLength(stats.sectorsReached);
+      expect(story.sectors.filter((t) => t.cleared)).toHaveLength(stats.sectorsCleared);
+      expect(story.sectors.reduce((n, t) => n + t.kills, 0)).toBe(stats.kills);
+      expect(story.overtimeSectors).toBe(Math.max(0, stats.sectorsReached - cfg.run.routeSectors));
+      const card = buildCard({ stats, split: null, score: report.modeRun?.score ?? 0, rating: null, pb: null, medals: [], story });
+      expect(card.route).toHaveLength(stats.sectorsReached);
+      if (stats.sectorsReached <= cfg.run.routeSectors) {
+        expect(card.overtime).toBeNull();
+        expect(card.depth).not.toMatch(/Overtime/);
+      }
+    });
+  }
+});
