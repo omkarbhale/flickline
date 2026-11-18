@@ -2,7 +2,7 @@ import { TICK_DT } from '../core/time';
 import { DEG2RAD } from '../core/math';
 import type { ArriveParams } from './enemyAi';
 import { MAX_ROUTE } from './enemyAi';
-import { seesPlayer } from './enemyFire';
+import { seesPlayer } from './enemySight';
 import { lineClear } from './exposure';
 import type { BehaviourContext } from './fsm';
 import type { BoxDef, TargetState } from './types';

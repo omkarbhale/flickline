@@ -31,13 +31,21 @@ export interface MindReport {
   stats: MindStats;
 }
 
+const AIM_PHASES = ['hold', 'move', 'gap', 'settle'];
+
 declare module '../debug/hook' {
   interface FlicklineDebug {
     /**
      * The enemy mind's profile (#88) for a mind skill 0-100 and an enemy serial, as plain numbers: the
-     * anchor table interpolated, the serial's personality jitter, floors applied. A probe for playtests and tuning.
+     * anchor table interpolated, the serial's personality jitter, floors applied. A probe for playtests
+     * and tuning (Sweep's Echoes build theirs the same way from the run's seed, #90).
      */
     mindProfile(mindSkill: number, serial?: number): Record<string, number>;
+    /**
+     * A live mind-driven Echo's aim (#90), or null if `id` is not one: its view (degrees), the aim
+     * phase (hold, move, gap, settle), the submovement (0 = primary), corrections, the error to where it
+     * means to aim and the aimed zone's angular radius (degrees), its fire phase and contact facts.
+     */
     /**
      * Every mind-driven Echo (#91; spawn one with `spawn('strafer', pos, { mind: { skill, watch, spots, fire } })`):
      * its decision state, body, gun, what it perceives and its counters (shots above the gate, legs, re-peeks, unsticks).
@@ -47,6 +55,7 @@ declare module '../debug/hook' {
     mindState(id: number, state: MindStateName): boolean;
     /** Load a map by id outside any mode (its boxes, nav graph and look), for mind playtests on real geometry; false for an unknown id. */
     loadMap(id: string): boolean;
+    mindAim(id: number): Record<string, number | string | boolean> | null;
   }
 }
 
@@ -115,6 +124,19 @@ export const feature = defineFeature({
         const w = game.world;
         fsmGoto(mindBehaviour, t, { tick: w.tick, rng: w.rng, tunables: w.tunables, events: game.bus, world: w }, i);
         return true;
+      },
+      mindAim(id) {
+        const t = game.world.targetField.byId(id);
+        if (!t || !t.alive || !t.ai.mind) return null;
+        const a = t.ai;
+        const s = a.aim;
+        const deg = 180 / Math.PI;
+        return {
+          id, mindSkill: a.profile.mindSkill, yawDeg: s.yaw * deg, pitchDeg: s.pitch * deg,
+          aimPhase: AIM_PHASES[s.phase] ?? String(s.phase), submovement: s.sub, corrections: s.corrections,
+          errDeg: s.err * deg, zoneDeg: s.zoneAngle * deg, firePhase: a.phase, expectation: a.contactExpectation,
+          reactionMs: a.reactionDrawSec * 1000, swipe: a.swipe, movingHabit: a.movingHabit,
+        };
       },
     });
   },

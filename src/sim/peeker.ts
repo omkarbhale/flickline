@@ -153,7 +153,7 @@ const hidden: BehaviourState = {
     a.step = 0;
     t.crouched = a.crouchedHold;
     placeOnPath(t);
-    fireReset(a);
+    fireReset(t);
     fsmSetTimerRange(t, ctx.rng, cfg.hiddenMinSec, cfg.hiddenMaxSec);
   },
   update(t, ctx) {
@@ -181,7 +181,8 @@ const move: BehaviourState = {
     a.uTarget = stepScratch.stand || stepScratch.exposure <= 0 ? 0 : solvePeekU(t, ctx, stepScratch.exposure);
   },
   update(t, ctx) {
-    fireStep(t, ctx, false);
+    // Swinging out on a wide peek commits to the fight (a mind may shoot on the move by habit); the other patterns are baits.
+    fireStep(t, ctx, false, t.ai.pattern === 'wide');
     return slide(t, ctx) ? PEEK_HOLD : STAY;
   },
 };
@@ -219,7 +220,7 @@ const back: BehaviourState = {
   name: 'back',
   enter(t) {
     t.ai.uTarget = 0;
-    fireReset(t.ai);
+    fireReset(t);
   },
   update(t, ctx) {
     return slide(t, ctx) ? PEEK_HIDDEN : STAY;

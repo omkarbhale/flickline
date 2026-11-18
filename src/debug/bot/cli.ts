@@ -6,6 +6,7 @@ import {
   formatGatePolicyReport, formatLeanAb, formatMeetReport, formatOvertimeReport, formatPaceReport, formatSweepReport, formatTrialReport, gatePolicyReport, leanAb,
   meetReport, overtimeReport, paceRow, sweepReport, trialReport, type PaceRow, type Walker,
 } from './sweepReport';
+import { aimReport } from './aimCalibration';
 import { auditAllocations, formatAudit } from './allocAudit';
 import { cloneTunables } from '../../config/tunables';
 import { formatHarness, harnessRow, selfReportFor, type HarnessRow } from '../skillHarness';
@@ -28,6 +29,7 @@ const HELP = `npm run bot -- [options]
   --gate-report      Gate policy table (#205): policies --policies hot,read,facts,left (default) at skills 30/50/70 over --runs seeds (default 200)
   --overtime-report  Overtime depth (#206): --policies push,bank (default) at skills 30/50/70 (or --skills) over --runs seeds (default 200); push = always push on, bank = leave below 90 health+shield, leave = always leave
   --meet-report      Meet sectors (#212): win rate by who stopped first, skills 30/50/70 (or --skills) over --runs forced meet runs (default 100), --stop-delay S (default 2.5)
+  --aim-report       enemy mind calibration (#90): S7 headshot share per anchor, damage per minute aimed vs rolled (--runs seeds, default 6)
   --sweep-report     Sweep balance table (#201) and fight-pace table (#248: fights per live minute, dead air, gates, for the
                      bot and a human-pace walker): skills 30/50/70 (or --skills a,b,c) over --runs seeds (default 50);
                      --walkers bot,human (default both; the balance table is the first walker's)
@@ -44,7 +46,7 @@ function parseArgs(argv: string[]): Record<string, string | boolean | string[]> 
     const a = argv[i]!;
     if (!a.startsWith('--')) throw new Error(`unexpected argument '${a}'`);
     const key = a.slice(2);
-    if (['json', 'suite', 'alloc', 'list', 'help', 'sweep-report', 'meet-report', 'gate-report', 'overtime-report', 'lean-report', 'trial-report', 'skill-harness'].includes(key)) {
+    if (['json', 'suite', 'alloc', 'list', 'help', 'sweep-report', 'aim-report', 'meet-report', 'gate-report', 'overtime-report', 'lean-report', 'trial-report', 'skill-harness'].includes(key)) {
       out[key] = true;
       continue;
     }
@@ -105,6 +107,14 @@ export function main(argv: string[], log: (s: string) => void = console.log): nu
       log(`${r.reports.length} bot runs, ${r.wallMs.toFixed(0)} ms: ${r.ok ? 'all checks pass' : 'FAILED'}`);
     }
     return r.ok ? 0 : 1;
+  }
+
+  if (args['aim-report']) {
+    const t0 = performance.now();
+    const seeds = args.runs !== undefined ? Math.max(1, Math.floor(Number(args.runs))) : 6;
+    for (const line of aimReport(seeds)) log(line);
+    log(`(${((performance.now() - t0) / 1000).toFixed(1)} s)`);
+    return 0;
   }
 
   if (args['lean-report']) {

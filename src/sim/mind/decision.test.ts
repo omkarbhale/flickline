@@ -243,10 +243,22 @@ describe('duel (§2.3, §2.4): stop discipline (S5), strafe legs (S6), crouch ha
     }
   });
 
-  it('a low-tier duel crouches more often than a top-tier one', () => {
-    const lo = duelTrace(0, 2, 40).s.t.mind.stats;
-    const hi = duelTrace(100, 2, 40).s.t.mind.stats;
-    expect(lo.crouches / Math.max(1, lo.legs)).toBeGreaterThan(hi.crouches / Math.max(1, hi.legs));
+  it('crouch on firing: per stop-burst near the profile\'s rate, and a low tier crouches more than a top tier', () => {
+    const rate = (skill: number): { got: number; want: number } => {
+      let crouches = 0, stops = 0, want = 0;
+      for (let seed = 1; seed <= 6; seed++) {
+        const { s } = duelTrace(skill, seed, 40);
+        const st = s.t.mind.stats;
+        crouches += st.crouches;
+        stops += st.bursts - st.movingBursts;
+        want += s.t.mind.profile.crouchOnFiring / 6;
+      }
+      return { got: crouches / Math.max(1, stops), want };
+    };
+    const lo = rate(0), hi = rate(100);
+    // Low tier: the per-duel cap (8) never binds, so the rate is the habit's.
+    expect(Math.abs(lo.got - lo.want)).toBeLessThan(0.12);
+    expect(lo.got).toBeGreaterThan(hi.got);
   });
 
   it('S6: strafe legs follow the profile lognormal: CV within ±0.08, no two consecutive legs within 10 ms at m = 100', () => {

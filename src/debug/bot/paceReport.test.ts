@@ -3,7 +3,8 @@ import { cloneTunables } from '../../config/tunables';
 import { paceRow, paceVerdict, quantile, sweepRun, type SweepRunFacts } from './sweepReport';
 
 const T = cloneTunables().fightPace;
-const SEEDS = [1, 2, 3, 4, 5, 6];
+// Twelve seeds: since Echoes aim for real (#90) runs end sooner, and over six the walkers' pace was lost in how long each survived.
+const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
 describe('fight pace in the Sweep report (#248)', () => {
   it('quantiles interpolate and a row reads medians and the share over the dead-air target', () => {
