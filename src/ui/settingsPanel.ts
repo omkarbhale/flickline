@@ -219,6 +219,7 @@ export class SettingsPanel {
     for (const [k, el] of this.sections) el.hidden = k !== id;
     if (id === 'gameplay') this.syncPins();
     if (id === 'mouse') this.syncFov();
+    if (id === 'data') this.data.refresh();
   }
 
   /** Switch tab (debug hook, tests). */

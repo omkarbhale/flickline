@@ -5,8 +5,8 @@ import type { MapDef } from '../../sim/mapTypes';
 import { MAPS, rangeMap } from '../../sim/mapLoader';
 import { createTickInput } from '../../sim/types';
 import { Bot, type BotStats } from './bot';
-import type { GatePolicy } from './gatePolicy';
-import { SweepBot } from './sweepBot';
+import type { GatePolicy, OvertimePolicy } from './gatePolicy';
+import { HUMAN_PACE, SweepBot } from './sweepBot';
 import type { BotGame } from './headless';
 import { clampSkill, resolveParams, type BotParams } from './skill';
 
@@ -41,8 +41,14 @@ export interface BotRunOptions {
   sweepStopDelaySec?: number;
   /** Sweep: the share of fights the bot never stops in (a planted moving-shot weakness, see `SweepBot`); default 0. */
   sweepMovingShare?: number;
+  /** Sweep: what the bot does at an Overtime gate, leave or push on (default: leave, so the run ends at the Finale). */
+  overtimePolicy?: OvertimePolicy;
   /** Sweep: the scenario cards the run leans toward (design §4.4, #210); default none. */
   lean?: readonly string[];
+  /** Sweep: walk at a scripted person's pace (`HUMAN_PACE`, #248) instead of the bot's; default false. */
+  sweepHumanPace?: boolean;
+  /** Called after every sim tick (a measurement that samples the world, such as the fight pace). */
+  onTick?: () => void;
 }
 
 /** The numbers of a finished run, plain data (the per-target and per-bullet arrays are left out). */
@@ -157,7 +163,9 @@ export function playMode(game: BotGame, opts: BotRunOptions): BotReport {
 
   const aimer = new Bot(params, botSeed, game.tunables);
   // Sweep needs feet: the sweep bot walks each sector entry to exit and stops to fight what it sees.
-  const bot = id === 'sweep' ? new SweepBot(aimer, game, opts.sweepStopDelaySec ?? 0, botSeed, opts.gatePolicy, opts.sweepMovingShare ?? 0) : aimer;
+  const bot = id === 'sweep'
+    ? new SweepBot(aimer, game, opts.sweepStopDelaySec ?? 0, botSeed, opts.gatePolicy, opts.sweepMovingShare ?? 0, opts.overtimePolicy, opts.sweepHumanPace ? HUMAN_PACE : null)
+    : aimer;
   const input = createTickInput();
   const maxTicks = secondsToTicks(opts.maxSeconds ?? (id === 'sweep' ? MAX_RUN_SEC : MAX_SIM_SEC));
   const startTick = game.world.tick;
@@ -165,6 +173,7 @@ export function playMode(game: BotGame, opts: BotRunOptions): BotReport {
   while (ticks < maxTicks && game.run.state !== 'result') {
     bot.step(game.world, input);
     game.advance(input);
+    opts.onTick?.();
     ticks++;
   }
   const finished = game.run.state === 'result';

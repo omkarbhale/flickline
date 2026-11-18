@@ -1,8 +1,9 @@
 import { SKILL_IDS, type SkillId } from '../../config/dial';
-import { GATE_POLICIES, type GatePolicy } from './gatePolicy';
+import { GATE_POLICIES, OVERTIME_POLICIES, type GatePolicy, type OvertimePolicy } from './gatePolicy';
 import { cloneTunables, type Tunables } from '../../config/tunables';
 import { pickFix, shotSplit } from '../../feedback/results';
 import { dealableCards, leanView } from '../../modes/lean';
+import { createFightPaceStats, FightPace, type FightPaceStats } from '../../feedback/fightPace';
 import { HeadlessGame } from './headless';
 import { playMode } from './play';
 
@@ -29,6 +30,14 @@ export interface SweepRunFacts {
   cards: string[];
   /** Stakes of the sectors entered through a door, in order (design §4.5). */
   stakes: string[];
+  /** The Finale was cleared (its exit walked out of: the run reached its Overtime gate, design §4.7, #206). */
+  finaleCleared: boolean;
+  /** Overtime sectors entered, and the Overtime points a Leave door banked or the end forfeited. */
+  overtimeSectors: number;
+  overtimeBanked: number;
+  overtimeLost: number;
+  /** Fight pace of the run (#248): fights per live minute, dead air, gates. */
+  pace: FightPaceStats;
 }
 
 export interface SweepSkillRow {
@@ -48,26 +57,45 @@ export interface SweepSkillRow {
   meanScore: number;
 }
 
+/** Who walks the route: the bot (runs every metre, turns at 360°/s) or the scripted human pace (`HUMAN_PACE`, #248). */
+export type Walker = 'bot' | 'human';
+
 /** One seeded run at one skill, with the sweep facts taken from the bus. */
-export function sweepRun(skill: number, seed: number, pinDial?: number, gatePolicy?: GatePolicy): SweepRunFacts {
+export function sweepRun(
+  skill: number, seed: number, pinDial?: number, gatePolicy?: GatePolicy, overtimePolicy?: OvertimePolicy, walker: Walker = 'bot',
+): SweepRunFacts {
   const g = new HeadlessGame({ seed });
   const f: SweepRunFacts = {
     seed, endReason: null, reached: 0, sectors: 0, ehpAtExit: [], contacts: { cleared: 0, disengaged: 0, avoided: 0, died: 0 },
-    liveSec: 0, score: 0, kills: 0, cards: [], stakes: [],
+    liveSec: 0, score: 0, kills: 0, cards: [], stakes: [], finaleCleared: false, overtimeSectors: 0, overtimeBanked: 0, overtimeLost: 0,
+    pace: createFightPaceStats(),
   };
+  const pace = new FightPace(g.bus, g.world, g.tunables);
   g.bus.on('sectorEntered', (e) => {
     f.reached = e.index + 1;
     f.sectors = e.of;
+    if (e.index >= e.of) f.overtimeSectors = e.index - e.of + 1;
     if (e.index > 0) f.stakes.push(e.stake);
   });
   g.bus.on('sectorEnded', (e) => {
     if (e.reason === 'exit') f.ehpAtExit[e.index] = g.world.health.hp + g.world.health.shield;
+    if (e.reason === 'exit' && e.index === f.sectors - 1) f.finaleCleared = true;
+  });
+  g.bus.on('runBanked', (e) => {
+    f.overtimeBanked = e.points;
+  });
+  g.bus.on('overtimeLost', (e) => {
+    f.overtimeLost = e.points;
   });
   g.bus.on('contactSettled', (e) => {
     f.contacts[e.outcome]++;
     if (e.card) f.cards.push(e.card);
   });
-  const r = playMode(g, { mode: 'sweep', skill, seed, pinDial, gatePolicy });
+  const r = playMode(g, {
+    mode: 'sweep', skill, seed, pinDial, gatePolicy, overtimePolicy, sweepHumanPace: walker === 'human', onTick: () => pace.tick(),
+  });
+  pace.read(f.pace);
+  pace.dispose();
   f.endReason = r.stats.endReason;
   f.liveSec = r.stats.liveSec;
   f.score = r.modeRun?.score ?? 0;
@@ -75,12 +103,14 @@ export function sweepRun(skill: number, seed: number, pinDial?: number, gatePoli
   return f;
 }
 
-export function sweepReport(skills: readonly number[], runs: number, firstSeed = 1, pinDial?: number, gatePolicy?: GatePolicy): { rows: SweepSkillRow[]; runs: SweepRunFacts[] } {
+export function sweepReport(
+  skills: readonly number[], runs: number, firstSeed = 1, pinDial?: number, gatePolicy?: GatePolicy, walker: Walker = 'bot',
+): { rows: SweepSkillRow[]; runs: SweepRunFacts[] } {
   const all: SweepRunFacts[] = [];
   const rows: SweepSkillRow[] = [];
   for (const skill of skills) {
     const list: SweepRunFacts[] = [];
-    for (let i = 0; i < runs; i++) list.push(sweepRun(skill, firstSeed + i, pinDial, gatePolicy));
+    for (let i = 0; i < runs; i++) list.push(sweepRun(skill, firstSeed + i, pinDial, gatePolicy, undefined, walker));
     all.push(...list);
     let won = 0, fought = 0, reached = 0, finished = 0, live = 0, score = 0;
     const ehpSum: number[] = [], ehpN: number[] = [];
@@ -113,16 +143,108 @@ export function sweepReport(skills: readonly number[], runs: number, firstSeed =
   return { rows, runs: all };
 }
 
+/** Sectors in a run of the shipped tunables: the "of N" of the depth columns. */
+const SECTORS = cloneTunables().sweep.sectors;
+
 /** The report as a Markdown table (posted on the issue). */
 export function formatSweepReport(rows: readonly SweepSkillRow[]): string[] {
+  const exits = Array.from({ length: SECTORS }, (_, k) => k);
   const out = [
-    '| Bot skill | Runs | Contact win rate | Fights / run | Depth reached (of 4) | Made it out | HP+shield at exit 1 / 2 / 3 / 4 | Run length (live s) | Score |',
+    `| Bot skill | Runs | Contact win rate | Fights / run | Depth reached (of ${SECTORS}) | Made it out | HP+shield at exit ${exits.map((k) => k + 1).join(' / ')} | Run length (live s) | Score |`,
     '|---|---|---|---|---|---|---|---|---|',
   ];
   for (const r of rows) {
-    const ehp = [0, 1, 2, 3].map((k) => (r.exitsSeen[k] ? `${r.meanEhpAtExit[k]!.toFixed(0)} (n ${r.exitsSeen[k]})` : '—')).join(' / ');
+    const ehp = exits.map((k) => (r.exitsSeen[k] ? `${r.meanEhpAtExit[k]!.toFixed(0)} (n ${r.exitsSeen[k]})` : '—')).join(' / ');
     out.push(
       `| ${r.skill} | ${r.runs} | ${(r.contactWinRate * 100).toFixed(0)} % | ${r.contactsPerRun.toFixed(1)} | ${r.meanReached.toFixed(2)} | ${(r.finishedShare * 100).toFixed(0)} % | ${ehp} | ${r.meanLiveSec.toFixed(1)} | ${r.meanScore.toFixed(0)} |`,
+    );
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Fight pace (#248, design §2.2): fights per live minute and dead air, for the bot and a person's pace.
+// ---------------------------------------------------------------------------------------------
+
+/** One walker at one skill: the fight pace of its runs, against the design's targets. */
+export interface PaceRow {
+  walker: Walker;
+  skill: number;
+  runs: number;
+  /** Medians over the runs: live seconds, fights, fights and duels per live minute; and the quartiles of fights per minute. */
+  liveSec: number;
+  fights: number;
+  fightsPerMin: number;
+  fightsPerMinP25: number;
+  fightsPerMinP75: number;
+  duelsPerMin: number;
+  /** Each run's longest dead air inside a sector: the median and the worst run; and the share of runs with one over the target. */
+  deadAirSec: number;
+  deadAirWorstSec: number;
+  deadAirOverShare: number;
+  /** Each run's longest gate: the median and the worst run (runs that walked no gate are left out). */
+  gateSec: number;
+  gateWorstSec: number;
+  /** Share of live time spent in gates. */
+  gateShare: number;
+}
+
+/** The p-quantile (0..1) of `xs` by linear interpolation; 0 for none. */
+export function quantile(xs: readonly number[], p: number): number {
+  if (xs.length === 0) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const k = (s.length - 1) * p;
+  const lo = Math.floor(k), hi = Math.ceil(k);
+  return s[lo]! + (s[hi]! - s[lo]!) * (k - lo);
+}
+
+/** The pace row of one walker's runs at one skill. `maxDeadAirSec`: the target a run's longest dead air is judged against. */
+export function paceRow(walker: Walker, skill: number, runs: readonly SweepRunFacts[], maxDeadAirSec: number): PaceRow {
+  const p = runs.map((r) => r.pace);
+  const gated = p.filter((x) => x.gates > 0);
+  const live = p.reduce((a, x) => a + x.liveSec, 0);
+  return {
+    walker, skill, runs: runs.length,
+    liveSec: quantile(p.map((x) => x.liveSec), 0.5),
+    fights: quantile(p.map((x) => x.fights), 0.5),
+    fightsPerMin: quantile(p.map((x) => x.fightsPerMin), 0.5),
+    fightsPerMinP25: quantile(p.map((x) => x.fightsPerMin), 0.25),
+    fightsPerMinP75: quantile(p.map((x) => x.fightsPerMin), 0.75),
+    duelsPerMin: quantile(p.map((x) => x.duelsPerMin), 0.5),
+    deadAirSec: quantile(p.map((x) => x.deadAirMaxSec), 0.5),
+    deadAirWorstSec: p.reduce((a, x) => Math.max(a, x.deadAirMaxSec), 0),
+    deadAirOverShare: p.length ? p.filter((x) => x.deadAirMaxSec > maxDeadAirSec).length / p.length : 0,
+    gateSec: quantile(gated.map((x) => x.gateMaxSec), 0.5),
+    gateWorstSec: gated.reduce((a, x) => Math.max(a, x.gateMaxSec), 0),
+    gateShare: live > 0 ? p.reduce((a, x) => a + x.gateSec, 0) / live : 0,
+  };
+}
+
+/** The targets the pace table is judged against (`config/fightPace.ts`). */
+export interface PaceTargets {
+  targetFightsPerMin: number;
+  maxDeadAirSec: number;
+  maxGateSec: number;
+}
+
+/** Which targets a row meets: fights per minute at the median, the median run's longest dead air and longest gate. */
+export function paceVerdict(r: PaceRow, t: PaceTargets): { fights: boolean; deadAir: boolean; gates: boolean } {
+  return { fights: r.fightsPerMin >= t.targetFightsPerMin, deadAir: r.deadAirSec <= t.maxDeadAirSec, gates: r.gateSec <= t.maxGateSec };
+}
+
+/** The pace table as Markdown (posted on the issue), with the targets and each row's verdict. */
+export function formatPaceReport(rows: readonly PaceRow[], t: PaceTargets): string[] {
+  const mark = (ok: boolean): string => (ok ? 'yes' : '**no**');
+  const out = [
+    `Target (HYPOTHESIS until #214, design §2.2): at least ${t.targetFightsPerMin} fights per live minute at the median run, no dead air over ${t.maxDeadAirSec} s inside a sector, gates of at most ${t.maxGateSec} s.`,
+    '',
+    '| Walker | Bot skill | Runs | Live s / run | Fights / run | Fights / live min (p25–p75) | Duels / live min | Longest dead air in a sector: median (worst) | Runs with dead air > target | Longest gate: median (worst) | Time in gates | Meets: fights / dead air / gates |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|',
+  ];
+  for (const r of rows) {
+    const v = paceVerdict(r, t);
+    out.push(
+      `| ${r.walker} | ${r.skill} | ${r.runs} | ${r.liveSec.toFixed(0)} | ${r.fights.toFixed(1)} | ${r.fightsPerMin.toFixed(1)} (${r.fightsPerMinP25.toFixed(1)}–${r.fightsPerMinP75.toFixed(1)}) | ${r.duelsPerMin.toFixed(1)} | ${r.deadAirSec.toFixed(1)} s (${r.deadAirWorstSec.toFixed(1)} s) | ${(r.deadAirOverShare * 100).toFixed(0)} % | ${r.gateSec.toFixed(1)} s (${r.gateWorstSec.toFixed(1)} s) | ${(r.gateShare * 100).toFixed(0)} % | ${mark(v.fights)} / ${mark(v.deadAir)} / ${mark(v.gates)} |`,
     );
   }
   return out;
@@ -183,13 +305,88 @@ export function gatePolicyReport(
 
 export function formatGatePolicyReport(rows: readonly GatePolicyRow[]): string[] {
   const out = [
-    '| Bot skill | Policy | Runs | Score | Depth (of 4) | Made it out | vs first policy: score (± s.e.) | vs first policy: depth | Doors taken: shield / arms / hot / plain |',
+    `| Bot skill | Policy | Runs | Score | Depth (of ${SECTORS}) | Made it out | vs first policy: score (± s.e.) | vs first policy: depth | Doors taken: shield / arms / hot / plain |`,
     '|---|---|---|---|---|---|---|---|---|',
   ];
   for (const r of rows) {
     const share = ['shield', 'arms', 'hot', 'plain'].map((k) => `${(r.stakeShare[k]! * 100).toFixed(0)} %`).join(' / ');
     out.push(
       `| ${r.skill} | ${r.policy} | ${r.runs} | ${r.meanScore.toFixed(0)} | ${r.meanDepth.toFixed(2)} | ${(r.finishedShare * 100).toFixed(0)} % | ${r.deltaScore >= 0 ? '+' : ''}${r.deltaScore.toFixed(0)} (± ${r.deltaScoreSe.toFixed(0)}) | ${r.deltaDepth >= 0 ? '+' : ''}${r.deltaDepth.toFixed(2)} | ${share} |`,
+    );
+  }
+  return out;
+}
+
+/** One policy at one skill over seeded runs (#206): how deep Overtime goes and what the bank-or-push decision is worth. */
+export interface OvertimeRow {
+  policy: string;
+  skill: number;
+  runs: number;
+  /** Share of runs that cleared the Finale (reached the first Overtime gate). */
+  finaleClearedShare: number;
+  /** Of the runs that cleared the Finale: how many played 0 (left at once), 1, 2, 3 and 4 or more Overtime sectors, as shares. */
+  depthShare: number[];
+  /** Of the runs that cleared the Finale: mean Overtime sectors entered, the median and the deepest. */
+  meanDepth: number;
+  medianDepth: number;
+  maxDepth: number;
+  /** Of the runs that entered Overtime: the share that left alive, mean Overtime points banked (leavers) and lost (the rest). */
+  leftShare: number;
+  meanBanked: number;
+  meanLost: number;
+  meanScore: number;
+}
+
+/** The depth buckets of the report: 0, 1, 2, 3, 4 or more Overtime sectors. */
+export const OVERTIME_BUCKETS = 5;
+
+/** The Overtime depth distribution (#206): each policy at each skill over the same seeds. */
+export function overtimeReport(
+  skills: readonly number[], runs: number, firstSeed = 1, policies: readonly string[] = ['push', 'bank'], pinDial?: number,
+): { rows: OvertimeRow[]; runs: SweepRunFacts[] } {
+  const rows: OvertimeRow[] = [];
+  const all: SweepRunFacts[] = [];
+  for (const skill of skills) {
+    for (const name of policies) {
+      const policy = OVERTIME_POLICIES[name];
+      if (!policy) throw new Error(`unknown Overtime policy '${name}' (known: ${Object.keys(OVERTIME_POLICIES).join(', ')})`);
+      const list: SweepRunFacts[] = [];
+      for (let i = 0; i < runs; i++) list.push(sweepRun(skill, firstSeed + i, pinDial, undefined, policy));
+      all.push(...list);
+      const cleared = list.filter((f) => f.finaleCleared);
+      const depths = cleared.map((f) => f.overtimeSectors).sort((a, b) => a - b);
+      const share = new Array<number>(OVERTIME_BUCKETS).fill(0);
+      for (const d of depths) share[Math.min(d, OVERTIME_BUCKETS - 1)]!++;
+      const nc = cleared.length || 1;
+      const entered = list.filter((f) => f.overtimeSectors > 0);
+      const left = entered.filter((f) => f.endReason === 'left');
+      const lost = entered.filter((f) => f.endReason !== 'left');
+      rows.push({
+        policy: name, skill, runs: list.length,
+        finaleClearedShare: cleared.length / (list.length || 1),
+        depthShare: share.map((n) => n / nc),
+        meanDepth: depths.reduce((a, b) => a + b, 0) / nc,
+        medianDepth: depths.length ? depths[Math.floor(depths.length / 2)]! : 0,
+        maxDepth: depths.length ? depths[depths.length - 1]! : 0,
+        leftShare: entered.length ? left.length / entered.length : 0,
+        meanBanked: left.length ? left.reduce((a, f) => a + f.overtimeBanked, 0) / left.length : 0,
+        meanLost: lost.length ? lost.reduce((a, f) => a + f.overtimeLost, 0) / lost.length : 0,
+        meanScore: list.reduce((a, f) => a + f.score, 0) / (list.length || 1),
+      });
+    }
+  }
+  return { rows, runs: all };
+}
+
+export function formatOvertimeReport(rows: readonly OvertimeRow[]): string[] {
+  const out = [
+    '| Bot skill | Policy | Runs | Cleared the Finale | Overtime sectors played, of Finale clears: 0 / 1 / 2 / 3 / 4+ | Mean / median / max | Left alive (of runs in Overtime) | Overtime points banked (leavers) | Overtime points lost (the rest) | Score |',
+    '|---|---|---|---|---|---|---|---|---|---|',
+  ];
+  for (const r of rows) {
+    const share = r.depthShare.map((v) => `${(v * 100).toFixed(0)} %`).join(' / ');
+    out.push(
+      `| ${r.skill} | ${r.policy} | ${r.runs} | ${(r.finaleClearedShare * 100).toFixed(0)} % | ${share} | ${r.meanDepth.toFixed(2)} / ${r.medianDepth} / ${r.maxDepth} | ${(r.leftShare * 100).toFixed(0)} % | ${r.meanBanked.toFixed(0)} | ${r.meanLost.toFixed(0)} | ${r.meanScore.toFixed(0)} |`,
     );
   }
   return out;
@@ -528,7 +725,7 @@ export function leanAb(o: LeanAbOptions): { off: LeanArm; on: LeanArm; rows: Lea
 export function formatLeanAb(rows: readonly LeanAbRow[]): string[] {
   const pct = (v: number): string => `${(v * 100).toFixed(1)} %`;
   const out = [
-    '| Lean | Fights in the planted cards / run | Fights / run | Moving-shot share, runs 1–5 | Last 5 runs | Change | Weakness left after the last run | Runs flagged "moving shots" by the stub | Runs dealt a lean | Depth (of 4) |',
+    `| Lean | Fights in the planted cards / run | Fights / run | Moving-shot share, runs 1–5 | Last 5 runs | Change | Weakness left after the last run | Runs flagged "moving shots" by the stub | Runs dealt a lean | Depth (of ${SECTORS}) |`,
     '|---|---|---|---|---|---|---|---|---|---|',
   ];
   for (const r of rows) {

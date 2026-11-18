@@ -64,17 +64,32 @@ export interface SweepTunables {
   killHeal: { body: number; head: number };
   /** The sector that is the Finale (design §4.1); sectors past it are Overtime. The Closer medal and the run records read it. */
   finaleSector: number;
-  /** Sectors in a run (design §4.1: the Opener, four drawn by role, the Finale). Overtime (#206) goes beyond. */
+  /** Sectors in a run before Overtime (design §4.1: the Opener, four drawn by role, the Finale). Overtime (#206, `overtime`) goes beyond. */
   sectors: number;
   /** 0-based sector indices that never deal a crossfire (design §4.1: sector 5 is a breather). */
   noCrossfireSectors: readonly number[];
   /**
    * Per sector, by index: dial offset from the matched dial (design §4.1 and §9.3) and the depth
-   * multiplier applied to every point earned in it (design §8.1). A run longer than these lists
-   * repeats their last entry.
+   * multiplier applied to every point earned in it (design §8.1). These lists cover the `sectors` of the
+   * route; the Overtime sectors after them follow `overtime`.
    */
   dialOffset: readonly number[];
   depthMultiplier: readonly number[];
+  /**
+   * Overtime (design §4.1, §4.7, #206): after the Finale's exit gate the player may leave (the run ends, every point banked) or push on
+   * through another sector, and again after each. Overtime points are held unbanked until a Leave gate; dying loses them (never the
+   * points of the route's own sectors). Sector `k` of Overtime (`k` from 0): dial offset `dialOffset + k * dialStep`, depth multiplier
+   * `depthMultiplier + k * depthStep`; its contacts are drawn from `takeContacts` / `holdContacts` (an inclusive range, then capped by the
+   * sector's anchors) instead of the per-sector lists, which would repeat the Finale's five hold contacts. HYPOTHESIS until the balance pass (#53).
+   */
+  overtime: {
+    dialOffset: number;
+    dialStep: number;
+    depthMultiplier: number;
+    depthStep: number;
+    takeContacts: readonly [number, number];
+    holdContacts: readonly [number, number];
+  };
   /** Contacts per sector, by index: an inclusive range drawn uniformly, then capped by the sector's hold anchors. */
   contactsMin: readonly number[];
   contactsMax: readonly number[];
@@ -128,11 +143,15 @@ export interface SweepTunables {
     contactsMax: readonly number[];
     /** Base weight of each card a contact can draw (flank needs a second lane and a contact before it). */
     cardWeight: Readonly<Record<HoldCard, number>>;
-    /** Seconds from the sector's start to the first arrival, and the span the arrivals are spread over: `[min, max]` drawn uniformly. */
+    /**
+     * Seconds from the sector's start to the first arrival, `[min, max]` drawn uniformly. The later arrivals follow it
+     * one `arrivalGapSec` apart on average (one draw per sector), each placed at random inside its own slot, so the span
+     * grows with the contact count (a sector of five takes longer than a sector of two) and two arrivals are never more
+     * than about two gaps apart: the fight pace's dead-air target (#248, design §2.2). A larger contact count is the
+     * Finale's longer fight, not a longer wait.
+     */
     firstArrivalSec: readonly [number, number];
-    windowSec: readonly [number, number];
-    /** The Finale's own window: more contacts take longer to arrive. */
-    finaleWindowSec: readonly [number, number];
+    arrivalGapSec: readonly [number, number];
     /** A Peeker only walks to a peek anchor at least this far from the sector's entry (the walk there would meet the fairness floor), metres. */
     minPeekFromEntryM: number;
     /** A Peeker's walk to its cover keeps at least this far from the sector's entry (else a Strafer comes): the fairness floors would stop it in the open, metres. */
@@ -236,6 +255,7 @@ export const sweep: SweepTunables = {
   noCrossfireSectors: [4],
   dialOffset: [-8, -3, 0, 3, 0, 6],
   depthMultiplier: [1.0, 1.2, 1.4, 1.6, 1.8, 2.0],
+  overtime: { dialOffset: 6, dialStep: 2, depthMultiplier: 2.2, depthStep: 0.2, takeContacts: [2, 3], holdContacts: [3, 4] },
   contactsMin: [1, 1, 2, 2, 1, 1],
   contactsMax: [1, 2, 2, 3, 2, 2],
   cardWeight: { 'take-unaware': 0.3, 'take-expected': 0.35, clear: 0.2, crossfire: 0.25 },
@@ -260,9 +280,10 @@ export const sweep: SweepTunables = {
     contactsMin: [1, 1, 1, 2, 1, 5],
     contactsMax: [1, 2, 3, 3, 2, 5],
     cardWeight: { hold: 0.6, trade: 0.25, flank: 0.15 },
-    firstArrivalSec: [5, 10],
-    windowSec: [25, 45],
-    finaleWindowSec: [40, 60],
+    // #248: the first arrival at 3–6 s and a gap of 6–10 s (were 5–10 s and a 25–45 s window, 40–60 s in the Finale, which left
+    // a two-contact hold up to 35 s between its arrivals: dead air the bot and the human-pace walker both measured).
+    firstArrivalSec: [3, 6],
+    arrivalGapSec: [6, 10],
     minPeekFromEntryM: 6,
     minRouteFromEntryM: 5.5,
     peekerShare: 0.45,
