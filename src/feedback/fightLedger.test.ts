@@ -234,6 +234,21 @@ describe('contacts (§3.1)', () => {
   });
 });
 
+describe('duels (§3.1)', () => {
+  it('keeps one duel while an enemy keeps shooting at the player, even with more than a second between its shots', () => {
+    const f = build(new L().enemyFired(1, 7).hurt(1, 7).enemyFired(2.4, 7).hurt(2.4, 7).enemyFired(3.8, 7).hurt(3.8, 7));
+    expect(f.contactCount).toBe(1);
+    expect(f.duelCount).toBe(1);
+    expect(f.duels[0]!.damageCount).toBe(3);
+  });
+  it('splits the duel when the line of sight is broken for more than a second with nothing to hold it', () => {
+    const f = build(new L().seen(1, 7).aim(1.1, 7, true).aim(1.3, 7, false).seen(2.6, 7));
+    expect(f.duelCount).toBe(2);
+    expect(f.duels[0]!.end).toBe('broken');
+    expect(f.contactCount).toBe(1);
+  });
+});
+
 describe('F1 who perceived whom first, and how', () => {
   it('names the channel the player learned of the enemy by, and who saw first', () => {
     const l = new L().heard(1, 7, 20, 'enemyLanded').seen(2, 7).enemySaw(2.25, 7);

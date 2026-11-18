@@ -36,7 +36,8 @@ import type { LoggedEvent, RunLog } from './eventLog';
  *  - Enemy ids are one id space: a `targetId`, a mind's `id` (`perceiver*`, `enemy*` events) and a
  *    `playerDamaged.sourceId` all name the same enemy.
  *  - "Seen" is read from discrete instants (a first sight, a shot aimed at it, an aim-on edge, its tell, its
- *    shot, its perceiver seeing or losing the player); the line of sight itself is not logged.
+ *    shot, its perceiver seeing or losing the player); the line of sight itself is not logged. An enemy's own
+ *    shot, tell or hit on the player holds its duel open for `enemyFireHoldSec`, so a shooter is one duel, not one per shot.
  *  - The enemy's reaction draw and its percentile (F10 `enemyReacted`, #94) and its aim error at first sight
  *    (F6 held and pre-aimed) are not logged yet, nor is the mind's "teammate died" channel (F12 trade): the
  *    trade fact is therefore "hit within the window while still at the kill spot", for any enemy.
@@ -72,6 +73,8 @@ export class Duel {
   /** The enemy's perceiver sees the player now / the aim ray is on it now (open intervals that keep the duel alive). */
   enemySees = false;
   aimOn = false;
+  /** Until this tick an enemy that just shot at the player is assumed to still see him (no break). */
+  holdUntil = -1;
 
   // --- F1: who perceived whom first, and by what channel ---
   /** First information the player had about it (-1 none) and how. */
@@ -185,7 +188,7 @@ export class Duel {
   reset(): void {
     this.index = -1; this.contact = -1; this.enemyId = -1; this.prevDuel = -1;
     this.startTick = -1; this.sightTick = -1; this.lastSightTick = -1; this.endTick = -1; this.end = 'open';
-    this.enemySees = false; this.aimOn = false;
+    this.enemySees = false; this.aimOn = false; this.holdUntil = -1;
     this.playerInfoTick = -1; this.playerChannel = 'none'; this.playerSawTick = -1; this.playerSawExact = false;
     this.enemySawTick = -1; this.enemyInfoTick = -1; this.enemyChannel = 'none'; this.enemyContact = 'unknown';
     this.enemyInAttention = null; this.firstSaw = 'none'; this.sightLeadSec = NaN;
@@ -357,6 +360,7 @@ export class FightLedger {
   private aimMemoryTicks = 0;
   private cardLagTicks = 0;
   private shotAtRad = 0;
+  private fireHoldTicks = 0;
 
   constructor() {
     const cap = fightLedgerCapacity;
@@ -391,6 +395,7 @@ export class FightLedger {
     this.aimMemoryTicks = ticks(t.aimMemorySec);
     this.cardLagTicks = ticks(t.cardLagSec);
     this.shotAtRad = t.shotAtDeg * DEG2RAD;
+    this.fireHoldTicks = ticks(t.enemyFireHoldSec);
     this.contactCount = this.duelCount = this.damageCount = 0;
     this.overflow = false;
     this.truncated = log.truncated;
@@ -583,9 +588,9 @@ export class FightLedger {
   }
 
   /** An instant at which the enemy and the player are in sight of each other (or one saw the other): keeps the duel and contact alive. */
-  private sightInstant(id: number, tick: number): Duel {
+  private sightInstant(id: number, tick: number, enemyShot = false): Duel {
     let d = this.duelFor(id, tick);
-    if (d.sightTick >= 0 && !d.enemySees && !d.aimOn && tick - d.lastSightTick > this.breakTicks) {
+    if (d.sightTick >= 0 && !d.enemySees && !d.aimOn && tick - d.lastSightTick > this.breakTicks && tick > d.holdUntil) {
       // Broken for longer than `duelBreakSec`: that duel is over, this is a new one (a re-peek).
       this.endDuel(d, d.lastSightTick, 'broken');
       const c = this.contacts[d.contact]!;
@@ -595,6 +600,7 @@ export class FightLedger {
     }
     if (d.sightTick < 0) d.sightTick = tick;
     d.lastSightTick = tick;
+    if (enemyShot) d.holdUntil = tick + this.fireHoldTicks;
     const c = d.contact >= 0 ? this.contacts[d.contact]! : this.junkContact;
     if (tick > c.lastSightTick) c.lastSightTick = tick;
     return d;
@@ -798,13 +804,13 @@ export class FightLedger {
   }
 
   private onTell(e: Ev<'enemyTell'>, tick: number): void {
-    const d = this.sightInstant(e.id, tick);
+    const d = this.sightInstant(e.id, tick, true);
     if (d.tellTick < 0) { d.tellTick = tick; d.tellMs = e.durationMs; }
     if (d.enemyInfoTick < 0) { d.enemyInfoTick = tick; d.enemyChannel = 'sight'; }
   }
 
   private onEnemyFired(e: Ev<'enemyFired'>, tick: number): void {
-    const d = this.sightInstant(e.id, tick);
+    const d = this.sightInstant(e.id, tick, true);
     d.enemyShots++;
     if (e.hit) d.enemyHits++;
     if (d.enemyFirstShotTick < 0) d.enemyFirstShotTick = tick;
@@ -822,7 +828,7 @@ export class FightLedger {
   }
 
   private onDamaged(e: Ev<'playerDamaged'>, tick: number): void {
-    const d = this.sightInstant(e.sourceId, tick);
+    const d = this.sightInstant(e.sourceId, tick, true);
     if (d.playerInfoTick < 0) { d.playerInfoTick = tick; d.playerChannel = 'damage'; }
     if (d.enemyInfoTick < 0) { d.enemyInfoTick = tick; d.enemyChannel = 'fired'; }
     this.hp = e.hp;

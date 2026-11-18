@@ -11,6 +11,11 @@ export interface FightLedgerTunables {
   contactGapSec: number;
   /** §3.1: a duel ends when the line of sight is broken for longer than this, seconds. */
   duelBreakSec: number;
+  /**
+   * An enemy's own shot, tell or hit on the player proves it sees him; the line of sight itself is not logged, so after each one
+   * it is assumed to hold for this long (longer than an enemy's fire interval) before a gap can break the duel, seconds.
+   */
+  enemyFireHoldSec: number;
   /** F12 same peek: the player re-exposes to the same enemy within this long of breaking the line of sight, seconds … */
   samePeekWindowSec: number;
   /** … from within this far of the previous spot, metres. */
@@ -46,6 +51,7 @@ export interface FightLedgerTunables {
 export const fightLedger: FightLedgerTunables = {
   contactGapSec: 2,
   duelBreakSec: 1,
+  enemyFireHoldSec: 2,
   samePeekWindowSec: 4,
   samePeekRadiusM: 1,
   tradeWindowSec: 3,
