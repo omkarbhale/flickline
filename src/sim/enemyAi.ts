@@ -140,9 +140,9 @@ export interface EnemyAi {
   /** Unit horizontal heading of the walk (the strafe lane after it is square to this). */
   headX: number;
   headZ: number;
-  /** Tick its steps were first audible to the player (a run within `audio.enemy.maxAudibleM`, one stride), -1 = not yet; and the metres run towards the next stride. */
+  /** Tick its steps were first audible to the player (a running step inside `attribution.soundRadiusM.footstep`), -1 = not yet; and the metres run towards the next step (`sim/enemySound.ts`). */
   audibleTick: number;
-  audibleAccum: number;
+  strideAccum: number;
 
   // ---- shooting (shared) -----------------------------------------------------------------------
   /** This enemy can shoot at all (spawn option); the world's flag must also be on. */
@@ -180,7 +180,7 @@ export function createEnemyAi(): EnemyAi {
     pattern: 'shoulder', hold: vec3(), out: vec3(), u: 0, uTarget: 0, step: 0, stepHoldTicks: 0, wideSec: 0, wideDrawSec: 0,
     crouchedHold: false, windowEndTick: 0,
     arriving: false, honest: false, routeN: 0, routeI: 0, routeX: new Float64Array(MAX_ROUTE), routeY: new Float64Array(MAX_ROUTE),
-    routeZ: new Float64Array(MAX_ROUTE), routeSpeed: 0, engageM: 0, headX: 0, headZ: -1, audibleTick: -1, audibleAccum: 0,
+    routeZ: new Float64Array(MAX_ROUTE), routeSpeed: 0, engageM: 0, headX: 0, headZ: -1, audibleTick: -1, strideAccum: 0,
     fireOn: false, initiator: false, expectation: 'attending', weapon: 'kestrel', tellSec: 0, reactionSec: 0, hitChance: 0,
     phase: FIRE_IDLE, contactTick: -1, readyTick: 0, tellTicks: 0, tellStartTick: -1, tellEndTick: -1, burstLeft: 0,
     burstsLeft: 0, nextShotTick: 0, coolEndTick: 0, lastShotTick: -1, gate: false,
@@ -198,7 +198,7 @@ export function resetEnemyAi(a: EnemyAi): void {
   a.u = 0; a.uTarget = 0; a.step = 0; a.stepHoldTicks = 0; a.wideSec = 0; a.wideDrawSec = 0; a.crouchedHold = false;
   a.windowEndTick = 0;
   a.arriving = false; a.honest = false; a.routeN = 0; a.routeI = 0; a.routeSpeed = 0; a.engageM = 0; a.headX = 0; a.headZ = -1;
-  a.audibleTick = -1; a.audibleAccum = 0;
+  a.audibleTick = -1; a.strideAccum = 0;
   a.fireOn = false; a.initiator = false; a.expectation = 'attending'; a.weapon = 'kestrel';
   a.tellSec = 0; a.reactionSec = 0; a.hitChance = 0;
   a.phase = FIRE_IDLE; a.contactTick = -1; a.readyTick = 0; a.tellTicks = 0; a.tellStartTick = -1; a.tellEndTick = -1;

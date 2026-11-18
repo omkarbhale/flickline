@@ -129,7 +129,7 @@ describe('arrivals (design §4.2, §9.3: hold sectors)', () => {
     };
     expect(walker(silent - 0.2, 55).ai.audibleTick, 'a walk, 15 m away').toBe(-1);
     expect(walker(silent + 0.5, 55).ai.audibleTick, 'a run, 15 m away').toBeGreaterThan(0);
-    expect(walker(silent + 2, 40 + tun.audio.enemy.maxAudibleM + 20).ai.audibleTick, 'a run, out of earshot').toBe(-1);
+    expect(walker(silent + 2, 40 + tun.attribution.soundRadiusM.footstep + 20).ai.audibleTick, 'a run, out of earshot').toBe(-1);
   });
 
   it('an arrival never starts a contact before the player has seen it or heard it: the player looks away, a walking Strafer does not fire, then it runs its legs and is heard', () => {

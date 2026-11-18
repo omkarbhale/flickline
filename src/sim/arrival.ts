@@ -40,7 +40,7 @@ export function arriveInit(t: TargetState, p: ArriveParams | undefined): boolean
   a.arriving = true;
   a.honest = true;
   a.audibleTick = -1;
-  a.audibleAccum = 0;
+  a.strideAccum = 0;
   t.pos.x = a.routeX[0]!; t.pos.y = a.routeY[0]!; t.pos.z = a.routeZ[0]!;
   t.prevPos.x = t.pos.x; t.prevPos.y = t.pos.y; t.prevPos.z = t.pos.z;
   const dx = a.routeX[1]! - a.routeX[0]!, dz = a.routeZ[1]! - a.routeZ[0]!;

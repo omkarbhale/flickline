@@ -1,4 +1,5 @@
 import type { Vec3 } from '../core/vec3';
+import type { EnemySoundKind } from '../config/attribution';
 import type { LevelDef } from './types';
 
 /**
@@ -200,4 +201,6 @@ export interface MapDef extends LevelDef {
   marks: FloorMark[];
   look: MapLook;
   lint: MapLintOptions;
+  /** This map's sound radii over the shared table (`LevelDef.hearing`); absent kinds keep the table's value. */
+  hearing?: Readonly<Partial<Record<EnemySoundKind, number>>>;
 }

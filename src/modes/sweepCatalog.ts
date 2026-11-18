@@ -90,6 +90,7 @@ export function sectorSources(map: MapDef, tunables: Tunables): SectorSource[] {
     const seen = new Map<string, boolean>();
     const source: SectorSource = {
       mapId: map.id,
+      footstepM: map.hearing?.footstep ?? tunables.attribution.soundRadiusM.footstep,
       id: sector.id,
       roles: sector.role,
       approaches,

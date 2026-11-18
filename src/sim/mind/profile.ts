@@ -40,11 +40,6 @@ export interface MindProfile extends Record<MindParam, number> {
   /** View caps (`mind.caps`). */
   maxAngularSpeedDegPerSec: number;
   maxAngularAccelDegPerSec2: number;
-  /** How far the enemy hears each player sound (`attribution.soundRadiusM` x `mind.hearing.radiusScale`), metres. */
-  hearFootstepM: number;
-  hearLandingM: number;
-  hearReloadM: number;
-  hearShotM: number;
 }
 
 /** A profile with every field at 0; `profileFor` fills it. Allocates once, at enemy creation. */
@@ -52,7 +47,7 @@ export function createMindProfile(): MindProfile {
   const p = {
     mindSkill: 0, reactionFactor: 1, aimNoiseFactor: 1, aggressionFactor: 1, reactionMeanSec: 0,
     reactionFloorSec: 0, preparedReactionFloorSec: 0, tellFloorSec: 0, maxAngularSpeedDegPerSec: 0,
-    maxAngularAccelDegPerSec2: 0, hearFootstepM: 0, hearLandingM: 0, hearReloadM: 0, hearShotM: 0,
+    maxAngularAccelDegPerSec2: 0,
   } as MindProfile;
   for (let i = 0; i < MIND_PARAMS.length; i++) p[MIND_PARAMS[i]!] = 0;
   return p;
@@ -158,11 +153,5 @@ export function profileFor(mindSkill: number, rng: Rng, out: MindProfile, cfg: M
   // Caps and hearing.
   out.maxAngularSpeedDegPerSec = mc.caps.angularSpeedDegPerSec;
   out.maxAngularAccelDegPerSec2 = mc.caps.angularAccelDegPerSec2;
-  const r = cfg.attribution.soundRadiusM;
-  const s = mc.hearing.radiusScale;
-  out.hearFootstepM = r.footstep * s.footstep;
-  out.hearLandingM = r.landing * s.landing;
-  out.hearReloadM = r.reload * s.reload;
-  out.hearShotM = r.shot * s.shot;
   return out;
 }

@@ -5,6 +5,7 @@ import { lineClear } from '../exposure';
 import type { MapDef } from '../mapTypes';
 import { PerceptionSystem } from '../perception';
 import type { TargetField } from '../targets';
+import type { SoundRadii } from '../hearing';
 import type { BoxDef, LevelDef, PlayerState, SimEvents, TargetState } from '../types';
 import { NavRuntime } from './nav';
 
@@ -22,6 +23,8 @@ export class MindSystem {
   /** Slots of the target field that held a live mind at the last step, and the id they held. */
   private readonly ids: Int32Array;
   private boxes: readonly BoxDef[];
+  /** How far each sound carries (the world's one table, #99): a teammate's death is heard as far as a shot. */
+  private radii: Readonly<SoundRadii>;
   /** Forwards the perceiver events into whatever sink the world's tick is using. */
   private readonly sink: { target: EventSink<SimEvents>; emit: EventSink<SimEvents>['emit'] };
 
@@ -33,6 +36,7 @@ export class MindSystem {
     };
     this.sink = sink;
     this.boxes = level.boxes;
+    this.radii = tunables.attribution.soundRadiusM;
     this.perception = new PerceptionSystem(tunables, level.boxes, player, sink, seed);
     this.ids = new Int32Array(tunables.targets.maxTargets).fill(-1);
     this.setLevel(level);
@@ -43,6 +47,12 @@ export class MindSystem {
     this.boxes = level.boxes;
     this.perception.setBoxes(level.boxes);
     this.nav.build((level as Partial<MapDef>).nav ?? null);
+  }
+
+  /** Hear at the world's radius table from now on (`World.soundRadii`, filled in place per map). */
+  setRadii(radii: Readonly<SoundRadii>): void {
+    this.radii = radii;
+    this.perception.setRadii(radii);
   }
 
   get levelBoxes(): readonly BoxDef[] {
@@ -109,6 +119,7 @@ export class MindSystem {
   /** `dead` went down: every other living mind that hears a shot from there or sees the spot gets the alarm. */
   private teammateDown(dead: TargetState, slots: readonly TargetState[], tick: number): void {
     const hy = this.tunables.targets.hit.headCentreStand;
+    const shotSq = this.radii.shot * this.radii.shot;
     const now = tick * TICK_DT;
     for (let i = 0; i < slots.length; i++) {
       const o = slots[i]!;
@@ -116,7 +127,7 @@ export class MindSystem {
       const p = o.mind.perceiver;
       if (p === null) continue;
       const dx = dead.pos.x - p.eye.x, dz = dead.pos.z - p.eye.z;
-      const near = dx * dx + dz * dz <= o.mind.profile.hearShotM * o.mind.profile.hearShotM;
+      const near = dx * dx + dz * dz <= shotSq;
       if (!near && !lineClear(this.boxes, p.eye.x, p.eye.y, p.eye.z, dead.pos.x, dead.pos.y + hy, dead.pos.z)) continue;
       const a = o.mind.alarm;
       a.x = dead.pos.x; a.y = dead.pos.y; a.z = dead.pos.z;

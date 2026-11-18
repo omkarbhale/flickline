@@ -72,6 +72,7 @@ export const feature = defineFeature({
     const world = game.world;
     const sys = new PerceptionSystem(world.tunables, world.level.boxes, world.player, game.bus);
     sys.attach(game.bus);
+    sys.setRadii(world.soundRadii);
     let nextId = 9000;
     const halfLife = world.tunables.mind.perception.memoryHalfLifeSec;
 

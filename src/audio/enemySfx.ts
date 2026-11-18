@@ -61,7 +61,8 @@ export function attachEnemySfx(
       audio.play('enemyTell', strength >= 1 ? { position: enemyAt, durationMs: e.durationMs } : { position: enemyAt, durationMs: e.durationMs, gain: strength });
     }),
     bus.on('enemyFired', (e) => {
-      if (!world.enemyVoice(e.id, enemyAt)) return;
+      // A shot beyond its radius is not heard, as the player's shot is not heard by an Echo beyond it (`attribution.soundRadiusM.shot`).
+      if (!e.audibleToPlayer || !world.enemyVoice(e.id, enemyAt)) return;
       audio.play('enemyShot', { position: enemyAt });
       if (e.hit) return;
       world.playerEye(eye);

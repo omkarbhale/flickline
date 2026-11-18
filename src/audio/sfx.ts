@@ -25,7 +25,7 @@ type SfxEvents = SimEvents & FeedbackEvents & Pick<StreakEvents, 'chainUpdated'>
  *  surgeStarted / surgeEnded -> whoosh and the looping shimmer; medalAwarded -> the 4-note phrase
  *
  * Enemy and damage sounds (tell, enemy shot, whiz, damage thud) are positioned and live in
- * `enemySfx.ts`; enemy footsteps in `enemyFootsteps.ts`.
+ * `enemySfx.ts`; enemy footsteps, landings and reloads in `enemyHearing.ts`.
  *
  * In a reference-like run (`options.referenceLike`, design §8.5) only what the reference game also
  * plays remains: the shot, the miss, the hit sounds and one plain kill chime. The moving-shot tock,

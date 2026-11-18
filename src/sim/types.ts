@@ -1,5 +1,6 @@
 import type { Vec3 } from '../core/vec3';
 import type { EnemyStreams } from '../core/rngStreams';
+import type { EnemySoundKind } from '../config/attribution';
 import type { WeaponId } from '../config/weapon';
 import type { RunEvents } from './runEvents';
 import type { EnemyAi } from './enemyAi';
@@ -273,6 +274,12 @@ export interface LevelDef {
    * height of the one the player is facing, so it stays right on raised floors.
    */
   enemyFeet?: readonly Vec3[];
+  /**
+   * This map's own sound radii, metres, laid over the shared table (`attribution.soundRadiusM`) for
+   * every sound kind it names (#99): chosen per map so a runner is heard 1-2 s before it can be seen
+   * at the main approach (`mapLint`'s warning report). One value per kind, read by both sides.
+   */
+  hearing?: Readonly<Partial<Record<EnemySoundKind, number>>>;
 }
 
 /**
