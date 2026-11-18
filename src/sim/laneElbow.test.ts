@@ -160,7 +160,7 @@ describe('Lane', () => {
   it('the player cannot walk into a half-wall, the walls or the alcove corners', () => {
     for (const s of stops) {
       const left = s.max.x <= 0;
-      const start = vec3(left ? -2 : 2, 0, (s.min.z + s.max.z) / 2 + 3); // south of the stop, walking north into it
+      const start = vec3(left ? -1.3 : 1.3, 0, (s.min.z + s.max.z) / 2 + 1.8); // south of the stop, walking north into it (past the ledge on the west wall, north of the entry baffle at z 11.2 to 11.6)
       const w = walkInto(laneMap, start, vec3(start.x, 0, start.z - 10), 256);
       expect(w.player.pos.z, s.id).toBeCloseTo(s.max.z + hw, 4);
     }
@@ -168,7 +168,7 @@ describe('Lane', () => {
     expect(west.player.pos.x).toBeCloseTo(-3 + hw, 4);
     const far = walkInto(laneMap, vec3(0, 0, 14), vec3(0, 0, -40), 768);
     expect(far.player.pos.z).toBeCloseTo(-15 + hw, 4);
-    const alcoveCorner = walkInto(laneMap, vec3(2.5, 0, -8), vec3(2.5, 0, -40), 512); // x = 2.5 is inside the east alcove wall line
+    const alcoveCorner = walkInto(laneMap, vec3(2.5, 0, -9.2), vec3(2.5, 0, -40), 512); // x = 2.5 is inside the east alcove wall line (north of the low crate on the east side)
     expect(alcoveCorner.player.pos.z).toBeCloseTo(-12 + hw, 4);
   });
 });

@@ -43,8 +43,18 @@ export function bodyShows(boxes: readonly BoxDef[], halfWidth: number, top: numb
   return false;
 }
 
+/** A walk line is cast along the centre and this far to each side (about the body's width), so a route never grazes a wall corner the hull would catch on. */
+const WALK_SIDE_M = 0.3;
+
 function walkLine(map: MapDef, a: Vec3, b: Vec3): boolean {
-  for (const y of WALK_LINE_Y) if (!lineClear(map.boxes, a.x, a.y + y, a.z, b.x, b.y + y, b.z)) return false;
+  let lx = -(b.z - a.z), lz = b.x - a.x;
+  const ll = Math.hypot(lx, lz);
+  if (ll < 1e-9) { lx = 0; lz = 0; } else { lx /= ll; lz /= ll; }
+  for (const y of WALK_LINE_Y) {
+    for (const side of [0, -WALK_SIDE_M, WALK_SIDE_M]) {
+      if (!lineClear(map.boxes, a.x + lx * side, a.y + y, a.z + lz * side, b.x + lx * side, b.y + y, b.z + lz * side)) return false;
+    }
+  }
   return true;
 }
 

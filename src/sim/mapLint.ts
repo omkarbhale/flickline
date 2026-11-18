@@ -565,8 +565,9 @@ function lintSectors(
     }
 
     const sights = isTake && gatesOk ? sectorSights(map, sector, eye, hit, place) : [];
-    if (isTake && gatesOk) lintBands(sector, sights, place, add);
-    reports.push({ id: sector.id, role: sector.role, holdAnchors: holds, longest: sectorSightline(map, sector, eye), sights });
+    const longest = sectorSightline(map, sector, eye);
+    if (isTake && gatesOk) lintBands(sector, sights, longest.length, place, add);
+    reports.push({ id: sector.id, role: sector.role, holdAnchors: holds, longest, sights });
   }
   return reports;
 }
@@ -593,15 +594,20 @@ function sectorSights(map: MapDef, sector: SectorDef, eye: number, hit: HitTunab
   return out;
 }
 
-/** What a take sector has to offer (#249): all three distance bands, something off the floor plane, from cover and crouched. */
+/**
+ * What a take sector has to offer (#249): every distance band its own ground reaches (a sector whose longest sightline is
+ * `longest` metres cannot start a fight further away than that: mid needs 10 m of it, long 20 m, and close is always owed),
+ * something off the floor plane, from cover and crouched.
+ */
 function lintBands(
-  sector: SectorDef, sights: readonly AnchorSight[], place: SweepTunables['place'],
+  sector: SectorDef, sights: readonly AnchorSight[], longest: number, place: SweepTunables['place'],
   add: (severity: LintSeverity, check: string, where: string, message: string) => void,
 ): void {
   const where = `sector ${sector.id}`;
   const seen = sights.filter((x) => x.distM !== null);
   for (const band of ['close', 'mid', 'long'] as const) {
-    if (!seen.some((x) => x.band === band)) {
+    const reach = band === 'close' ? 0 : band === 'mid' ? place.closeToM : place.longFromM;
+    if (longest >= reach && !seen.some((x) => x.band === band)) {
       const range = band === 'close' ? `under ${place.closeToM} m` : band === 'mid' ? `${place.closeToM} to ${place.longFromM} m` : `${place.longFromM} m or more`;
       add('error', 'sector-bands', where, `no hold anchor first shows ${range} from the player walking from the entry to the exit (the ${band} band); a take sector has to offer fights at close, mid and long range`);
     }

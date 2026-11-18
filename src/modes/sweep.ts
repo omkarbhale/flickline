@@ -161,7 +161,9 @@ function leanedCfg(tunables: Tunables, lean: Lean, dial?: number): Tunables['swe
   const spec = lean.length > 0 ? { cards: lean, boost: tunables.lean.boost, maxShareFactor: tunables.lean.maxShareFactor } : null;
   const cfg = leanedSweep(tunables.sweep, spec);
   if (dial === undefined || !Number.isFinite(dial)) return cfg;
-  return { ...cfg, place: { ...cfg.place, targetM: axisValue(tunables.dial.axes.distance, dial) } };
+  const p = cfg.place;
+  const t = Math.min(1, Math.max(0, dial / 100));
+  return { ...cfg, place: { ...p, targetM: axisValue(tunables.dial.axes.distance, dial), distanceSigma: p.distanceSigmaAt0 + (p.distanceSigmaAt100 - p.distanceSigmaAt0) * t } };
 }
 
 /** The classifier's trials, sent to the runner, and its sight query (the context is the run's). */

@@ -35,6 +35,8 @@ export interface SweepRunFacts {
 
 /** One first sighting of an Echo (#249): how far, and how far up or down. */
 export interface FirstSight {
+  /** The sector the Echo was in (`map/sector`), for the per-sector table. */
+  sector: string;
   distM: number;
   /** Echo feet minus player feet, metres: positive = the Echo is above. */
   dy: number;
@@ -55,8 +57,9 @@ export interface SweepSkillRow {
   exitsSeen: number[];
   meanLiveSec: number;
   meanScore: number;
-  /** The first-sight distribution of every Echo fought at this skill (#249). */
+  /** The first-sight distribution of every Echo fought at this skill (#249), overall and by sector. */
   sight: SightStats;
+  sightBySector: Record<string, SightStats>;
 }
 
 /** First-sight distance and height facts over a set of sightings (#249; design §9.4's distance axis, §10's bands). */
@@ -99,6 +102,15 @@ export function sightStats(sights: readonly FirstSight[]): SightStats {
   };
 }
 
+/** The distribution of the sightings of each sector. */
+export function bySector(sights: readonly FirstSight[]): Record<string, SightStats> {
+  const groups: Record<string, FirstSight[]> = {};
+  for (const x of sights) (groups[x.sector] ??= []).push(x);
+  const out: Record<string, SightStats> = {};
+  for (const k of Object.keys(groups).sort()) out[k] = sightStats(groups[k]!);
+  return out;
+}
+
 /** One seeded run at one skill, with the sweep facts taken from the bus. */
 export function sweepRun(skill: number, seed: number, pinDial?: number, gatePolicy?: GatePolicy): SweepRunFacts {
   const g = new HeadlessGame({ seed });
@@ -106,7 +118,9 @@ export function sweepRun(skill: number, seed: number, pinDial?: number, gatePoli
     seed, endReason: null, reached: 0, sectors: 0, ehpAtExit: [], contacts: { cleared: 0, disengaged: 0, avoided: 0, died: 0 },
     liveSec: 0, score: 0, kills: 0, cards: [], stakes: [], sights: [],
   };
+  let sector = '';
   g.bus.on('sectorEntered', (e) => {
+    sector = `${e.mapId}/${e.sectorId}`;
     f.reached = e.index + 1;
     f.sectors = e.of;
     if (e.index > 0) f.stakes.push(e.stake);
@@ -122,7 +136,7 @@ export function sweepRun(skill: number, seed: number, pinDial?: number, gatePoli
     const t = g.world.targetField.byId(e.targetId);
     if (!t) return;
     const p = g.world.player.pos;
-    f.sights.push({ distM: Math.hypot(t.pos.x - p.x, t.pos.z - p.z), dy: t.pos.y - p.y });
+    f.sights.push({ sector, distM: Math.hypot(t.pos.x - p.x, t.pos.z - p.z), dy: t.pos.y - p.y });
   });
   const r = playMode(g, { mode: 'sweep', skill, seed, pinDial, gatePolicy });
   f.endReason = r.stats.endReason;
@@ -166,6 +180,7 @@ export function sweepReport(skills: readonly number[], runs: number, firstSeed =
       meanLiveSec: live / n,
       meanScore: score / n,
       sight: sightStats(list.flatMap((f) => f.sights)),
+      sightBySector: bySector(list.flatMap((f) => f.sights)),
     });
   }
   return { rows, runs: all };
@@ -199,6 +214,26 @@ export function formatSightReport(rows: readonly SweepSkillRow[]): string[] {
   for (const r of rows) {
     const s = r.sight;
     out.push(`| ${r.skill} | ${s.n} | ${[s.p10, s.p25, s.p50, s.p75, s.p90].map((v) => v.toFixed(1)).join(' / ')} | ${pct(s.beyond20)} | ${pct(s.heightDiff)} |`);
+  }
+  // By sector, over every skill: which maps give the long fights and the fights across levels.
+  const merged: Record<string, { n: number; p50: number; p90: number; beyond20: number; heightDiff: number }> = {};
+  for (const r of rows) {
+    for (const [k, v] of Object.entries(r.sightBySector)) {
+      const m = (merged[k] ??= { n: 0, p50: 0, p90: 0, beyond20: 0, heightDiff: 0 });
+      m.n += v.n;
+      m.p50 += v.p50 * v.n;
+      m.p90 += v.p90 * v.n;
+      m.beyond20 += v.beyond20 * v.n;
+      m.heightDiff += v.heightDiff * v.n;
+    }
+  }
+  const names = Object.keys(merged);
+  if (names.length > 0) {
+    out.push('', '| Sector (all skills) | First sights | Median / 90th percentile (m) | Beyond 20 m | Height difference above 1 m |', '|---|---|---|---|---|');
+    for (const k of names) {
+      const m = merged[k]!;
+      out.push(`| ${k} | ${m.n} | ${(m.p50 / m.n).toFixed(1)} / ${(m.p90 / m.n).toFixed(1)} | ${pct(m.beyond20 / m.n)} | ${pct(m.heightDiff / m.n)} |`);
+    }
   }
   return out;
 }

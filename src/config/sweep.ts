@@ -49,7 +49,7 @@ export interface GateTunables {
   armsPool: readonly string[];
   /** The "heard" bucket of a count: up to `quietMax` Echoes = quiet, up to `fewMax` = one or two, more = several. */
   heard: { quietMax: number; fewMax: number };
-  /** A sector's longest sightline from its entry, at or above this many metres, is `long`; below, `close` (design §10: close 5-8 m, mid 12-16, long 22-26). */
+  /** A sector's longest sightline on the walk from its entry to its exit, at or above this many metres, is `long`; below, `close` (design §10: close 5-8 m, mid 12-16, long 22-26). */
   longSightlineM: number;
 }
 
@@ -129,13 +129,17 @@ export interface SweepTunables {
     unawareMoverShare: number;
     /**
      * Where an Echo stands is drawn by distance (design §9.4, #249): each free hold anchor of a sector is weighted by how near
-     * its **first-sight distance** (how far the player is from it when the walk entry to exit first shows it, `sim/mapSight.ts`)
-     * is to `targetM`, on a log scale with a spread of `distanceSigma` (a natural-log width: 0.5 = within a factor of 1.65 either
-     * way gets about 60% of the peak weight). The card still decides what kind of Echo stands there.
+     * its **first-sight distance** (how far the player is from it when the walk from entry to exit first shows it,
+     * `sim/mapSight.ts`) is to `targetM`, on a log scale with a spread of `distanceSigma` (a natural-log width: 0.5 puts an
+     * anchor a factor of 1.65 off the target at 60% of the peak weight). The card still decides what kind of Echo stands there.
+     * The run overlays both per plan from the dial that plan is played at; the values here are the dial-50 ones.
      */
-    /** The distance the dial asks for, metres (design §9.4: 5 at dial 0, 35 at dial 100, geometric). The run overlays it per plan from the dial; this default is the dial-50 value. */
+    /** The distance the dial asks for, metres (design §9.4: 5 at dial 0, 35 at dial 100, geometric). */
     targetM: number;
+    /** The spread of the draw at dial 50, and at the ends of the dial (linear between): a beginner's fights are all near, an expert's range wide. */
     distanceSigma: number;
+    distanceSigmaAt0: number;
+    distanceSigmaAt100: number;
     /** Weight (of a peak 1) of an anchor the walk never shows: a fight the player only has by leaving the route. */
     offRouteWeight: number;
     /** Floor of every weight, so no anchor is ever impossible. */
@@ -239,7 +243,9 @@ export const sweep: SweepTunables = {
     clearPeekerShare: 0.6,
     unawareMoverShare: 0.7,
     targetM: 13.2,
-    distanceSigma: 0.5,
+    distanceSigma: 0.78,
+    distanceSigmaAt0: 0.4,
+    distanceSigmaAt100: 1.15,
     offRouteWeight: 0.05,
     weightFloor: 0.02,
     closeToM: 10,
@@ -276,7 +282,7 @@ export const sweep: SweepTunables = {
     hotMultiplier: 1.5,
     armsPool: ['kestrel', 'vane', 'rill'],
     heard: { quietMax: 0, fewMax: 2 },
-    longSightlineM: 15,
+    longSightlineM: 20,
   },
 };
 

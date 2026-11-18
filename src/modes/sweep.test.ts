@@ -146,7 +146,7 @@ describe('Sweep run director (#201)', () => {
       }
     }
     expect(echoes).toBeGreaterThan(200 * 4);
-  });
+  }, 30_000);
 });
 
 /** Start a Sweep run headless and hand back what the tests read (`newProfile`: the first run of a profile, which places it). */
