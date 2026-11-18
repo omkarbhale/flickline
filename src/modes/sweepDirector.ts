@@ -781,18 +781,22 @@ function planHold(rng: Rng, cfg: SweepTunables, s: SectorSource, body: PlanBody,
       const atSec = card === 'flank' ? h.flankDelaySec[0] + rng.next() * (h.flankDelaySec[1] - h.flankDelaySec[0]) : at + gap;
       const forceRun = card === 'flank';
       let echo: EchoPlan | null = null;
-      if (rng.next() < h.peekerShare && free.length > 0) {
+      const wantsPeek = rng.next() < h.peekerShare;
+      // The arrival draws from a stream of its own (one value from the plan's), so which lane the dial's distance axis chose,
+      // and how many lanes a Peeker had to try, never move the draws of the contacts after it (#249).
+      const arrival = new Rng(Math.floor(rng.next() * 0x100000000) >>> 0);
+      if (wantsPeek && free.length > 0) {
         // A Peeker walks to a free peek anchor along the first lane (this one, then the others) that keeps it clear of the entry.
         const spot = free[free.length - 1]!;
         for (let l = 0; l < pool.length && !echo; l++) {
-          echo = planArrival(rng, cfg, s, { lane: pool[(laneIdx + l) % pool.length]!, spot, forceRun, atSec });
+          echo = planArrival(arrival, cfg, s, { lane: pool[(laneIdx + l) % pool.length]!, spot, forceRun, atSec });
         }
         if (echo) {
           free.pop();
           spots.push(spot.id);
         }
       }
-      echoes.push(echo ?? planArrival(rng, cfg, s, { lane: pool[laneIdx]!, forceRun, atSec })!);
+      echoes.push(echo ?? planArrival(arrival, cfg, s, { lane: pool[laneIdx]!, forceRun, atSec })!);
     }
     contacts.push({ index: firstIndex + k, card, spots, echoes, ...(card === 'flank' ? { after: k - 1 } : {}) });
   }

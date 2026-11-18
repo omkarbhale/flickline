@@ -298,6 +298,28 @@ describe('what a take sector offers (#249)', () => {
     expect(bandErrors(room()).some((e) => e.includes('holds from cover'))).toBe(false);
   });
 
+  it('a hold sector is asked for the arrivals its ground reaches, and one off the floor plane: each approach lane\'s first sight from the entry', () => {
+    const hold = edited((m) => {
+      m.sectors[0].role = ['hold'];
+      m.sectors[0].region = { min: [0.5, 0, -10], max: [10, 4, 10] };
+      m.sectors[0].entry = [5, 0, 8];
+      m.sectors[0].exit = [5, 0, 5];
+      m.sectors[0].holdAnchors = ['hold-hidden', 'hold-seen'];
+      m.sectors[0].approaches = ['lane-in'];
+    });
+    const sec = lintMap(load(hold)).sectors[0]!;
+    expect(sec.arrivals.map((x) => x.id)).toEqual(['lane-in']);
+    expect(sec.arrivals[0]!.distM).not.toBeNull();
+    expect(sec.arrivals[0]!.dy).toBe(0);
+    const errs = bandErrors(hold);
+    expect(errs.some((e) => e.includes('no approach lane brings an arrival 1 m or more above or below'))).toBe(true);
+    expect(errs.every((e) => !e.includes('anchor'))).toBe(true);
+    expect(formatLintReport(lintMap(load(hold))).join('\n')).toContain('arrivals first seen: lane-in');
+    // a take sector reports no arrivals, a hold sector no anchor sights
+    expect(lintMap(load(room())).sectors[0]!.arrivals).toEqual([]);
+    expect(sec.sights).toEqual([]);
+  });
+
   it('warns about an anchor the walk never shows (an Echo there is met only by leaving the route)', () => {
     const raw = edited((m) => {
       m.anchors.push({ kind: 'hold', id: 'hold-pen', pos: [8, 0, -8], yaw: 0 });
