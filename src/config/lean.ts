@@ -6,12 +6,11 @@
  * balance pass (#53) and the lean's A/B (`npm run bot -- --lean-report`, `docs/research/replay-not-drills.md` R4).
  */
 
-/** The ten scenario cards of design §4.4 (a run deals only the ones `config/sweep.ts` and the sector roles let it deal today). */
-export type ScenarioCard =
-  | 'take-expected' | 'take-unaware' | 'hold' | 'clear' | 'trade' | 'meet' | 'breach' | 'crossfire' | 'flank' | 'known-duel';
-export const SCENARIO_CARDS: readonly ScenarioCard[] = [
-  'take-expected', 'take-unaware', 'hold', 'clear', 'trade', 'meet', 'breach', 'crossfire', 'flank', 'known-duel',
-];
+import { SCENARIO_CARD_IDS, type ScenarioCardId } from './scenario';
+
+/** The ten scenario cards of design §4.4 (their data and the sampler's numbers are `config/scenario.ts`; a run deals only the ones `config/sweep.ts` and the sector roles let it deal today). */
+export type { ScenarioCardId };
+export const SCENARIO_CARDS: readonly ScenarioCardId[] = SCENARIO_CARD_IDS;
 
 /**
  * The twelve candidate diagnostics of the fix engine (design §8.3). `movingShots` and `slowTimeToShot` (the "late shot"
@@ -32,7 +31,7 @@ export interface LeanEntry {
    * `breach`, `flank`, `known-duel`: #97, #204) is kept here and skipped by the sampler until it can. Empty: no situation
    * practises it (the tilt is about the fight after a loss, not about a kind of fight).
    */
-  cards: readonly ScenarioCard[];
+  cards: readonly ScenarioCardId[];
   /** Why those fights, ending the results line: "Next run leans: {cards}, {why}." Empty when `cards` is. */
   why: string;
 }
@@ -52,7 +51,7 @@ export interface LeanTunables {
   /** Diagnostic -> cards that exercise it (design §8.3; "a data table", #210). */
   table: Readonly<Record<DiagnosticId, LeanEntry>>;
   /** Each card as the results line says it ("meets in a corridor"). */
-  phrases: Readonly<Record<ScenarioCard, string>>;
+  phrases: Readonly<Record<ScenarioCardId, string>>;
   /** The results line; `{cards}` is the phrases joined in plain words, `{why}` the diagnostic's clause. */
   line: string;
   /** Joins the phrases: "a, b and c". */
