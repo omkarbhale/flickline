@@ -5,6 +5,7 @@ import { Rng } from '../core/rng';
 import { TICK_DT } from '../core/time';
 import { vec3, type Vec3 } from '../core/vec3';
 import type { EnemySoundKind } from '../config/attribution';
+import type { SoundRadii } from './hearing';
 import type { Tunables } from '../config/tunables';
 import { targetAimPoint, wrapPi, yawOf } from './aim';
 import type { PerceptionQueries } from './attribution';
@@ -25,7 +26,7 @@ import type { BoxDef, PlayerState, SimEvents, TargetState } from './types';
  *    no ray is cast at all.
  *  - **Hearing**: the player's own sounds (running footsteps, landings, shots, reloads; walking and
  *    crouch-walking are silent) within the same radii the player hears enemies at
- *    (`attribution.soundRadiusM`), heard as a position estimate with an error by mind skill that
+ *    (`attribution.soundRadiusM` with the map's own over it, `sim/hearing.ts`), heard as a position estimate with an error by mind skill that
  *    shrinks while the sound keeps coming from the same place.
  *  - **Memory**: the last known position with its timestamp and a confidence that halves every
  *    `mind.perception.memoryHalfLifeSec` and is never refreshed without new perception; forgotten below a floor.
@@ -166,16 +167,6 @@ declare module './types' {
   interface SimEvents extends PerceptionEvents {}
 }
 
-/** How far enemy profile `pr` hears a sound of this kind: `attribution.soundRadiusM` x `mind.hearing.radiusScale`. */
-function soundRadius(pr: MindProfile, kind: EnemySoundKind): number {
-  switch (kind) {
-    case 'footstep': return pr.hearFootstepM;
-    case 'landing': return pr.hearLandingM;
-    case 'reload': return pr.hearReloadM;
-    default: return pr.hearShotM;
-  }
-}
-
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
@@ -194,6 +185,11 @@ export class PerceptionSystem {
   raysTotal = 0;
   decisionsTotal = 0;
 
+  /**
+   * How far each sound carries: the world's one table (`World.soundRadii`, filled in place), the very numbers the player's hearing of
+   * enemies reads, so there is no enemy-side radius to drift (`hearing.test.ts`). Defaults to the shared table; `setRadii` points it at the world's.
+   */
+  private radii: Readonly<SoundRadii>;
   private readonly pool: Perceiver[] = [];
   /** The callout delays' own stream: a sighting never consumes a teammate's perception stream, so adding an enemy shifts nobody else's draws. */
   private readonly shareRng: Rng;
@@ -226,6 +222,7 @@ export class PerceptionSystem {
     private readonly events: EventSink<SimEvents>,
     seed = 1,
   ) {
+    this.radii = tunables.attribution.soundRadiusM;
     this.shareRng = new Rng((seed ^ 0x9e3779b9) >>> 0);
     const p = tunables.perception;
     for (let i = 0; i < p.maxPerceivers; i++) this.pool.push(createPerceiver());
@@ -243,6 +240,11 @@ export class PerceptionSystem {
     this.shareY = new Float64Array(p.maxShares);
     this.shareZ = new Float64Array(p.maxShares);
     this.queries = { seesPlayer: (enemy: TargetState) => this.sees(enemy.id) };
+  }
+
+  /** Hear at these radii from now on (the world's table, `World.soundRadii`). */
+  setRadii(radii: Readonly<SoundRadii>): void {
+    this.radii = radii;
   }
 
   /** The level changed: sight rays use the new level's boxes from now on. */
@@ -379,7 +381,7 @@ export class PerceptionSystem {
     for (let i = 0; i < this.pool.length; i++) {
       const p = this.pool[i]!;
       if (!p.active || !p.alive) continue;
-      const radius = soundRadius(p.profile, kind);
+      const radius = this.radii[kind];
       const dx = pl.x - p.eye.x, dz = pl.z - p.eye.z;
       const d = Math.sqrt(dx * dx + dz * dz);
       if (d > radius) continue;

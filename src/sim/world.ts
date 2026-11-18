@@ -6,6 +6,7 @@ import type { EnemySoundKind } from '../config/attribution';
 import type { Tunables } from '../config/tunables';
 import type { BehaviourContext, EnemyWorld } from './fsm';
 import { AttributionFacts } from './attribution';
+import { applySoundRadii, createSoundRadii, type SoundRadii } from './hearing';
 import { seesPlayer } from './enemyFire';
 import { TargetField, type SpawnOptions } from './targets';
 import { levelTargetsReset } from './targetsInit';
@@ -111,6 +112,12 @@ export class World implements EnemyWorld {
    * `playerDamaged`, and the enemy's first-sight event. Holds no gameplay state.
    */
   readonly attribution: AttributionFacts;
+  /**
+   * The sound radii in effect, metres: the shared table with this level's own radii over it
+   * (`sim/hearing.ts`). Filled in place (the references stay valid), so the player's hearing, the
+   * attribution facts and every enemy's perception read the same numbers.
+   */
+  readonly soundRadii: SoundRadii;
   private readonly healthSys: PlayerHealthSystem;
   private readonly relay: KillHealRelay;
   /**
@@ -164,7 +171,9 @@ export class World implements EnemyWorld {
       tagScale: 1,
       aimPunch: 0,
     };
-    this.attribution = new AttributionFacts(opts.tunables, this.level.boxes, this.targetField, this.player);
+    this.soundRadii = createSoundRadii(opts.tunables.attribution.soundRadiusM);
+    applySoundRadii(this.soundRadii, opts.tunables.attribution.soundRadiusM, this.level.hearing);
+    this.attribution = new AttributionFacts(this.level.boxes, this.targetField, this.player, this.soundRadii);
     // Until the enemy minds (#89) answer, a firing enemy "sees" the player by the one sight rule its fire model already uses.
     this.attribution.perception = { seesPlayer: (t) => t.ai.fireOn && this.firing && seesPlayer(t, this.behaviourCtx) };
     this.reset(this.seed);
@@ -179,6 +188,7 @@ export class World implements EnemyWorld {
     this.level = level;
     this.weaponWorld.boxes = level.boxes;
     this.attribution.setBoxes(level.boxes);
+    applySoundRadii(this.soundRadii, this.tunables.attribution.soundRadiusM, level.hearing);
   }
 
   /** Restore the initial state; optionally with a new seed. */
@@ -273,6 +283,11 @@ export class World implements EnemyWorld {
   /** Whether an enemy sound of this kind at (`x`, `z`) reaches the player (`EnemyWorld`; `AttributionFacts.audible`). */
   soundAudible(kind: EnemySoundKind, x: number, z: number): boolean {
     return this.attribution.audible(kind, x, z);
+  }
+
+  /** An enemy made a sound (`EnemyWorld`): announce it with `audibleToPlayer` and say whether the player can hear it. */
+  enemySound(kind: EnemySoundKind, events: EventSink<SimEvents>, tick: number, t: TargetState): boolean {
+    return this.attribution.announce(kind, events, tick, t);
   }
 
   /**

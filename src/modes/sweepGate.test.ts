@@ -42,7 +42,7 @@ describe('gate doors (#205)', () => {
           expect(d.facts.sightline).toBe(d.sector.sightlineM >= cfg.gate.longSightlineM ? 'long' : 'close');
           // "From the same audio radii the fights use": every audible Echo of the sector is inside the footstep radius of its entry
           // (a hold arrival counts where its run ends).
-          expect(heardCount(d.sector, tunables.audio.enemy.maxAudibleM)).toBe(n);
+          expect(heardCount(d.sector, env.hearM(d.sector.mapId))).toBe(n);
           roles.add(d.sector.role);
           buckets.add(d.facts.heard);
         }
@@ -182,7 +182,7 @@ describe('gate doors (#205)', () => {
     expect([0, 1, 2, 3, 6].map((n) => heardBucket(n, cfg))).toEqual(['quiet', 'few', 'few', 'several', 'several']);
     // doorFacts is a pure function of the sector plan.
     const plan = planRun(3, env.catalog, cfg, env.body);
-    expect(doorFacts(plan.sectors[0]!, cfg, env.hearM)).toEqual(doorFacts(plan.sectors[0]!, cfg, env.hearM));
+    expect(doorFacts(plan.sectors[0]!, cfg, env.hearM(plan.sectors[0]!.mapId))).toEqual(doorFacts(plan.sectors[0]!, cfg, env.hearM(plan.sectors[0]!.mapId)));
     // A hearing radius that reaches nothing: quiet, whatever is placed.
     expect(doorFacts(plan.sectors[0]!, cfg, 0.01).heard).toBe('quiet');
   });

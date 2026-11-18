@@ -132,7 +132,20 @@ export function commandMoveToward(b: EnemyBody, wx: number, wz: number): void {
 // An Echo's bullets.
 // ---------------------------------------------------------------------------------------------
 
-const NULL_SINK: EventSink<SimEvents> = { emit() {} };
+/**
+ * What the body's own code reported this tick, kept for `stepEnemyBody` to announce: a landing and a
+ * reload start are sounds the player hears (`enemyLanded`, `enemyReloadStarted`, with their radii).
+ * The player's other movement and gun events (`footstep`, `playerJumped`, `shotFired`, ...) are the
+ * player's, so everything else is dropped.
+ */
+let bodyLanded = false;
+let bodyReloaded = false;
+const BODY_SINK: EventSink<SimEvents> = {
+  emit(type) {
+    if (type === 'playerLanded') bodyLanded = true;
+    else if (type === 'reloadStarted') bodyReloaded = true;
+  },
+};
 const shotRay = createRay();
 const zoneHit = createZoneHit();
 const firedEv: RunEvents['enemyFired'] = { tick: 0, id: 0, hit: false, dir: { x: 0, y: 0, z: 0 }, audibleToPlayer: false };
@@ -199,14 +212,16 @@ const gunScratch: WeaponScratch = createWeaponScratch();
  * `prevPos` is snapshotted there, for interpolation), then its gun through `stepWeapon`, exactly
  * the order `World.step` uses for the player. The command's `jump` and `reload` are edges, as
  * the player's are: they apply to this tick and are cleared after it. The player's movement
- * events (`footstep`, `playerJumped`, ...) are the player's, so the body's are dropped; enemy
- * footsteps are positioned sounds the audio derives from the motion. Allocates nothing.
+ * events (`footstep`, `playerJumped`, ...) are the player's, so the body's are dropped; what the player can hear of an
+ * Echo comes back as `enemyFootstep` (`sim/enemySound.ts`), `enemyLanded` and `enemyReloadStarted` (here), each with
+ * `audibleToPlayer`. Allocates nothing.
  */
 export function stepEnemyBody(t: TargetState, ctx: BehaviourContext): void {
   const b = t.body;
   const tun = ctx.tunables;
   const w = ctx.world;
-  stepBody(b.kin, b.cmd, w.boxes, tun.movement, b.gait, TICK_DT, ctx.tick, NULL_SINK);
+  bodyLanded = bodyReloaded = false;
+  stepBody(b.kin, b.cmd, w.boxes, tun.movement, b.gait, TICK_DT, ctx.tick, BODY_SINK);
   t.crouched = b.kin.crouching;
   const g = gunWorld;
   g.boxes = w.boxes;
@@ -217,9 +232,11 @@ export function stepEnemyBody(t: TargetState, ctx: BehaviourContext): void {
   g.rng = t.streams.aim;
   shooter = t;
   shooterCtx = ctx;
-  stepWeapon(b.weapon, b.cmd, b.kin, g, ctx.tick, NULL_SINK, gunScratch);
+  stepWeapon(b.weapon, b.cmd, b.kin, g, ctx.tick, BODY_SINK, gunScratch);
   shooter = null;
   shooterCtx = null;
+  if (bodyLanded) w.enemySound('landing', ctx.events, ctx.tick, t);
+  if (bodyReloaded) w.enemySound('reload', ctx.events, ctx.tick, t);
   b.cmd.jump = false;
   b.cmd.reload = false;
 }

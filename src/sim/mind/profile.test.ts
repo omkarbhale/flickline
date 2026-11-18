@@ -218,13 +218,10 @@ describe('floors and clamps hold after jitter', () => {
 });
 
 describe('hearing and caps come from their one home', () => {
-  it('hearing radii are the player-side radii scaled by the mind config', () => {
-    const p = build(50, 3);
-    const r = cfg.attribution.soundRadiusM;
-    expect([p.hearFootstepM, p.hearLandingM, p.hearReloadM, p.hearShotM]).toEqual([r.footstep, r.landing, r.reload, r.shot]);
-    const t = cloneTunables();
-    t.mind.hearing.radiusScale.footstep = 0.5;
-    expect(build(50, 3, t).hearFootstepM).toBe(t.attribution.soundRadiusM.footstep * 0.5);
+  it('a profile carries no hearing radius: the enemy hears at the shared table (sim/hearing.test.ts asserts the symmetry)', () => {
+    const p = build(50, 3) as unknown as Record<string, unknown>;
+    expect(Object.keys(p).filter((k) => /^hear.*M$/.test(k) && k !== 'hearErrorFloorM')).toEqual([]);
+    expect(cloneTunables().mind).not.toHaveProperty('hearing');
   });
 
   it('a changed table value changes the profile with no code change', () => {
