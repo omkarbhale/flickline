@@ -7,7 +7,7 @@ import type { Tunables } from '../config/tunables';
 import type { BehaviourContext, EnemyWorld } from './fsm';
 import { AttributionFacts } from './attribution';
 import { applySoundRadii, createSoundRadii, type SoundRadii } from './hearing';
-import { seesPlayer } from './enemyFire';
+import { seesPlayer } from './enemySight';
 import { TargetField, type SpawnOptions } from './targets';
 import { levelTargetsReset } from './targetsInit';
 import { zoneDamage } from './damage';

@@ -37,6 +37,9 @@ export const MIND_PARAMS = [
   // Aim: Fitts throughput, primary-submovement amplitude error, correction, settle, swipe.
   'flickThroughputBps', 'amplitudeBias', 'amplitudeSd', 'correctionDelaySec', 'settleNoiseDeg', 'swipeShare',
   'trackingDelaySec', 'trackingLeadGain',
+  // Aim model (#90): how far below the head centre the duel aim point sits, and how much the mind leads
+  // through a reversal it has learnt from a regular strafe rhythm. Not in the research table: see `anchors`.
+  'aimDropM', 'rhythmGain',
   // Shooting: moving-shot habit, the delay after the accuracy gate opens, recoil control, burst policy.
   'movingShotShare', 'shotAfterGateSec', 'sprayCompensation',
   'sprayBelowM', 'tapBeyondM', 'burstMin', 'burstMax',
@@ -121,6 +124,61 @@ export interface MindTunables {
     decisionIntervalCv: number;
   };
 
+  /**
+   * The aim model (§5.5, `sim/mind/aim.ts`, #90): how a mind turns its view. The per-profile numbers
+   * (throughput, amplitude error, correction delay, settle noise, tracking delay and lead) are anchor
+   * rows; these are the shared shape constants. HYPOTHESIS values, tuned with the signatures S2-S4.
+   */
+  aim: {
+    /** Motor noise SD along the movement, as a fraction of the current angular speed (Yoon et al.: signal-dependent). */
+    noiseAlong: number;
+    /** Across-movement noise SD as a share of the along SD (Yoon et al.: 0.192). */
+    noiseAcrossRatio: number;
+    /** Correlation time of the motor noise, seconds: smooth like a hand, not a per-tick buzz. */
+    noiseTauSec: number;
+    /** Shortest submovement, seconds (a Fitts time below this is not a human movement). */
+    minMoveSec: number;
+    /** Corrective submovements after the primary, at most (§5.5 step 3: up to three). */
+    maxCorrections: number;
+    /** Coefficient of variation of the lognormal correction delay (its median is the profile's `correctionDelaySec`). */
+    correctionDelayCv: number;
+    /** A correction is needed when the error exceeds the aimed zone's angular radius times this. */
+    correctTolerance: number;
+    /** Settle drift (§5.5 step 4): one knot of value noise per segment, the segment length drawn uniform in this range, seconds. */
+    driftMinSec: number;
+    driftMaxSec: number;
+    /** Pursuit while settled: the error to the aim point closes with this time constant, seconds. */
+    pursuitTauSec: number;
+    /** While settled, an error beyond this many zone radii (and at least `catchUpMinDeg`) starts a catch-up submovement. */
+    catchUpZones: number;
+    catchUpMinDeg: number;
+    /** Velocity of the observed point is estimated over this window of observations, seconds. */
+    velocityWindowSec: number;
+    /** After an observed reversal the lead grows back over this long (a human needs time to read a new velocity), seconds. */
+    leadRampSec: number;
+    /** Lateral speed (m/s) above which the observed point counts as moving one way (reversal detection). */
+    reversalSpeedMps: number;
+    /** Two strafe legs are "regular" when they differ by at most this fraction of their mean. */
+    rhythmTolerance: number;
+    /** Observations kept per enemy (ring length, ticks): must cover the longest tracking delay plus the velocity window. */
+    historyTicks: number;
+  };
+
+  /**
+   * When a mind shoots (§5.5 step 6, `sim/mind/duel.ts`, #90). Profile rows give the habits (moving-shot
+   * share, shot-after-gate delay, swipe share, spray compensation); these are shared. Bursts and the
+   * rest between them are design §5.3's (`enemies.fire`) until the duel state (#91) uses the profile's
+   * burst policy.
+   */
+  shoot: {
+    /** Fires when the error to its aim point is within the aimed zone's angular radius times this. */
+    onTargetZones: number;
+    /** CV of the lognormal shot-after-gate delay (the median is the profile's `shotAfterGateSec`). */
+    shotAfterGateCv: number;
+    /** A swipe may fire once the primary submovement is this far along (0..1) and on target. */
+    swipeFromProgress: number;
+  };
+
   /** Not looking robotic (§5.7). */
   variety: {
     /** An enemy never repeats the same peek pattern more than this many times in a row (the rule is "not three"). */
@@ -148,6 +206,13 @@ export const mind: MindTunables = {
     swipeShare: [0.05, 0.15, 0.35, 0.55],
     trackingDelaySec: [0.26, 0.22, 0.19, 0.16],
     trackingLeadGain: [0, 0.3, 0.6, 0.85],
+    // #90, not in the research table. `aimDropM`: the duel aim point, metres below the head centre (§5.5:
+    // "head centre at the top anchors, upper chest at m = 0"); calibrated with `settleNoiseDeg` so the
+    // headshot share of hits lands on `calibrationHeadshotShare` (signature S7, the calibration report on
+    // #90). `rhythmGain`: weight of the learnt-rhythm prediction over plain linear lead once a strafe
+    // rhythm is regular (S4: a regular ADAD is tracked under 120 ms at m >= 65, a random one is not).
+    aimDropM: [0.42, 0.26, 0.195, 0.15],
+    rhythmGain: [0, 0.2, 0.85, 1],
     movingShotShare: [0.5, 0.3, 0.15, 0.06],
     shotAfterGateSec: [0.18, 0.14, 0.1, 0.07],
     sprayCompensation: [0.25, 0.45, 0.65, 0.82],
@@ -199,7 +264,7 @@ export const mind: MindTunables = {
     probabilities: [
       'wideSwingAnticipation', 'offAngleHold', 'swipeShare', 'movingShotShare', 'sprayCompensation', 'crouchOnFiring',
       'retreatAfterDamage', 'reloadInOpen', 'repeekSame', 'repeekInstantShare', 'tradeChance', 'preFire',
-      'trackingLeadGain', 'calibrationHeadshotShare',
+      'trackingLeadGain', 'rhythmGain', 'calibrationHeadshotShare',
     ],
     peekMix: ['peekWide', 'peekJiggle', 'peekShoulder', 'peekJump', 'peekCrouch', 'peekWalk'],
   },
@@ -233,6 +298,32 @@ export const mind: MindTunables = {
     decisionIntervalCv: 0.3,
   },
 
+
+  aim: {
+    noiseAlong: 0.06,
+    noiseAcrossRatio: 0.192,
+    noiseTauSec: 0.04,
+    minMoveSec: 0.08,
+    maxCorrections: 3,
+    correctionDelayCv: 0.25,
+    correctTolerance: 2,
+    driftMinSec: 0.3,
+    driftMaxSec: 0.8,
+    pursuitTauSec: 0.06,
+    catchUpZones: 4,
+    catchUpMinDeg: 3,
+    velocityWindowSec: 0.05,
+    leadRampSec: 0.6,
+    reversalSpeedMps: 0.8,
+    rhythmTolerance: 0.15,
+    historyTicks: 64,
+  },
+
+  shoot: {
+    onTargetZones: 1.5,
+    shotAfterGateCv: 0.3,
+    swipeFromProgress: 0.6,
+  },
 
   variety: { peekPatternMaxRun: 2, repeekDelayMinDifference: 0.1 },
 };
